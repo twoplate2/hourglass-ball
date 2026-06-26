@@ -464,15 +464,8 @@ class HourglassWidget(Widget):
         self._rebuild_color_table()
 
     def _rebuild_color_table(self):
-        N = 22
-        self._color_table = []
-        for i in range(N):
-            t = i / (N - 1)
-            if t < 0.3:
-                c = lerp_rgb(self.sand_dark, self.sand_base, t / 0.3)
-            else:
-                c = lerp_rgb(self.sand_base, self.sand_light, (t - 0.3) / 0.7)
-            self._color_table.append(c)
+        self._color_table = [lerp_rgb(self.sand_base, self.sand_light, i / 10.0)
+                             for i in range(11)]
 
     def toggle_sound(self):
         self.sound_on = not self.sound_on
@@ -592,7 +585,7 @@ class HourglassWidget(Widget):
             wobble_amp = p["wobble_amp"]
             if p["y"] <= self._lower_ball_cut:
                 below_cut = self._lower_ball_cut - p["y"]
-                max_extra = max(1.5, (neck_w - ow) * 0.4)
+                max_extra = max(1.5, (neck_w - ow) * 0.3)
                 wobble_amp += min(max_extra, below_cut * 0.012)
             wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * wobble_amp
             shrink = 1.0
@@ -784,7 +777,7 @@ class HourglassWidget(Widget):
                 Rectangle(pos=self.pos, size=self.size)
 
     def _draw_sand_chord(self, yc, cut_y):
-        """Stencil 裁出真圆弓形 + 半透明叠层高光/阴影"""
+        """Stencil 裁出真圆弓形"""
         Ri = self._R_inner
         cx = self._cx
         bottom = yc - Ri
@@ -799,13 +792,6 @@ class HourglassWidget(Widget):
         StencilUse()
         Color(*self.sand_base)
         Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, cut_y - bottom))
-        # 顶部高光 (受光面, 25% 区域)
-        ch = cut_y - bottom
-        Color(self.sand_light[0], self.sand_light[1], self.sand_light[2], 0.22)
-        Rectangle(pos=(cx - Ri, cut_y - ch * 0.25), size=(2 * Ri, ch * 0.25))
-        # 底部阴影 (35% 区域)
-        Color(self.sand_dark[0], self.sand_dark[1], self.sand_dark[2], 0.35)
-        Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, ch * 0.35))
         StencilUnUse()
         Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
         StencilPop()
