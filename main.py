@@ -44,12 +44,12 @@ except Exception:
 
 
 SAND_PRESETS = [
-    ("金沙", "#d9a360", "#b88040", "#e6b870"),
-    ("红沙", "#c4523e", "#8e3220", "#d97560"),
-    ("蓝沙", "#4a8ec4", "#2e5e87", "#6dabd4"),
-    ("绿沙", "#7ba83e", "#4d7820", "#97c45e"),
-    ("紫沙", "#8e6db0", "#5d4280", "#a98ac4"),
-    ("黑沙", "#4a4540", "#2a2520", "#6a6560"),
+    ("金沙", "#c49a5e", "#8b5e2f", "#ecd9b0"),
+    ("红沙", "#b84a38", "#702218", "#d98a78"),
+    ("蓝沙", "#3d7eb8", "#1e4a70", "#6da8d4"),
+    ("绿沙", "#6b9432", "#3d6018", "#8db858"),
+    ("紫沙", "#7d5ea0", "#4d3070", "#a080c0"),
+    ("黑沙", "#3d3834", "#1a1614", "#605a55"),
 ]
 BG_COLOR = "#fdf6e3"
 GLASS_FILL = "#eaf3f8"
@@ -335,6 +335,25 @@ class HourglassWidget(Widget):
         self._vol_to_height = table
         self._geom_ready = True
         self._build_glass_shell()
+        self._gen_surface_dots()
+
+    def _gen_surface_dots(self):
+        """预生成沙面静态颗粒点,模拟沙粒不平整表面"""
+        Ri = self._R_inner
+        cx = self._cx
+        rng = random.Random(42)  # 固定种子,不随帧闪烁
+        self._upper_dots = []
+        self._lower_dots = []
+        for _ in range(18):
+            dx = rng.uniform(-Ri * 0.85, Ri * 0.85)
+            dy = rng.uniform(1, 14)
+            bright = rng.uniform(-0.08, 0.10)
+            dot = {"dx": dx, "dy": dy, "bright": bright}
+            self._upper_dots.append(dot)
+            dx2 = rng.uniform(-Ri * 0.85, Ri * 0.85)
+            dy2 = rng.uniform(1, 14)
+            bright2 = rng.uniform(-0.08, 0.10)
+            self._lower_dots.append({"dx": dx2, "dy": dy2, "bright": bright2})
 
     def _raw_height_ratio(self, vol_ratio):
         """体积比 → 高度比 raw=v⁻¹(vol)。球对称 ⟹ 上沙(1-raw)+下沙(raw)=1 守恒。"""
@@ -565,6 +584,8 @@ class HourglassWidget(Widget):
                 x_off = random.uniform(-x_clip, x_clip)
                 vy0 = -(random.uniform(90, 120) if random.random() < 0.05
                         else random.uniform(35, 60))   # 向下为负
+                r = random.random()
+                sz = 3 if r < 0.10 else (2 if r < 0.80 else 1)
                 self.particles.append({
                     "x": cx + x_off, "x_offset": x_off,
                     "y": gen_y + random.uniform(-2, 1),
@@ -572,7 +593,7 @@ class HourglassWidget(Widget):
                     "wobble_phase": random.uniform(0, math.tau),
                     "wobble_amp": random.uniform(0.4, 1.0),
                     "is_light": random.random() < 0.10,
-                    "size": (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1,
+                    "size": sz if x_clip >= 3.0 else 1,
                 })
 
         g = -450.0   # 重力向下(Kivy y 向上 → 负)
@@ -706,12 +727,12 @@ class HourglassWidget(Widget):
             if remaining > 0.001:
                 upper_eff = max(0.0, min(1.0, self.elapsed / self.duration)) if self.duration > 0 else 0
                 cut_y = self._upper_sand_bot + (self._upper_sand_top - self._upper_sand_bot) * (1 - self._raw_height_ratio(upper_eff))
-                self._draw_sand_chord(uyc, cut_y)
+                self._draw_sand_chord(uyc, cut_y, self._upper_dots)
 
             # --- 2. 下沙堆弓形 ---
             h_mound = self._mound_height_px()
             if h_mound > 0.5:
-                self._draw_sand_chord(lyc, self._lower_sand_bot + h_mound)
+                self._draw_sand_chord(lyc, self._lower_sand_bot + h_mound, self._lower_dots)
 
             # --- 3. 颈部沙柱 ---
             if self.elapsed > 0 and remaining > 0.001:
@@ -776,8 +797,8 @@ class HourglassWidget(Widget):
                 Color(1, 1, 1, 0.25)
                 Rectangle(pos=self.pos, size=self.size)
 
-    def _draw_sand_chord(self, yc, cut_y):
-        """Stencil 裁出真圆弓形"""
+    def _draw_sand_chord(self, yc, cut_y, dots=None):
+        """Stencil 裁出真圆弓形,可选叠加表面散点"""
         Ri = self._R_inner
         cx = self._cx
         bottom = yc - Ri
@@ -792,6 +813,15 @@ class HourglassWidget(Widget):
         StencilUse()
         Color(*self.sand_base)
         Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, cut_y - bottom))
+        if dots:
+            for d in dots:
+                x = cx + d["dx"]
+                y = cut_y - d["dy"]
+                if bottom < y < cut_y:
+                    b = d["bright"]
+                    Color(self.sand_base[0] + b, self.sand_base[1] + b,
+                          self.sand_base[2] + b, 1)
+                    Rectangle(pos=(x - 1, y - 1), size=(2, 2))
         StencilUnUse()
         Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
         StencilPop()
