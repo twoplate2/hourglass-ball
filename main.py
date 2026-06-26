@@ -367,7 +367,7 @@ class HourglassWidget(Widget):
             return 0.5
         v0 = 50.0
         g = 450.0
-        t = (-v0 + math.sqrt(v0 ** 2 + 2 * g * dist)) / g + 0.10
+        t = (-v0 + math.sqrt(v0 ** 2 + 2 * g * dist)) / g + 0.05
         return max(0.30, min(t, self.duration * 0.45))
 
     def _effective_fallen(self):
@@ -575,30 +575,32 @@ class HourglassWidget(Widget):
                 })
 
         g = -450.0   # 重力向下(Kivy y 向上 → 负)
-        v0 = 60.0
         new_list = []
         for p in self.particles:
             p["vy"] += g * dt
             p["y"] += p["vy"] * dt
             fallen_dist = max(0.0, gen_y - p["y"])
-            if fallen_dist < 6:
-                shrink = 1.0
-            else:
-                ef = fallen_dist - 6
-                v_at = (v0 ** 2 + 2 * 450.0 * ef) ** 0.5
-                shrink = max(0.5, (v0 / v_at) ** 0.5)   # 下限 0.5,不缩成细丝
-                dist_to_floor = p["y"] - mound_top
-                if 0 < dist_to_floor < 30:
-                    shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
-            wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * p["wobble_amp"]
-            p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
+            # 颗粒流不缩窄,用递增 wobble 制造散乱断续感
+            wobble_amp = p["wobble_amp"]
+            if p["y"] <= self._lower_ball_cut:
+                below_cut = self._lower_ball_cut - p["y"]
+                wobble_amp += below_cut * 0.08   # 越深越散
+            wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * wobble_amp
+            shrink = 1.0
+            dist_to_floor = p["y"] - mound_top
+            if 0 < dist_to_floor < 30:
+                shrink = 1 + (1 - dist_to_floor / 30) * 0.4   # 触底喇叭口微扩
+            p["x"] = cx + p["x_offset"] * shrink + wobble
 
-            # 横向 clamp: 管内壁 / 进下球随球内壁; 扣线宽视觉延伸防溢出管
+            # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
             tube_lim = max(1.0, neck_w - ow)
             if p["y"] > self._lower_ball_cut:
                 lim = tube_lim
             else:
-                lim = max(tube_lim, self._sand_half_w(p["y"], self._lower_y_c))
+                raw_ball = self._sand_half_w(p["y"], self._lower_y_c)
+                below = self._lower_ball_cut - p["y"]
+                t = min(1.0, below / 30.0)
+                lim = tube_lim + (max(tube_lim, raw_ball) - tube_lim) * t
             lim = max(0.2, lim - p["size"] / 2.0)
             off = p["x"] - cx
             p["x"] = cx + max(-lim, min(lim, off))
