@@ -250,11 +250,19 @@ class HourglassWidget(Widget):
 
     @property
     def neck_w(self):
-        base = max(dp(2), self.width * (12.0 / 380.0))
-        factor = (60.0 / max(1.0, self.duration)) ** 0.4
-        lo = self.width * (4.0 / 380.0)
-        hi = self.width * (20.0 / 380.0)
-        return max(lo, min(hi, base * factor))
+        """颈部半宽,log 插值:短周期→宽,长周期→窄,上下限保证沙流可视"""
+        w = self.width
+        lo = max(dp(7), round(w * 7.0 / 380.0))     # 最细: 管内壁仍有空间
+        hi = round(w * 17.0 / 380.0)                 # 最粗: 不压过球的比例
+        dur = max(1.0, self.duration)
+        if dur <= 5:
+            return hi
+        if dur >= 36000:
+            return lo
+        lo_d, hi_d = math.log(5), math.log(36000)
+        t = (math.log(dur) - lo_d) / (hi_d - lo_d)
+        t = max(0.0, min(1.0, t))
+        return round(lo + (hi - lo) * (1 - t))
 
     @property
     def speed_factor(self):
@@ -352,7 +360,15 @@ class HourglassWidget(Widget):
 
     @property
     def _fall_delay(self):
-        return min(FALL_DELAY, self.duration * 0.5)
+        if not self._geom_ready:
+            return FALL_DELAY
+        dist = self._upper_ball_cut - self._lower_sand_bot
+        if dist <= 0:
+            return 0.5
+        v0 = 50.0
+        g = 450.0
+        t = (-v0 + math.sqrt(v0 ** 2 + 2 * g * dist)) / g + 0.10
+        return max(0.30, min(t, self.duration * 0.45))
 
     def _effective_fallen(self):
         if self.duration <= 0:
@@ -542,7 +558,7 @@ class HourglassWidget(Widget):
             if remaining < 0.08:
                 rate *= max(0.1, (remaining / 0.08) ** 0.5)
             self.particle_acc += dt * rate
-            x_clip = max(1.0, neck_w - ow / 2)
+            x_clip = max(1.0, neck_w - ow)
             while self.particle_acc >= 1:
                 self.particle_acc -= 1
                 x_off = random.uniform(-x_clip, x_clip)
@@ -578,7 +594,7 @@ class HourglassWidget(Widget):
             p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
 
             # 横向 clamp: 管内壁 / 进下球随球内壁; 扣线宽视觉延伸防溢出管
-            tube_lim = max(1.0, neck_w - ow / 2)
+            tube_lim = max(1.0, neck_w - ow)
             if p["y"] > self._lower_ball_cut:
                 lim = tube_lim
             else:
@@ -676,8 +692,8 @@ class HourglassWidget(Widget):
 
             # --- 2. 上沙弓形(球内壁 ∩ 沙面以下) ---
             if remaining > 0.001:
-                eff = self._effective_fallen()
-                cut_y = self._upper_sand_bot + (self._upper_sand_top - self._upper_sand_bot) * (1 - self._raw_height_ratio(eff))
+                upper_eff = max(0.0, min(1.0, self.elapsed / self.duration)) if self.duration > 0 else 0
+                cut_y = self._upper_sand_bot + (self._upper_sand_top - self._upper_sand_bot) * (1 - self._raw_height_ratio(upper_eff))
                 self._draw_sand_chord(uyc, cut_y)
 
             # --- 3. 下沙堆弓形 ---
@@ -687,7 +703,7 @@ class HourglassWidget(Widget):
 
             # --- 4. 颈部沙柱 ---
             if self.elapsed > 0 and remaining > 0.001:
-                tsw = max(1.0, nw - ow / 2)
+                tsw = max(1.0, nw - ow)
                 Color(*self.sand_base)
                 Rectangle(pos=(cx - tsw, self._lower_sand_top),
                           size=(2 * tsw, self._upper_sand_bot - self._lower_sand_top))
