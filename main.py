@@ -334,6 +334,7 @@ class HourglassWidget(Widget):
             prev = cur
         self._vol_to_height = table
         self._geom_ready = True
+        self._build_glass_shell()
 
     def _raw_height_ratio(self, vol_ratio):
         """体积比 → 高度比 raw=v⁻¹(vol)。球对称 ⟹ 上沙(1-raw)+下沙(raw)=1 守恒。"""
@@ -463,8 +464,15 @@ class HourglassWidget(Widget):
         self._rebuild_color_table()
 
     def _rebuild_color_table(self):
-        self._color_table = [lerp_rgb(self.sand_base, self.sand_light, i / 10.0)
-                             for i in range(11)]
+        N = 22
+        self._color_table = []
+        for i in range(N):
+            t = i / (N - 1)
+            if t < 0.3:
+                c = lerp_rgb(self.sand_dark, self.sand_base, t / 0.3)
+            else:
+                c = lerp_rgb(self.sand_base, self.sand_light, (t - 0.3) / 0.7)
+            self._color_table.append(c)
 
     def toggle_sound(self):
         self.sound_on = not self.sound_on
@@ -580,11 +588,12 @@ class HourglassWidget(Widget):
             p["vy"] += g * dt
             p["y"] += p["vy"] * dt
             fallen_dist = max(0.0, gen_y - p["y"])
-            # 颗粒流不缩窄,用递增 wobble 制造散乱断续感
+            # 颗粒流不缩窄,用递增 wobble 制造散乱断续感(≤40% 管径)
             wobble_amp = p["wobble_amp"]
             if p["y"] <= self._lower_ball_cut:
                 below_cut = self._lower_ball_cut - p["y"]
-                wobble_amp += below_cut * 0.08   # 越深越散
+                max_extra = max(1.5, (neck_w - ow) * 0.4)
+                wobble_amp += min(max_extra, below_cut * 0.012)
             wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * wobble_amp
             shrink = 1.0
             dist_to_floor = p["y"] - mound_top
@@ -661,63 +670,79 @@ class HourglassWidget(Widget):
                 return True
         return super().on_touch_down(touch)
 
-    # ---------- 渲染 ----------
-
-    def redraw(self):
-        self.canvas.clear()
+    def _build_glass_shell(self):
+        """静态玻璃壳缓存到 canvas.before,仅几何变化时重建"""
+        self.canvas.before.clear()
         if not self._geom_ready:
             return
         cx, R, Ri, ow = self._cx, self._R, self._R_inner, self._ow
         uyc, lyc = self._upper_y_c, self._lower_y_c
-        remaining = self.get_remaining()
-        now = time.time()
         nw = self.neck_w
         glass_fill = hex_rgb(GLASS_FILL)
         glass_out = hex_rgb(GLASS_OUTLINE)
-
-        with self.canvas:
-            # --- 1. 玻璃壳: 同心椭圆相减得均匀描边 ---
+        with self.canvas.before:
             for yc in (uyc, lyc):
                 Color(*glass_out)
                 Ellipse(pos=(cx - R, yc - R), size=(2 * R, 2 * R))
                 Color(*glass_fill)
                 Ellipse(pos=(cx - R + ow, yc - R + ow),
                         size=(2 * (R - ow), 2 * (R - ow)))
-            # 颈部管: 贯穿两球内端,消除截口缺角
-            tube_top = uyc - R + ow       # 上球最低略上
-            tube_bot = lyc + R - ow       # 下球最高略下
+            tube_top = uyc - R + ow
+            tube_bot = lyc + R - ow
             Color(*glass_fill)
             Rectangle(pos=(cx - nw, tube_bot), size=(2 * nw, tube_top - tube_bot))
             Color(*glass_out)
             Rectangle(pos=(cx - nw, tube_bot), size=(ow, tube_top - tube_bot))
             Rectangle(pos=(cx + nw - ow, tube_bot), size=(ow, tube_top - tube_bot))
 
-            # --- 2. 上沙弓形(球内壁 ∩ 沙面以下) ---
+    # ---------- 渲染 ----------
+
+    def redraw(self):
+        self.canvas.clear()
+        if not self._geom_ready:
+            return
+        cx, Ri = self._cx, self._R_inner
+        uyc, lyc = self._upper_y_c, self._lower_y_c
+        remaining = self.get_remaining()
+        now = time.time()
+        nw = self.neck_w
+        ow = self._ow
+
+        with self.canvas:
+            # --- 1. 上沙弓形 ---
             if remaining > 0.001:
                 upper_eff = max(0.0, min(1.0, self.elapsed / self.duration)) if self.duration > 0 else 0
                 cut_y = self._upper_sand_bot + (self._upper_sand_top - self._upper_sand_bot) * (1 - self._raw_height_ratio(upper_eff))
                 self._draw_sand_chord(uyc, cut_y)
 
-            # --- 3. 下沙堆弓形 ---
+            # --- 2. 下沙堆弓形 ---
             h_mound = self._mound_height_px()
             if h_mound > 0.5:
                 self._draw_sand_chord(lyc, self._lower_sand_bot + h_mound)
 
-            # --- 4. 颈部沙柱 ---
+            # --- 3. 颈部沙柱 ---
             if self.elapsed > 0 and remaining > 0.001:
                 tsw = max(1.0, nw - ow)
                 Color(*self.sand_base)
                 Rectangle(pos=(cx - tsw, self._lower_sand_top),
                           size=(2 * tsw, self._upper_sand_bot - self._lower_sand_top))
 
-            # --- 5. 沙流粒子(Line 拖尾) ---
+            # --- 4. 沙流粒子(按颜色排序,减少 draw call) ---
+            n_colors = len(self._color_table)
             neck_span = max(1.0, self._neck_y - self._glass_bot)
+            div = neck_span / n_colors
+            for p in self.particles:
+                if p["is_light"]:
+                    p["_sk"] = (-1, p["size"])
+                else:
+                    idx = int((self._neck_y - p["y"]) / div)
+                    p["_sk"] = (max(0, min(n_colors - 1, idx)), p["size"])
+            self.particles.sort(key=lambda p: p["_sk"])
             for p in self.particles:
                 if p["is_light"]:
                     Color(*self.sand_light)
                 else:
-                    idx = int((self._neck_y - p["y"]) / (neck_span / 10))
-                    Color(*self._color_table[max(0, min(10, idx))])
+                    Color(*self._color_table[p["_sk"][0]])
                 trail = max(2.0, abs(p["vy"]) * 0.08)
                 top_y_p = min(self._upper_ball_cut, p["y"] + trail)
                 if top_y_p <= p["y"]:
@@ -759,7 +784,7 @@ class HourglassWidget(Widget):
                 Rectangle(pos=self.pos, size=self.size)
 
     def _draw_sand_chord(self, yc, cut_y):
-        """Stencil 裁出"内壁球 ∩ {y ≤ cut_y}"的真圆弓形。沙边=Ellipse 圆,与玻璃内壁同技术。"""
+        """Stencil 裁出真圆弓形 + 半透明叠层高光/阴影"""
         Ri = self._R_inner
         cx = self._cx
         bottom = yc - Ri
@@ -774,6 +799,13 @@ class HourglassWidget(Widget):
         StencilUse()
         Color(*self.sand_base)
         Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, cut_y - bottom))
+        # 顶部高光 (受光面, 25% 区域)
+        ch = cut_y - bottom
+        Color(self.sand_light[0], self.sand_light[1], self.sand_light[2], 0.22)
+        Rectangle(pos=(cx - Ri, cut_y - ch * 0.25), size=(2 * Ri, ch * 0.25))
+        # 底部阴影 (35% 区域)
+        Color(self.sand_dark[0], self.sand_dark[1], self.sand_dark[2], 0.35)
+        Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, ch * 0.35))
         StencilUnUse()
         Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
         StencilPop()
