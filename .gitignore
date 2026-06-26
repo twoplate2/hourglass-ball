@@ -1,0 +1,6 @@
+.buildozer/
+bin/
+*.apk
+__pycache__/
+*.pyc
+.hourglass_config.json
