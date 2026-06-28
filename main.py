@@ -774,8 +774,8 @@ class HourglassWidget(Widget):
                 wobble_extra = 0.0
             else:
                 below_tube = self._lower_ball_cut - p["y"]
-                # 出管后逐渐扩张(最多扩到 1.20x),沙子微微散开
-                spread = 1.0 + min(0.20, below_tube * 0.0012)
+                # 出管后逐渐扩张(最多扩到 1.10x),沙子微微散开
+                spread = 1.0 + min(0.10, below_tube * 0.0008)
                 # 出管后 wobble 递增,制造自然散乱沙流
                 wobble_extra = min(2.5, below_tube * 0.013)
                 # 触底喇叭口
@@ -927,11 +927,9 @@ class HourglassWidget(Widget):
                     Color(*self.sand_light)
                 else:
                     Color(*self._color_table[p["_sk"][0]])
-                trail = max(2.0, abs(p["vy"]) * 0.08)
-                top_y_p = min(self._upper_ball_cut, p["y"] + trail)
-                if top_y_p <= p["y"]:
-                    continue
-                Line(points=[p["x"], p["y"], p["x"], top_y_p], width=p["size"])
+                # 沙粒用 Ellipse 圆点,不用竖线(线条感)→颗粒感
+                r = p["size"] * 1.2
+                Ellipse(pos=(p["x"] - r, p["y"] - r), size=(r * 2, r * 2))
 
             # --- 6. splash 反弹粒子 ---
             Color(*self.sand_light)
