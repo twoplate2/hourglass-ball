@@ -147,8 +147,8 @@ class CenterTextInput(TextInput):
 
 class _SoundProxy:
     _WAV_DURATION = 15.0      # 音频文件长度(秒)
-    _FADE_OVERLAP = 1.0       # 双流重叠时长(秒), 匹配 WAV baked crossfade
-    _FADE_STEPS = 20          # 淡入淡出步数(50ms/步, 容忍 Clock 抖动)
+    _FADE_OVERLAP = 1.5       # 双流重叠时长(秒), 比 baked crossfade 多 0.5s 容差
+    _FADE_STEPS = 30          # 淡入淡出步数(50ms/步, 容忍 Clock 抖动)
 
     def __init__(self, wav_path):
         self._is_android = (platform == "android")
@@ -920,12 +920,8 @@ class HourglassApp(App):
                                height=dp(44), spacing=dp(3))
         self.color_btns = []
         for name, base, dark, light in SAND_PRESETS:
-            is_sel = (name == color_name)
             btn = Button(text=name, font_size=sp(13), background_normal="",
-                         background_color=(*hex_rgb(base), 1) if is_sel
-                                          else (*hex_rgb(base), 0.42),
-                         color=fg_for(base) if is_sel
-                               else (*fg_for(base)[:3], 0.55))
+                         background_color=(*hex_rgb(base), 1), color=fg_for(base))
             btn.bind(on_press=lambda inst, b=base, d=dark, l=light, n=name:
                      self.on_color(b, d, l, n))
             top_colors.add_widget(btn)
@@ -945,8 +941,8 @@ class HourglassApp(App):
         # 底部控件
         bottom = BoxLayout(orientation="horizontal", size_hint=(1, None),
                            height=dp(50), spacing=dp(4))
-        self.duration_btn = Button(text=_fmt_duration(self.hourglass.duration) + " ▾",
-                                   size_hint=(None, 1), width=dp(78),
+        self.duration_btn = Button(text=_fmt_duration(self.hourglass.duration),
+                                   size_hint=(None, 1), width=dp(72),
                                    font_size=sp(14), bold=True,
                                    background_normal="",
                                    background_color=(*hex_rgb(GLASS_OUTLINE), 0.15),
@@ -1117,7 +1113,7 @@ class HourglassApp(App):
         popup.dismiss()
         if self.hourglass.set_duration(sec):
             self.hourglass.save_config(self._selected_color_name())
-        self.duration_btn.text = _fmt_duration(self.hourglass.duration) + " ▾"
+        self.duration_btn.text = _fmt_duration(self.hourglass.duration)
         self.on_run_state_changed()
 
     def on_toggle(self, *_):
@@ -1150,16 +1146,7 @@ class HourglassApp(App):
 
     def _mark_selected(self, name):
         for n, btn in self.color_btns:
-            base_hex = next(p[1] for p in SAND_PRESETS if p[0] == n)
-            fg = fg_for(base_hex)
-            if n == name:
-                btn.background_color = (*hex_rgb(base_hex), 1)
-                btn.color = fg
-                btn.text = "● " + n
-            else:
-                btn.background_color = (*hex_rgb(base_hex), 0.42)
-                btn.color = (*fg[:3], 0.55)
-                btn.text = n
+            btn.text = ("● " + n) if n == name else n
 
     def update_time(self, remaining_sec, duration):
         self.time_label.text = f"{remaining_sec:.0f}s / {duration:.0f}s"
