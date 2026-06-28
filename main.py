@@ -163,6 +163,7 @@ class _SoundProxy:
         self._winsound = None
         self._wav_path = wav_path
         self._active = False
+        self._needs_reload = False
 
         if self._is_android:
             try:
@@ -289,11 +290,13 @@ class _SoundProxy:
             if self._active:
                 return
             try:
-                # 三星设备兼容: stop()后需 reloadStaticData 再设播放头
-                try:
-                    self._audio_track.reloadStaticData()
-                except Exception:
-                    pass
+                # 重播时才 reloadStaticData(三星兼容),首次播放直接 play
+                if self._needs_reload:
+                    try:
+                        self._audio_track.reloadStaticData()
+                    except Exception:
+                        pass
+                    self._needs_reload = False
                 self._audio_track.setPlaybackHeadPosition(0)
                 self._audio_track.play()
                 self._active = True  # 成功后置,防异常后半永久静音
@@ -322,6 +325,7 @@ class _SoundProxy:
             if not self._active:
                 return
             self._active = False
+            self._needs_reload = True
             try:
                 self._audio_track.pause()
                 self._audio_track.flush()
@@ -769,7 +773,7 @@ class HourglassWidget(Widget):
             else:
                 eff_fallen = fallen_dist - 6
                 v_at_y = (60.0 ** 2 + 2 * abs(g) * eff_fallen) ** 0.5
-                shrink = max(0.5, (60.0 / v_at_y) ** 0.5)
+                shrink = max(0.70, (60.0 / v_at_y) ** 0.5)
                 dist_to_floor = p["y"] - mound_top
                 if 0 < dist_to_floor < 30:
                     shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
