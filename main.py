@@ -767,23 +767,25 @@ class HourglassWidget(Widget):
             p["vy"] += g * dt
             p["y"] += p["vy"] * dt
             fallen_dist = max(0.0, gen_y - p["y"])
-            # 假物理直觉: 沙出管口后自然散开,略微扩张 + 增加散乱感
+            # 管内: 管壁约束,填满内径 shrink=1.0
+            # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
             if p["y"] > self._lower_ball_cut:
-                # 管内: 管壁约束
-                spread = 1.0
-                wobble_extra = 0.0
+                shrink = 1.0
             else:
                 below_tube = self._lower_ball_cut - p["y"]
-                # 出管后逐渐扩张(最多扩到 1.10x),沙子微微散开
-                spread = 1.0 + min(0.10, below_tube * 0.0008)
-                # 出管后 wobble 递增,制造自然散乱沙流
-                wobble_extra = min(2.5, below_tube * 0.013)
-                # 触底喇叭口
+                v_at_y = (60.0 ** 2 + 2 * abs(g) * below_tube) ** 0.5
+                target = max(0.70, (60.0 / v_at_y) ** 0.5)
+                transition = 40.0  # 平滑过渡区长度(px)
+                if below_tube < transition:
+                    t = below_tube / transition
+                    shrink = 1.0 + (target - 1.0) * t
+                else:
+                    shrink = target
                 dist_to_floor = p["y"] - mound_top
                 if 0 < dist_to_floor < 30:
-                    spread += (1 - dist_to_floor / 30) * 0.5
-            wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * (p["wobble_amp"] + wobble_extra)
-            p["x"] = cx + p["x_offset"] * spread + wobble
+                    shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
+            wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * p["wobble_amp"]
+            p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
 
             # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
             tube_lim = max(1.0, neck_w - ow)
@@ -873,10 +875,8 @@ class HourglassWidget(Widget):
                         size=(2 * (R - ow), 2 * (R - ow)))
             tube_top = uyc - R + ow
             tube_bot = lyc + R - ow
-            # 管 fill 略宽于管壁(多 ow),覆盖外层 Ellipse 在交界处的残留弧线
             Color(*glass_fill)
-            Rectangle(pos=(cx - nw - ow, tube_bot),
-                      size=(2 * (nw + ow), tube_top - tube_bot))
+            Rectangle(pos=(cx - nw, tube_bot), size=(2 * nw, tube_top - tube_bot))
             Color(*glass_out)
             Rectangle(pos=(cx - nw, tube_bot), size=(ow, tube_top - tube_bot))
             Rectangle(pos=(cx + nw - ow, tube_bot), size=(ow, tube_top - tube_bot))
@@ -929,9 +929,11 @@ class HourglassWidget(Widget):
                     Color(*self.sand_light)
                 else:
                     Color(*self._color_table[p["_sk"][0]])
-                # 沙粒 2-4px 小方块(矩形象征碎砂砾)
-                sz = p["size"] * 1.8
-                Rectangle(pos=(p["x"] - sz/2, p["y"] - sz/2), size=(sz, sz))
+                trail = max(2.0, abs(p["vy"]) * 0.08)
+                top_y_p = min(self._upper_ball_cut, p["y"] + trail)
+                if top_y_p <= p["y"]:
+                    continue
+                Line(points=[p["x"], p["y"], p["x"], top_y_p], width=p["size"])
 
             # --- 6. splash 反弹粒子 ---
             Color(*self.sand_light)
