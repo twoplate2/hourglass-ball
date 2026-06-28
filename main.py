@@ -109,7 +109,7 @@ def _fmt_duration(sec):
     elif sec < 3600:
         return f"{sec / 60:.0f} 分"
     else:
-        return f"{sec / 3600:.0f} 时"
+        return f"{sec / 3600:.0f} 小时"
 
 
 BASE_PERIODS = [
@@ -117,7 +117,7 @@ BASE_PERIODS = [
     ("10 秒", 10),
     ("1 分", 60),
     ("10 分", 600),
-    ("1 时", 3600),
+    ("1 小时", 3600),
 ]
 
 
