@@ -873,9 +873,10 @@ class HourglassWidget(Widget):
                         size=(2 * (R - ow), 2 * (R - ow)))
             tube_top = uyc - R + ow
             tube_bot = lyc + R - ow
-            # 管 fill 扩到球全宽(R),覆盖外层 Ellipse 在管球交界处的残留弧线
+            # 管 fill 略宽于管壁(多 ow),覆盖外层 Ellipse 在交界处的残留弧线
             Color(*glass_fill)
-            Rectangle(pos=(cx - R, tube_bot), size=(2 * R, tube_top - tube_bot))
+            Rectangle(pos=(cx - nw - ow, tube_bot),
+                      size=(2 * (nw + ow), tube_top - tube_bot))
             Color(*glass_out)
             Rectangle(pos=(cx - nw, tube_bot), size=(ow, tube_top - tube_bot))
             Rectangle(pos=(cx + nw - ow, tube_bot), size=(ow, tube_top - tube_bot))
@@ -928,8 +929,8 @@ class HourglassWidget(Widget):
                     Color(*self.sand_light)
                 else:
                     Color(*self._color_table[p["_sk"][0]])
-                # 沙粒用 1-2px 小方块(矩形象征碎砂砾,比圆点更自然)
-                sz = p["size"]
+                # 沙粒 2-4px 小方块(矩形象征碎砂砾)
+                sz = p["size"] * 1.8
                 Rectangle(pos=(p["x"] - sz/2, p["y"] - sz/2), size=(sz, sz))
 
             # --- 6. splash 反弹粒子 ---
