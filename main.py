@@ -714,18 +714,18 @@ class HourglassWidget(Widget):
             p["vy"] += g * dt
             p["y"] += p["vy"] * dt
             fallen_dist = max(0.0, gen_y - p["y"])
-            # 颗粒流不缩窄,用递增 wobble 制造散乱断续感(≤40% 管径)
-            wobble_amp = p["wobble_amp"]
-            if p["y"] <= self._lower_ball_cut:
-                below_cut = self._lower_ball_cut - p["y"]
-                max_extra = max(1.5, (neck_w - ow) * 0.3)
-                wobble_amp += min(max_extra, below_cut * 0.012)
-            wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * wobble_amp
-            shrink = 1.0
-            dist_to_floor = p["y"] - mound_top
-            if 0 < dist_to_floor < 30:
-                shrink = 1 + (1 - dist_to_floor / 30) * 0.4   # 触底喇叭口微扩
-            p["x"] = cx + p["x_offset"] * shrink + wobble
+            # 流量守恒 A·v=常数: 粒子加速→横向收缩,形成自然漏斗形沙流
+            if fallen_dist < 6:
+                shrink = 1.0
+            else:
+                eff_fallen = fallen_dist - 6
+                v_at_y = (60.0 ** 2 + 2 * abs(g) * eff_fallen) ** 0.5
+                shrink = max(0.5, (60.0 / v_at_y) ** 0.5)
+                dist_to_floor = p["y"] - mound_top
+                if 0 < dist_to_floor < 30:
+                    shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
+            wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * p["wobble_amp"]
+            p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
 
             # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
             tube_lim = max(1.0, neck_w - ow)
@@ -956,15 +956,15 @@ class HourglassApp(App):
                 self.hourglass.set_sand_color(base, dark, light)
                 break
 
-        root = BoxLayout(orientation="vertical", spacing=dp(2),
-                         padding=[dp(6), dp(4), dp(6), dp(4)])
+        root = BoxLayout(orientation="vertical", spacing=dp(3),
+                         padding=[dp(8), dp(6), dp(8), dp(6)])
 
         # 顶部色块
         top_colors = BoxLayout(orientation="horizontal", size_hint=(1, None),
-                               height=dp(44), spacing=dp(3))
+                               height=dp(50), spacing=dp(4))
         self.color_btns = []
         for name, base, dark, light in SAND_PRESETS:
-            btn = Button(text=name, font_size=sp(13), background_normal="",
+            btn = Button(text=name, font_size=sp(15), background_normal="",
                          background_color=(*hex_rgb(base), 1), color=(1, 1, 1, 1))
             btn.bind(on_press=lambda inst, b=base, d=dark, l=light, n=name:
                      self.on_color(b, d, l, n))
@@ -975,7 +975,7 @@ class HourglassApp(App):
         # 倒计时
         self.time_label = Label(
             text=f"{self.hourglass.duration:.0f}/{self.hourglass.duration:.0f}秒",
-            font_size=sp(20), bold=True, size_hint=(1, None), height=dp(34),
+            font_size=sp(24), bold=True, size_hint=(1, None), height=dp(40),
             color=(0.2, 0.2, 0.2, 1))
         root.add_widget(self.time_label)
 
@@ -984,17 +984,17 @@ class HourglassApp(App):
 
         # 底部控件
         bottom = BoxLayout(orientation="horizontal", size_hint=(1, None),
-                           height=dp(50), spacing=dp(4))
+                           height=dp(58), spacing=dp(6))
         self.duration_btn = Button(text=_fmt_duration(self.hourglass.duration),
-                                   size_hint=(None, 1), width=dp(72),
-                                   font_size=sp(14), bold=True,
+                                   size_hint=(None, 1), width=dp(82),
+                                   font_size=sp(16), bold=True,
                                    background_normal="",
                                    background_color=(0.769, 0.682, 0.557, 1),
                                    color=POPUP_TEXT)
         self.duration_btn.bind(on_press=self.on_duration_picker)
         bottom.add_widget(self.duration_btn)
         self.sound_btn = Button(text="音效:开" if self.hourglass.sound_on else "音效:关",
-                                size_hint=(None, 1), width=dp(66), font_size=sp(12),
+                                size_hint=(None, 1), width=dp(74), font_size=sp(15),
                                 background_normal="",
                                 background_color=(*POPUP_GOLD_SEL[:3], 0.92) if self.hourglass.sound_on
                                                  else (0.718, 0.686, 0.643, 1),
@@ -1002,13 +1002,13 @@ class HourglassApp(App):
         self.sound_btn.bind(on_press=self.on_toggle_sound)
         bottom.add_widget(self.sound_btn)
         bottom.add_widget(Widget())   # spacer
-        self.start_btn = Button(text="开始", size_hint=(None, 1), width=dp(66),
-                                font_size=sp(14), bold=True,
+        self.start_btn = Button(text="开始", size_hint=(None, 1), width=dp(74),
+                                font_size=sp(16), bold=True,
                                 background_normal="",
                                 background_color=(0.353, 0.620, 0.243, 1), color=(1, 1, 1, 1))
         self.start_btn.bind(on_press=self.on_toggle)
         bottom.add_widget(self.start_btn)
-        reset_btn = Button(text="重置", size_hint=(None, 1), width=dp(66), font_size=sp(14))
+        reset_btn = Button(text="重置", size_hint=(None, 1), width=dp(74), font_size=sp(16))
         reset_btn.bind(on_press=self.on_reset)
         bottom.add_widget(reset_btn)
         root.add_widget(bottom)
