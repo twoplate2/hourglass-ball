@@ -149,11 +149,11 @@ class CenterTextInput(TextInput):
         self.padding = [ph, pv, ph, pv]
 
 
-# ---------- 音效: Android SoundPool 双流交叉淡入淡出; 桌面 fallback SoundLoader ----------
+# ---------- 音效: Android AudioTrack 硬件循环; Windows winsound; 桌面 fallback ----------
 
 class _SoundProxy:
-    """Android: AudioTrack MODE_STATIC 硬件循环(声卡指针回绕,绝对 0 缝隙);
-    桌面: Kivy SoundLoader fallback。"""
+    """Android: AudioTrack MODE_STATIC 非 Builder 构造(兼容 API 21+) + setLoopPoints 硬件循环;
+    Windows: winsound SND_LOOP 驱动层循环; 其他桌面: Kivy SoundLoader loop=True。"""
 
     def __init__(self, wav_path):
         self._is_android = (platform == "android")
@@ -191,7 +191,7 @@ class _SoundProxy:
     def _init_audio_track(self, wav_path):
         from jnius import autoclass, jarray
         AudioTrack = autoclass('android.media.AudioTrack')
-        AudioAttributes = autoclass('android.media.AudioAttributes')
+        AudioManager = autoclass('android.media.AudioManager')
         AudioFormat = autoclass('android.media.AudioFormat')
 
         # 解析 WAV 头 + 提取 PCM 裸数据
@@ -217,23 +217,17 @@ class _SoundProxy:
         if pcm is None:
             raise ValueError("No data chunk in WAV")
 
-        channel_mask = (AudioFormat.CHANNEL_OUT_STEREO if channels == 2
-                        else AudioFormat.CHANNEL_OUT_MONO)
-        attrs = (AudioAttributes.Builder()
-                 .setUsage(AudioAttributes.USAGE_MEDIA)
-                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                 .build())
-        fmt = (AudioFormat.Builder()
-               .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-               .setSampleRate(sample_rate)
-               .setChannelMask(channel_mask)
-               .build())
-        self._audio_track = (AudioTrack.Builder()
-                             .setAudioAttributes(attrs)
-                             .setAudioFormat(fmt)
-                             .setBufferSizeInBytes(len(pcm))
-                             .setTransferMode(AudioTrack.MODE_STATIC)
-                             .build())
+        channel_out = (AudioFormat.CHANNEL_OUT_STEREO if channels == 2
+                       else AudioFormat.CHANNEL_OUT_MONO)
+        # 非 Builder 构造函数(兼容 API 21+, 比 Builder 模式更稳定)
+        # AudioTrack(streamType, sampleRate, channelConfig, audioFormat, bufferSize, mode)
+        self._audio_track = AudioTrack(
+            AudioManager.STREAM_MUSIC,
+            sample_rate,
+            channel_out,
+            AudioFormat.ENCODING_PCM_16BIT,
+            len(pcm),
+            AudioTrack.MODE_STATIC)
 
         # pyjnius 不能直接传 Python bytes 给 byte[] 参数,用 jarray('b') 显式转 Java byte[]
         java_byte_array = jarray('b')(pcm)
@@ -1052,31 +1046,31 @@ class HourglassApp(App):
         # mutable closure state
         state = {"base": init_base, "mult": init_mult}
 
-        content = BoxLayout(orientation="vertical", spacing=dp(6),
-                            padding=(dp(12), dp(4), dp(12), dp(8)))
+        content = BoxLayout(orientation="vertical", spacing=dp(8),
+                            padding=(dp(12), dp(6), dp(12), dp(10)))
 
         # 预创建 mult_btns/preview_label,避免 lambda 闭包延迟绑定
         # (Android Kivy 2.3.0 对 late binding 时序敏感,曾导致点周期按钮闪退)
         mult_btns = {}
         preview_label = Label(
             text=f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）",
-            size_hint=(1, None), height=dp(28),
-            color=POPUP_TEXT, font_size=sp(15))
+            size_hint=(1, None), height=dp(34),
+            color=POPUP_TEXT, font_size=sp(18))
 
         # --- 基础时间标题 ---
-        base_title = Label(text="基础时间:", size_hint=(1, None), height=dp(18),
-                           color=POPUP_TEXT, font_size=sp(12),
+        base_title = Label(text="基础时间:", size_hint=(1, None), height=dp(22),
+                           color=POPUP_TEXT, font_size=sp(15),
                            halign="left", valign="middle")
         base_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
         content.add_widget(base_title)
 
         # --- 基础周期按钮 ---
-        base_grid = BoxLayout(orientation="horizontal", spacing=dp(6),
-                              size_hint=(1, None), height=dp(38))
+        base_grid = BoxLayout(orientation="horizontal", spacing=dp(8),
+                              size_hint=(1, None), height=dp(46))
         base_btns = {}
         for label, val in BASE_PERIODS:
             is_sel = (val == init_base)
-            btn = Button(text=label, font_size=sp(14),
+            btn = Button(text=label, font_size=sp(16),
                          background_normal="",
                          background_color=POPUP_GOLD_SEL if is_sel
                                           else POPUP_UNSEL_BASE,
@@ -1090,17 +1084,17 @@ class HourglassApp(App):
 
         # --- 倍数按钮 (两行 BoxLayout, 不用 GridLayout 避免 Android 兼容问题) ---
         MULTIPLIERS = [1, 2, 3, 5, 10, 20, 30, 50, 70, 100]
-        mult_title = Label(text="倍数:", size_hint=(1, None), height=dp(18),
-                           color=POPUP_TEXT, font_size=sp(12),
+        mult_title = Label(text="倍数:", size_hint=(1, None), height=dp(22),
+                           color=POPUP_TEXT, font_size=sp(15),
                            halign="left", valign="middle")
         mult_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
         content.add_widget(mult_title)
         for row_vals in [MULTIPLIERS[:5], MULTIPLIERS[5:]]:
-            row = BoxLayout(orientation="horizontal", spacing=dp(5),
-                            size_hint=(1, None), height=dp(34))
+            row = BoxLayout(orientation="horizontal", spacing=dp(6),
+                            size_hint=(1, None), height=dp(40))
             for m in row_vals:
                 is_m = (m == init_mult)
-                btn = Button(text=f"{m}倍", font_size=sp(13),
+                btn = Button(text=f"{m}倍", font_size=sp(15),
                              background_normal="",
                              background_color=POPUP_GOLD_SEL if is_m
                                               else POPUP_UNSEL_MULT,
@@ -1118,19 +1112,19 @@ class HourglassApp(App):
         # --- 运行中警告 ---
         if self.hourglass.running:
             warn_label = Label(text="修改周期将重置当前进度",
-                               size_hint=(1, None), height=dp(22),
-                               color=(0.85, 0.45, 0.15, 1), font_size=sp(12))
+                               size_hint=(1, None), height=dp(26),
+                               color=(0.85, 0.45, 0.15, 1), font_size=sp(14))
             content.add_widget(warn_label)
 
         # --- 取消 + 确定 按钮行 ---
-        btn_row = BoxLayout(orientation="horizontal", spacing=dp(8),
-                            size_hint=(1, None), height=dp(48))
-        cancel_btn = Button(text="取消", font_size=sp(14),
+        btn_row = BoxLayout(orientation="horizontal", spacing=dp(10),
+                            size_hint=(1, None), height=dp(54))
+        cancel_btn = Button(text="取消", font_size=sp(16),
                             background_normal="",
                             background_color=POPUP_CANCEL_BG,
                             color=POPUP_TEXT)
         btn_row.add_widget(cancel_btn)
-        confirm_btn = Button(text="确定", font_size=sp(14), bold=True,
+        confirm_btn = Button(text="确定", font_size=sp(16), bold=True,
                              background_normal="",
                              background_color=POPUP_GOLD_SEL,
                              color=POPUP_TEXT)
@@ -1138,10 +1132,10 @@ class HourglassApp(App):
         content.add_widget(btn_row)
 
         popup = _SandBgPopup(title="选择周期", content=content,
-                             size_hint=(0.88, None), height=dp(380),
+                             size_hint=(0.88, None), height=dp(460),
                              auto_dismiss=False)
         popup.title_align = "center"
-        popup.title_size = sp(16)
+        popup.title_size = sp(19)
         popup.separator_color = (*POPUP_GOLD_SEL[:3], 0.25)
         popup.title_color = (1, 1, 1, 1)
         # content 自适应内容高度,不撑满 _container;顶部对齐紧贴 separator
@@ -1150,7 +1144,7 @@ class HourglassApp(App):
         content.bind(minimum_height=content.setter('height'))
         # Popup 高度自适应 content 高度(+ title bar/separator/padding 余量)
         def _adjust_popup_height(inst, val):
-            popup.height = val + dp(70)
+            popup.height = val + dp(85)
         content.bind(minimum_height=_adjust_popup_height)
 
         cancel_btn.bind(on_press=popup.dismiss)
