@@ -152,8 +152,8 @@ class CenterTextInput(TextInput):
 # ---------- 音效: Android AudioTrack 硬件循环; Windows winsound; 桌面 fallback ----------
 
 class _SoundProxy:
-    """Android: AudioTrack MODE_STATIC 非 Builder 构造(兼容 API 21+) + setLoopPoints 硬件循环;
-    Windows: winsound SND_LOOP 驱动层循环; 其他桌面: Kivy SoundLoader loop=True。"""
+    """Android: AudioTrack MODE_STATIC($Builder) + getState校验 + reloadStaticData
+    三星设备兼容; Windows: winsound SND_LOOP; 其他桌面/Android失败: Kivy SoundLoader。"""
 
     def __init__(self, wav_path):
         self._is_android = (platform == "android")
@@ -167,12 +167,12 @@ class _SoundProxy:
         if self._is_android:
             try:
                 self._init_audio_track(wav_path)
-                return
+                if self._audio_track is not None:
+                    return
             except Exception as e:
-                print(f"========= AudioTrack 初始化失败: {e} =========")
+                print(f"AudioTrack init failed: {e}")
                 self._audio_track = None
-            return
-        # 桌面: Windows 用 winsound 原生无缝循环(像 pc/hourglass_v2.py); 其他平台 Kivy SoundLoader
+            # fallthrough → Kivy SoundLoader 兜底
         if self._is_windows:
             try:
                 import winsound
@@ -180,6 +180,7 @@ class _SoundProxy:
                 return
             except Exception:
                 self._winsound = None
+        # 桌面 fallback / Android AudioTrack 失败兜底
         try:
             from kivy.core.audio import SoundLoader
             self._kivy_sound = SoundLoader.load(wav_path)
@@ -190,9 +191,6 @@ class _SoundProxy:
 
     def _init_audio_track(self, wav_path):
         from jnius import autoclass, jarray
-        AudioTrack = autoclass('android.media.AudioTrack')
-        AudioManager = autoclass('android.media.AudioManager')
-        AudioFormat = autoclass('android.media.AudioFormat')
 
         # 解析 WAV 头 + 提取 PCM 裸数据
         with open(wav_path, 'rb') as f:
@@ -204,7 +202,7 @@ class _SoundProxy:
         bits = int.from_bytes(data[34:36], 'little')
         if bits != 16:
             raise ValueError(f"Only 16bit WAV supported, got {bits}")
-        # 遍历 chunk 找 data(兼容非标准 44 字节头)
+        # 遍历 chunk 找 data(WAV chunk 2 字节对齐:奇数 size 补 1 字节)
         pcm = None
         idx = 12
         while idx + 8 <= len(data):
@@ -213,42 +211,92 @@ class _SoundProxy:
             if chunk_id == b'data':
                 pcm = data[idx+8:idx+8+chunk_size]
                 break
-            idx += 8 + chunk_size
+            idx += 8 + chunk_size + (chunk_size & 1)  # 奇数对齐
         if pcm is None:
             raise ValueError("No data chunk in WAV")
 
+        AudioFormat = autoclass('android.media.AudioFormat')
         channel_out = (AudioFormat.CHANNEL_OUT_STEREO if channels == 2
                        else AudioFormat.CHANNEL_OUT_MONO)
-        # 非 Builder 构造函数(兼容 API 21+, 比 Builder 模式更稳定)
-        # AudioTrack(streamType, sampleRate, channelConfig, audioFormat, bufferSize, mode)
-        self._audio_track = AudioTrack(
-            AudioManager.STREAM_MUSIC,
-            sample_rate,
-            channel_out,
-            AudioFormat.ENCODING_PCM_16BIT,
-            len(pcm),
-            AudioTrack.MODE_STATIC)
 
-        # pyjnius 不能直接传 Python bytes 给 byte[] 参数,用 jarray('b') 显式转 Java byte[]
+        # 方法1: $Builder(兼容 API 23+, pyjnius 需 $ 符号访问嵌套类)
+        track = None
+        try:
+            ATBuilder = autoclass('android.media.AudioTrack$Builder')
+            AABuilder = autoclass('android.media.AudioAttributes$Builder')
+            AFBuilder = autoclass('android.media.AudioFormat$Builder')
+            AudioAttributes = autoclass('android.media.AudioAttributes')
+
+            attrs = (AABuilder()
+                     .setUsage(AudioAttributes.USAGE_MEDIA)
+                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                     .build())
+            fmt = (AFBuilder()
+                   .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                   .setSampleRate(sample_rate)
+                   .setChannelMask(channel_out)
+                   .build())
+            track = (ATBuilder()
+                     .setAudioAttributes(attrs)
+                     .setAudioFormat(fmt)
+                     .setBufferSizeInBytes(len(pcm))
+                     .setTransferMode(0)  # MODE_STATIC = 0
+                     .build())
+        except Exception as e:
+            print(f"Builder init failed: {e}, trying legacy constructor")
+
+        # 方法2: 传统构造函数(API 3+, 某些设备 Builder 不可用时兜底)
+        if track is None:
+            try:
+                AudioTrack = autoclass('android.media.AudioTrack')
+                AudioManager = autoclass('android.media.AudioManager')
+                track = AudioTrack(
+                    AudioManager.STREAM_MUSIC,
+                    sample_rate,
+                    channel_out,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    len(pcm),
+                    0)  # MODE_STATIC = 0
+            except Exception as e:
+                raise ValueError(f"All AudioTrack constructors failed: {e}")
+
+        # 校验初始化状态
+        AudioTrack = autoclass('android.media.AudioTrack')
+        state = track.getState()
+        if state != AudioTrack.STATE_INITIALIZED:
+            raise ValueError(
+                f"AudioTrack not initialized: state={state}, "
+                f"expected={AudioTrack.STATE_INITIALIZED}")
+
+        # 写入 PCM 数据
         java_byte_array = jarray('b')(pcm)
-        written = self._audio_track.write(java_byte_array, 0, len(pcm))
-        if written < 0:
-            raise ValueError(f"AudioTrack.write failed: {written}")
+        written = track.write(java_byte_array, 0, len(pcm))
+        if written != len(pcm):
+            raise ValueError(
+                f"AudioTrack.write incomplete: {written}/{len(pcm)} bytes")
 
-        # 硬件循环点(声卡指针回绕,绝对 0 缝隙,不受主线程卡顿影响)
+        # 硬件循环点
         frame_size = channels * (bits // 8)
         total_frames = len(pcm) // frame_size
-        self._audio_track.setLoopPoints(0, total_frames, -1)
+        result = track.setLoopPoints(0, total_frames, -1)
+        if result != 0:  # SUCCESS = 0
+            raise ValueError(f"setLoopPoints failed: {result}")
+
+        self._audio_track = track
 
     def play(self):
         if self._audio_track is not None:
             if self._active:
                 return
-            self._active = True
             try:
-                # 播放头归零,确保每次从头开始(不是从上次暂停处)
+                # 三星设备兼容: stop()后需 reloadStaticData 再设播放头
+                try:
+                    self._audio_track.reloadStaticData()
+                except Exception:
+                    pass
                 self._audio_track.setPlaybackHeadPosition(0)
                 self._audio_track.play()
+                self._active = True  # 成功后置,防异常后半永久静音
             except Exception:
                 pass
             return
@@ -260,7 +308,7 @@ class _SoundProxy:
                 self._winsound.PlaySound(self._wav_path,
                     self._winsound.SND_LOOP | self._winsound.SND_ASYNC | self._winsound.SND_FILENAME)
             except Exception:
-                pass
+                self._active = False
             return
         if self._kivy_sound is not None:
             try:
@@ -275,7 +323,8 @@ class _SoundProxy:
                 return
             self._active = False
             try:
-                # MODE_STATIC 下 stop() 比 pause() 彻底(重置播放头到循环起点)
+                self._audio_track.pause()
+                self._audio_track.flush()
                 self._audio_track.stop()
             except Exception:
                 pass
