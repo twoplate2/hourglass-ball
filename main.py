@@ -774,10 +774,10 @@ class HourglassWidget(Widget):
                 wobble_extra = 0.0
             else:
                 below_tube = self._lower_ball_cut - p["y"]
-                # 出管后逐渐扩张(最多扩到 1.45x),沙子越落越散
-                spread = 1.0 + min(0.45, below_tube * 0.0025)
+                # 出管后逐渐扩张(最多扩到 1.20x),沙子微微散开
+                spread = 1.0 + min(0.20, below_tube * 0.0012)
                 # 出管后 wobble 递增,制造自然散乱沙流
-                wobble_extra = min(3.5, below_tube * 0.018)
+                wobble_extra = min(2.5, below_tube * 0.013)
                 # 触底喇叭口
                 dist_to_floor = p["y"] - mound_top
                 if 0 < dist_to_floor < 30:
