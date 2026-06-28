@@ -27,10 +27,8 @@ from kivy.graphics import (Color, Rectangle, Line, Ellipse,
 from kivy.metrics import dp, sp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
-from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
-from kivy.uix.slider import Slider
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import platform
@@ -999,7 +997,6 @@ class HourglassApp(App):
 
         content = BoxLayout(orientation="vertical", spacing=dp(10),
                             padding=[dp(12), dp(12), dp(12), dp(8)])
-        content.size_hint = (1, 1)
 
         # --- 基础周期按钮 (单行5列,避免GridLayout最后一行不对齐) ---
         base_grid = BoxLayout(orientation="horizontal", spacing=dp(6),
@@ -1021,26 +1018,27 @@ class HourglassApp(App):
             base_grid.add_widget(btn)
         content.add_widget(base_grid)
 
-        # --- 倍数按钮 (两行, 替代 Slider 避免 Android 兼容闪退) ---
+        # --- 倍数按钮 (两行 BoxLayout, 不用 GridLayout 避免 Android 兼容问题) ---
         MULTIPLIERS = [1, 2, 3, 5, 10, 15, 20, 30, 50, 100]
-        content.add_widget(Label(text="倍数:", size_hint=(1, None), height=dp(20),
-                                 color=(0.2, 0.2, 0.2, 1), font_size=sp(13),
+        content.add_widget(Label(text="倍数:", size_hint=(1, None), height=dp(18),
+                                 color=(0.2, 0.2, 0.2, 1), font_size=sp(12),
                                  halign="left"))
-        mult_grid = GridLayout(cols=5, spacing=dp(5), size_hint=(1, None),
-                               height=dp(72))
         mult_btns = {}
-        for m in MULTIPLIERS:
-            is_m = (m == init_mult)
-            btn = Button(text=f"{m}×", font_size=sp(13),
-                         background_normal="",
-                         background_color=(*sand_c, 0.8) if is_m
-                                          else (*base_default, 0.12),
-                         color=(1, 1, 1, 1) if is_m else (0.2, 0.2, 0.2, 1))
-            btn.bind(on_press=lambda inst, v=m:
-                     self._on_mult_picked(v, mult_btns, state, preview_label))
-            mult_btns[m] = btn
-            mult_grid.add_widget(btn)
-        content.add_widget(mult_grid)
+        for row_vals in [MULTIPLIERS[:5], MULTIPLIERS[5:]]:
+            row = BoxLayout(orientation="horizontal", spacing=dp(5),
+                            size_hint=(1, None), height=dp(34))
+            for m in row_vals:
+                is_m = (m == init_mult)
+                btn = Button(text=f"{m}×", font_size=sp(13),
+                             background_normal="",
+                             background_color=(*sand_c, 0.8) if is_m
+                                              else (*base_default, 0.12),
+                             color=(1, 1, 1, 1) if is_m else (0.2, 0.2, 0.2, 1))
+                btn.bind(on_press=lambda inst, v=m:
+                         self._on_mult_picked(v, mult_btns, state, preview_label))
+                mult_btns[m] = btn
+                row.add_widget(btn)
+            content.add_widget(row)
 
         # --- 预览 ---
         preview_label = Label(
@@ -1063,15 +1061,11 @@ class HourglassApp(App):
                             background_normal="",
                             background_color=(*hex_rgb(GLASS_OUTLINE), 0.15),
                             color=(0.2, 0.2, 0.2, 1))
-        cancel_btn.bind(on_press=popup.dismiss)
         btn_row.add_widget(cancel_btn)
         confirm_btn = Button(text="确定", font_size=sp(14), bold=True,
                              background_normal="",
                              background_color=(0.353, 0.620, 0.243, 1),
                              color=(1, 1, 1, 1))
-        confirm_btn.bind(on_press=lambda inst:
-                         self._pick_duration(state['base'] * state['mult'],
-                                            popup))
         btn_row.add_widget(confirm_btn)
         content.add_widget(btn_row)
 
@@ -1082,6 +1076,11 @@ class HourglassApp(App):
                       title_size=sp(16))
         popup.separator_color = (0.373, 0.420, 0.439, 0.3)
 
+        # 绑定必须放在 popup 创建之后
+        cancel_btn.bind(on_press=popup.dismiss)
+        confirm_btn.bind(on_press=lambda inst:
+                         self._pick_duration(state['base'] * state['mult'],
+                                            popup))
         popup.open()
 
     def _on_base_picked(self, val, base_btns, state, mult_btns, preview_label):
