@@ -48,7 +48,8 @@ python main.py
 - 玻璃壳：`Ellipse` 画球(**同心椭圆相减**得均匀描边) + 颈部矩形管贯穿两球内端消除截口缺角。缓存于 `canvas.before`，仅 `neck_w` 变时重建。
 - 沙体弓形：`StencilPush/StencilUse/StencilUnUse/StencilPop` 把内壁球 `Ellipse` 裁出"y ≤ 沙面"的真圆弓形。
 - **沙边和玻璃内壁都是 `Ellipse` 圆 → 同一种真圆技术、严格贴合**。这是复刻 pc"玻璃和沙必须同一种技术，否则边缘失配(月牙/缝)"的核心。**绝不用 `Mesh`/多边形拼弓形**(那是 android 旧版渲染 bug 的根源)。
-- 粒子用 `Line`(主流) + `Rectangle`(splash/flares/dust)，按颜色排序减少 draw call。颗粒流用递增 wobble 制造散乱断续感，触底 30px 内喇叭口微扩。
+- 粒子用 `Line`(主流) + `Rectangle`(splash/flares/dust)，按颜色排序减少 draw call。
+- **假物理直觉扩散**：管内管壁约束 spread=1.0，出管后逐渐扩张到 1.20x + wobble 递增（沙子越落越散），触底 30px 喇叭口额外扩散。**迎合直觉而非模拟真实流体力学**——不要加流量守恒或收缩。
 
 ### 渲染分层(`redraw()` 中的 draw 顺序)
 1. 上沙弓形(Stencil 裁切)
@@ -79,13 +80,18 @@ Kivy y 向上(原点左下)，pc 是 y 向下 —— 所有几何**上下翻转*
 | 其他桌面 | Kivy `SoundLoader` | `loop=True` 应用层循环 | 可忽略 |
 
 Android 方案的核心细节：
-1. 手动解析 WAV RIFF 头（遍历 chunk 找 `data`，兼容非标准 44 字节头）
-2. 提取 PCM 裸数据（16bit only），用 `jarray('b')(pcm)` 显式转 Java `byte[]`（pyjnius 不能直接传 Python bytes）
-3. `AudioTrack.Builder` 设 `MODE_STATIC` → 一次性写入全部 PCM 到硬件缓冲区
-4. `setLoopPoints(0, total_frames, -1)` → 音频 DSP 播到末尾时硬件自动回绕读指针
-5. 循环完全在音频芯片内部完成，**不受主线程卡顿、GC 暂停、CPU 调度影响**
+1. 手动解析 WAV RIFF 头（遍历 chunk 找 `data`，WAV chunk 2 字节对齐需处理奇数 padding）
+2. 提取 PCM 裸数据（16bit only），用 `jarray('b')(pcm)` 显式转 Java `byte[]`
+3. **用 `$Builder` 优先**：pyjnius 用 `autoclass('AudioTrack$Builder')` 的 `$` 符号访问嵌套类（`.` 点号无法解析）；降级兜底：传统 `AudioTrack(streamType, ...)` 构造函数
+4. `getState() == STATE_INITIALIZED` 校验 + `write()` 完整写入校验 + `setLoopPoints()` 返回值校验
+5. `MODE_STATIC` → 一次性写入全部 PCM + `setLoopPoints(0, frames, -1)` 硬件回绕
+6. **三星兼容**：`stop()` 后设 `_needs_reload=True`，重播时调 `reloadStaticData()`；首次播放跳过
+7. `_active` 标志**后置于** `play()` 成功后，防止异常后半永久静音
+8. **Android AudioTrack 失败时 fallthrough 到 Kivy SoundLoader 兜底**（至少有声）
 
-`sand_loop.wav` 是 15s 无缝 PCM 16bit mono 22050Hz（646KB），长度足够让任何潜在的系统音频管理问题不影响体验。
+**WAV 必须用 44100Hz**：22050Hz 在 Android 设备上需 AudioFlinger 非整数倍重采样（22050→48000≅2.18x），MODE_STATIC 循环时重采样器相位不连续 → 每 15s 循环点可闻跳变。已重采样到 44100Hz（1.3MB）。
+
+`sand_loop.wav` 是 15s 无缝 PCM 16bit mono **44100Hz**（~1.3MB）。修改采样率需同步调整 `_init_audio_track` 中的参数。
 
 ### 配色系统(独立暖金/沙色系，不随沙色变化)
 
@@ -112,8 +118,10 @@ Android 方案的核心细节：
 2. `open()` 后 `_apply_light_theme()` → 清空 `_container.canvas.before` 并画奶油底
 3. 标题栏仍为 Kivy 默认深灰，标题文字白色
 
-### 粒子系统
-- 主流粒子：从上球截口生成，`rate=600*speed_factor`，重力 `g=-450`，wobble 制造散乱感
+### 粒子系统(假物理直觉，迎合用户视觉)
+- 主流粒子：从上球截口生成，`rate=600*speed_factor`，重力 `g=-450`
+- **直觉扩散**：管内 spread=1.0(管壁约束)；出管后 spread 1.0→1.20x 线性扩张 + wobble 递增(沙子越落越散)；触底 30px 喇叭口额外扩散
+- **不要加流量守恒/收缩**：那是真实流体力学，用户直觉是沙子从管口落下自然散开
 - 触底事件：EMA 更新 `mound_peak_offset` + 25% 概率 spawn flare + 50% 概率 spawn splash
 - splash 反弹粒子：向上反弹 vy=55~110，实心方块渲染，受 `_sand_half_w` 横向约束
 - 完成尘埃：漏完时 spawn 25 颗，1s 寿命，向上喷射
@@ -121,10 +129,23 @@ Android 方案的核心细节：
 
 ## Android 装机坑(桌面预览看不到，只在 APK 暴露)
 - **中文乱码**：`LabelBase.register(name="Roboto", fn=fonts/NotoSansSC-Medium.otf)` 全局覆盖默认字体；`buildozer.spec` 的 `source.include_patterns` **必须含 `fonts/*.otf`** 否则字体不进 APK。
-- **音效卡顿**：Android `MediaPlayer` 循环短音频有 50-100ms gap → 改用 `AudioTrack MODE_STATIC` 硬件循环(声卡指针回绕，绝对 0 缝隙)。
+- **音效卡顿/无声**：Android MODE_STATIC + 44100Hz WAV 是当前最优解。历史踩坑：22050Hz→AudioFlinger 非整数重采样相位不连续；Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。
+- **粒子视觉**：核心原则是**假物理迎合直觉**——沙子从管口落下应该散开，不应收缩。调试时优先考虑视觉直觉而非物理公式。和 PC 版对比时注意 PC 版可能也在用流量守恒（是 PC 版的 bug，不要移植）。
 - **配置路径**：Android 用 `App.user_data_dir`，桌面用 `~/.hourglass_config.json`(与 pc 版共享同一文件)。
 - **生命周期**：`on_pause` 必须返回 `True` 保持 GL 上下文。
 - **周期弹窗闪退**：lambda 闭包延迟绑定在 Android Kivy 2.3.0 上时序敏感 → `mult_btns` / `preview_label` 必须在循环外预创建。
 
+## UI 字号规范(与弹窗对齐)
+弹窗和主界面已统一放大，修改字号时保持一致：
+
+| 层级 | 弹窗 | 主界面 |
+|---|---|---|
+| 标题 | sp(19) | — |
+| 倒计时/预览 | sp(18) | sp(24) |
+| 主导按钮(确定/开始/重置/周期) | sp(16) | sp(16) |
+| 次要按钮(基础周期/倍数/音效) | sp(15)-sp(16) | sp(15) |
+| 标签文字 | sp(15) | — |
+| 按钮行高 | dp(40-54) | dp(58) |
+
 ## 资源文件
-`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono 22050Hz) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体和 wav。
+`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **44100Hz**, ~1.3MB) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体和 wav。
