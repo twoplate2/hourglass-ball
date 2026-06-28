@@ -2,12 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ 铁律：PC v4 是唯一真理
+
+**不要用"直觉"修改粒子物理、渲染方式或任何核心参数。** PC `hourglass_v4.py` 的公式和参数是经过反复验证的，Android 移植时只做坐标翻转适配。历史上所有"我觉得这样更好"的改动（扩张代替收缩、Ellipse 代替 Line、motion streak 等）全部以回退告终。**改之前先对照 v4，v4 怎么做你就怎么做。**
+
 ## 项目定位
 
-pc 版球形沙漏(`../hourglass_v2.py`，tkinter + PIL 真圆)的 **Android (Kivy) 移植版**，用 GitHub Actions 云端构建 APK。
+pc 版球形沙漏(`../hourglass_v4.py`，tkinter + PIL 真圆)的 **Android (Kivy) 移植版**，用 GitHub Actions 云端构建 APK。
 
-- 本工程的 `main.py` 从 `pc/hourglass_v2.py` **从零重写为 Kivy**，**绝不复用** `../../android/main.py`(旧版有严重 bug，已弃用)。
-- **唯一真值 / 视觉基准是 pc 版球形沙漏**：改几何/物理/视觉时对照 `../hourglass_v2.py` 和 `../readme.md`，不要参考 android 旧实现。
+- 本工程的 `main.py` 从 `pc/hourglass_v4.py` **从零重写为 Kivy**，**绝不复用** `../../android/main.py`(旧版有严重 bug，已弃用)。
+- **唯一真值 / 视觉基准是 pc v4**：改几何/物理/视觉时对照 `../hourglass_v4.py`，不要参考 android 旧实现。
+- **PC v4 是经过验证的成熟方案**：粒子物理、管壁渲染、参数配置均已打磨好。移植时原样照搬，只做坐标翻转适配，不要用"直觉"替代 v4 的公式。
 - 独立 git 仓库 → https://github.com/twoplate2/hourglass-ball
 
 ## 运行 / 构建
@@ -49,7 +54,7 @@ python main.py
 - 沙体弓形：`StencilPush/StencilUse/StencilUnUse/StencilPop` 把内壁球 `Ellipse` 裁出"y ≤ 沙面"的真圆弓形。
 - **沙边和玻璃内壁都是 `Ellipse` 圆 → 同一种真圆技术、严格贴合**。这是复刻 pc"玻璃和沙必须同一种技术，否则边缘失配(月牙/缝)"的核心。**绝不用 `Mesh`/多边形拼弓形**(那是 android 旧版渲染 bug 的根源)。
 - 粒子用 `Line`(主流) + `Rectangle`(splash/flares/dust)，按颜色排序减少 draw call。
-- **假物理直觉扩散**：管内管壁约束 spread=1.0，出管后逐渐扩张到 1.20x + wobble 递增（沙子越落越散），触底 30px 喇叭口额外扩散。**迎合直觉而非模拟真实流体力学**——不要加流量守恒或收缩。
+- **流量守恒**(移植自 PC v4)：粒子加速下落时按 A·v=常数横向收缩 `shrink = max(0.50, (60/v_at_y)^0.5)`；颈部 6px 入口区不缩；40px 平滑过渡区从 1.0 渐变到目标值；触底 30px 喇叭口微扩。wobble 随 shrink 同比例衰减(`wobble × (1-shrink×0.4)`)。
 
 ### 渲染分层(`redraw()` 中的 draw 顺序)
 1. 上沙弓形(Stencil 裁切)
@@ -118,19 +123,20 @@ Android 方案的核心细节：
 2. `open()` 后 `_apply_light_theme()` → 清空 `_container.canvas.before` 并画奶油底
 3. 标题栏仍为 Kivy 默认深灰，标题文字白色
 
-### 粒子系统(假物理直觉，迎合用户视觉)
+### 粒子系统(移植自 PC v4，坐标翻转适配)
 - 主流粒子：从上球截口生成，`rate=600*speed_factor`，重力 `g=-450`
-- **直觉扩散**：管内 spread=1.0(管壁约束)；出管后 spread 1.0→1.20x 线性扩张 + wobble 递增(沙子越落越散)；触底 30px 喇叭口额外扩散
-- **不要加流量守恒/收缩**：那是真实流体力学，用户直觉是沙子从管口落下自然散开
+- **流量守恒**(原样移植 v4)：`shrink = max(0.50, (60/v_at_y)^0.5)`，6px 入口不缩，40px 平滑过渡，触底 30px 喇叭口
+- wobble 随 shrink 衰减：`wobble × (1 - shrink × 0.4)`
+- 渲染：`Line` + 速度拖尾 `trail = max(2.0, abs(vy)*0.08)`，`width=p["size"]`(85%为2,15%为1)
+- **不要改成扩张(spread)/Ellipse/Rectangle**：v4 的收缩+Line 方案已经过验证，改形状或改物理都只会让效果变差
 - 触底事件：EMA 更新 `mound_peak_offset` + 25% 概率 spawn flare + 50% 概率 spawn splash
-- splash 反弹粒子：向上反弹 vy=55~110，实心方块渲染，受 `_sand_half_w` 横向约束
+- splash 反弹粒子：向上反弹 vy=-110~-55，实心方块渲染，受 `_sand_half_w` 横向约束
 - 完成尘埃：漏完时 spawn 25 颗，1s 寿命，向上喷射
-- 横向 clamp：管内壁限幅 → 进下球后平滑过渡到球内壁
 
 ## Android 装机坑(桌面预览看不到，只在 APK 暴露)
 - **中文乱码**：`LabelBase.register(name="Roboto", fn=fonts/NotoSansSC-Medium.otf)` 全局覆盖默认字体；`buildozer.spec` 的 `source.include_patterns` **必须含 `fonts/*.otf`** 否则字体不进 APK。
 - **音效卡顿/无声**：Android MODE_STATIC + 44100Hz WAV 是当前最优解。历史踩坑：22050Hz→AudioFlinger 非整数重采样相位不连续；Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。
-- **粒子视觉**：核心原则是**假物理迎合直觉**——沙子从管口落下应该散开，不应收缩。调试时优先考虑视觉直觉而非物理公式。和 PC 版对比时注意 PC 版可能也在用流量守恒（是 PC 版的 bug，不要移植）。
+- **粒子视觉**：千万不要用"直觉"替代 v4 的公式。v4 的流量守恒收缩 + Line 渲染是经过验证的成熟方案。历史上改成扩张(spread)、Ellipse、Rectangle、motion streak 全部失败。**移植 = 照搬 v4 公式 + 坐标翻转 + 参数不变。**
 - **配置路径**：Android 用 `App.user_data_dir`，桌面用 `~/.hourglass_config.json`(与 pc 版共享同一文件)。
 - **生命周期**：`on_pause` 必须返回 `True` 保持 GL 上下文。
 - **周期弹窗闪退**：lambda 闭包延迟绑定在 Android Kivy 2.3.0 上时序敏感 → `mult_btns` / `preview_label` 必须在循环外预创建。
