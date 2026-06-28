@@ -767,12 +767,13 @@ class HourglassWidget(Widget):
             p["vy"] += g * dt
             p["y"] += p["vy"] * dt
             fallen_dist = max(0.0, gen_y - p["y"])
-            # 流量守恒 A·v=常数: 粒子加速→横向收缩,形成自然漏斗形沙流
-            if fallen_dist < 6:
+            # 管内: 管壁约束,填满内径 shrink=1.0
+            # 出管进入下球: 流量守恒 A·v=常数,加速→横向收缩
+            if p["y"] > self._lower_ball_cut:
                 shrink = 1.0
             else:
-                eff_fallen = fallen_dist - 6
-                v_at_y = (60.0 ** 2 + 2 * abs(g) * eff_fallen) ** 0.5
+                below_tube = self._lower_ball_cut - p["y"]
+                v_at_y = (60.0 ** 2 + 2 * abs(g) * below_tube) ** 0.5
                 shrink = max(0.70, (60.0 / v_at_y) ** 0.5)
                 dist_to_floor = p["y"] - mound_top
                 if 0 < dist_to_floor < 30:
