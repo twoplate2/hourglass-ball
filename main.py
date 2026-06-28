@@ -143,17 +143,25 @@ class CenterTextInput(TextInput):
         self.padding = [ph, pv, ph, pv]
 
 
-# ---------- 音效: Android SoundPool 无 gap 循环; 桌面 fallback SoundLoader ----------
+# ---------- 音效: Android SoundPool 双流交叉淡入淡出; 桌面 fallback SoundLoader ----------
 
 class _SoundProxy:
+    _WAV_DURATION = 15.0      # 音频文件长度(秒)
+    _FADE_OVERLAP = 1.0       # 双流重叠时长(秒), 匹配 WAV baked crossfade
+    _FADE_STEPS = 20          # 淡入淡出步数(50ms/步, 容忍 Clock 抖动)
+
     def __init__(self, wav_path):
         self._is_android = (platform == "android")
         self._sp = None
         self._sound_id = None
-        self._stream_id = 0
         self._loaded = False
         self._listener = None   # 存实例属性防 PythonJavaClass 被 GC
         self._kivy_sound = None
+        self._active = False
+        self._current_stream = 0
+        self._swap_event = None
+        self._fade_events = []
+
         if self._is_android:
             try:
                 self._init_soundpool(wav_path)
@@ -177,7 +185,7 @@ class _SoundProxy:
                  .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                  .build())
         self._sp = (SoundPool.Builder()
-                    .setMaxStreams(1)
+                    .setMaxStreams(2)        # 双流交叉淡入淡出
                     .setAudioAttributes(attrs)
                     .build())
         self._sound_id = self._sp.load(wav_path, 1)
@@ -197,10 +205,13 @@ class _SoundProxy:
 
     def play(self):
         if self._sp is not None:
-            if self._stream_id or not self._loaded:
+            if self._active or not self._loaded:
                 return
-            # play(id, lVol, rVol, priority, loop=-1 永久, rate)
-            self._stream_id = self._sp.play(self._sound_id, 1.0, 1.0, 1, -1, 1.0)
+            self._active = True
+            # stream A 不循环, 14s 后启动 stream B 交叉淡入淡出
+            self._current_stream = self._sp.play(self._sound_id, 1.0, 1.0, 1, 0, 1.0)
+            self._swap_event = Clock.schedule_once(
+                self._swap, self._WAV_DURATION - self._FADE_OVERLAP)
             return
         if self._kivy_sound is not None:
             try:
@@ -209,14 +220,70 @@ class _SoundProxy:
             except Exception:
                 pass
 
+    def _swap(self, _dt):
+        if not self._active or self._sp is None:
+            return
+        # 启动 stream B 初始音量 0
+        new_stream = self._sp.play(self._sound_id, 0.0, 0.0, 1, 0, 1.0)
+        old_stream = self._current_stream
+        step_sec = self._FADE_OVERLAP / self._FADE_STEPS
+
+        for k in range(1, self._FADE_STEPS + 1):
+            t = k / self._FADE_STEPS
+            old_vol = math.cos(t * math.pi / 2)   # A 淡出
+            new_vol = math.sin(t * math.pi / 2)   # B 淡入
+            ev = Clock.schedule_once(
+                lambda dt, o=old_stream, n=new_stream, ov=old_vol, nv=new_vol:
+                    self._apply_volumes(o, n, ov, nv),
+                step_sec * k)
+            self._fade_events.append(ev)
+
+        # 交叉淡入淡出完成后停止旧 stream A
+        stop_ev = Clock.schedule_once(
+            lambda dt, sid=old_stream: self._safe_stop(sid),
+            self._FADE_OVERLAP + 0.02)
+        self._fade_events.append(stop_ev)
+
+        self._current_stream = new_stream
+        # 调度下一次 swap
+        self._swap_event = Clock.schedule_once(
+            self._swap, self._WAV_DURATION - self._FADE_OVERLAP)
+
+    def _apply_volumes(self, stream_a, stream_b, vol_a, vol_b):
+        if not self._active or self._sp is None:
+            return
+        try:
+            self._sp.setVolume(stream_a, vol_a, vol_a)
+            self._sp.setVolume(stream_b, vol_b, vol_b)
+        except Exception:
+            pass
+
+    def _safe_stop(self, stream_id):
+        if self._sp is None or not stream_id:
+            return
+        try:
+            self._sp.stop(stream_id)
+        except Exception:
+            pass
+
     def stop(self):
         if self._sp is not None:
-            if self._stream_id:
+            self._active = False
+            if self._swap_event is not None:
                 try:
-                    self._sp.stop(self._stream_id)
+                    self._swap_event.cancel()
                 except Exception:
                     pass
-                self._stream_id = 0
+                self._swap_event = None
+            for ev in self._fade_events:
+                try:
+                    ev.cancel()
+                except Exception:
+                    pass
+            self._fade_events.clear()
+            if self._current_stream:
+                self._safe_stop(self._current_stream)
+                self._current_stream = 0
             return
         if self._kivy_sound is not None:
             try:
