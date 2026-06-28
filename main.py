@@ -143,28 +143,34 @@ class CenterTextInput(TextInput):
 # ---------- 音效: Android SoundPool 双流交叉淡入淡出; 桌面 fallback SoundLoader ----------
 
 class _SoundProxy:
-    _WAV_DURATION = 15.0      # 音频文件长度(秒)
-    _FADE_OVERLAP = 1.5       # 双流重叠时长(秒), 比 baked crossfade 多 0.5s 容差
-    _FADE_STEPS = 30          # 淡入淡出步数(50ms/步, 容忍 Clock 抖动)
+    """Android: AudioTrack MODE_STATIC 硬件循环(声卡指针回绕,绝对 0 缝隙);
+    桌面: Kivy SoundLoader fallback。"""
 
     def __init__(self, wav_path):
         self._is_android = (platform == "android")
-        self._sp = None
-        self._sound_id = None
-        self._loaded = False
-        self._listener = None   # 存实例属性防 PythonJavaClass 被 GC
+        self._is_windows = (platform == "win")
+        self._audio_track = None
         self._kivy_sound = None
+        self._winsound = None
+        self._wav_path = wav_path
         self._active = False
-        self._current_stream = 0
-        self._swap_event = None
-        self._fade_events = []
 
         if self._is_android:
             try:
-                self._init_soundpool(wav_path)
+                self._init_audio_track(wav_path)
+                return
+            except Exception as e:
+                print(f"========= AudioTrack 初始化失败: {e} =========")
+                self._audio_track = None
+            return
+        # 桌面: Windows 用 winsound 原生无缝循环(像 pc/hourglass_v2.py); 其他平台 Kivy SoundLoader
+        if self._is_windows:
+            try:
+                import winsound
+                self._winsound = winsound
                 return
             except Exception:
-                self._sp = None
+                self._winsound = None
         try:
             from kivy.core.audio import SoundLoader
             self._kivy_sound = SoundLoader.load(wav_path)
@@ -173,42 +179,85 @@ class _SoundProxy:
         except Exception:
             self._kivy_sound = None
 
-    def _init_soundpool(self, wav_path):
-        from jnius import autoclass, PythonJavaClass, java_method
-        SoundPool = autoclass('android.media.SoundPool')
+    def _init_audio_track(self, wav_path):
+        from jnius import autoclass, jarray
+        AudioTrack = autoclass('android.media.AudioTrack')
         AudioAttributes = autoclass('android.media.AudioAttributes')
+        AudioFormat = autoclass('android.media.AudioFormat')
+
+        # 解析 WAV 头 + 提取 PCM 裸数据
+        with open(wav_path, 'rb') as f:
+            data = f.read()
+        if data[:4] != b'RIFF' or data[8:12] != b'WAVE':
+            raise ValueError("Not a WAV file")
+        sample_rate = int.from_bytes(data[24:28], 'little')
+        channels = int.from_bytes(data[22:24], 'little')
+        bits = int.from_bytes(data[34:36], 'little')
+        if bits != 16:
+            raise ValueError(f"Only 16bit WAV supported, got {bits}")
+        # 遍历 chunk 找 data(兼容非标准 44 字节头)
+        pcm = None
+        idx = 12
+        while idx + 8 <= len(data):
+            chunk_id = data[idx:idx+4]
+            chunk_size = int.from_bytes(data[idx+4:idx+8], 'little')
+            if chunk_id == b'data':
+                pcm = data[idx+8:idx+8+chunk_size]
+                break
+            idx += 8 + chunk_size
+        if pcm is None:
+            raise ValueError("No data chunk in WAV")
+
+        channel_mask = (AudioFormat.CHANNEL_OUT_STEREO if channels == 2
+                        else AudioFormat.CHANNEL_OUT_MONO)
         attrs = (AudioAttributes.Builder()
                  .setUsage(AudioAttributes.USAGE_MEDIA)
                  .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                  .build())
-        self._sp = (SoundPool.Builder()
-                    .setMaxStreams(2)        # 双流交叉淡入淡出
-                    .setAudioAttributes(attrs)
-                    .build())
-        self._sound_id = self._sp.load(wav_path, 1)
-        outer = self
+        fmt = (AudioFormat.Builder()
+               .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+               .setSampleRate(sample_rate)
+               .setChannelMask(channel_mask)
+               .build())
+        self._audio_track = (AudioTrack.Builder()
+                             .setAudioAttributes(attrs)
+                             .setAudioFormat(fmt)
+                             .setBufferSizeInBytes(len(pcm))
+                             .setTransferMode(AudioTrack.MODE_STATIC)
+                             .build())
 
-        class _Listener(PythonJavaClass):
-            __javainterfaces__ = ['android/media/SoundPool$OnLoadCompleteListener']
-            __javacontext__ = 'app'
+        # pyjnius 不能直接传 Python bytes 给 byte[] 参数,用 jarray('b') 显式转 Java byte[]
+        java_byte_array = jarray('b')(pcm)
+        written = self._audio_track.write(java_byte_array, 0, len(pcm))
+        if written < 0:
+            raise ValueError(f"AudioTrack.write failed: {written}")
 
-            @java_method('(Landroid/media/SoundPool;II)V')
-            def onLoadComplete(self, soundpool, sample_id, status):
-                if status == 0:
-                    outer._loaded = True
-
-        self._listener = _Listener()
-        self._sp.setOnLoadCompleteListener(self._listener)
+        # 硬件循环点(声卡指针回绕,绝对 0 缝隙,不受主线程卡顿影响)
+        frame_size = channels * (bits // 8)
+        total_frames = len(pcm) // frame_size
+        self._audio_track.setLoopPoints(0, total_frames, -1)
 
     def play(self):
-        if self._sp is not None:
-            if self._active or not self._loaded:
+        if self._audio_track is not None:
+            if self._active:
                 return
             self._active = True
-            # stream A 不循环, 14s 后启动 stream B 交叉淡入淡出
-            self._current_stream = self._sp.play(self._sound_id, 1.0, 1.0, 1, 0, 1.0)
-            self._swap_event = Clock.schedule_once(
-                self._swap, self._WAV_DURATION - self._FADE_OVERLAP)
+            try:
+                # 播放头归零,确保每次从头开始(不是从上次暂停处)
+                self._audio_track.setPlaybackHeadPosition(0)
+                self._audio_track.play()
+            except Exception:
+                pass
+            return
+        if self._winsound is not None:
+            if self._active:
+                return
+            self._active = True
+            try:
+                self._winsound.PlaySound(self._wav_path,
+                    self._winsound.SND_LOOP | self._winsound.SND_ASYNC | self._winsound.SND_FILENAME)
+            except Exception:
+                pass
             return
         if self._kivy_sound is not None:
             try:
@@ -217,70 +266,25 @@ class _SoundProxy:
             except Exception:
                 pass
 
-    def _swap(self, _dt):
-        if not self._active or self._sp is None:
-            return
-        # 启动 stream B 初始音量 0
-        new_stream = self._sp.play(self._sound_id, 0.0, 0.0, 1, 0, 1.0)
-        old_stream = self._current_stream
-        step_sec = self._FADE_OVERLAP / self._FADE_STEPS
-
-        for k in range(1, self._FADE_STEPS + 1):
-            t = k / self._FADE_STEPS
-            old_vol = math.cos(t * math.pi / 2)   # A 淡出
-            new_vol = math.sin(t * math.pi / 2)   # B 淡入
-            ev = Clock.schedule_once(
-                lambda dt, o=old_stream, n=new_stream, ov=old_vol, nv=new_vol:
-                    self._apply_volumes(o, n, ov, nv),
-                step_sec * k)
-            self._fade_events.append(ev)
-
-        # 交叉淡入淡出完成后停止旧 stream A
-        stop_ev = Clock.schedule_once(
-            lambda dt, sid=old_stream: self._safe_stop(sid),
-            self._FADE_OVERLAP + 0.02)
-        self._fade_events.append(stop_ev)
-
-        self._current_stream = new_stream
-        # 调度下一次 swap
-        self._swap_event = Clock.schedule_once(
-            self._swap, self._WAV_DURATION - self._FADE_OVERLAP)
-
-    def _apply_volumes(self, stream_a, stream_b, vol_a, vol_b):
-        if not self._active or self._sp is None:
-            return
-        try:
-            self._sp.setVolume(stream_a, vol_a, vol_a)
-            self._sp.setVolume(stream_b, vol_b, vol_b)
-        except Exception:
-            pass
-
-    def _safe_stop(self, stream_id):
-        if self._sp is None or not stream_id:
-            return
-        try:
-            self._sp.stop(stream_id)
-        except Exception:
-            pass
-
     def stop(self):
-        if self._sp is not None:
+        if self._audio_track is not None:
+            if not self._active:
+                return
             self._active = False
-            if self._swap_event is not None:
-                try:
-                    self._swap_event.cancel()
-                except Exception:
-                    pass
-                self._swap_event = None
-            for ev in self._fade_events:
-                try:
-                    ev.cancel()
-                except Exception:
-                    pass
-            self._fade_events.clear()
-            if self._current_stream:
-                self._safe_stop(self._current_stream)
-                self._current_stream = 0
+            try:
+                # MODE_STATIC 下 stop() 比 pause() 彻底(重置播放头到循环起点)
+                self._audio_track.stop()
+            except Exception:
+                pass
+            return
+        if self._winsound is not None:
+            if not self._active:
+                return
+            self._active = False
+            try:
+                self._winsound.PlaySound(None, self._winsound.SND_PURGE)
+            except Exception:
+                pass
             return
         if self._kivy_sound is not None:
             try:
@@ -289,13 +293,27 @@ class _SoundProxy:
                 pass
 
 
+class _SandBgPopup(Popup):
+    """背景为沙色(BG_COLOR)的 Popup,替代 Kivy 默认灰色背景"""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas.before:
+            Color(*hex_rgb(BG_COLOR), 1)
+            self._bg_rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._update_bg, size=self._update_bg)
+
+    def _update_bg(self, *_):
+        self._bg_rect.pos = self.pos
+        self._bg_rect.size = self.size
+
+
 # ---------- 沙漏画布 ----------
 
 class HourglassWidget(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.duration = 60.0
+        self.duration = 50.0
         self.elapsed = 0.0
         self.running = False
         self.last_tick = None
@@ -535,7 +553,7 @@ class HourglassWidget(Widget):
             return False
         if d <= 0:
             return False
-        d = min(d, 100000)
+        d = min(d, 360000)
         if d == self.duration:
             return False
         self.duration = d
@@ -918,7 +936,7 @@ class HourglassApp(App):
         self.color_btns = []
         for name, base, dark, light in SAND_PRESETS:
             btn = Button(text=name, font_size=sp(13), background_normal="",
-                         background_color=(*hex_rgb(base), 1), color=fg_for(base))
+                         background_color=(*hex_rgb(base), 1), color=(1, 1, 1, 1))
             btn.bind(on_press=lambda inst, b=base, d=dark, l=light, n=name:
                      self.on_color(b, d, l, n))
             top_colors.add_widget(btn)
@@ -927,7 +945,7 @@ class HourglassApp(App):
 
         # 倒计时
         self.time_label = Label(
-            text=f"{self.hourglass.duration:.0f}s / {self.hourglass.duration:.0f}s",
+            text=f"{self.hourglass.duration:.0f}/{self.hourglass.duration:.0f}秒",
             font_size=sp(20), bold=True, size_hint=(1, None), height=dp(34),
             color=(0.2, 0.2, 0.2, 1))
         root.add_widget(self.time_label)
@@ -976,6 +994,11 @@ class HourglassApp(App):
                 return n
         return "金沙"
 
+    def _sel_fg_for(self, rgb):
+        """选中态按钮文字色:亮色背景用黑字,暗色用白字(保证对比度)"""
+        r, g, b = rgb
+        return (0, 0, 0, 1) if (r * 0.299 + g * 0.587 + b * 0.114) > 0.59 else (1, 1, 1, 1)
+
     def _closest_base_and_mult(self, sec):
         best_base, best_mult = 60, 1
         best_diff = float('inf')
@@ -995,56 +1018,70 @@ class HourglassApp(App):
         # mutable closure state
         state = {"base": init_base, "mult": init_mult}
 
-        content = BoxLayout(orientation="vertical", spacing=dp(10),
-                            padding=[dp(12), dp(12), dp(12), dp(8)])
+        content = BoxLayout(orientation="vertical", spacing=dp(6),
+                            padding=(dp(12), dp(4), dp(12), dp(8)))
 
-        # --- 基础周期按钮 (单行5列,避免GridLayout最后一行不对齐) ---
+        # 预创建 mult_btns/preview_label,避免 lambda 闭包延迟绑定
+        # (Android Kivy 2.3.0 对 late binding 时序敏感,曾导致点周期按钮闪退)
+        mult_btns = {}
+        preview_label = Label(
+            text=f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）",
+            size_hint=(1, None), height=dp(28),
+            color=(1, 1, 1, 1), font_size=sp(15))
+
+        # --- 基础时间标题 ---
+        base_title = Label(text="基础时间:", size_hint=(1, None), height=dp(18),
+                           color=(1, 1, 1, 1), font_size=sp(12),
+                           halign="left", valign="middle")
+        base_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
+        content.add_widget(base_title)
+
+        # --- 基础周期按钮 ---
         base_grid = BoxLayout(orientation="horizontal", spacing=dp(6),
                               size_hint=(1, None), height=dp(38))
         base_btns = {}
-        base_default = hex_rgb(GLASS_OUTLINE)
+        base_default = hex_rgb("#E5E1D2")
         sand_c = self.hourglass.sand_base  # 选中态用当前沙色
+        sel_fg = self._sel_fg_for(sand_c)  # 亮沙色用黑字,暗沙色用白字
         for label, val in BASE_PERIODS:
             is_sel = (val == init_base)
             btn = Button(text=label, font_size=sp(14),
                          background_normal="",
-                         background_color=(*sand_c, 0.8) if is_sel
-                                          else (*base_default, 0.12),
-                         color=(1, 1, 1, 1) if is_sel else (0.2, 0.2, 0.2, 1))
-            btn.bind(on_press=lambda inst, v=val:
-                     self._on_base_picked(v, base_btns, state, mult_btns,
-                                          preview_label))
+                         background_color=(*sand_c, 1) if is_sel
+                                          else (*sand_c, 0.5),
+                         color=(0, 0, 0, 1))
+            btn.bind(on_press=lambda inst, v=val, bb=base_btns, mb=mult_btns,
+                              st=state, pl=preview_label:
+                     self._on_base_picked(v, bb, st, mb, pl))
             base_btns[val] = btn
             base_grid.add_widget(btn)
         content.add_widget(base_grid)
 
         # --- 倍数按钮 (两行 BoxLayout, 不用 GridLayout 避免 Android 兼容问题) ---
-        MULTIPLIERS = [1, 2, 3, 5, 10, 15, 20, 30, 50, 100]
-        content.add_widget(Label(text="倍数:", size_hint=(1, None), height=dp(18),
-                                 color=(0.2, 0.2, 0.2, 1), font_size=sp(12),
-                                 halign="left"))
-        mult_btns = {}
+        MULTIPLIERS = [1, 2, 3, 5, 10, 20, 30, 50, 70, 100]
+        mult_title = Label(text="倍数:", size_hint=(1, None), height=dp(18),
+                           color=(1, 1, 1, 1), font_size=sp(12),
+                           halign="left", valign="middle")
+        mult_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
+        content.add_widget(mult_title)
         for row_vals in [MULTIPLIERS[:5], MULTIPLIERS[5:]]:
             row = BoxLayout(orientation="horizontal", spacing=dp(5),
                             size_hint=(1, None), height=dp(34))
             for m in row_vals:
                 is_m = (m == init_mult)
-                btn = Button(text=f"{m}×", font_size=sp(13),
+                btn = Button(text=f"{m}倍", font_size=sp(13),
                              background_normal="",
-                             background_color=(*sand_c, 0.8) if is_m
-                                              else (*base_default, 0.12),
-                             color=(1, 1, 1, 1) if is_m else (0.2, 0.2, 0.2, 1))
-                btn.bind(on_press=lambda inst, v=m:
-                         self._on_mult_picked(v, mult_btns, state, preview_label))
+                             background_color=(*sand_c, 1) if is_m
+                                              else (*sand_c, 0.5),
+                             color=(0, 0, 0, 1))
+                btn.bind(on_press=lambda inst, v=m, mb=mult_btns, st=state,
+                                  pl=preview_label:
+                         self._on_mult_picked(v, mb, st, pl))
                 mult_btns[m] = btn
                 row.add_widget(btn)
             content.add_widget(row)
 
-        # --- 预览 ---
-        preview_label = Label(
-            text=f"最终周期：{_fmt_duration(state['base'] * state['mult'])}",
-            size_hint=(1, None), height=dp(28),
-            color=(0.2, 0.2, 0.2, 1), font_size=sp(15))
+        # --- 预览 (预创建,此处 add 到正确位置) ---
         content.add_widget(preview_label)
 
         # --- 运行中警告 ---
@@ -1059,49 +1096,57 @@ class HourglassApp(App):
                             size_hint=(1, None), height=dp(48))
         cancel_btn = Button(text="取消", font_size=sp(14),
                             background_normal="",
-                            background_color=(*hex_rgb(GLASS_OUTLINE), 0.15),
-                            color=(0.2, 0.2, 0.2, 1))
+                            background_color=(*sand_c, 0.5),
+                            color=(0, 0, 0, 1))
         btn_row.add_widget(cancel_btn)
         confirm_btn = Button(text="确定", font_size=sp(14), bold=True,
                              background_normal="",
-                             background_color=(0.353, 0.620, 0.243, 1),
+                             background_color=(*self.hourglass.sand_dark, 1),
                              color=(1, 1, 1, 1))
         btn_row.add_widget(confirm_btn)
         content.add_widget(btn_row)
 
-        popup = Popup(title="选择周期", content=content,
-                      size_hint=(0.88, 0.54),
-                      auto_dismiss=False,
-                      title_align="center",
-                      title_size=sp(16))
+        popup = _SandBgPopup(title="选择周期", content=content,
+                             size_hint=(0.88, None), height=dp(380),
+                             auto_dismiss=False)
+        popup.title_align = "center"
+        popup.title_size = sp(16)
         popup.separator_color = (0.373, 0.420, 0.439, 0.3)
+        # content 自适应内容高度,不撑满 _container;顶部对齐紧贴 separator
+        content.size_hint_y = None
+        content.pos_hint = {'top': 1}
+        content.bind(minimum_height=content.setter('height'))
+        # Popup 高度自适应 content 高度(+ title bar/separator/padding 余量)
+        def _adjust_popup_height(inst, val):
+            popup.height = val + dp(70)
+        content.bind(minimum_height=_adjust_popup_height)
 
-        # 绑定必须放在 popup 创建之后
         cancel_btn.bind(on_press=popup.dismiss)
-        confirm_btn.bind(on_press=lambda inst:
-                         self._pick_duration(state['base'] * state['mult'],
-                                            popup))
+        confirm_btn.bind(on_press=lambda inst, st=state, p=popup:
+                         self._pick_duration(st['base'] * st['mult'], p))
         popup.open()
 
     def _on_base_picked(self, val, base_btns, state, mult_btns, preview_label):
         state["base"] = val
-        active_color = (*self.hourglass.sand_base, 0.8)
-        inactive_color = (*hex_rgb(GLASS_OUTLINE), 0.12)
+        active_color = (*self.hourglass.sand_base, 1)
+        sel_fg = self._sel_fg_for(self.hourglass.sand_base)
+        inactive_color = (*self.hourglass.sand_base, 0.5)
         for v, btn in base_btns.items():
             sel = (v == val)
             btn.background_color = active_color if sel else inactive_color
-            btn.color = (1, 1, 1, 1) if sel else (0.2, 0.2, 0.2, 1)
-        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}"
+            btn.color = (0, 0, 0, 1)
+        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
 
     def _on_mult_picked(self, val, mult_btns, state, preview_label):
         state["mult"] = val
-        active_color = (*self.hourglass.sand_base, 0.8)
-        inactive_color = (*hex_rgb(GLASS_OUTLINE), 0.12)
+        active_color = (*self.hourglass.sand_base, 1)
+        sel_fg = self._sel_fg_for(self.hourglass.sand_base)
+        inactive_color = (*self.hourglass.sand_base, 0.5)
         for m, btn in mult_btns.items():
             sel = (m == val)
             btn.background_color = active_color if sel else inactive_color
-            btn.color = (1, 1, 1, 1) if sel else (0.2, 0.2, 0.2, 1)
-        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}"
+            btn.color = (0, 0, 0, 1)
+        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
 
     def _pick_duration(self, sec, popup):
         popup.dismiss()
@@ -1143,7 +1188,7 @@ class HourglassApp(App):
             btn.text = ("● " + n) if n == name else n
 
     def update_time(self, remaining_sec, duration):
-        self.time_label.text = f"{remaining_sec:.0f}s / {duration:.0f}s"
+        self.time_label.text = f"{remaining_sec:.0f}/{duration:.0f}秒"
 
     def on_pause(self):
         return True
