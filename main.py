@@ -113,7 +113,6 @@ def _fmt_duration(sec):
 
 
 BASE_PERIODS = [
-    ("1 秒", 1),
     ("10 秒", 10),
     ("1 分钟", 60),
     ("10 分钟", 600),
@@ -1016,26 +1015,32 @@ class HourglassApp(App):
                                           else (*base_default, 0.12),
                          color=(1, 1, 1, 1) if is_sel else (0.2, 0.2, 0.2, 1))
             btn.bind(on_press=lambda inst, v=val:
-                     self._on_base_picked(v, base_btns, state, mult_slider,
-                                          mult_label, preview_label))
+                     self._on_base_picked(v, base_btns, state, mult_btns,
+                                          preview_label))
             base_btns[val] = btn
             base_grid.add_widget(btn)
         content.add_widget(base_grid)
 
-        # --- 倍数滑块行 ---
-        slider_row = BoxLayout(orientation="horizontal", spacing=dp(8),
-                               size_hint=(1, None), height=dp(36))
-        slider_row.add_widget(Label(text="倍数:", size_hint=(None, 1),
-                                    width=dp(48), color=(0.2, 0.2, 0.2, 1),
-                                    font_size=sp(14)))
-        mult_slider = Slider(min=1, max=100, value=init_mult, step=1,
-                             size_hint=(1, 1))
-        mult_label = Label(text=f"{init_mult}×", size_hint=(None, 1),
-                           width=dp(44), color=(0.2, 0.2, 0.2, 1),
-                           font_size=sp(14), bold=True)
-        slider_row.add_widget(mult_slider)
-        slider_row.add_widget(mult_label)
-        content.add_widget(slider_row)
+        # --- 倍数按钮 (两行, 替代 Slider 避免 Android 兼容闪退) ---
+        MULTIPLIERS = [1, 2, 3, 5, 10, 15, 20, 30, 50, 100]
+        content.add_widget(Label(text="倍数:", size_hint=(1, None), height=dp(20),
+                                 color=(0.2, 0.2, 0.2, 1), font_size=sp(13),
+                                 halign="left"))
+        mult_grid = GridLayout(cols=5, spacing=dp(5), size_hint=(1, None),
+                               height=dp(72))
+        mult_btns = {}
+        for m in MULTIPLIERS:
+            is_m = (m == init_mult)
+            btn = Button(text=f"{m}×", font_size=sp(13),
+                         background_normal="",
+                         background_color=(*sand_c, 0.8) if is_m
+                                          else (*base_default, 0.12),
+                         color=(1, 1, 1, 1) if is_m else (0.2, 0.2, 0.2, 1))
+            btn.bind(on_press=lambda inst, v=m:
+                     self._on_mult_picked(v, mult_btns, state, preview_label))
+            mult_btns[m] = btn
+            mult_grid.add_widget(btn)
+        content.add_widget(mult_grid)
 
         # --- 预览 ---
         preview_label = Label(
@@ -1050,11 +1055,6 @@ class HourglassApp(App):
                                size_hint=(1, None), height=dp(22),
                                color=(0.85, 0.45, 0.15, 1), font_size=sp(12))
             content.add_widget(warn_label)
-
-        # --- 滑块回调 ---
-        mult_slider.bind(value=lambda inst, v:
-                         self._on_slider_change(round(v), state, mult_label,
-                                                preview_label))
 
         # --- 取消 + 确定 按钮行 ---
         btn_row = BoxLayout(orientation="horizontal", spacing=dp(8),
@@ -1076,19 +1076,15 @@ class HourglassApp(App):
         content.add_widget(btn_row)
 
         popup = Popup(title="选择周期", content=content,
-                      size_hint=(0.88, 0.48),
+                      size_hint=(0.88, 0.54),
                       auto_dismiss=False,
                       title_align="center",
                       title_size=sp(16))
         popup.separator_color = (0.373, 0.420, 0.439, 0.3)
 
-        confirm_btn.bind(on_press=lambda inst:
-                         self._pick_duration(state['base'] * state['mult'],
-                                            popup))
         popup.open()
 
-    def _on_base_picked(self, val, base_btns, state, slider, mult_label,
-                        preview_label):
+    def _on_base_picked(self, val, base_btns, state, mult_btns, preview_label):
         state["base"] = val
         active_color = (*self.hourglass.sand_base, 0.8)
         inactive_color = (*hex_rgb(GLASS_OUTLINE), 0.12)
@@ -1096,18 +1092,17 @@ class HourglassApp(App):
             sel = (v == val)
             btn.background_color = active_color if sel else inactive_color
             btn.color = (1, 1, 1, 1) if sel else (0.2, 0.2, 0.2, 1)
-        # 调整滑块上限使 base × mult ≤ 100000
-        slider.max = max(1, min(100, int(100000 / val)))
-        if slider.value > slider.max:
-            slider.value = slider.max
-        state["mult"] = int(slider.value)
-        mult_label.text = f"{state['mult']}×"
         preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}"
 
-    def _on_slider_change(self, mult, state, mult_label, preview_label):
-        state["mult"] = mult
-        mult_label.text = f"{mult}×"
-        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * mult)}"
+    def _on_mult_picked(self, val, mult_btns, state, preview_label):
+        state["mult"] = val
+        active_color = (*self.hourglass.sand_base, 0.8)
+        inactive_color = (*hex_rgb(GLASS_OUTLINE), 0.12)
+        for m, btn in mult_btns.items():
+            sel = (m == val)
+            btn.background_color = active_color if sel else inactive_color
+            btn.color = (1, 1, 1, 1) if sel else (0.2, 0.2, 0.2, 1)
+        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}"
 
     def _pick_duration(self, sec, popup):
         popup.dismiss()
