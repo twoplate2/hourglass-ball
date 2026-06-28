@@ -57,6 +57,15 @@ BG_COLOR = "#fdf6e3"
 GLASS_FILL = "#eaf3f8"
 GLASS_OUTLINE = "#5f6b70"
 
+# ---- 周期弹窗独立配色(暖金/沙色系) ----
+POPUP_BG = "#faf5eb"                              # 弹窗底色,暖白
+POPUP_GOLD_SEL = (0.792, 0.643, 0.314, 1)         # 选中:暖金 #caa450
+POPUP_UNSEL_BASE = (0.659, 0.565, 0.471, 1)       # 未选(基础):暖棕 #a89078
+POPUP_UNSEL_MULT = (0.722, 0.627, 0.533, 1)       # 未选(倍数):浅棕 #b8a088
+POPUP_CANCEL_BG = (0.847, 0.824, 0.792, 1)        # 取消:暖灰(比未选亮,表示次要操作)
+POPUP_TEXT = (0.20, 0.14, 0.08, 1)                # 深咖啡文字
+POPUP_TEXT_WHITE = (1, 1, 1, 1)
+
 FALL_DELAY = 1.0          # 沙子飞到底的延迟(秒),下沙堆出现与粒子到底同步
 MOUND_APPEAR = 0.5        # 下沙堆出现后平滑渐显时长
 MOUND_FLOOR_MIN = 2.5     # 前期极小可见保底(dp),仅防薄层消失,不拔高
@@ -294,17 +303,43 @@ class _SoundProxy:
 
 
 class _SandBgPopup(Popup):
-    """背景为沙色(BG_COLOR)的 Popup,替代 Kivy 默认灰色背景"""
-    def __init__(self, **kwargs):
+    """浅色背景 Popup,覆盖 Kivy 默认深灰风格(双层兜底)"""
+    def __init__(self, bg_hex=POPUP_BG, **kwargs):
+        self._bg_hex = bg_hex
+        self._bg_rgb = hex_rgb(bg_hex)
+        kwargs.setdefault('separator_color', (*POPUP_GOLD_SEL[:3], 0.3))
+        kwargs.setdefault('title_color', (1, 1, 1, 1))
+        kwargs.setdefault('title_align', 'center')
         super().__init__(**kwargs)
+        # 兜底层: Popup 本体 canvas.before(填充容器外间隙)
         with self.canvas.before:
-            Color(*hex_rgb(BG_COLOR), 1)
-            self._bg_rect = Rectangle(pos=self.pos, size=self.size)
-        self.bind(pos=self._update_bg, size=self._update_bg)
+            Color(*self._bg_rgb, 1)
+            self._popup_bg = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._upd_popup_bg, size=self._upd_popup_bg)
 
-    def _update_bg(self, *_):
-        self._bg_rect.pos = self.pos
-        self._bg_rect.size = self.size
+    def _upd_popup_bg(self, inst, _value):
+        self._popup_bg.pos = inst.pos
+        self._popup_bg.size = inst.size
+
+    def open(self, *args, **kwargs):
+        super().open(*args, **kwargs)
+        Clock.schedule_once(self._apply_light_theme, 0)
+
+    def _apply_light_theme(self, *_):
+        """清空 _container 深色背景,替换为浅色"""
+        try:
+            container = self.content.parent
+            container.canvas.before.clear()
+            with container.canvas.before:
+                Color(*self._bg_rgb, 1)
+                self._ctr_bg = Rectangle(pos=container.pos, size=container.size)
+            container.bind(pos=self._upd_ctr_bg, size=self._upd_ctr_bg)
+        except Exception:
+            pass
+
+    def _upd_ctr_bg(self, inst, _value):
+        self._ctr_bg.pos = inst.pos
+        self._ctr_bg.size = inst.size
 
 
 # ---------- 沙漏画布 ----------
@@ -960,17 +995,16 @@ class HourglassApp(App):
                                    size_hint=(None, 1), width=dp(72),
                                    font_size=sp(14), bold=True,
                                    background_normal="",
-                                   background_color=(*hex_rgb(GLASS_OUTLINE), 0.15),
-                                   color=(0.2, 0.2, 0.2, 1))
+                                   background_color=(0.769, 0.682, 0.557, 1),
+                                   color=POPUP_TEXT)
         self.duration_btn.bind(on_press=self.on_duration_picker)
         bottom.add_widget(self.duration_btn)
         self.sound_btn = Button(text="音效:开" if self.hourglass.sound_on else "音效:关",
                                 size_hint=(None, 1), width=dp(66), font_size=sp(12),
                                 background_normal="",
-                                background_color=(0.353, 0.620, 0.243, 0.7) if self.hourglass.sound_on
-                                                 else (*hex_rgb(GLASS_OUTLINE), 0.15),
-                                color=(1, 1, 1, 1) if self.hourglass.sound_on
-                                      else (0.2, 0.2, 0.2, 1))
+                                background_color=(*POPUP_GOLD_SEL[:3], 0.92) if self.hourglass.sound_on
+                                                 else (0.718, 0.686, 0.643, 1),
+                                color=POPUP_TEXT)
         self.sound_btn.bind(on_press=self.on_toggle_sound)
         bottom.add_widget(self.sound_btn)
         bottom.add_widget(Widget())   # spacer
@@ -1027,11 +1061,11 @@ class HourglassApp(App):
         preview_label = Label(
             text=f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）",
             size_hint=(1, None), height=dp(28),
-            color=(1, 1, 1, 1), font_size=sp(15))
+            color=POPUP_TEXT, font_size=sp(15))
 
         # --- 基础时间标题 ---
         base_title = Label(text="基础时间:", size_hint=(1, None), height=dp(18),
-                           color=(1, 1, 1, 1), font_size=sp(12),
+                           color=POPUP_TEXT, font_size=sp(12),
                            halign="left", valign="middle")
         base_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
         content.add_widget(base_title)
@@ -1040,16 +1074,13 @@ class HourglassApp(App):
         base_grid = BoxLayout(orientation="horizontal", spacing=dp(6),
                               size_hint=(1, None), height=dp(38))
         base_btns = {}
-        base_default = hex_rgb("#E5E1D2")
-        sand_c = self.hourglass.sand_base  # 选中态用当前沙色
-        sel_fg = self._sel_fg_for(sand_c)  # 亮沙色用黑字,暗沙色用白字
         for label, val in BASE_PERIODS:
             is_sel = (val == init_base)
             btn = Button(text=label, font_size=sp(14),
                          background_normal="",
-                         background_color=(*sand_c, 1) if is_sel
-                                          else (*sand_c, 0.5),
-                         color=(0, 0, 0, 1))
+                         background_color=POPUP_GOLD_SEL if is_sel
+                                          else POPUP_UNSEL_BASE,
+                         color=POPUP_TEXT)
             btn.bind(on_press=lambda inst, v=val, bb=base_btns, mb=mult_btns,
                               st=state, pl=preview_label:
                      self._on_base_picked(v, bb, st, mb, pl))
@@ -1060,7 +1091,7 @@ class HourglassApp(App):
         # --- 倍数按钮 (两行 BoxLayout, 不用 GridLayout 避免 Android 兼容问题) ---
         MULTIPLIERS = [1, 2, 3, 5, 10, 20, 30, 50, 70, 100]
         mult_title = Label(text="倍数:", size_hint=(1, None), height=dp(18),
-                           color=(1, 1, 1, 1), font_size=sp(12),
+                           color=POPUP_TEXT, font_size=sp(12),
                            halign="left", valign="middle")
         mult_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
         content.add_widget(mult_title)
@@ -1071,9 +1102,9 @@ class HourglassApp(App):
                 is_m = (m == init_mult)
                 btn = Button(text=f"{m}倍", font_size=sp(13),
                              background_normal="",
-                             background_color=(*sand_c, 1) if is_m
-                                              else (*sand_c, 0.5),
-                             color=(0, 0, 0, 1))
+                             background_color=POPUP_GOLD_SEL if is_m
+                                              else POPUP_UNSEL_MULT,
+                             color=POPUP_TEXT)
                 btn.bind(on_press=lambda inst, v=m, mb=mult_btns, st=state,
                                   pl=preview_label:
                          self._on_mult_picked(v, mb, st, pl))
@@ -1096,13 +1127,13 @@ class HourglassApp(App):
                             size_hint=(1, None), height=dp(48))
         cancel_btn = Button(text="取消", font_size=sp(14),
                             background_normal="",
-                            background_color=(*sand_c, 0.5),
-                            color=(0, 0, 0, 1))
+                            background_color=POPUP_CANCEL_BG,
+                            color=POPUP_TEXT)
         btn_row.add_widget(cancel_btn)
         confirm_btn = Button(text="确定", font_size=sp(14), bold=True,
                              background_normal="",
-                             background_color=(*self.hourglass.sand_dark, 1),
-                             color=(1, 1, 1, 1))
+                             background_color=POPUP_GOLD_SEL,
+                             color=POPUP_TEXT)
         btn_row.add_widget(confirm_btn)
         content.add_widget(btn_row)
 
@@ -1111,7 +1142,8 @@ class HourglassApp(App):
                              auto_dismiss=False)
         popup.title_align = "center"
         popup.title_size = sp(16)
-        popup.separator_color = (0.373, 0.420, 0.439, 0.3)
+        popup.separator_color = (*POPUP_GOLD_SEL[:3], 0.25)
+        popup.title_color = (1, 1, 1, 1)
         # content 自适应内容高度,不撑满 _container;顶部对齐紧贴 separator
         content.size_hint_y = None
         content.pos_hint = {'top': 1}
@@ -1128,24 +1160,22 @@ class HourglassApp(App):
 
     def _on_base_picked(self, val, base_btns, state, mult_btns, preview_label):
         state["base"] = val
-        active_color = (*self.hourglass.sand_base, 1)
-        sel_fg = self._sel_fg_for(self.hourglass.sand_base)
-        inactive_color = (*self.hourglass.sand_base, 0.5)
+        active_color = POPUP_GOLD_SEL
+        inactive_color = POPUP_UNSEL_BASE
         for v, btn in base_btns.items():
             sel = (v == val)
             btn.background_color = active_color if sel else inactive_color
-            btn.color = (0, 0, 0, 1)
+            btn.color = POPUP_TEXT
         preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
 
     def _on_mult_picked(self, val, mult_btns, state, preview_label):
         state["mult"] = val
-        active_color = (*self.hourglass.sand_base, 1)
-        sel_fg = self._sel_fg_for(self.hourglass.sand_base)
-        inactive_color = (*self.hourglass.sand_base, 0.5)
+        active_color = POPUP_GOLD_SEL
+        inactive_color = POPUP_UNSEL_MULT
         for m, btn in mult_btns.items():
             sel = (m == val)
             btn.background_color = active_color if sel else inactive_color
-            btn.color = (0, 0, 0, 1)
+            btn.color = POPUP_TEXT
         preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
 
     def _pick_duration(self, sec, popup):
@@ -1174,8 +1204,8 @@ class HourglassApp(App):
     def on_toggle_sound(self, *_):
         on = self.hourglass.toggle_sound()
         self.sound_btn.text = "音效:开" if on else "音效:关"
-        self.sound_btn.background_color = (0.353, 0.620, 0.243, 0.7) if on else (*hex_rgb(GLASS_OUTLINE), 0.15)
-        self.sound_btn.color = (1, 1, 1, 1) if on else (0.2, 0.2, 0.2, 1)
+        self.sound_btn.background_color = (*POPUP_GOLD_SEL[:3], 0.92) if on else (0.718, 0.686, 0.643, 1)
+        self.sound_btn.color = POPUP_TEXT
         self.hourglass.save_config(self._selected_color_name())
 
     def on_color(self, base, dark, light, name):
