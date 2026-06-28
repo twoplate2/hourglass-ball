@@ -27,7 +27,10 @@ from kivy.graphics import (Color, Rectangle, Line, Ellipse,
 from kivy.metrics import dp, sp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+from kivy.uix.slider import Slider
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import platform
@@ -38,7 +41,8 @@ _FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "fonts", "NotoSansSC-Medium.otf")
 try:
     if os.path.exists(_FONT_PATH):
-        LabelBase.register(name="Roboto", fn_regular=_FONT_PATH)
+        LabelBase.register(name="Roboto", fn_regular=_FONT_PATH,
+                           fn_bold=_FONT_PATH)
 except Exception:
     pass
 
@@ -97,6 +101,24 @@ def config_path():
         except Exception:
             pass
     return os.path.join(os.path.expanduser("~"), ".hourglass_config.json")
+
+
+def _fmt_duration(sec):
+    if sec < 60:
+        return f"{sec:.0f} 秒"
+    elif sec < 3600:
+        return f"{sec / 60:.0f} 分"
+    else:
+        return f"{sec / 3600:.0f} 时"
+
+
+BASE_PERIODS = [
+    ("1 秒", 1),
+    ("10 秒", 10),
+    ("1 分", 60),
+    ("10 分", 600),
+    ("1 时", 3600),
+]
 
 
 # ---------- 居中输入框(Kivy TextInput 无 text_align,手动算 padding) ----------
@@ -831,8 +853,12 @@ class HourglassApp(App):
                                height=dp(44), spacing=dp(3))
         self.color_btns = []
         for name, base, dark, light in SAND_PRESETS:
+            is_sel = (name == color_name)
             btn = Button(text=name, font_size=sp(13), background_normal="",
-                         background_color=(*hex_rgb(base), 1), color=fg_for(base))
+                         background_color=(*hex_rgb(base), 1) if is_sel
+                                          else (*hex_rgb(base), 0.42),
+                         color=fg_for(base) if is_sel
+                               else (*fg_for(base)[:3], 0.55))
             btn.bind(on_press=lambda inst, b=base, d=dark, l=light, n=name:
                      self.on_color(b, d, l, n))
             top_colors.add_widget(btn)
@@ -852,15 +878,21 @@ class HourglassApp(App):
         # 底部控件
         bottom = BoxLayout(orientation="horizontal", size_hint=(1, None),
                            height=dp(50), spacing=dp(4))
-        bottom.add_widget(Label(text="周期:", size_hint=(None, 1), width=dp(48),
-                                color=(0.2, 0.2, 0.2, 1), font_size=sp(14)))
-        self.duration_input = CenterTextInput(
-            text=str(int(self.hourglass.duration)), multiline=False,
-            size_hint=(None, 1), width=dp(72), font_size=sp(18), input_filter="float")
-        self.duration_input.bind(on_text_validate=self.on_set_duration)
-        bottom.add_widget(self.duration_input)
+        self.duration_btn = Button(text=_fmt_duration(self.hourglass.duration) + " ▾",
+                                   size_hint=(None, 1), width=dp(78),
+                                   font_size=sp(14), bold=True,
+                                   background_normal="",
+                                   background_color=(*hex_rgb(GLASS_OUTLINE), 0.15),
+                                   color=(0.2, 0.2, 0.2, 1))
+        self.duration_btn.bind(on_press=self.on_duration_picker)
+        bottom.add_widget(self.duration_btn)
         self.sound_btn = Button(text="音效:开" if self.hourglass.sound_on else "音效:关",
-                                size_hint=(None, 1), width=dp(66), font_size=sp(12))
+                                size_hint=(None, 1), width=dp(66), font_size=sp(12),
+                                background_normal="",
+                                background_color=(0.353, 0.620, 0.243, 0.7) if self.hourglass.sound_on
+                                                 else (*hex_rgb(GLASS_OUTLINE), 0.15),
+                                color=(1, 1, 1, 1) if self.hourglass.sound_on
+                                      else (0.2, 0.2, 0.2, 1))
         self.sound_btn.bind(on_press=self.on_toggle_sound)
         bottom.add_widget(self.sound_btn)
         bottom.add_widget(Widget())   # spacer
@@ -884,22 +916,148 @@ class HourglassApp(App):
                 return n
         return "金沙"
 
-    def on_set_duration(self, *_):
-        if self.hourglass.set_duration(self.duration_input.text):
+    def _closest_base_and_mult(self, sec):
+        best_base, best_mult = 60, 1
+        best_diff = float('inf')
+        for _, base_val in BASE_PERIODS:
+            mult = max(1, min(100, round(sec / base_val)))
+            total = base_val * mult
+            diff = abs(total - sec)
+            if diff < best_diff:
+                best_diff = diff
+                best_base = base_val
+                best_mult = mult
+        return best_base, best_mult
+
+    def on_duration_picker(self, *_):
+        cur = self.hourglass.duration
+        init_base, init_mult = self._closest_base_and_mult(cur)
+        # mutable closure state
+        state = {"base": init_base, "mult": init_mult}
+
+        content = BoxLayout(orientation="vertical", spacing=dp(10),
+                            padding=[dp(12), dp(12), dp(12), dp(8)])
+        content.size_hint = (1, 1)
+
+        # --- 基础周期按钮 (单行5列,避免GridLayout最后一行不对齐) ---
+        base_grid = BoxLayout(orientation="horizontal", spacing=dp(6),
+                              size_hint=(1, None), height=dp(38))
+        base_btns = {}
+        base_default = hex_rgb(GLASS_OUTLINE)
+        sand_c = self.hourglass.sand_base  # 选中态用当前沙色
+        for label, val in BASE_PERIODS:
+            is_sel = (val == init_base)
+            btn = Button(text=label, font_size=sp(14),
+                         background_normal="",
+                         background_color=(*sand_c, 0.8) if is_sel
+                                          else (*base_default, 0.12),
+                         color=(1, 1, 1, 1) if is_sel else (0.2, 0.2, 0.2, 1))
+            btn.bind(on_press=lambda inst, v=val:
+                     self._on_base_picked(v, base_btns, state, mult_slider,
+                                          mult_label, preview_label))
+            base_btns[val] = btn
+            base_grid.add_widget(btn)
+        content.add_widget(base_grid)
+
+        # --- 倍数滑块行 ---
+        slider_row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                               size_hint=(1, None), height=dp(36))
+        slider_row.add_widget(Label(text="倍数:", size_hint=(None, 1),
+                                    width=dp(48), color=(0.2, 0.2, 0.2, 1),
+                                    font_size=sp(14)))
+        mult_slider = Slider(min=1, max=100, value=init_mult, step=1,
+                             size_hint=(1, 1))
+        mult_label = Label(text=f"{init_mult}×", size_hint=(None, 1),
+                           width=dp(44), color=(0.2, 0.2, 0.2, 1),
+                           font_size=sp(14), bold=True)
+        slider_row.add_widget(mult_slider)
+        slider_row.add_widget(mult_label)
+        content.add_widget(slider_row)
+
+        # --- 预览 ---
+        preview_label = Label(
+            text=f"最终周期：{_fmt_duration(state['base'] * state['mult'])}",
+            size_hint=(1, None), height=dp(28),
+            color=(0.2, 0.2, 0.2, 1), font_size=sp(15))
+        content.add_widget(preview_label)
+
+        # --- 运行中警告 ---
+        if self.hourglass.running:
+            warn_label = Label(text="修改周期将重置当前进度",
+                               size_hint=(1, None), height=dp(22),
+                               color=(0.85, 0.45, 0.15, 1), font_size=sp(12))
+            content.add_widget(warn_label)
+
+        # --- 滑块回调 ---
+        mult_slider.bind(value=lambda inst, v:
+                         self._on_slider_change(round(v), state, mult_label,
+                                                preview_label))
+
+        # --- 取消 + 确定 按钮行 ---
+        btn_row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                            size_hint=(1, None), height=dp(48))
+        cancel_btn = Button(text="取消", font_size=sp(14),
+                            background_normal="",
+                            background_color=(*hex_rgb(GLASS_OUTLINE), 0.15),
+                            color=(0.2, 0.2, 0.2, 1))
+        cancel_btn.bind(on_press=popup.dismiss)
+        btn_row.add_widget(cancel_btn)
+        confirm_btn = Button(text="确定", font_size=sp(14), bold=True,
+                             background_normal="",
+                             background_color=(0.353, 0.620, 0.243, 1),
+                             color=(1, 1, 1, 1))
+        confirm_btn.bind(on_press=lambda inst:
+                         self._pick_duration(state['base'] * state['mult'],
+                                            popup))
+        btn_row.add_widget(confirm_btn)
+        content.add_widget(btn_row)
+
+        popup = Popup(title="选择周期", content=content,
+                      size_hint=(0.88, 0.48),
+                      auto_dismiss=False,
+                      title_align="center",
+                      title_size=sp(16))
+        popup.separator_color = (0.373, 0.420, 0.439, 0.3)
+
+        confirm_btn.bind(on_press=lambda inst:
+                         self._pick_duration(state['base'] * state['mult'],
+                                            popup))
+        popup.open()
+
+    def _on_base_picked(self, val, base_btns, state, slider, mult_label,
+                        preview_label):
+        state["base"] = val
+        active_color = (*self.hourglass.sand_base, 0.8)
+        inactive_color = (*hex_rgb(GLASS_OUTLINE), 0.12)
+        for v, btn in base_btns.items():
+            sel = (v == val)
+            btn.background_color = active_color if sel else inactive_color
+            btn.color = (1, 1, 1, 1) if sel else (0.2, 0.2, 0.2, 1)
+        # 调整滑块上限使 base × mult ≤ 100000
+        slider.max = max(1, min(100, int(100000 / val)))
+        if slider.value > slider.max:
+            slider.value = slider.max
+        state["mult"] = int(slider.value)
+        mult_label.text = f"{state['mult']}×"
+        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}"
+
+    def _on_slider_change(self, mult, state, mult_label, preview_label):
+        state["mult"] = mult
+        mult_label.text = f"{mult}×"
+        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * mult)}"
+
+    def _pick_duration(self, sec, popup):
+        popup.dismiss()
+        if self.hourglass.set_duration(sec):
             self.hourglass.save_config(self._selected_color_name())
-        self.duration_input.text = str(int(self.hourglass.duration))
+        self.duration_btn.text = _fmt_duration(self.hourglass.duration) + " ▾"
         self.on_run_state_changed()
 
     def on_toggle(self, *_):
-        # 幂等地先应用周期再 toggle,与输入框 FocusOut 时序无关
-        self.hourglass.set_duration(self.duration_input.text)
-        self.duration_input.text = str(int(self.hourglass.duration))
         self.hourglass.toggle()
         self.on_run_state_changed()
 
     def on_reset(self, *_):
-        self.hourglass.set_duration(self.duration_input.text)
-        self.duration_input.text = str(int(self.hourglass.duration))
         self.hourglass.reset()
         self.on_run_state_changed()
 
@@ -914,6 +1072,8 @@ class HourglassApp(App):
     def on_toggle_sound(self, *_):
         on = self.hourglass.toggle_sound()
         self.sound_btn.text = "音效:开" if on else "音效:关"
+        self.sound_btn.background_color = (0.353, 0.620, 0.243, 0.7) if on else (*hex_rgb(GLASS_OUTLINE), 0.15)
+        self.sound_btn.color = (1, 1, 1, 1) if on else (0.2, 0.2, 0.2, 1)
         self.hourglass.save_config(self._selected_color_name())
 
     def on_color(self, base, dark, light, name):
@@ -923,7 +1083,16 @@ class HourglassApp(App):
 
     def _mark_selected(self, name):
         for n, btn in self.color_btns:
-            btn.text = ("● " + n) if n == name else n
+            base_hex = next(p[1] for p in SAND_PRESETS if p[0] == n)
+            fg = fg_for(base_hex)
+            if n == name:
+                btn.background_color = (*hex_rgb(base_hex), 1)
+                btn.color = fg
+                btn.text = "● " + n
+            else:
+                btn.background_color = (*hex_rgb(base_hex), 0.42)
+                btn.color = (*fg[:3], 0.55)
+                btn.text = n
 
     def update_time(self, remaining_sec, duration):
         self.time_label.text = f"{remaining_sec:.0f}s / {duration:.0f}s"
