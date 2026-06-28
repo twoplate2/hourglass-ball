@@ -768,13 +768,19 @@ class HourglassWidget(Widget):
             p["y"] += p["vy"] * dt
             fallen_dist = max(0.0, gen_y - p["y"])
             # 管内: 管壁约束,填满内径 shrink=1.0
-            # 出管进入下球: 流量守恒 A·v=常数,加速→横向收缩
+            # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
             if p["y"] > self._lower_ball_cut:
                 shrink = 1.0
             else:
                 below_tube = self._lower_ball_cut - p["y"]
                 v_at_y = (60.0 ** 2 + 2 * abs(g) * below_tube) ** 0.5
-                shrink = max(0.70, (60.0 / v_at_y) ** 0.5)
+                target = max(0.70, (60.0 / v_at_y) ** 0.5)
+                transition = 40.0  # 平滑过渡区长度(px)
+                if below_tube < transition:
+                    t = below_tube / transition
+                    shrink = 1.0 + (target - 1.0) * t
+                else:
+                    shrink = target
                 dist_to_floor = p["y"] - mound_top
                 if 0 < dist_to_floor < 30:
                     shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
