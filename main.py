@@ -22,7 +22,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.text import LabelBase, Label as CoreLabel
 from kivy.core.window import Window
-from kivy.graphics import (Color, Rectangle, Line, Ellipse,
+from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
                            StencilPush, StencilUse, StencilUnUse, StencilPop)
 from kivy.metrics import dp, sp
 from kivy.uix.boxlayout import BoxLayout
@@ -64,8 +64,28 @@ POPUP_GOLD_SEL = (0.792, 0.643, 0.314, 1)         # 选中:暖金 #caa450
 POPUP_UNSEL_BASE = (0.659, 0.565, 0.471, 1)       # 未选(基础):暖棕 #a89078
 POPUP_UNSEL_MULT = (0.722, 0.627, 0.533, 1)       # 未选(倍数):浅棕 #b8a088
 POPUP_CANCEL_BG = (0.847, 0.824, 0.792, 1)        # 取消:暖灰(比未选亮,表示次要操作)
+POPUP_CONFIRM = (0.62, 0.23, 0.16, 1)              # 「确定」:暗红(与选中金色区分,强调确认操作)
 POPUP_TEXT = (0.20, 0.14, 0.08, 1)                # 深咖啡文字
 POPUP_TEXT_WHITE = (1, 1, 1, 1)
+
+# 球↔管的曲线收窄过渡(纯渲染,不参与体积/守恒计算;移植自 pc v4)
+TAPER_K = 2.2        # 过渡段上端半宽 = K × neck_w, 该点落在球壁上
+TAPER_FILL = 0.62    # 过渡段吃掉"球截口→颈中心"竖直空间的比例, 其余留作直筒
+TAPER_SEGS = 10      # 过渡曲线采样段数
+NECK_FILL = 0.25     # 颈部沙柱注满耗时(秒), 避免起跑瞬间"啪"地从空变满
+
+
+def _bezier2(p0, p1, p2, n):
+    """二次贝塞尔采样。P1 取"球切线 × 管壁线"的交点 → 起点与球弧相切、
+    终点与管壁竖直相切, 全程无折角(C1 连续)。"""
+    pts = []
+    for i in range(n + 1):
+        t = i / n
+        u = 1 - t
+        pts.append((u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0],
+                    u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1]))
+    return pts
+
 
 FALL_DELAY = 1.0          # 沙子飞到底的延迟(秒),下沙堆出现与粒子到底同步
 MOUND_APPEAR = 0.5        # 下沙堆出现后平滑渐显时长
@@ -516,7 +536,7 @@ class HourglassWidget(Widget):
             return
         cx = self.x + w / 2.0
         ow = max(2.0, w * (6.0 / 380.0))
-        tube_h = h * 0.03
+        tube_h = h * 0.055   # 给球↔管的曲线过渡留出竖直空间
         side_margin = w * 0.06
         v_pad = h * 0.02
         nw = self.neck_w
@@ -575,6 +595,29 @@ class HourglassWidget(Widget):
             table.append((cum / V_total if V_total > 0 else 0.0, i / (n - 1)))
             prev = cur
         self._vol_to_height = table
+
+        # ---- 球↔管 曲线收窄过渡(Kivy y 向上, 与 pc v4 上下镜像) ----
+        # 球拿极点接管子, 球面在极点附近近乎水平 → 环壁横向摊开 sqrt(R²-Ri²),
+        # 与竖直管壁形成近 90° 硬折角+扁平"肩台"(垫块感)。这里把肩台挖掉, 改成
+        # 球壁 →(相切) 贝塞尔曲线 →(相切) 短直筒 的连续轮廓。只改渲染, 不动 raw/守恒。
+        t_out = nw                                   # 管外壁半宽
+        t_in = max(1.0, nw - ow)                     # 管内壁半宽(= 沙柱/粒子通道)
+        shoulder = math.sqrt(max(0.0, R * R - Ri * Ri))
+        # 过渡起点必须 ≥ 肩台半宽, 否则起点以上仍是那条扁平暗带(细颈时尤其明显)
+        w_out = min(R * 0.45, max(t_out + 2.0, TAPER_K * nw, shoulder * 1.06))
+        y_out = self._upper_y_c - math.sqrt(max(0.0, R * R - w_out * w_out))
+        y_bot = y_out - max(2.0, (y_out - neck_y) * TAPER_FILL)
+        w_in = max(t_in + 1.0, w_out - ow)
+        y_in = self._upper_y_c - math.sqrt(max(0.0, Ri * Ri - w_in * w_in))
+        # 膝点 = 球在过渡起点处的切线与管壁线的交点 → 保证与球弧相切
+        y_knee_o = y_out - (w_out - t_out) * w_out / math.sqrt(max(1e-6, R * R - w_out * w_out))
+        y_knee_i = y_in - (w_in - t_in) * w_in / math.sqrt(max(1e-6, Ri * Ri - w_in * w_in))
+        y_bot = max(min(y_bot, y_knee_o - 2.0, y_knee_i - 2.0), neck_y + 2.0)
+        self._taper = {
+            'y_bot': y_bot, 't_out': t_out, 't_in': t_in,
+            'out_pts': _bezier2((w_out, y_out), (t_out, y_knee_o), (t_out, y_bot), TAPER_SEGS),
+            'in_pts': _bezier2((w_in, y_in), (t_in, y_knee_i), (t_in, y_bot), TAPER_SEGS),
+        }
         self._geom_ready = True
         self._build_glass_shell()
 
@@ -636,6 +679,33 @@ class HourglassWidget(Widget):
         appear_window = max(0.01, min(MOUND_APPEAR, self.duration - delay))
         appear = min(1.0, (self.elapsed - delay) / appear_window)
         return appear * target
+
+    def _neck_sand_side(self):
+        """颈部沙柱的右半侧轮廓 [(半宽, y), ...] = 上喇叭口曲线 + 直筒(Kivy y 向上)。
+
+        两条刻意的设计(与 pc v4 同源):
+        ① **只到直筒下端**, 下喇叭口敞开不填沙 —— 填了会变成"绿喇叭悬在空球上",
+           沙流跟颈部反而断开; 敞开后沙从孔口流出, 与粒子自然接上。
+        ② 起跑时在 NECK_FILL 秒内**从上往下注满**, 而不是 elapsed>0 一帧切换 ——
+           喇叭口面积大, 瞬间从空变满非常刺眼。
+        """
+        tp = self._taper
+        pts = tp['in_pts']
+        y_top, y_end = pts[0][1], 2 * self._neck_y - tp['y_bot']
+        fill_t = max(0.05, min(NECK_FILL, self.duration * 0.15))
+        f = min(1.0, max(0.0, self.elapsed / fill_t))
+        if f <= 0:
+            return []
+        fill_y = y_top - (y_top - y_end) * f
+        side = [(x, y) for x, y in pts if y > fill_y]
+        w = tp['t_in']
+        if fill_y >= tp['y_bot']:          # 截断点还在曲线段 → 插值取半宽
+            for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                if y1 <= fill_y <= y0:
+                    w = x0 + (x1 - x0) * (y0 - fill_y) / max(1e-6, y0 - y1)
+                    break
+        side.append((w, fill_y))
+        return side
 
     def get_mound_top_y(self):
         """下沙堆顶 y(含中央堆尖; Kivy y 向上,堆从底往上)。"""
@@ -956,13 +1026,41 @@ class HourglassWidget(Widget):
                 Color(*glass_fill)
                 Ellipse(pos=(cx - R + ow, yc - R + ow),
                         size=(2 * (R - ow), 2 * (R - ow)))
-            tube_top = uyc - R + ow
-            tube_bot = lyc + R - ow
-            Color(*glass_fill)
-            Rectangle(pos=(cx - nw, tube_bot), size=(2 * nw, tube_top - tube_bot))
+            # 颈部: 挖掉球极冠肩台 → 直筒 → 上下曲线过渡(几何见 _rebuild_height_table)
+            tp = self._taper
+            t_out, t_in = tp['t_out'], tp['t_in']
+            mir = 2 * self._neck_y
+            yb_u = tp['y_bot']
+            yb_l = mir - yb_u
+            pad = dp(3)
+
+            def _pts(key, flip):
+                return [(x, (mir - y) if flip else y) for x, y in tp[key]]
+
+            def _band(pts, color):
+                """沿曲线逐段画横跨左右的四边形(Kivy 无多边形图元)"""
+                Color(*color)
+                for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                    Quad(points=[cx - x0, y0, cx + x0, y0, cx + x1, y1, cx - x1, y1])
+
+            # ① 擦掉曲线以外的球极冠(用背景色覆盖)
+            bg = hex_rgb(BG_COLOR)
+            for flip in (False, True):
+                op = _pts('out_pts', flip)
+                Color(*bg)
+                for sgn in (1, -1):
+                    for (x0, y0), (x1, y1) in zip(op, op[1:]):
+                        Quad(points=[cx + sgn * x0, y0, cx + sgn * (R + pad), y0,
+                                     cx + sgn * (R + pad), y1, cx + sgn * x1, y1])
+            # ② 直筒段
             Color(*glass_out)
-            Rectangle(pos=(cx - nw, tube_bot), size=(ow, tube_top - tube_bot))
-            Rectangle(pos=(cx + nw - ow, tube_bot), size=(ow, tube_top - tube_bot))
+            Rectangle(pos=(cx - t_out, yb_l), size=(2 * t_out, yb_u - yb_l))
+            Color(*glass_fill)
+            Rectangle(pos=(cx - t_in, yb_l), size=(2 * t_in, yb_u - yb_l))
+            # ③ 曲线过渡: 外轮廓(壁) + 内轮廓(腔)
+            for flip in (False, True):
+                _band(_pts('out_pts', flip), glass_out)
+                _band(_pts('in_pts', flip), glass_fill)
 
     # ---------- 渲染 ----------
 
@@ -989,12 +1087,13 @@ class HourglassWidget(Widget):
             if h_mound > 0.5:
                 self._draw_sand_chord(lyc, self._lower_sand_bot + h_mound)
 
-            # --- 3. 颈部沙柱 ---
-            if self.elapsed > 0 and remaining > 0.001:
-                tsw = max(1.0, nw - ow)
-                Color(*self.sand_base)
-                Rectangle(pos=(cx - tsw, self._lower_sand_top),
-                          size=(2 * tsw, self._upper_sand_bot - self._lower_sand_top))
+            # --- 3. 颈部沙柱(上喇叭口+直筒; 下喇叭口敞开, 交给下落粒子) ---
+            if remaining > 0.001:
+                side = self._neck_sand_side()
+                if len(side) >= 2:
+                    Color(*self.sand_base)
+                    for (x0, y0), (x1, y1) in zip(side, side[1:]):
+                        Quad(points=[cx - x0, y0, cx + x0, y0, cx + x1, y1, cx - x1, y1])
 
             # --- 4. 沙流粒子(按颜色排序,减少 draw call) ---
             n_colors = len(self._color_table)
@@ -1038,9 +1137,12 @@ class HourglassWidget(Widget):
 
             # --- 9. 颈部高光(漏完可见) ---
             if remaining <= 0.001:
+                bore = self._taper['t_in']   # 孔壁半宽(曲线过渡后不再是 neck_w)
                 Color(0.8, 0.8, 0.8, 1)
-                Line(points=[cx - nw + 1, self._neck_y - 7, cx - nw + 1, self._neck_y + 7], width=1)
-                Line(points=[cx + nw - 1, self._neck_y - 7, cx + nw - 1, self._neck_y + 7], width=1)
+                Line(points=[cx - bore + 1, self._neck_y - 7,
+                             cx - bore + 1, self._neck_y + 7], width=1)
+                Line(points=[cx + bore - 1, self._neck_y - 7,
+                             cx + bore - 1, self._neck_y + 7], width=1)
 
             # --- 10. 暂停遮罩 ---
             if not self.running and 0 < self.elapsed < self.duration:
@@ -1137,7 +1239,7 @@ class HourglassApp(App):
                                    color=POPUP_TEXT)
         self.duration_btn.bind(on_press=self.on_duration_picker)
         bottom.add_widget(self.duration_btn)
-        self.sound_btn = Button(text="音效",
+        self.sound_btn = Button(text="沙沙声",
                                 size_hint=(None, 1), width=dp(74), font_size=sp(15),
                                 background_normal="",
                                 background_color=(*POPUP_GOLD_SEL[:3], 0.92),
@@ -1253,13 +1355,17 @@ class HourglassApp(App):
             content.add_widget(row)
 
         # --- 对数倍率滑杆(1–1000 倍,与按钮并存但不同步;默认 Kivy 大滑杆样式,
-        #     进度条颜色恢复金色值道(与选中态同色的黄色已滑段)) ---
+        #     进度条颜色恢复金色值道(与选中态同色的黄色已滑段);
+        #     未滑段默认浅灰贴图接近弹窗底色,换暖灰棕贴图 #8a7a68) ---
         slider = Slider(min=0.0, max=1.0,
                         value=math.log(max(1.0, min(float(MULT_SLIDER_MAX),
                                                    float(init_mult)))) / math.log(MULT_SLIDER_MAX),
                         size_hint=(1, None), height=dp(44),
                         value_track=True,
-                        value_track_color=(*POPUP_GOLD_SEL[:3], 0.9))
+                        value_track_color=(*POPUP_GOLD_SEL[:3], 0.9),
+                        background_horizontal=resource_path("ui/slider_track.png"),
+                        background_width='8dp',                 # 细线化:未滑段=浅蓝细线,不再 36sp 灰槽
+                        value_track_width='8dp')                # 金色线同宽,盖住蓝线左段(已滑=纯金无反边)
         mult_label = Label(text=f"×{init_mult}", size_hint=(None, None),
                            size=(dp(64), dp(36)), font_size=sp(15),
                            color=POPUP_TEXT)
@@ -1372,8 +1478,10 @@ class HourglassApp(App):
             self.start_btn.background_color = (0.353, 0.620, 0.243, 1)
 
     def on_sound_picker(self, *_):
-        """音效选择弹窗:点击即生效并关闭,当前项金色高亮(每行 3 个,自动分行)。"""
+        """音效选择弹窗:点击即切换(生效但**不关窗**,可连续试听),当前项金色高亮,
+        「确定」关闭弹窗(每行 3 个,自动分行)。"""
         cur = self.hourglass.sound_name
+        btns = {}   # label → btn,点击后刷新弹窗内高亮
 
         content = BoxLayout(orientation="vertical", spacing=dp(8),
                             padding=(dp(12), dp(10), dp(12), dp(10)))
@@ -1387,13 +1495,24 @@ class HourglassApp(App):
                              background_color=POPUP_GOLD_SEL if is_sel
                                               else POPUP_UNSEL_BASE,
                              color=POPUP_TEXT)
-                # lambda 闭包延迟绑定:label 用默认参数固定
-                btn.bind(on_press=lambda inst, lb=label: self._on_sound_picked(lb))
+                # lambda 闭包延迟绑定:label/btns 用默认参数固定(Android Kivy 时序敏感)
+                btn.bind(on_press=lambda inst, lb=label, bs=btns:
+                         self._on_sound_picked(lb, bs))
+                btns[label] = btn
                 row.add_widget(btn)
             content.add_widget(row)
 
+        # 「确定」= 唯一关闭出口(音效已在点击选项时即时生效,这里只收尾)
+        # 暗红底:与选项选中金色区分,避免误看成"选中的音效项"
+        confirm_btn = Button(text="确定", font_size=sp(16), bold=True,
+                             background_normal="",
+                             background_color=POPUP_CONFIRM,
+                             color=POPUP_TEXT_WHITE,
+                             size_hint=(1, None), height=dp(54))
+        content.add_widget(confirm_btn)
+
         self._sound_popup = _SandBgPopup(title="选择音效", content=content,
-                                         size_hint=(0.88, None), height=dp(230),
+                                         size_hint=(0.88, None), height=dp(300),
                                          auto_dismiss=False)
         self._sound_popup.title_align = "center"
         self._sound_popup.title_size = sp(19)
@@ -1404,28 +1523,34 @@ class HourglassApp(App):
         content.pos_hint = {'top': 1}
         content.bind(minimum_height=content.setter('height'))
         popup = self._sound_popup    # 局部引用:闭包持有,弹窗关闭后布局事件仍安全
+        confirm_btn.bind(on_press=lambda inst, p=popup: self._close_sound_picker(p))
 
         def _adjust_popup_height(inst, val):
             popup.height = val + dp(85)
         content.bind(minimum_height=_adjust_popup_height)
         self._sound_popup.open()
 
-    def _on_sound_picked(self, label):
-        popup = getattr(self, '_sound_popup', None)
-        if popup is not None:
-            self._sound_popup = None
-            popup.dismiss()
+    def _on_sound_picked(self, label, btns):
+        """点击选项:立即切换生效,**弹窗不关闭**(可连续试听);高亮跟随点击项。"""
         if self.hourglass._set_sound(label):
             self.hourglass.save_config(self._selected_color_name())
             self._update_sound_btn()
+        for lb, btn in btns.items():
+            btn.background_color = POPUP_GOLD_SEL if lb == label else POPUP_UNSEL_BASE
+            btn.color = POPUP_TEXT
+
+    def _close_sound_picker(self, popup):
+        """「确定」:关闭音效弹窗(音效已在点击选项时生效,这里只收尾)。"""
+        self._sound_popup = None
+        popup.dismiss()
 
     def _update_sound_btn(self):
-        """按钮状态:静音 → 旧「音效:关」样式(暖灰 + 文案),有声 → 金色。"""
+        """主按钮显示当前音效名(沙沙声/水流声/风声/钟表声/无声音);
+        静音保持暖灰样式,有声金色。"""
+        self.sound_btn.text = self.hourglass.sound_name
         if self.hourglass.sound_name == SILENT_NAME:
-            self.sound_btn.text = "音效:关"
             self.sound_btn.background_color = (0.718, 0.686, 0.643, 1)
         else:
-            self.sound_btn.text = "音效"
             self.sound_btn.background_color = (*POPUP_GOLD_SEL[:3], 0.92)
         self.sound_btn.color = POPUP_TEXT
 

@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **不要用"直觉"修改粒子物理、渲染方式或任何核心参数。** PC `hourglass_v4.py` 的公式和参数是经过反复验证的，Android 移植时只做坐标翻转适配。历史上所有"我觉得这样更好"的改动（扩张代替收缩、Ellipse 代替 Line、motion streak 等）全部以回退告终。**改之前先对照 v4，v4 怎么做你就怎么做。**
 
+> **动手前先读 `README.md` 的「经验教训」章节** —— 排查手法(像素级 ASCII 网格诊断、按状态
+> 分组比对定位伪影、tkinter/Kivy 各自的可靠抓图方式)、判断陷阱(目测比例不可信、"整幅变淡"
+> 是遮罩不是 bug、`系数 × 参数` 要在两个极端都验证)和流程红线(改 `pc/` 先备份、跑测试脚本
+> 会静默改写 `~/.hourglass_config.json`)。那一节是真踩出来的,能省掉重复的弯路。
+
 ## 项目定位
 
 pc 版球形沙漏(`../hourglass_v4.py`，tkinter + PIL 真圆)的 **Android (Kivy) 移植版**，用 GitHub Actions 云端构建 APK。
@@ -41,17 +46,31 @@ python main.py
 - **`_SoundProxy`**(~162-360)：Android `AudioTrack` MODE_STATIC 硬件循环 / Windows `winsound` 驱动层循环 / 桌面 `SoundLoader` fallback；另含 `close()` 释放后端资源（切换音效用）
 - **`_SandBgPopup`**(305-342)：浅色弹窗，双层兜底覆盖 Kivy 默认深灰
 - **`CenterTextInput`**(132-149)：Kivy `TextInput` 无 `text_align`，用 `CoreLabel` 测文本宽度动态算 `padding` 实现居中
-- **对数倍率滑杆**(周期弹窗内，`kivy Slider` 0..1：`_mult_from_slider(t)=⌈600^t⌉` 向上取整 1–600 倍，与倍数按钮**不同步**；`MAX_DURATION=360000`；倒计时 `_fmt_countdown_pair` H:MM:SS 自适应)
+- **对数倍率滑杆**(周期弹窗内，`kivy Slider` 0..1：`_mult_from_slider(t)=⌈600^t⌉` 向上取整 1–600 倍，与倍数按钮**不同步**；已滑段金色 `value_track_color`，未滑段用暖灰棕贴图 `ui/slider_track.png`（#8a7a68，默认浅灰贴图太接近弹窗底色；贴图需随 `source.include_patterns` 进 APK）；`MAX_DURATION=360000`；倒计时 `_fmt_countdown_pair` H:MM:SS 自适应)
 
 ### 核心设计：假物理 + 完整球 + 球体积微积分
 - 唯一真值是 `elapsed/duration`，所有可见几何从它派生(本质进度条，**不要引入真物理模拟**)。
 - 两个**完整球**(非锥形、非球冠) + 颈部圆柱管；`R = (ball_h² + neck_w²)/(2·ball_h)` 保证球顶 w=0、截口处 w=neck_w 与管无缝。
+- 球↔管之间是**二次贝塞尔曲线过渡**(见下)，不是直接怼上去的矩形管。
 - 球体积 `v(t)=3t²-2t³`，`_raw_height_ratio` 用数值积分查找表(101 档)反查"体积→高度"。球对称 `v(t)+v(1-t)=1` ⟹ 上沙`(1-raw)` + 下沙`(raw)` = 1 **严格守恒**(改这块前先确认守恒不被破坏)。
 - 上、下沙都用延迟 `_effective_fallen`(物理计算粒子飞到底的时间，`_fall_delay`，短周期按 `duration*0.45` 缩放)；下沙前期靠**沙面宽度变化**展示进度，高度只给极小保底(`MOUND_FLOOR_*`)，**不拔高**。
 - `neck_w` 用 **log 插值**：短周期→宽颈，长周期→窄颈，范围受屏幕比例约束。
 
 ### 渲染：玻璃和沙都用 Kivy 真圆(关键，别破坏)
-- 玻璃壳：`Ellipse` 画球(**同心椭圆相减**得均匀描边) + 颈部矩形管贯穿两球内端消除截口缺角。缓存于 `canvas.before`，仅 `neck_w` 变时重建。
+- 玻璃壳：`Ellipse` 画球(**同心椭圆相减**得均匀描边) + 颈部曲线过渡。缓存于 `canvas.before`，仅 `neck_w` 变时重建。
+- **球↔管曲线过渡**(移植自 pc v4，勿退回矩形管)：球拿极点接管子、球面在极点近乎水平 → 环壁横向摊开
+  `√(R²−Ri²)≈√(2R·ow)`(**与 neck_w 无关**)，撞上竖直管壁形成"扁平肩台 + ~84° 硬折角"(垫块感)。
+  解法：`_bezier2()` 造一条二次贝塞尔，控制点 `P1 = 球切线 × 管壁线` 的交点 → 两端 C1 相切。
+  - `self._taper = {out_pts, in_pts, t_out, t_in, y_bot}` 在 `_rebuild_height_table` 里算好
+  - **起点半宽必须 ≥ 肩台半宽**，否则细颈(长周期)时肩台原样残留：
+    `w_out = min(R·0.45, max(t_out+2, TAPER_K·nw, shoulder·1.06))` → 恒为 ~44px，喇叭口固定、孔径随周期变
+  - `tube_h = h*0.055`(原 3%)给过渡腾空间，R 随约束自动缩 ~2.7%；`y_bot` 有护栏不得越过 `neck_y`
+  - Kivy 没有多边形图元 → 沿曲线**逐段 `Quad`**：擦极冠(BG 色)→ 直筒 → 外轮廓(壁)+ 内轮廓(腔)
+  - **颈部沙柱直接复用 `in_pts`** 画成同形 Quad 带 → 与内腔天生贴合；颈部高光要用 `t_in` 不是 `neck_w`
+  - **沙柱只到直筒下端，下喇叭口敞开不填沙**(`_neck_sand_side`)：填了会变成"绿喇叭悬在空球上"、
+    沙流与颈部断开；敞开后沙从孔口流出，与粒子自然接上
+  - **沙柱在 `NECK_FILL=0.25s` 内从上往下注满**，不是 `elapsed>0` 一帧切换 —— 喇叭口面积大，
+    瞬间从空变满非常刺眼；短周期按 `duration*0.15` 缩放
 - 沙体弓形：`StencilPush/StencilUse/StencilUnUse/StencilPop` 把内壁球 `Ellipse` 裁出"y ≤ 沙面"的真圆弓形。
 - **沙边和玻璃内壁都是 `Ellipse` 圆 → 同一种真圆技术、严格贴合**。这是复刻 pc"玻璃和沙必须同一种技术，否则边缘失配(月牙/缝)"的核心。**绝不用 `Mesh`/多边形拼弓形**(那是 android 旧版渲染 bug 的根源)。
 - 粒子用 `Line`(主流) + `Rectangle`(splash/flares/dust)，按颜色排序减少 draw call。
@@ -60,7 +79,7 @@ python main.py
 ### 渲染分层(`redraw()` 中的 draw 顺序)
 1. 上沙弓形(Stencil 裁切)
 2. 下沙堆弓形
-3. 颈部沙柱(Rectangle)
+3. 颈部沙柱(沿 `_neck_sand_side()` 的 Quad 带；上喇叭口+直筒，下喇叭口敞开给粒子)
 4. 沙流粒子(按 `_color_table` 排序后 `Line` 渲染)
 5. splash 反弹粒子(`Rectangle`，`sand_light` 色)
 6. 触底闪光(0.08s 寿命，4+ 半透明方块)
@@ -101,10 +120,10 @@ Android 方案的核心细节：
 
 ### 音效库（5 选 1：沙沙/水流/风/钟表 + 无声音）
 
-- 「音效:开/关」开关已删除，旧配置键 `sound_on` 忽略。底部「音效」按钮弹窗选择，**点击即生效并关闭**，运行中切换立即停旧播新。选项含「无声音」(静音)：选中后按钮切回旧「音效:关」样式（暖灰底 `#b7afa4` + 文案「音效:关」），启动静默。
+- 「音效:开/关」开关已删除，旧配置键 `sound_on` 忽略。**主界面音效按钮直接显示当前音效名（沙沙声/水流声/风声/钟表声/无声音）**。打开弹窗点选项 → 点击即切换（运行中停旧播新），**弹窗不关、高亮跟随点击项，可连续试听**；底部「确定」按钮是唯一关闭出口。选「无声音」(静音)：按钮显示「无声音」+ 暖灰底 `#b7afa4`，启动静默。
 - `SOUND_EFFECTS` 表（名字与 pc v4 **逐字一致**，共享配置文件）4 种：沙沙声（`sand_loop.wav`，合成保留）/ 水流声 / 风声 / 钟表声（`sounds/{water,wind,clock}.wav`，44100Hz 16bit mono 无缝循环；clock 源仅 9s → 7s 短循环，由 `import_sounds.py` 自适应短源路径生成）。后 3 个为**实录**，由 `tools/import_sounds.py` 从 `MP3/` 源文件加工：miniaudio 解码 → 首尾最像片段选段（频谱相似度+响度差+接缝低谷惩罚）→ ±0.15s 互相关对齐 + crossfade 焊循环（尾段钳文件边界）→ 幂律软压缩 + RMS 对齐。源 MP3 仅本机不入库（.gitignore）。
 - 切换 `_set_sound(name)`：**①新建 `_SoundProxy`（失败→旧态原样保留）②stop 旧 ③`close()` 旧（AudioTrack `release()`）④挂新 ⑤running 则 play**；同名幂等。**不要给旧实例加 reload 复用**——AudioTrack MODE_STATIC 缓冲长度构造时锁死，换 wav 必须重建 track。`_SoundProxy.close()` 释放后端资源。
-- 音效弹窗 `on_sound_picker` 复用 `_SandBgPopup`，遍历 `SOUND_OPTIONS`（= `SOUND_EFFECTS` + `(SILENT_NAME, None)`，现 5 项两行 3+2）当前项金色高亮，高度自适应（复用周期弹窗 `minimum_height` 三行链路）；按钮 label 的 lambda 必须默认参数绑定（闭包延迟绑定坑）。选「无声音」→ `_set_sound` 静音分支：stop+close 旧 proxy、`_sound=None`（不建 proxy，`_play_sound/_stop_sound` 对 None 空操作），`_update_sound_btn()` 刷新按钮样式。
+- 音效弹窗 `on_sound_picker` 复用 `_SandBgPopup`，遍历 `SOUND_OPTIONS`（= `SOUND_EFFECTS` + `(SILENT_NAME, None)`，现 5 项两行 3+2）+ 底部**「确定」按钮**（唯一出口），当前项金色高亮，高度自适应（复用周期弹窗 `minimum_height` 三行链路）；按钮 label/btns 的 lambda 必须默认参数绑定（闭包延迟绑定坑）。`_on_sound_picked(label, btns)`：点击即 `_set_sound`，**不 dismiss**，只刷新 `btns` 高亮；「确定」→ `_close_sound_picker(popup)`（`_sound_popup=None` + dismiss）。选「无声音」→ `_set_sound` 静音分支：stop+close 旧 proxy、`_sound=None`（不建 proxy，`_play_sound/_stop_sound` 对 None 空操作）。`_update_sound_btn()` 把主按钮文字设为当前音效名（静音暖灰、有声金色）。
 
 ### 配色系统(独立暖金/沙色系，不随沙色变化)
 
@@ -113,7 +132,8 @@ Android 方案的核心细节：
 | 常量 | 色值 | 用途 |
 |---|---|---|
 | `POPUP_BG` | `#faf5eb` | 弹窗底色(暖白) |
-| `POPUP_GOLD_SEL` | `#caa450` | 选中/确定按钮(暖金) |
+| `POPUP_GOLD_SEL` | `#caa450` | 选中项按钮(暖金) |
+| `POPUP_CONFIRM` | `#9e3b29` | 音效弹窗「确定」按钮(暗红，与选中金色区分) |
 | `POPUP_UNSEL_BASE` | `#a89078` | 未选基础周期按钮(暖棕) |
 | `POPUP_UNSEL_MULT` | `#b8a088` | 未选倍数按钮(浅棕) |
 | `POPUP_CANCEL_BG` | `#d8d2ca` | 取消按钮(暖灰，比未选亮) |
@@ -121,7 +141,7 @@ Android 方案的核心细节：
 
 主界面底部按钮：
 - 周期按钮：`#c4ae8e` 暖米色实色
-- 音效：`#caa450` 92%(金色)；选「无声音」→ `#b7afa4` 暖灰 + 文案「音效:关」(旧开关关闭样式)
+- 音效：`#caa450` 92%(金色)；选「无声音」→ `#b7afa4` 暖灰；按钮文案始终显示当前音效名（五种之一）
 - 开始(停止态)：绿色 `#5b9e3e` + 白字
 - 暂停(运行态)：橙色 `#d98e3e` + 白字
 
@@ -163,4 +183,4 @@ Android 方案的核心细节：
 | 按钮行高 | dp(40-54) | dp(58) |
 
 ## 资源文件
-`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **44100Hz**, ~1.3MB) / `sounds/{water,wind}.wav`(15s 无缝循环)、`sounds/clock.wav`(7s 短循环，44100Hz 16bit mono，`tools/import_sounds.py` 从 `MP3/` 实录加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav 和 `sounds/*.wav`。
+`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **44100Hz**, ~1.3MB) / `sounds/{water,wind}.wav`(15s 无缝循环)、`sounds/clock.wav`(7s 短循环，44100Hz 16bit mono，`tools/import_sounds.py` 从 `MP3/` 实录加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发) / `ui/slider_track.png`(8×8 纯色 #8a7a68，周期弹窗滑杆未滑段贴图)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav、`sounds/*.wav` 和 `ui/*.png`。
