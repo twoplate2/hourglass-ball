@@ -5,9 +5,3 @@ __pycache__/
 *.pyc
 .hourglass_config.json
 backup/
-# 实录音效源文件(大体积/授权不确定,只留本机,加工产物在 sounds/ 已入库)
-MP3/
-# 本地配色预览工具(不进仓库)
-gui.html
-# 过时残留(描述已废弃旧粒子/合成方案,勿采信)
-_workflow_experts.js
