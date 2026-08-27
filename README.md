@@ -50,6 +50,7 @@ Kivy 2.3.0 + python-for-android v2024.01.21 + buildozer 1.5.0 + cython<3.0 + hos
 - **中文字体**：`fonts/NotoSansSC-Medium.otf` + `LabelBase.register(name="Roboto", ...)`
   全局覆盖，否则装机后汉字全是豆腐块
 - **弹窗配色**：`_SandBgPopup` 双层兜底（Popup 本体 `canvas.before` + 内部 `_container` `canvas.before`），覆盖 Kivy 默认深灰；按钮用暖金/沙色系独立配色（`POPUP_*` 常量），不随沙色变化
+- **周期设置**：基础时间(1秒/10秒/1分钟/10分钟) × 倍数按钮(1-100)或对数倍率滑杆(1-600，⌈600^t⌉ 向上取整；与按钮不同步)，最长 100 小时(360000s)；主界面倒计时显示按总时长自适应 H:MM:SS / M:SS / 秒
 
 ## 配色系统
 

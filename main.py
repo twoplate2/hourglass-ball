@@ -29,6 +29,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
+from kivy.uix.slider import Slider
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import platform
@@ -134,6 +135,30 @@ def _fmt_duration(sec):
     if abs(h - round(h)) < 1e-9:
         return f"{h:.0f} 小时"
     return f"{h:.1f} 小时"
+
+
+MULT_SLIDER_MAX = 600         # 对数滑杆上限(倍)
+MAX_DURATION = 360000         # 时长上限(秒)= 10分钟×600 = 100 小时
+
+
+def _mult_from_slider(t):
+    """滑杆位置 t∈[0,1] → 倍率:单段对数 MULT_SLIDER_MAX^t,向上取整为整数。
+    t=0→1,t=0.5→√上限≈25,t=1→上限,无右侧死区。"""
+    m = int(math.ceil((MULT_SLIDER_MAX ** max(0.0, min(1.0, t))) - 1e-9))
+    return max(1, min(MULT_SLIDER_MAX, m))
+
+
+def _fmt_countdown_pair(remaining, total):
+    """倒计时显示,格式由总时长决定:H:MM:SS / M:SS / 秒。"""
+    tot = int(round(total))
+    rem = int(round(remaining))
+    if tot >= 3600:
+        fmt = lambda s: f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
+    elif tot >= 60:
+        fmt = lambda s: f"{s // 60}:{s % 60:02d}"
+    else:
+        fmt = lambda s: f"{s:.0f}"
+    return f"{fmt(rem)} / {fmt(tot)}"
 
 
 BASE_PERIODS = [
@@ -665,7 +690,7 @@ class HourglassWidget(Widget):
             return False
         if d <= 0:
             return False
-        d = min(d, 360000)
+        d = min(d, MAX_DURATION)
         if d == self.duration:
             return False
         self.duration = d
@@ -1150,7 +1175,7 @@ class HourglassApp(App):
         best_base, best_mult = 60, 1
         best_diff = float('inf')
         for _, base_val in BASE_PERIODS:
-            mult = max(1, min(100, round(sec / base_val)))
+            mult = max(1, min(MULT_SLIDER_MAX, round(sec / base_val)))
             total = base_val * mult
             diff = abs(total - sec)
             # tie-break:同 diff 取更小倍数(更粗基底),避免 50s 显示成"1秒×50倍"
@@ -1227,6 +1252,26 @@ class HourglassApp(App):
                 row.add_widget(btn)
             content.add_widget(row)
 
+        # --- 对数倍率滑杆(1–1000 倍,与按钮并存但不同步;默认 Kivy 大滑杆样式,
+        #     进度条颜色恢复金色值道(与选中态同色的黄色已滑段)) ---
+        slider = Slider(min=0.0, max=1.0,
+                        value=math.log(max(1.0, min(float(MULT_SLIDER_MAX),
+                                                   float(init_mult)))) / math.log(MULT_SLIDER_MAX),
+                        size_hint=(1, None), height=dp(44),
+                        value_track=True,
+                        value_track_color=(*POPUP_GOLD_SEL[:3], 0.9))
+        mult_label = Label(text=f"×{init_mult}", size_hint=(None, None),
+                           size=(dp(64), dp(36)), font_size=sp(15),
+                           color=POPUP_TEXT)
+        slider_row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                               size_hint=(1, None), height=dp(44))
+        slider_row.add_widget(slider)
+        slider_row.add_widget(mult_label)
+        content.add_widget(slider_row)
+        # label 用默认参数固定;滑块值变化不触碰任何按钮高亮(不同步)
+        slider.bind(value=lambda inst, v, st=state, pv=preview_label,
+                    ml=mult_label: self._on_slider_moved(v, st, pv, ml))
+
         # --- 预览 (预创建,此处 add 到正确位置) ---
         content.add_widget(preview_label)
 
@@ -1292,6 +1337,16 @@ class HourglassApp(App):
             btn.background_color = active_color if sel else inactive_color
             btn.color = POPUP_TEXT
         preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
+
+    def _on_slider_moved(self, v, state, preview_label, mult_label):
+        """对数滑杆:10^(3t) 向上取整;只更新 state/预览/×N 标签,不动按钮高亮。"""
+        m = _mult_from_slider(v)
+        if m == state['mult']:
+            return
+        state['mult'] = m
+        mult_label.text = f"×{m}"
+        total = state['base'] * m
+        preview_label.text = f"最终周期：{_fmt_duration(total)}（{total:.0f}秒）"
 
     def _pick_duration(self, sec, popup):
         popup.dismiss()
@@ -1384,7 +1439,7 @@ class HourglassApp(App):
             btn.text = ("● " + n) if n == name else n
 
     def update_time(self, remaining_sec, duration):
-        self.time_label.text = f"{remaining_sec:.0f}/{duration:.0f}秒"
+        self.time_label.text = _fmt_countdown_pair(remaining_sec, duration)
 
     def on_pause(self):
         return True

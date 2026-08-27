@@ -41,6 +41,7 @@ python main.py
 - **`_SoundProxy`**(~162-360)：Android `AudioTrack` MODE_STATIC 硬件循环 / Windows `winsound` 驱动层循环 / 桌面 `SoundLoader` fallback；另含 `close()` 释放后端资源（切换音效用）
 - **`_SandBgPopup`**(305-342)：浅色弹窗，双层兜底覆盖 Kivy 默认深灰
 - **`CenterTextInput`**(132-149)：Kivy `TextInput` 无 `text_align`，用 `CoreLabel` 测文本宽度动态算 `padding` 实现居中
+- **对数倍率滑杆**(周期弹窗内，`kivy Slider` 0..1：`_mult_from_slider(t)=⌈600^t⌉` 向上取整 1–600 倍，与倍数按钮**不同步**；`MAX_DURATION=360000`；倒计时 `_fmt_countdown_pair` H:MM:SS 自适应)
 
 ### 核心设计：假物理 + 完整球 + 球体积微积分
 - 唯一真值是 `elapsed/duration`，所有可见几何从它派生(本质进度条，**不要引入真物理模拟**)。
@@ -157,6 +158,7 @@ Android 方案的核心细节：
 | 倒计时/预览 | sp(18) | sp(24) |
 | 主导按钮(确定/开始/重置/周期) | sp(16) | sp(16) |
 | 次要按钮(基础周期/倍数/音效) | sp(15)-sp(16) | sp(15) |
+| 滑杆 ×N 值标签 | sp(15) | — |
 | 标签文字 | sp(15) | — |
 | 按钮行高 | dp(40-54) | dp(58) |
 
