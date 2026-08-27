@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 .hourglass_config.json
 backup/
+# 实录音效源文件(大体积/授权不确定,只留本机,加工产物在 sounds/ 已入库)
+MP3/

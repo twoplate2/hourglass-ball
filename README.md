@@ -1,10 +1,10 @@
 # 跳跳的沙漏 — Android (Kivy) 打包工程
 
-把 **pc 版球形沙漏**(`../hourglass_v2.py`，tkinter + PIL 真圆 + 完整球 + 球体积微积分)
+把 **pc 版球形沙漏**(`../hourglass_v4.py`，tkinter + PIL 真圆 + 完整球 + 球体积微积分)
 重写为 Kivy，并用 **GitHub Actions 云端构建** 成 Android APK。全程不需要本地装
 Android SDK / NDK / Buildozer，Windows 也能用。
 
-> 本目录 `main.py` 是从 `pc/hourglass_v2.py` **从零重写** 的 Kivy 版，不复用 `../../android/main.py`。
+> 本目录 `main.py` 是从 `pc/hourglass_v4.py` **从零重写** 的 Kivy 版(公式/参数以 v4 为基准)，不复用 `../../android/main.py`。
 
 ## 桌面预览
 
@@ -44,7 +44,7 @@ Kivy 2.3.0 + python-for-android v2024.01.21 + buildozer 1.5.0 + cython<3.0 + hos
 
 - **`buildozer.spec` 里 `p4a.branch = v2024.01.21`** —— 没有这行必失败(2026 年新版 p4a
   默认下 Python 3.14 alpha，与 Kivy 2.3 的 C API 不兼容)
-- **音效**：Android 用 `AudioTrack MODE_STATIC` + `setLoopPoints()` 硬件循环，声卡 DSP 自己回绕指针，绝对 0 缝隙，不受主线程卡顿影响；Windows 用 `winsound.SND_LOOP` 驱动层循环；其他桌面 fallback Kivy `SoundLoader`
+- **音效**：Android 用 `AudioTrack MODE_STATIC` + `setLoopPoints()` 硬件循环，声卡 DSP 自己回绕指针，绝对 0 缝隙，不受主线程卡顿影响；Windows 用 `winsound.SND_LOOP` 驱动层循环；其他桌面 fallback Kivy `SoundLoader`。底部「音效」按钮弹窗有 **5 个选项**（沙沙/水流/风/钟表 + 无声音），点击即生效，运行中可切换；选「无声音」时按钮变「音效:关」暖灰样式
 - **渲染**：玻璃壳和沙体都用 Kivy 真圆 —— `Ellipse` 画球 + `Stencil` 裁出弓形沙面，
   复刻 pc"玻璃和沙必须同一种真圆技术、否则边缘失配"的核心原则，**不用 Mesh/多边形拼弓形**
 - **中文字体**：`fonts/NotoSansSC-Medium.otf` + `LabelBase.register(name="Roboto", ...)`
@@ -64,7 +64,7 @@ Kivy 2.3.0 + python-for-android v2024.01.21 + buildozer 1.5.0 + cython<3.0 + hos
 | `POPUP_CANCEL_BG` | `#d8d2ca` | 取消按钮(暖灰) |
 | `POPUP_TEXT` | `#332418` | 按钮/标签文字(深咖啡) |
 
-主界面底部按钮：周期按钮 `#c4ae8e`(暖米色)，音效开 `#caa450` 92%(金色)，音效关 `#b7afa4`(暖灰)。
+主界面底部按钮：周期按钮 `#c4ae8e`(暖米色)，音效按钮 `#caa450` 92%(金色，常开无开关态)。
 
 ## 音效方案
 
@@ -78,15 +78,23 @@ Kivy 2.3.0 + python-for-android v2024.01.21 + buildozer 1.5.0 + cython<3.0 + hos
 
 Android 方案的核心：手动解析 WAV 头提取 PCM 裸数据 → 一次性写入 AudioTrack 硬件缓冲区 → `setLoopPoints` 告诉音频 DSP 自动回绕读指针。整个循环发生在音频芯片内部，**不经过任何软件层**。pyjnius 传 `byte[]` 需 `jarray('b')(pcm)` 显式转换。
 
+**音效素材**：3 个实录音效(水流/风/钟表)由 `tools/import_sounds.py` 加工(miniaudio 解码 → 44.1kHz 单声道 → 首尾相似片段选段 + 互相关对齐 + crossfade 无缝循环 → 软压缩 + 音量对齐沙沙声;短源如 9s 钟表自动整段成环)。源 MP3 放 `MP3/`(已进 .gitignore,不入库)。
+
 ## 文件结构
 
 ```
 apk/
-├── main.py                       # Kivy 应用入口(从 pc/hourglass_v2.py 重写，~1230 行)
+├── main.py                       # Kivy 应用入口(从 pc/hourglass_v4.py 重写，~1290 行)
 ├── buildozer.spec                # 构建配置(锁 p4a v2024.01.21)
 ├── icon.png                      # 启动器图标 1024×1024
 ├── presplash.png                 # 启动屏 1080×1920(#fdf6e3 底)
-├── sand_loop.wav                 # 15s 无缝循环 PCM 16bit mono 22050Hz
+├── sand_loop.wav                 # 15s 无缝循环 PCM 16bit mono 44100Hz
+├── sounds/
+│   ├── water.wav / wind.wav / clock.wav
+│   │                             # 3 个实录音效:无缝循环 44100Hz(import_sounds.py 加工;clock 7s 短循环)
+├── tools/
+│   └── import_sounds.py          # MP3 实录 → 无缝循环 wav 管线(miniaudio + numpy/scipy)
+├── MP3/                          # 实录音效源文件(仅本机,.gitignore)
 ├── fonts/
 │   └── NotoSansSC-Medium.otf     # 中文字体(~8MB, Apache 2.0 可分发)
 ├── .github/workflows/build-apk.yml

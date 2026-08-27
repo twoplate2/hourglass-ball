@@ -38,7 +38,7 @@ python main.py
 
 - **`HourglassWidget`**(347-936)：几何 + 物理 + 渲染(沙漏本体，含 `tick` 帧循环、`update_particles`、`redraw`)
 - **`HourglassApp`**(941-1228)：v2 布局 UI(顶部 6 色块 / 倒计时 Label / 画布 / 底部 周期+音效+开始+重置)
-- **`_SoundProxy`**(154-302)：Android `AudioTrack` MODE_STATIC 硬件循环 / Windows `winsound` 驱动层循环 / 桌面 `SoundLoader` fallback
+- **`_SoundProxy`**(~162-360)：Android `AudioTrack` MODE_STATIC 硬件循环 / Windows `winsound` 驱动层循环 / 桌面 `SoundLoader` fallback；另含 `close()` 释放后端资源（切换音效用）
 - **`_SandBgPopup`**(305-342)：浅色弹窗，双层兜底覆盖 Kivy 默认深灰
 - **`CenterTextInput`**(132-149)：Kivy `TextInput` 无 `text_align`，用 `CoreLabel` 测文本宽度动态算 `padding` 实现居中
 
@@ -98,6 +98,13 @@ Android 方案的核心细节：
 
 `sand_loop.wav` 是 15s 无缝 PCM 16bit mono **44100Hz**（~1.3MB）。修改采样率需同步调整 `_init_audio_track` 中的参数。
 
+### 音效库（5 选 1：沙沙/水流/风/钟表 + 无声音）
+
+- 「音效:开/关」开关已删除，旧配置键 `sound_on` 忽略。底部「音效」按钮弹窗选择，**点击即生效并关闭**，运行中切换立即停旧播新。选项含「无声音」(静音)：选中后按钮切回旧「音效:关」样式（暖灰底 `#b7afa4` + 文案「音效:关」），启动静默。
+- `SOUND_EFFECTS` 表（名字与 pc v4 **逐字一致**，共享配置文件）4 种：沙沙声（`sand_loop.wav`，合成保留）/ 水流声 / 风声 / 钟表声（`sounds/{water,wind,clock}.wav`，44100Hz 16bit mono 无缝循环；clock 源仅 9s → 7s 短循环，由 `import_sounds.py` 自适应短源路径生成）。后 3 个为**实录**，由 `tools/import_sounds.py` 从 `MP3/` 源文件加工：miniaudio 解码 → 首尾最像片段选段（频谱相似度+响度差+接缝低谷惩罚）→ ±0.15s 互相关对齐 + crossfade 焊循环（尾段钳文件边界）→ 幂律软压缩 + RMS 对齐。源 MP3 仅本机不入库（.gitignore）。
+- 切换 `_set_sound(name)`：**①新建 `_SoundProxy`（失败→旧态原样保留）②stop 旧 ③`close()` 旧（AudioTrack `release()`）④挂新 ⑤running 则 play**；同名幂等。**不要给旧实例加 reload 复用**——AudioTrack MODE_STATIC 缓冲长度构造时锁死，换 wav 必须重建 track。`_SoundProxy.close()` 释放后端资源。
+- 音效弹窗 `on_sound_picker` 复用 `_SandBgPopup`，遍历 `SOUND_OPTIONS`（= `SOUND_EFFECTS` + `(SILENT_NAME, None)`，现 5 项两行 3+2）当前项金色高亮，高度自适应（复用周期弹窗 `minimum_height` 三行链路）；按钮 label 的 lambda 必须默认参数绑定（闭包延迟绑定坑）。选「无声音」→ `_set_sound` 静音分支：stop+close 旧 proxy、`_sound=None`（不建 proxy，`_play_sound/_stop_sound` 对 None 空操作），`_update_sound_btn()` 刷新按钮样式。
+
 ### 配色系统(独立暖金/沙色系，不随沙色变化)
 
 弹窗和主界面底部按钮使用固定配色(`POPUP_*` 常量，60-67 行)，不受沙漏沙色切换影响：
@@ -113,8 +120,7 @@ Android 方案的核心细节：
 
 主界面底部按钮：
 - 周期按钮：`#c4ae8e` 暖米色实色
-- 音效开：`#caa450` 92%(金色)
-- 音效关：`#b7afa4` 暖灰实色
+- 音效：`#caa450` 92%(金色)；选「无声音」→ `#b7afa4` 暖灰 + 文案「音效:关」(旧开关关闭样式)
 - 开始(停止态)：绿色 `#5b9e3e` + 白字
 - 暂停(运行态)：橙色 `#d98e3e` + 白字
 
@@ -136,6 +142,7 @@ Android 方案的核心细节：
 ## Android 装机坑(桌面预览看不到，只在 APK 暴露)
 - **中文乱码**：`LabelBase.register(name="Roboto", fn=fonts/NotoSansSC-Medium.otf)` 全局覆盖默认字体；`buildozer.spec` 的 `source.include_patterns` **必须含 `fonts/*.otf`** 否则字体不进 APK。
 - **音效卡顿/无声**：Android MODE_STATIC + 44100Hz WAV 是当前最优解。历史踩坑：22050Hz→AudioFlinger 非整数重采样相位不连续；Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。
+- **新音效无声（打包漏列）**：新增 wav 必须进 `buildozer.spec` 的 `source.include_patterns`（现为 `sand_loop.wav,fonts/*.otf,sounds/*.wav`）。漏列的表现是桌面预览有声、装机无声——桌面验证查不出来。
 - **粒子视觉**：千万不要用"直觉"替代 v4 的公式。v4 的流量守恒收缩 + Line 渲染是经过验证的成熟方案。历史上改成扩张(spread)、Ellipse、Rectangle、motion streak 全部失败。**移植 = 照搬 v4 公式 + 坐标翻转 + 参数不变。**
 - **配置路径**：Android 用 `App.user_data_dir`，桌面用 `~/.hourglass_config.json`(与 pc 版共享同一文件)。
 - **生命周期**：`on_pause` 必须返回 `True` 保持 GL 上下文。
@@ -154,4 +161,4 @@ Android 方案的核心细节：
 | 按钮行高 | dp(40-54) | dp(58) |
 
 ## 资源文件
-`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **44100Hz**, ~1.3MB) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体和 wav。
+`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **44100Hz**, ~1.3MB) / `sounds/{water,wind}.wav`(15s 无缝循环)、`sounds/clock.wav`(7s 短循环，44100Hz 16bit mono，`tools/import_sounds.py` 从 `MP3/` 实录加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav 和 `sounds/*.wav`。

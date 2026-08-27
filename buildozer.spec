@@ -9,8 +9,8 @@ package.domain = org.shalou
 
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf,otf,wav,mp3
-# 子目录里的非 .py 资源必须显式列出,否则不进 APK(字体不列会中文乱码)
-source.include_patterns = sand_loop.wav,fonts/*.otf
+# 子目录里的非 .py 资源必须显式列出,否则不进 APK(字体不列会中文乱码,音效不列会无声)
+source.include_patterns = sand_loop.wav,fonts/*.otf,sounds/*.wav
 
 version = 0.1.0
 

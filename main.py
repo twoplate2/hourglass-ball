@@ -78,6 +78,17 @@ FLASH_DURATION = 0.35
 
 WAV_FILENAME = "sand_loop.wav"
 
+# ---- 音效库(名字两版逐字一致,配置持久化按名字存) ----
+SOUND_EFFECTS = [
+    ("沙沙声", "sand_loop.wav"),
+    ("水流声", "sounds/water.wav"),
+    ("风声", "sounds/wind.wav"),
+    ("钟表声", "sounds/clock.wav"),
+]
+SILENT_NAME = "无声音"
+# 弹窗选项/配置值域 = 4 个实音效 + 无声音(None 路径仅表示静音,不建 proxy)
+SOUND_OPTIONS = SOUND_EFFECTS + [(SILENT_NAME, None)]
+
 
 def hex_rgb(h):
     return (int(h[1:3], 16) / 255.0,
@@ -120,10 +131,10 @@ def _fmt_duration(sec):
 
 
 BASE_PERIODS = [
+    ("1 秒", 1),
     ("10 秒", 10),
     ("1 分钟", 60),
     ("10 分钟", 600),
-    ("1 小时", 3600),
 ]
 
 
@@ -348,6 +359,23 @@ class _SoundProxy:
             except Exception:
                 pass
 
+    def close(self):
+        """释放底层后端资源。切换音效时在 stop() 后调用,防 AudioTrack 句柄泄漏。"""
+        if self._audio_track is not None:
+            try:
+                self._audio_track.release()
+            except Exception:
+                pass
+            self._audio_track = None
+            return
+        if self._kivy_sound is not None:
+            try:
+                self._kivy_sound.stop()
+                self._kivy_sound.unload()
+            except Exception:
+                pass
+            self._kivy_sound = None
+
 
 class _SandBgPopup(Popup):
     """浅色背景 Popup,覆盖 Kivy 默认深灰风格(双层兜底)"""
@@ -419,11 +447,8 @@ class HourglassWidget(Widget):
         self.flash_end = 0.0
         self._completion_triggered = False
 
-        self.sound_on = True
-        try:
-            self._sound = _SoundProxy(resource_path(WAV_FILENAME))
-        except Exception:
-            self._sound = None
+        self.sound_name = "沙沙声"
+        self._sound = self._make_sound_proxy(self.sound_name)
 
         self.bind(size=self._on_size, pos=self._on_size)
         Clock.schedule_once(self._on_size, 0)
@@ -608,8 +633,7 @@ class HourglassWidget(Widget):
                 self._reset_run_state()
             self.running = True
             self.last_tick = time.time()
-            if self.sound_on:
-                self._play_sound()
+            self._play_sound()
 
     def reset(self):
         self.elapsed = 0
@@ -653,13 +677,41 @@ class HourglassWidget(Widget):
         self._color_table = [lerp_rgb(self.sand_base, self.sand_light, i / 10.0)
                              for i in range(11)]
 
-    def toggle_sound(self):
-        self.sound_on = not self.sound_on
-        if self.sound_on and self.running:
+    def _make_sound_proxy(self, name):
+        """按音效名新建 _SoundProxy(构造失败返回 None,不抛)。"""
+        path = next((p for n, p in SOUND_EFFECTS if n == name),
+                    SOUND_EFFECTS[0][1])
+        try:
+            return _SoundProxy(resource_path(path))
+        except Exception:
+            return None
+
+    def _set_sound(self, name):
+        """切换音效(五步序):①先新建 proxy(失败→旧态原样,绝不静音)②停旧
+        ③关旧(release)④挂新 ⑤运行中立即续播。同名幂等。返回是否实际切换。"""
+        if name == self.sound_name:
+            return False
+        if name == SILENT_NAME:
+            # 静音:停旧即可,不建 proxy(_play_sound 对 None 是空操作)
+            if self._sound is not None:
+                self._sound.stop()
+                self._sound.close()
+            self._sound = None
+            self.sound_name = name
+            return True
+        if not any(n == name for n, _ in SOUND_EFFECTS):
+            return False
+        new_proxy = self._make_sound_proxy(name)
+        if new_proxy is None:
+            return False
+        if self._sound is not None:
+            self._sound.stop()          # winsound SND_PURGE 全局清场,必须先停旧
+            self._sound.close()
+        self._sound = new_proxy
+        self.sound_name = name
+        if self.running:
             self._play_sound()
-        elif not self.sound_on:
-            self._stop_sound()
-        return self.sound_on
+        return True
 
     def _play_sound(self):
         if self._sound is not None:
@@ -682,7 +734,7 @@ class HourglassWidget(Widget):
         try:
             with open(config_path(), 'w', encoding='utf-8') as f:
                 json.dump({'duration': self.duration, 'color_name': color_name,
-                           'sound_on': self.sound_on}, f, ensure_ascii=False)
+                           'sound_name': self.sound_name}, f, ensure_ascii=False)
         except Exception:
             pass
 
@@ -1008,8 +1060,9 @@ class HourglassApp(App):
         if isinstance(cfg.get('duration'), (int, float)) and cfg['duration'] > 0:
             self.hourglass.duration = cfg['duration']
             self.hourglass._rebuild_height_table()
-        if 'sound_on' in cfg:
-            self.hourglass.sound_on = bool(cfg['sound_on'])
+        sound_name = cfg.get('sound_name')
+        if sound_name in [n for n, _ in SOUND_OPTIONS]:
+            self.hourglass._set_sound(sound_name)
         color_name = cfg.get('color_name', '金沙')
         for name, base, dark, light in SAND_PRESETS:
             if name == color_name:
@@ -1053,13 +1106,12 @@ class HourglassApp(App):
                                    color=POPUP_TEXT)
         self.duration_btn.bind(on_press=self.on_duration_picker)
         bottom.add_widget(self.duration_btn)
-        self.sound_btn = Button(text="音效:开" if self.hourglass.sound_on else "音效:关",
+        self.sound_btn = Button(text="音效",
                                 size_hint=(None, 1), width=dp(74), font_size=sp(15),
                                 background_normal="",
-                                background_color=(*POPUP_GOLD_SEL[:3], 0.92) if self.hourglass.sound_on
-                                                 else (0.718, 0.686, 0.643, 1),
+                                background_color=(*POPUP_GOLD_SEL[:3], 0.92),
                                 color=POPUP_TEXT)
-        self.sound_btn.bind(on_press=self.on_toggle_sound)
+        self.sound_btn.bind(on_press=self.on_sound_picker)
         bottom.add_widget(self.sound_btn)
         bottom.add_widget(Widget())   # spacer
         self.start_btn = Button(text="开始", size_hint=(None, 1), width=dp(74),
@@ -1074,6 +1126,7 @@ class HourglassApp(App):
         root.add_widget(bottom)
 
         self._mark_selected(color_name)
+        self._update_sound_btn()
         return root
 
     def _selected_color_name(self):
@@ -1094,7 +1147,9 @@ class HourglassApp(App):
             mult = max(1, min(100, round(sec / base_val)))
             total = base_val * mult
             diff = abs(total - sec)
-            if diff < best_diff:
+            # tie-break:同 diff 取更小倍数(更粗基底),避免 50s 显示成"1秒×50倍"
+            if diff < best_diff - 1e-9 or (abs(diff - best_diff) <= 1e-9
+                                           and mult < best_mult):
                 best_diff = diff
                 best_base = base_val
                 best_mult = mult
@@ -1255,12 +1310,63 @@ class HourglassApp(App):
             self.start_btn.text = "开始"
             self.start_btn.background_color = (0.353, 0.620, 0.243, 1)
 
-    def on_toggle_sound(self, *_):
-        on = self.hourglass.toggle_sound()
-        self.sound_btn.text = "音效:开" if on else "音效:关"
-        self.sound_btn.background_color = (*POPUP_GOLD_SEL[:3], 0.92) if on else (0.718, 0.686, 0.643, 1)
+    def on_sound_picker(self, *_):
+        """音效选择弹窗:点击即生效并关闭,当前项金色高亮(每行 3 个,自动分行)。"""
+        cur = self.hourglass.sound_name
+
+        content = BoxLayout(orientation="vertical", spacing=dp(8),
+                            padding=(dp(12), dp(10), dp(12), dp(10)))
+        for i in range(0, len(SOUND_EFFECTS), 3):
+            row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                            size_hint=(1, None), height=dp(54))
+            for label, _path in SOUND_OPTIONS[i:i + 3]:
+                is_sel = (label == cur)
+                btn = Button(text=label, font_size=sp(16),
+                             background_normal="",
+                             background_color=POPUP_GOLD_SEL if is_sel
+                                              else POPUP_UNSEL_BASE,
+                             color=POPUP_TEXT)
+                # lambda 闭包延迟绑定:label 用默认参数固定
+                btn.bind(on_press=lambda inst, lb=label: self._on_sound_picked(lb))
+                row.add_widget(btn)
+            content.add_widget(row)
+
+        self._sound_popup = _SandBgPopup(title="选择音效", content=content,
+                                         size_hint=(0.88, None), height=dp(230),
+                                         auto_dismiss=False)
+        self._sound_popup.title_align = "center"
+        self._sound_popup.title_size = sp(19)
+        self._sound_popup.separator_color = (*POPUP_GOLD_SEL[:3], 0.25)
+        self._sound_popup.title_color = (1, 1, 1, 1)
+        # 内容高度自适应(同周期弹窗的成功链路)
+        content.size_hint_y = None
+        content.pos_hint = {'top': 1}
+        content.bind(minimum_height=content.setter('height'))
+        popup = self._sound_popup    # 局部引用:闭包持有,弹窗关闭后布局事件仍安全
+
+        def _adjust_popup_height(inst, val):
+            popup.height = val + dp(85)
+        content.bind(minimum_height=_adjust_popup_height)
+        self._sound_popup.open()
+
+    def _on_sound_picked(self, label):
+        popup = getattr(self, '_sound_popup', None)
+        if popup is not None:
+            self._sound_popup = None
+            popup.dismiss()
+        if self.hourglass._set_sound(label):
+            self.hourglass.save_config(self._selected_color_name())
+            self._update_sound_btn()
+
+    def _update_sound_btn(self):
+        """按钮状态:静音 → 旧「音效:关」样式(暖灰 + 文案),有声 → 金色。"""
+        if self.hourglass.sound_name == SILENT_NAME:
+            self.sound_btn.text = "音效:关"
+            self.sound_btn.background_color = (0.718, 0.686, 0.643, 1)
+        else:
+            self.sound_btn.text = "音效"
+            self.sound_btn.background_color = (*POPUP_GOLD_SEL[:3], 0.92)
         self.sound_btn.color = POPUP_TEXT
-        self.hourglass.save_config(self._selected_color_name())
 
     def on_color(self, base, dark, light, name):
         self.hourglass.set_sand_color(base, dark, light)
