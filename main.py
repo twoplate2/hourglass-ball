@@ -122,12 +122,18 @@ def config_path():
 
 
 def _fmt_duration(sec):
+    """周期显示:整分钟/整小时不加小数,非整数加一位(100 秒 → 1.7 分钟)。"""
     if sec < 60:
         return f"{sec:.0f} 秒"
-    elif sec < 3600:
-        return f"{sec / 60:.0f} 分钟"
-    else:
-        return f"{sec / 3600:.0f} 小时"
+    if sec < 3600:
+        m = sec / 60
+        if abs(m - round(m)) < 1e-9:
+            return f"{m:.0f} 分钟"
+        return f"{m:.1f} 分钟"
+    h = sec / 3600
+    if abs(h - round(h)) < 1e-9:
+        return f"{h:.0f} 小时"
+    return f"{h:.1f} 小时"
 
 
 BASE_PERIODS = [
