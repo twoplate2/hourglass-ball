@@ -50,15 +50,29 @@ from jnius import autoclass, jarray   # ← pyjnius 根本没有 jarray
    不在循环点重置相位（"非整数重采样断相位"的旧假设上一轮已被对抗推翻）。保留 `native_rate` 打印供诊断。
 3. **`play()` 每次重新武装 `setLoopPoints`**：native 层 `reload()`/`setPosition()` 会清 loop 状态，
    不重新武装的话"停止再播只响一遍"。顺带把魔法数 `0` 换成 `AudioTrack.MODE_STATIC`。
-4. **后端可见化**：`_SoundProxy` 增加 `error` 字段，`HourglassWidget.sound_backend_desc()`
-   把 `音频: audiotrack` 这行小字显示在**音效弹窗底部** —— 装机后不用 adb 就能确诊。
+4. **后端可见化**：`_SoundProxy` 增加 `error` 字段，`HourglassWidget.sound_problem_desc()`
+   **只在没走到无缝后端时**在音效弹窗底部显示一行红字（正常时高度 0，看不见）。
+
+### 第二层（同一条链路上的第二个 bug，靠上面那行小字 30 秒定位）
+
+装机后小字贴出 `soundloader — ValueError: AudioTrack not initialized: state=2`。
+`state=2` 是 **`STATE_NO_STATIC_DATA`**：官方定义"已成功初始化、使用静态数据、但还没收到那份数据"。
+即 track 造出来了、1.4MB 静态缓冲也被接受了，**但校验放在了 `write()` 之前**，
+`getState()==STATE_INITIALIZED(1)` 在 MODE_STATIC 上按设计不可能成立 → 照样回退 MediaPlayer。
+修法：写前接受 `{1, 2}` → `write()` → 写后再确认 `==1`。
+
+这同时解释了用户报的另一条：**冷启动前 5s 断续、重置后就正常** —— MediaPlayer 首播要解码 + 建缓冲，
+第二次文件已在页缓存里；AudioTrack MODE_STATIC 是整段 PCM 提前驻留，不存在预热。
+
+旁证：`sand_loop.wav` 实测极其平稳（每秒 RMS 波动 1.3%、频谱重心 0.9%，接缝处谱通量只有中位的
+1.1 倍、99 分位的 0.98 倍），**素材层面挑不出毛病** —— 循环点还能听出东西，只可能是播放链路。
 
 ### 装机验证方式
 
-打开音效弹窗看底部小字：
-- `音频: audiotrack` → 硬件循环生效，循环点应 0 缝隙（沙沙声连跑 ≥45 秒跨 3 个循环点听）。
-- `音频: soundloader — <错误串>` → 还有别的失败点，错误文本直接指向是
-  `$Builder` / `getState` / `write` / `setLoopPoints` 哪一步，不用再猜。
+打开音效弹窗看底部：
+- **什么都没有** → 已走 audiotrack（或桌面 winsound），硬件循环生效。听沙沙声连跑 ≥45 秒跨 3 个循环点。
+- **出现一行红字** → 还有下一个失败点，错误文本直接指向是 `$Builder` / `getState` / `write` /
+  `setLoopPoints` 哪一步，不用再猜。
 
 有 adb 时可选：`adb logcat | grep -E "backend=|AudioTrack init failed|wav_rate="`，与屏显应一致。
 
@@ -69,7 +83,7 @@ from jnius import autoclass, jarray   # ← pyjnius 根本没有 jarray
 ## 3. 关键代码位置（main.py）
 
 - `_SoundProxy`（约 216-）：`__init__`（`backend` + `error` 标记）/ `_init_audio_track`（WAV 解析 → AudioTrack MODE_STATIC → 单次 write bytes → setLoopPoints）/ play（每次重新武装循环点）/ stop / close。
-- `HourglassWidget.sound_backend_desc`：后端一句话描述，显示在音效弹窗底部小字。
+- `HourglassWidget.sound_problem_desc`：**仅异常时**返回文案（正常/静音返回空串）；弹窗里那行红字按宽度换行、高度绑 `texture_size`。
 - `_make_sound_proxy`（约 780-）：不再静默吞异常，打日志。
 - 音频资源：`sand_loop.wav`(15s)、`sounds/{water,wind}.wav`(14s)、`sounds/clock.wav`(8.62s，全 48000Hz mono 16bit)。
   钟表声 2026-08-28 按拍重切（`tools/make_clock_loop.py`）：旧 7s 版回绕抢半拍、旧 6s 版削顶+爆点+压扁强弱交替。
@@ -80,15 +94,15 @@ from jnius import autoclass, jarray   # ← pyjnius 根本没有 jarray
 ```powershell
 cd pc/apk
 python -m py_compile main.py            # 语法检查
-python main.py                          # 桌面预览(打开音效弹窗应显示「音频: winsound」,声音连续)
+python main.py                          # 桌面预览(走 winsound;音效弹窗底部应无红字)
 # 真机(可选,屏显已能确诊): adb logcat | grep -E "backend=|AudioTrack init failed|wav_rate="
 ```
 - 图标/物理验证见 `ICON.md`、`../readme.md`、`../CLAUDE.md`。
 
 ## 5. 交接给下一位的 first action
 
-§2 的音频问题已修复，等装机确认。**装机后第一件事：打开音效弹窗看底部小字**——
-显示 `音频: audiotrack` 即硬件循环生效；若仍是 `soundloader` + 错误串，错误文本直接指向下一个失败点。
+§2 的音频问题已修两层，等装机确认。**装机后第一件事：打开音效弹窗看底部**——
+没有红字即硬件循环生效；出现红字则错误文本直接指向下一个失败点。
 
 排查任何"改了没效果"的问题时，先照 §2 的教训确认那段代码真的执行了（README 经验教训
 「静默 fallback 会让后续所有修复打空」），再怀疑参数。

@@ -228,7 +228,7 @@ class _SoundProxy:
         self._needs_reload = False
         self._loop_frames = 0
         self.backend = None
-        self.error = ""      # 后端选择失败原因(屏显诊断用,见 sound_backend_desc)
+        self.error = ""      # 后端选择失败原因(只进 logcat, 界面不显示)
 
         if self._is_android:
             try:
@@ -348,12 +348,17 @@ class _SoundProxy:
             except Exception as e:
                 raise ValueError(f"All AudioTrack constructors failed: {e}")
 
-        # 校验初始化状态
+        # ⚠️ MODE_STATIC 的 track 在**写入数据前**状态必然是 STATE_NO_STATIC_DATA(2) ——
+        # 官方定义:"已成功初始化、使用静态数据、但还没收到那份数据的 AudioTrack"。
+        # 写完 PCM 才会转成 STATE_INITIALIZED(1)。所以这里拿 ==INITIALIZED 当前置校验
+        # 是**永远不可能通过**的(历史 bug: 真机报 state=2 → 抛异常 → 静默回退 MediaPlayer)。
+        # 正确做法:写前接受 {INITIALIZED, NO_STATIC_DATA},写后再确认 == INITIALIZED。
+        STATE_NO_STATIC_DATA = getattr(AudioTrack, 'STATE_NO_STATIC_DATA', 2)
         state = track.getState()
-        if state != AudioTrack.STATE_INITIALIZED:
+        if state not in (AudioTrack.STATE_INITIALIZED, STATE_NO_STATIC_DATA):
             raise ValueError(
-                f"AudioTrack not initialized: state={state}, "
-                f"expected={AudioTrack.STATE_INITIALIZED}")
+                f"AudioTrack ctor state={state}, "
+                f"expected {AudioTrack.STATE_INITIALIZED} or {STATE_NO_STATIC_DATA}")
 
         # 写入 PCM 数据。pyjnius 对 '[B' 参数的 bytes/bytearray 有专门支持:
         #   calculate_score  → '[B' 遇 bytes +10 分, '[S' 遇 bytes 直接 -1
@@ -367,6 +372,13 @@ class _SoundProxy:
         if written != len(pcm):
             raise ValueError(
                 f"AudioTrack.write incomplete: {written}/{len(pcm)} bytes")
+
+        # 写完数据后才该是 INITIALIZED(见上面的状态说明)
+        state = track.getState()
+        if state != AudioTrack.STATE_INITIALIZED:
+            raise ValueError(
+                f"AudioTrack not initialized after write: state={state}, "
+                f"expected={AudioTrack.STATE_INITIALIZED}")
 
         # 硬件循环点
         frame_size = channels * (bits // 8)
@@ -858,13 +870,16 @@ class HourglassWidget(Widget):
         if self._sound is not None:
             self._sound.stop()
 
-    def sound_backend_desc(self):
-        """当前音频后端一句话描述,显示在音效弹窗底部 —— 不用 adb 就能确诊。
-        audiotrack=Android 硬件循环(0 缝隙); winsound=Windows 驱动层循环;
-        soundloader=Kivy 应用层循环(Android 上是 MediaPlayer, 循环点会卡)。"""
+    def sound_problem_desc(self):
+        """**只有音频没走到无缝后端时**才返回一行提示,正常/静音一律返回空串。
+        当初这行小字 30 秒定位了 `state=2`(STATE_NO_STATIC_DATA)那个 bug —— 兜底路径
+        必须能把失败原因自己说出来,否则只能靠盲改 + 每轮 15 分钟的云端构建。
+        audiotrack=Android 硬件循环; winsound=Windows 驱动层循环; 两者都无缝,不提示。"""
         if self._sound is None:
-            return "音频: 静音"
+            return ""
         backend = getattr(self._sound, "backend", None) or "?"
+        if backend in ("audiotrack", "winsound"):
+            return ""
         err = getattr(self._sound, "error", "")
         return f"音频: {backend}" + (f" — {err}" if err else "")
 
@@ -1228,7 +1243,7 @@ class HourglassApp(App):
 
     def build(self):
         self._sound_popup = None
-        self._sound_diag_label = None    # 音效弹窗底部的后端诊断小字
+        self._sound_diag_label = None
         if platform != "android":
             try:
                 Window.size = (400, 800)
@@ -1550,13 +1565,17 @@ class HourglassApp(App):
                 row.add_widget(btn)
             content.add_widget(row)
 
-        # 后端诊断小字:装机后不用 adb 就能看出走的是硬件循环还是会卡的应用层循环
-        diag = Label(text=self.hourglass.sound_backend_desc(), font_size=sp(12),
-                     color=(*POPUP_TEXT[:3], 0.65), halign="center",
-                     size_hint=(1, None), height=dp(22))
-        diag.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+        # 后端异常提示:正常(audiotrack/winsound)时文案为空、高度 0,界面上看不见。
+        # 错误串可能很长,必须按宽度换行 —— 单行会被裁掉最关键的开头(实测只剩 "state=2")
+        diag = Label(text="", font_size=sp(12), color=(0.62, 0.23, 0.16, 0.95),
+                     halign="center", valign="top", size_hint=(1, None), height=0)
+        diag.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+        # 换行后高度会变,跟着 texture_size 走(宽度绑定晚于首次测量,只算一次会按单行算矮)
+        diag.bind(texture_size=lambda inst, ts:
+                  setattr(inst, "height", ts[1] if inst.text else 0))
         self._sound_diag_label = diag
         content.add_widget(diag)
+        self._refresh_sound_diag()
 
         # 「确定」= 唯一关闭出口(音效已在点击选项时即时生效,这里只收尾)
         # 暗红底:与选项选中金色区分,避免误看成"选中的音效项"
@@ -1594,8 +1613,19 @@ class HourglassApp(App):
         for lb, btn in btns.items():
             btn.background_color = POPUP_GOLD_SEL if lb == label else POPUP_UNSEL_BASE
             btn.color = POPUP_TEXT
-        if self._sound_diag_label is not None:
-            self._sound_diag_label.text = self.hourglass.sound_backend_desc()
+        self._refresh_sound_diag()
+
+    def _refresh_sound_diag(self):
+        """没问题→空文案 + 高度 0(不占位);有问题→显示后端与错误串。"""
+        lb = getattr(self, "_sound_diag_label", None)
+        if lb is None:
+            return
+        lb.text = self.hourglass.sound_problem_desc()
+        if not lb.text:
+            lb.height = 0
+            return
+        lb.texture_update()                      # 立刻拿到换行后的真实高度
+        lb.height = max(dp(20), lb.texture_size[1])
 
     def _close_sound_picker(self, popup):
         """「确定」:关闭音效弹窗(音效已在点击选项时生效,这里只收尾)。"""

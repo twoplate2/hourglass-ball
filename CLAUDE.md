@@ -118,7 +118,9 @@ Android 方案的核心细节：
 
 `sand_loop.wav` 是 15s 无缝 PCM 16bit mono **48000Hz**（~1.4MB）。修改采样率需同步调整 `_init_audio_track` 中的参数。
 
-**后端可见化**：`_SoundProxy` 有 `backend`（`audiotrack`/`winsound`/`soundloader`/`none`）和 `error` 两个字段，音效弹窗底部小字显示 `HourglassWidget.sound_backend_desc()` —— **装机后不用 adb 就能看出走的是硬件循环还是会卡的应用层循环**。兜底路径必须把失败原因暴露出来，否则静默 fallback 会让后续所有修复打空（见 README 经验教训）。
+**⚠️ MODE_STATIC 的 `getState()` 在写数据前必然是 `STATE_NO_STATIC_DATA`(2)**，不是 `STATE_INITIALIZED`(1)——官方定义就是"已成功初始化、使用静态数据、但还没收到那份数据"。**拿 `==STATE_INITIALIZED` 当写入前的校验，永远不可能通过**（历史 bug：真机 `state=2` → 抛异常 → 静默回退 MediaPlayer）。正确顺序：写前接受 `{1, 2}` → `write()` → 写后再确认 `==1`。
+
+**后端可见化**：`_SoundProxy` 有 `backend`（`audiotrack`/`winsound`/`soundloader`/`none`）和 `error` 两个字段；`HourglassWidget.sound_problem_desc()` **只在没走到无缝后端时**返回文案，音效弹窗底部据此显示一行红字（正常时高度 0，界面上看不见）。错误串要按宽度换行 + `texture_size` 绑定高度，否则窄屏上会被裁掉最关键的开头。这行字曾 30 秒定位上面那个 `state=2`，而在此之前盲改了两轮都没摸到——**兜底路径必须把失败原因自己说出来**（见 README 经验教训）。
 
 ### 音效库（5 选 1：沙沙/水流/风/钟表 + 无声音）
 
@@ -166,7 +168,7 @@ Android 方案的核心细节：
 
 ## Android 装机坑(桌面预览看不到，只在 APK 暴露)
 - **中文乱码**：`LabelBase.register(name="Roboto", fn=fonts/NotoSansSC-Medium.otf)` 全局覆盖默认字体；`buildozer.spec` 的 `source.include_patterns` **必须含 `fonts/*.otf`** 否则字体不进 APK。
-- **音效卡顿（已解决 2026-08-28）**：真机每到 wav 末尾卡一次。真因是 `_init_audio_track` 第一行 `from jnius import autoclass, jarray` —— **pyjnius 没有 `jarray`** → ImportError → `except` 吞掉 → 静默回退 Kivy `SoundLoader`；Android 上 Kivy 用 `audio_android`(`MediaPlayer.setLooping`)，**应用层循环不是 gapless**，卡顿周期跟文件时长走。该行自 AudioTrack 方案第一版就在，**硬件循环一次都没跑起来过**，所以"改采样率"和"设备原生率对齐"两轮修复全打在从未执行的代码上。历史其它坑：Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`（且 reload/setPosition 会清 loop 状态，`play()` 里要重新 `setLoopPoints`）；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。
+- **音效卡顿（2026-08-28）**：真机每到 wav 末尾卡一次，且冷启动前几秒断续（MediaPlayer 解码预热）。**两个 bug 叠罗汉**：①`_init_audio_track` 第一行 `from jnius import autoclass, jarray` —— **pyjnius 没有 `jarray`** → ImportError → `except` 吞掉 → 静默回退 Kivy `SoundLoader`；Android 上 Kivy 用 `audio_android`(`MediaPlayer.setLooping`)，**应用层循环不是 gapless**，卡顿周期跟文件时长走。该行自 AudioTrack 方案第一版就在，**硬件循环一次都没跑起来过**，所以"改采样率"和"设备原生率对齐"两轮修复全打在从未执行的代码上。②修掉①之后才露出第二个：写入前用 `getState()==STATE_INITIALIZED` 做校验，而 MODE_STATIC 此时必然是 `STATE_NO_STATIC_DATA`(2) → 照样回退。**修完一层要预期下一层**，别以为一个 bug 就是全部。历史其它坑：Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`（且 reload/setPosition 会清 loop 状态，`play()` 里要重新 `setLoopPoints`）；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。
 - **新音效无声（打包漏列）**：新增 wav 必须进 `buildozer.spec` 的 `source.include_patterns`（现为 `sand_loop.wav,fonts/*.otf,sounds/*.wav`）。漏列的表现是桌面预览有声、装机无声——桌面验证查不出来。
 - **粒子视觉**：千万不要用"直觉"替代 v4 的公式。v4 的流量守恒收缩 + Line 渲染是经过验证的成熟方案。历史上改成扩张(spread)、Ellipse、Rectangle、motion streak 全部失败。**移植 = 照搬 v4 公式 + 坐标翻转 + 参数不变。**
 - **配置路径**：Android 用 `App.user_data_dir`，桌面用 `~/.hourglass_config.json`(与 pc 版共享同一文件)。
