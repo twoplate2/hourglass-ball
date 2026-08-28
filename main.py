@@ -226,31 +226,37 @@ class _SoundProxy:
         self._wav_path = wav_path
         self._active = False
         self._needs_reload = False
+        self.backend = None
 
         if self._is_android:
             try:
                 self._init_audio_track(wav_path)
                 if self._audio_track is not None:
+                    self.backend = "audiotrack"
+                    print("backend=audiotrack")
                     return
             except Exception as e:
-                print(f"AudioTrack init failed: {e}")
+                print(f"AudioTrack init failed (fallback): {e}")
                 self._audio_track = None
-            # fallthrough → Kivy SoundLoader 兜底
         if self._is_windows:
             try:
                 import winsound
                 self._winsound = winsound
+                self.backend = "winsound"
+                print("backend=winsound")
                 return
             except Exception:
                 self._winsound = None
-        # 桌面 fallback / Android AudioTrack 失败兜底
         try:
             from kivy.core.audio import SoundLoader
             self._kivy_sound = SoundLoader.load(wav_path)
             if self._kivy_sound is not None:
                 self._kivy_sound.loop = True
+            self.backend = "soundloader"
+            print("backend=soundloader")
         except Exception:
             self._kivy_sound = None
+            self.backend = "none"
 
     def _init_audio_track(self, wav_path):
         from jnius import autoclass, jarray
@@ -277,6 +283,19 @@ class _SoundProxy:
             idx += 8 + chunk_size + (chunk_size & 1)  # 奇数对齐
         if pcm is None:
             raise ValueError("No data chunk in WAV")
+
+        # 设备原生输出率对齐, 1:1 进 fast path(避免 AudioFlinger 重采样降级)
+        AudioManager = autoclass('android.media.AudioManager')
+        AudioTrack = autoclass('android.media.AudioTrack')
+        try:
+            native_rate = int(AudioTrack.getNativeOutputSampleRate(AudioManager.STREAM_MUSIC))
+        except Exception:
+            native_rate = sample_rate
+        print(f"_init_audio_track wav_rate={sample_rate} native_rate={native_rate}")
+        if native_rate and native_rate != sample_rate:
+            pcm = self._resample_pcm(pcm, sample_rate, native_rate)
+            sample_rate = native_rate
+            print(f"resampled pcm to native_rate={native_rate}")
 
         AudioFormat = autoclass('android.media.AudioFormat')
         channel_out = (AudioFormat.CHANNEL_OUT_STEREO if channels == 2
@@ -356,9 +375,9 @@ class _SoundProxy:
                 if self._needs_reload:
                     try:
                         self._audio_track.reloadStaticData()
+                        self._needs_reload = False
                     except Exception:
-                        pass
-                    self._needs_reload = False
+                        self._needs_reload = True   # 失败保留, 下次重试(避免PLAYING时误reload竞态)
                 self._audio_track.setPlaybackHeadPosition(0)
                 self._audio_track.play()
                 self._active = True  # 成功后置,防异常后半永久静音
@@ -426,6 +445,26 @@ class _SoundProxy:
             except Exception:
                 pass
             self._kivy_sound = None
+
+    def _resample_pcm(self, pcm, in_rate, out_rate):
+        """16bit mono PCM 线性重采样(仅 native_rate 与 wav 不一致时的兜底)。"""
+        import array
+        try:
+            a = array.array('h'); a.frombytes(pcm)
+        except Exception:
+            return pcm
+        n = len(a)
+        if n <= 1 or in_rate == out_rate:
+            return pcm
+        out_len = int(n * out_rate / in_rate)
+        ratio = in_rate / out_rate
+        res = array.array('h', bytes(2 * out_len))
+        for i in range(out_len):
+            pos = i * ratio
+            j = int(pos); frac = pos - j
+            j2 = j + 1 if j + 1 < n else j
+            res[i] = int(a[j] + (a[j2] - a[j]) * frac)
+        return res.tobytes()
 
 
 class _SandBgPopup(Popup):
@@ -784,7 +823,8 @@ class HourglassWidget(Widget):
                     SOUND_EFFECTS[0][1])
         try:
             return _SoundProxy(resource_path(path))
-        except Exception:
+        except Exception as e:
+            print(f"sound proxy init failed: {e}")
             return None
 
     def _set_sound(self, name):
