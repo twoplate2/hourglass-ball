@@ -123,7 +123,9 @@ Android 方案的核心细节：
 ### 音效库（5 选 1：沙沙/水流/风/钟表 + 无声音）
 
 - 「音效:开/关」开关已删除，旧配置键 `sound_on` 忽略。**主界面音效按钮直接显示当前音效名（沙沙声/水流声/风声/钟表声/无声音）**。打开弹窗点选项 → 点击即切换（运行中停旧播新），**弹窗不关、高亮跟随点击项，可连续试听**；底部「确定」按钮是唯一关闭出口。选「无声音」(静音)：按钮显示「无声音」+ 暖灰底 `#b7afa4`，启动静默。
-- `SOUND_EFFECTS` 表（名字与 pc v4 **逐字一致**，共享配置文件）4 种：沙沙声（`sand_loop.wav`，合成保留）/ 水流声 / 风声 / 钟表声（`sounds/{water,wind,clock}.wav`，48000Hz 16bit mono 无缝循环；water/wind 14s，clock 源仅 9s → 6s 短循环，由 `import_sounds.py` 自适应短源路径生成）。后 3 个为**实录**，由 `tools/import_sounds.py` 从 `MP3/` 源文件加工：miniaudio 解码 → 首尾最像片段选段（频谱相似度+响度差+接缝低谷惩罚）→ ±0.15s 互相关对齐 + crossfade 焊循环（尾段钳文件边界）→ 幂律软压缩 + RMS 对齐。源 MP3 仅本机不入库（.gitignore）。
+- `SOUND_EFFECTS` 表（名字与 pc v4 **逐字一致**，共享配置文件）4 种：沙沙声（`sand_loop.wav`，合成保留）/ 水流声 / 风声 / 钟表声（`sounds/{water,wind,clock}.wav`，48000Hz 16bit mono 无缝循环；water/wind 14s，clock 8.62s）。后 3 个为**实录**，源 MP3 仅本机不入库（`.gitignore` 已含 `mp3/`）。
+  - **噪声类（water/wind）**：首尾最像片段选段（频谱相似度+响度差+接缝低谷惩罚）→ 互相关对齐 + crossfade 焊循环 → 软压缩 + RMS 对齐。
+  - **⚠️ 有拍子的（clock）绝不能用同一套流程**：钟表是滴/答强弱交替（周期 0.2535s、强弱比 2.48），循环长度必须是**整数个滴答对**、切点落在滴答前的静音里，否则每绕一圈就抢/拖一拍；且**不能压缩**（压扁了强弱交替就没了）。由 `tools/make_clock_loop.py` 按拍切：包络检出滴答 → 取同奇偶强拍 i→j（跨偶数拍）→ 切 `t[i]-60ms` 到 `t[j]-60ms` → 40ms crossfade 全程待在静音里 → 只做峰值归一化到 0.90。踩坑史见 README 经验教训。
 - 切换 `_set_sound(name)`：**①新建 `_SoundProxy`（失败→旧态原样保留）②stop 旧 ③`close()` 旧（AudioTrack `release()`）④挂新 ⑤running 则 play**；同名幂等。**不要给旧实例加 reload 复用**——AudioTrack MODE_STATIC 缓冲长度构造时锁死，换 wav 必须重建 track。`_SoundProxy.close()` 释放后端资源。
 - 音效弹窗 `on_sound_picker` 复用 `_SandBgPopup`，遍历 `SOUND_OPTIONS`（= `SOUND_EFFECTS` + `(SILENT_NAME, None)`，现 5 项两行 3+2）+ 底部**「确定」按钮**（唯一出口），当前项金色高亮，高度自适应（复用周期弹窗 `minimum_height` 三行链路）；按钮 label/btns 的 lambda 必须默认参数绑定（闭包延迟绑定坑）。`_on_sound_picked(label, btns)`：点击即 `_set_sound`，**不 dismiss**，只刷新 `btns` 高亮；「确定」→ `_close_sound_picker(popup)`（`_sound_popup=None` + dismiss）。选「无声音」→ `_set_sound` 静音分支：stop+close 旧 proxy、`_sound=None`（不建 proxy，`_play_sound/_stop_sound` 对 None 空操作）。`_update_sound_btn()` 把主按钮文字设为当前音效名（静音暖灰、有声金色）。
 
@@ -185,4 +187,4 @@ Android 方案的核心细节：
 | 按钮行高 | dp(40-54) | dp(58) |
 
 ## 资源文件
-`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **48000Hz**, ~1.4MB) / `sounds/{water,wind}.wav`(14s 无缝循环)、`sounds/clock.wav`(6s 短循环，48000Hz 16bit mono，`tools/import_sounds.py` 从 `MP3/` 实录加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发) / `ui/slider_track.png`(8×8 纯色 #8a7a68，周期弹窗滑杆未滑段贴图)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav、`sounds/*.wav` 和 `ui/*.png`。
+`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **48000Hz**, ~1.4MB) / `sounds/{water,wind}.wav`(14s 无缝循环)、`sounds/clock.wav`(8.62s = 17 个滴答对，48000Hz 16bit mono，`tools/make_clock_loop.py` 从 `mp3/zhongbiao.mp3` **按拍**加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发) / `ui/slider_track.png`(8×8 纯色 #8a7a68，周期弹窗滑杆未滑段贴图)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav、`sounds/*.wav` 和 `ui/*.png`。

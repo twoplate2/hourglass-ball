@@ -71,7 +71,9 @@ from jnius import autoclass, jarray   # ← pyjnius 根本没有 jarray
 - `_SoundProxy`（约 216-）：`__init__`（`backend` + `error` 标记）/ `_init_audio_track`（WAV 解析 → AudioTrack MODE_STATIC → 单次 write bytes → setLoopPoints）/ play（每次重新武装循环点）/ stop / close。
 - `HourglassWidget.sound_backend_desc`：后端一句话描述，显示在音效弹窗底部小字。
 - `_make_sound_proxy`（约 780-）：不再静默吞异常，打日志。
-- 音频资源：`sand_loop.wav`、`sounds/{water,wind,clock}.wav`（全 48000Hz mono 16bit）。
+- 音频资源：`sand_loop.wav`(15s)、`sounds/{water,wind}.wav`(14s)、`sounds/clock.wav`(8.62s，全 48000Hz mono 16bit)。
+  钟表声 2026-08-28 按拍重切（`tools/make_clock_loop.py`）：旧 7s 版回绕抢半拍、旧 6s 版削顶+爆点+压扁强弱交替。
+  **有拍子的音效不能套噪声那套流程**，详见 README 经验教训「有拍子的音效不能按秒切」。
 
 ## 4. 常用验证
 

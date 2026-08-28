@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 .hourglass_config.json
 backup/
+mp3/
+MP3/
