@@ -20,13 +20,19 @@ requirements = python3,kivy==2.3.0,pyjnius
 # 不锁的话 2026 年的新版 p4a 默认下 Python 3.14 alpha,与 Kivy 2.3 C API 不兼容必失败。
 # tag 名格式必须严格 v + 年.月补零.日补零,写错 git clone 会失败。
 p4a.branch = v2024.01.21
+# 构建后 hook: 往最终 manifest 注入 screenOrientation=fullSensor + resizeableActivity=true
+# (buildozer 每个方向键只认 4 值, fullSensor 走 android.manifest.orientation + 此 hook 桥接)
+p4a.hook = p4a/hook.py
 
-orientation = portrait
+# 四方向列表仅为过 buildozer 校验壳; 真正给系统的值由 android.manifest.orientation + hook 决定
+orientation = portrait, portrait-reverse, landscape, landscape-reverse
+# 直接写 manifest 的 screenOrientation=fullSensor(原生值, 不走 orientation 校验器)
+android.manifest.orientation = fullSensor
 fullscreen = 0
 
 android.permissions =
 
-android.api = 31
+android.api = 33
 android.minapi = 21
 android.ndk = 25b
 

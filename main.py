@@ -15,6 +15,7 @@
 import math
 import os
 import random
+import sys
 import time
 import json
 
@@ -23,10 +24,13 @@ from kivy.clock import Clock
 from kivy.core.text import LabelBase, Label as CoreLabel
 from kivy.core.window import Window
 from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
-                           StencilPush, StencilUse, StencilUnUse, StencilPop)
+                           StencilPush, StencilUse, StencilUnUse, StencilPop,
+                           PushMatrix, PopMatrix, Rotate)
 from kivy.metrics import dp, sp
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.slider import Slider
@@ -187,6 +191,48 @@ BASE_PERIODS = [
     ("1 分钟", 60),
     ("10 分钟", 600),
 ]
+
+
+# ---------- 横屏方向策略(移植自 hengping.md §3; 反旋转层 LandLayer 的配套) ----------
+
+_DEVICE_WIDE_MIN = 9.0 / 16.0    # 0.5625: 短边/长边 ≥ 9:16 判宽屏(平板),小于判瘦长机
+_device_wide_cache = None        # 开机/量一次,之后不再变
+_LAYER = None                    # 当前反旋转层实例(唯一,供 _land_layer / 弹窗 remount 取用)
+
+
+def _device_is_wide():
+    """物理屏比例分流: 宽屏(平板类)→允许横转+反旋转; 瘦长机→锁竖屏。"""
+    global _device_wide_cache
+    if _device_wide_cache is None:
+        aspect = 1.0
+        try:
+            from jnius import autoclass
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+            disp = act.getWindowManager().getDefaultDisplay()
+            pt = autoclass("android.graphics.Point")()
+            disp.getRealSize(pt)
+            s, l = min(pt.x, pt.y), max(pt.x, pt.y)
+            aspect = s / float(l)
+        except Exception:
+            aspect = 1.0
+        _device_wide_cache = aspect >= _DEVICE_WIDE_MIN
+    return _device_wide_cache
+
+
+def _land_angle():
+    """读系统旋转角决定反旋转画几度: ROTATION_270(3)→-90, 其余→+90。只在横屏被调。"""
+    try:
+        from jnius import autoclass
+        act = autoclass("org.kivy.android.PythonActivity").mActivity
+        wm = act.getWindowManager()
+        disp = wm.getDefaultDisplay()
+        return -90 if disp.getRotation() == 3 else 90
+    except Exception:
+        return 90
+
+
+def _land_layer():
+    return _LAYER
 
 
 # ---------- 居中输入框(Kivy TextInput 无 text_align,手动算 padding) ----------
@@ -495,8 +541,50 @@ class _SandBgPopup(Popup):
         self._popup_bg.size = inst.size
 
     def open(self, *args, **kwargs):
-        super().open(*args, **kwargs)
+        layer = _land_layer()
+        if layer is None or layer.angle == 0:
+            super().open(*args, **kwargs)          # 竖屏回落原生行为(零回归)
+            Clock.schedule_once(self._apply_light_theme, 0)
+            return
+        # 横屏: 不再把弹窗挂 Window(Window 不旋转), 改挂旋转层让其随层旋转成竖构图。
+        # 弹窗用 size_hint=(0.88, None), 直接挂层会按"物理长边×0.88"放大溢出, 故按
+        # "等效竖屏窗宽=短边"换算显式 size, 再整体旋转 → 视觉与竖屏一致。
+        if self._is_open:
+            return
+        eq_w = min(Window.width, Window.height)    # 等效竖屏窗宽=短边
+        frac = None
+        if self.size_hint and self.size_hint[0] is not None:
+            frac = self.size_hint[0]
+        else:
+            frac = 0.88
+        self.size_hint = (None, None)
+        self.size = (frac * eq_w, self.height)
+        self._window = layer                        # 宿主从 Window 换成旋转层
+        self._is_open = True
+        self.dispatch('on_pre_open')
+        if not self.pos_hint:
+            self.pos_hint = {"center_x": 0.5, "center_y": 0.5}
+        layer.add_widget(self)                      # 挂到层而非 Window
+        layer.bind(on_resize=self._align_center, on_keyboard=self._handle_keyboard)
+        self.center = layer.center
+        self.fbind('center', self._align_center)
+        self.fbind('size', self._align_center)
+        self._anim_alpha = 1.
+        self.dispatch('on_open')
         Clock.schedule_once(self._apply_light_theme, 0)
+
+    def _real_remove_widget(self):
+        """覆写: dismiss 时从旋转层对称摘除(非横屏时 host=Window, 行为等同原生)。"""
+        if not self._is_open:
+            return
+        self._window.remove_widget(self)
+        try:
+            self._window.unbind(on_resize=self._align_center,
+                                on_keyboard=self._handle_keyboard)
+        except Exception:
+            pass
+        self._is_open = False
+        self._window = None
 
     def _apply_light_theme(self, *_):
         """清空 _container 深色背景,替换为浅色"""
@@ -513,6 +601,83 @@ class _SandBgPopup(Popup):
     def _upd_ctr_bg(self, inst, _value):
         self._ctr_bg.pos = inst.pos
         self._ctr_bg.size = inst.size
+
+
+# ---------- 横屏反旋转层(移植自 hengping.md §4; 竖屏 angle=0 时行为等同无此层) ----------
+
+class LandLayer(FloatLayout):
+    """横屏时把"等效竖屏窗口"整体旋转 ±90° 铺满横窗; 竖屏 angle=0 零回归。
+    结构: LandLayer(旋转层, 铺满整窗) → anchor(AnchorLayout, 等效竖屏盒) → 实际 UI(root)。
+    """
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.angle = 0            # 渲染旋转角: 0=竖屏无旋转, 其他=±90
+        self._anchor = None       # "等效竖屏窗口"容器(AnchorLayout), 由 build 塞入
+        with self.canvas.before:
+            PushMatrix()
+            self._rot = Rotate(angle=0, axis=(0, 0, 1), origin=(0, 0))
+        with self.canvas.after:
+            PopMatrix()
+
+    def apply_orientation(self):
+        """窗口尺寸变化时重算: 层永远铺满整窗, anchor 按"等效竖屏盒"定尺寸并绕屏中心旋转。"""
+        w, h = Window.width, Window.height
+        land = (w > h and (platform == "android" or "--landscape" in sys.argv)
+                and _device_is_wide())
+        self.pos = (0, 0)
+        self.size = (w, h)                          # 层永远铺满
+        self.angle = _land_angle() if land else 0
+        self._rot.angle = self.angle
+        self._rot.origin = (w / 2.0, h / 2.0)       # 绕屏幕中心旋转
+        if self._anchor is not None:
+            self._anchor.size = (h, w) if land else (w, h)
+            self._anchor.center = self.center
+        return land
+
+    def _to_eq(self, x, y):
+        """屏幕(物理)坐标 → 等效竖屏(逻辑)坐标; 逆变换, 触摸分发用。"""
+        if self.angle == 0:
+            return (x, y)
+        cx, cy = Window.width / 2.0, Window.height / 2.0
+        dx, dy = x - cx, y - cy
+        if self.angle == 90:
+            return (cx + dy, cy - dx)               # 逆时针旋转 → 顺时针转回
+        return (cx - dy, cy + dx)                   # angle == -90
+
+    def _to_win(self, x, y):
+        """等效竖屏(逻辑)坐标 → 屏幕(物理)坐标; 正变换, to_parent 用。两者互逆。"""
+        if self.angle == 0:
+            return (x, y)
+        cx, cy = Window.width / 2.0, Window.height / 2.0
+        dx, dy = x - cx, y - cy
+        if self.angle == 90:
+            return (cx - dy, cy + dx)               # 正变换 = 逆时针 90
+        return (cx + dy, cy - dx)                   # angle == -90
+
+    # grab 后的 move/up 不经 on_touch_*, 而是 Window 沿祖先链调 to_local 换算 → 必须覆写
+    def to_local(self, x, y, **k):
+        return self._to_eq(x, y)
+
+    def to_parent(self, x, y, **k):
+        return self._to_win(x, y)
+
+    def _pass_touch(self, method, touch):
+        if self.angle == 0:
+            return method(touch)                    # 竖屏直接透传, 零回归
+        touch.push()
+        touch.apply_transform_2d(self._to_eq)       # 逆旋转, 把 x/y/pos/ox/oy/px/py 一起变
+        ret = method(touch)
+        touch.pop()
+        return ret
+
+    def on_touch_down(self, touch):
+        return self._pass_touch(super().on_touch_down, touch)
+
+    def on_touch_move(self, touch):
+        return self._pass_touch(super().on_touch_move, touch)
+
+    def on_touch_up(self, touch):
+        return self._pass_touch(super().on_touch_up, touch)
 
 
 # ---------- 沙漏画布 ----------
@@ -1244,9 +1409,14 @@ class HourglassApp(App):
     def build(self):
         self._sound_popup = None
         self._sound_diag_label = None
+        self._last_win_size = None
         if platform != "android":
             try:
-                Window.size = (400, 800)
+                # 桌面模拟: --landscape 用宽窗验证反旋转; 否则维持手机竖屏
+                if "--landscape" in sys.argv:
+                    Window.size = (1000, 600)
+                else:
+                    Window.size = (400, 800)
             except Exception:
                 pass
         Window.clearcolor = (*hex_rgb(BG_COLOR), 1)
@@ -1323,7 +1493,61 @@ class HourglassApp(App):
 
         self._mark_selected(color_name)
         self._update_sound_btn()
-        return root
+
+        # 把整棵 UI 树装进"等效竖屏窗口", 由 LandLayer 横屏时整体旋转 ±90° 铺满
+        layer = LandLayer()
+        anchor = AnchorLayout(size_hint=(None, None))
+        anchor.add_widget(root)
+        layer.add_widget(anchor)
+        layer._anchor = anchor
+        global _LAYER
+        _LAYER = layer
+        layer.apply_orientation()
+
+        # 运行时方向守卫(只 android): 启动 1s 抢一次 + 常驻 0.7s 重申; 窗口变化由 _frame 立即跟手
+        if platform == "android":
+            Clock.schedule_once(lambda *_: self._apply_orientation(), 1.0)
+            Clock.schedule_interval(self._orient_guard, 0.7)
+        Clock.schedule_interval(self._frame, 0.1)
+        return layer
+
+    # ---------- 运行时方向守卫(移植自 hengping.md §3.3/§3.4/§8) ----------
+
+    def _apply_orientation(self):
+        """以毒攻毒: 用 setRequestedOrientation 重申方向, 顶掉 SDL 启动/回前台的竖屏自报。
+        ZUI 只认运行时请求 → 宽屏抢 FULL_SENSOR(10), 瘦长机锁 SENSOR_PORTRAIT(7)。"""
+        try:
+            from jnius import autoclass
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+            act.setRequestedOrientation(10 if _device_is_wide() else 7)
+        except Exception:
+            pass
+
+    def _orient_guard(self, dt):
+        """常驻方向守卫(0.7s): 宽屏仅在横置(rot∈{1,3})时重申 fullSensor; 瘦长机无条件锁竖屏。"""
+        if platform != "android":
+            return
+        try:
+            from jnius import autoclass
+            act = autoclass("org.kivy.android.PythonActivity").mActivity
+            if _device_is_wide():
+                rot = act.getWindowManager().getDefaultDisplay().getRotation()
+                if rot in (1, 3):                    # 横置才重申; 竖置本就竖构图, 幂等
+                    act.setRequestedOrientation(10)
+            else:
+                act.setRequestedOrientation(7)        # 瘦长机持续锁竖屏
+        except Exception:
+            pass
+
+    def _frame(self, dt):
+        """窗口尺寸变化 → 立即重算反旋转层 + 重申方向(不等守卫周期, 转屏跟手)。"""
+        ws = (Window.width, Window.height)
+        if ws != getattr(self, "_last_win_size", None):
+            self._last_win_size = ws
+            layer = _land_layer()
+            if layer is not None:
+                layer.apply_orientation()
+            self._apply_orientation()
 
     def _selected_color_name(self):
         for n, btn in self.color_btns:
@@ -1659,6 +1883,12 @@ class HourglassApp(App):
         return True
 
     def on_resume(self):
+        if platform == "android":
+            # SDL 回前台会重报方向(可能把 fullSensor 覆盖回竖屏), 再抢一次话语权
+            self._apply_orientation()
+            layer = _land_layer()
+            if layer is not None:
+                layer.apply_orientation()
         return True
 
 
