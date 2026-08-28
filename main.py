@@ -226,7 +226,9 @@ class _SoundProxy:
         self._wav_path = wav_path
         self._active = False
         self._needs_reload = False
+        self._loop_frames = 0
         self.backend = None
+        self.error = ""      # 后端选择失败原因(屏显诊断用,见 sound_backend_desc)
 
         if self._is_android:
             try:
@@ -235,7 +237,9 @@ class _SoundProxy:
                     self.backend = "audiotrack"
                     print("backend=audiotrack")
                     return
+                self.error = "AudioTrack: no track"
             except Exception as e:
+                self.error = f"{type(e).__name__}: {e}"[:70]
                 print(f"AudioTrack init failed (fallback): {e}")
                 self._audio_track = None
         if self._is_windows:
@@ -252,14 +256,20 @@ class _SoundProxy:
             self._kivy_sound = SoundLoader.load(wav_path)
             if self._kivy_sound is not None:
                 self._kivy_sound.loop = True
+            else:
+                self.error = self.error or "SoundLoader.load returned None"
             self.backend = "soundloader"
             print("backend=soundloader")
-        except Exception:
+        except Exception as e:
             self._kivy_sound = None
             self.backend = "none"
+            self.error = f"{type(e).__name__}: {e}"[:70]
 
     def _init_audio_track(self, wav_path):
-        from jnius import autoclass, jarray
+        # ⚠️ pyjnius **没有** jarray —— 早期版本写成 `from jnius import autoclass, jarray`,
+        # 这一行直接 ImportError, 整个 AudioTrack 路径从未执行过一次(静默回退 SoundLoader,
+        # 循环点每 15s 卡一次)。byte[] 参数直接传 Python bytes 即可, 见下方 write 处注释。
+        from jnius import autoclass
 
         # 解析 WAV 头 + 提取 PCM 裸数据
         with open(wav_path, 'rb') as f:
@@ -284,7 +294,9 @@ class _SoundProxy:
         if pcm is None:
             raise ValueError("No data chunk in WAV")
 
-        # 设备原生输出率对齐, 1:1 进 fast path(避免 AudioFlinger 重采样降级)
+        # 设备原生输出率(仅诊断用)。**不做重采样**: AudioFlinger 的 SRC 挂在 track 流上,
+        # loop 在更上游解析成连续重复流, 不会在循环点重置相位; 而纯 Python 逐样本重采样
+        # 72 万样本跑在 UI 线程上会冻屏数秒。采样率不一致交给系统 SRC 即可。
         AudioManager = autoclass('android.media.AudioManager')
         AudioTrack = autoclass('android.media.AudioTrack')
         try:
@@ -292,10 +304,6 @@ class _SoundProxy:
         except Exception:
             native_rate = sample_rate
         print(f"_init_audio_track wav_rate={sample_rate} native_rate={native_rate}")
-        if native_rate and native_rate != sample_rate:
-            pcm = self._resample_pcm(pcm, sample_rate, native_rate)
-            sample_rate = native_rate
-            print(f"resampled pcm to native_rate={native_rate}")
 
         AudioFormat = autoclass('android.media.AudioFormat')
         channel_out = (AudioFormat.CHANNEL_OUT_STEREO if channels == 2
@@ -322,7 +330,7 @@ class _SoundProxy:
                      .setAudioAttributes(attrs)
                      .setAudioFormat(fmt)
                      .setBufferSizeInBytes(len(pcm))
-                     .setTransferMode(0)  # MODE_STATIC = 0
+                     .setTransferMode(AudioTrack.MODE_STATIC)
                      .build())
         except Exception as e:
             print(f"Builder init failed: {e}, trying legacy constructor")
@@ -330,29 +338,32 @@ class _SoundProxy:
         # 方法2: 传统构造函数(API 3+, 某些设备 Builder 不可用时兜底)
         if track is None:
             try:
-                AudioTrack = autoclass('android.media.AudioTrack')
-                AudioManager = autoclass('android.media.AudioManager')
                 track = AudioTrack(
                     AudioManager.STREAM_MUSIC,
                     sample_rate,
                     channel_out,
                     AudioFormat.ENCODING_PCM_16BIT,
                     len(pcm),
-                    0)  # MODE_STATIC = 0
+                    AudioTrack.MODE_STATIC)
             except Exception as e:
                 raise ValueError(f"All AudioTrack constructors failed: {e}")
 
         # 校验初始化状态
-        AudioTrack = autoclass('android.media.AudioTrack')
         state = track.getState()
         if state != AudioTrack.STATE_INITIALIZED:
             raise ValueError(
                 f"AudioTrack not initialized: state={state}, "
                 f"expected={AudioTrack.STATE_INITIALIZED}")
 
-        # 写入 PCM 数据
-        java_byte_array = jarray('b')(pcm)
-        written = track.write(java_byte_array, 0, len(pcm))
+        # 写入 PCM 数据。pyjnius 对 '[B' 参数的 bytes/bytearray 有专门支持:
+        #   calculate_score  → '[B' 遇 bytes +10 分, '[S' 遇 bytes 直接 -1
+        #                      ⟹ 三参调用确定性命中 write(byte[],int,int), 不会误选 short[]
+        #   convert_pyarray_to_java → bytes 走单次 SetByteArrayRegion 整块拷贝(列表才是慢路径)
+        # ⚠️ MODE_STATIC 的 native writeToTrack() 每次 write 都 memcpy 到共享缓冲**起始处**,
+        #    分块写会让最后一块落到 offset 0 —— 必须一次写完。
+        if not isinstance(pcm, (bytes, bytearray)):
+            pcm = bytes(pcm)
+        written = track.write(pcm, 0, len(pcm))
         if written != len(pcm):
             raise ValueError(
                 f"AudioTrack.write incomplete: {written}/{len(pcm)} bytes")
@@ -364,6 +375,7 @@ class _SoundProxy:
         if result != 0:  # SUCCESS = 0
             raise ValueError(f"setLoopPoints failed: {result}")
 
+        self._loop_frames = total_frames
         self._audio_track = track
 
     def play(self):
@@ -379,6 +391,10 @@ class _SoundProxy:
                     except Exception:
                         self._needs_reload = True   # 失败保留, 下次重试(避免PLAYING时误reload竞态)
                 self._audio_track.setPlaybackHeadPosition(0)
+                # native 层 reload()/setPosition() 会清掉 loop 状态(setLoop(...,0)),
+                # 每次播放前重新武装, 否则"停止再播"只响一遍就没了
+                if self._loop_frames:
+                    self._audio_track.setLoopPoints(0, self._loop_frames, -1)
                 self._audio_track.play()
                 self._active = True  # 成功后置,防异常后半永久静音
             except Exception:
@@ -445,26 +461,6 @@ class _SoundProxy:
             except Exception:
                 pass
             self._kivy_sound = None
-
-    def _resample_pcm(self, pcm, in_rate, out_rate):
-        """16bit mono PCM 线性重采样(仅 native_rate 与 wav 不一致时的兜底)。"""
-        import array
-        try:
-            a = array.array('h'); a.frombytes(pcm)
-        except Exception:
-            return pcm
-        n = len(a)
-        if n <= 1 or in_rate == out_rate:
-            return pcm
-        out_len = int(n * out_rate / in_rate)
-        ratio = in_rate / out_rate
-        res = array.array('h', bytes(2 * out_len))
-        for i in range(out_len):
-            pos = i * ratio
-            j = int(pos); frac = pos - j
-            j2 = j + 1 if j + 1 < n else j
-            res[i] = int(a[j] + (a[j2] - a[j]) * frac)
-        return res.tobytes()
 
 
 class _SandBgPopup(Popup):
@@ -862,6 +858,16 @@ class HourglassWidget(Widget):
         if self._sound is not None:
             self._sound.stop()
 
+    def sound_backend_desc(self):
+        """当前音频后端一句话描述,显示在音效弹窗底部 —— 不用 adb 就能确诊。
+        audiotrack=Android 硬件循环(0 缝隙); winsound=Windows 驱动层循环;
+        soundloader=Kivy 应用层循环(Android 上是 MediaPlayer, 循环点会卡)。"""
+        if self._sound is None:
+            return "音频: 静音"
+        backend = getattr(self._sound, "backend", None) or "?"
+        err = getattr(self._sound, "error", "")
+        return f"音频: {backend}" + (f" — {err}" if err else "")
+
     # ---------- 配置持久化 ----------
 
     def load_config(self):
@@ -1221,6 +1227,8 @@ class HourglassApp(App):
     title = "跳跳的沙漏"
 
     def build(self):
+        self._sound_popup = None
+        self._sound_diag_label = None    # 音效弹窗底部的后端诊断小字
         if platform != "android":
             try:
                 Window.size = (400, 800)
@@ -1542,6 +1550,14 @@ class HourglassApp(App):
                 row.add_widget(btn)
             content.add_widget(row)
 
+        # 后端诊断小字:装机后不用 adb 就能看出走的是硬件循环还是会卡的应用层循环
+        diag = Label(text=self.hourglass.sound_backend_desc(), font_size=sp(12),
+                     color=(*POPUP_TEXT[:3], 0.65), halign="center",
+                     size_hint=(1, None), height=dp(22))
+        diag.bind(size=lambda inst, val: setattr(inst, "text_size", val))
+        self._sound_diag_label = diag
+        content.add_widget(diag)
+
         # 「确定」= 唯一关闭出口(音效已在点击选项时即时生效,这里只收尾)
         # 暗红底:与选项选中金色区分,避免误看成"选中的音效项"
         confirm_btn = Button(text="确定", font_size=sp(16), bold=True,
@@ -1578,10 +1594,13 @@ class HourglassApp(App):
         for lb, btn in btns.items():
             btn.background_color = POPUP_GOLD_SEL if lb == label else POPUP_UNSEL_BASE
             btn.color = POPUP_TEXT
+        if self._sound_diag_label is not None:
+            self._sound_diag_label.text = self.hourglass.sound_backend_desc()
 
     def _close_sound_picker(self, popup):
         """「确定」:关闭音效弹窗(音效已在点击选项时生效,这里只收尾)。"""
         self._sound_popup = None
+        self._sound_diag_label = None
         popup.dismiss()
 
     def _update_sound_btn(self):

@@ -106,7 +106,7 @@ Kivy y 向上(原点左下)，pc 是 y 向下 —— 所有几何**上下翻转*
 
 Android 方案的核心细节：
 1. 手动解析 WAV RIFF 头（遍历 chunk 找 `data`，WAV chunk 2 字节对齐需处理奇数 padding）
-2. 提取 PCM 裸数据（16bit only），用 `jarray('b')(pcm)` 显式转 Java `byte[]`
+2. 提取 PCM 裸数据（16bit only），**直接把 Python `bytes` 传给 `write(byte[],int,int)`** —— pyjnius 的 `calculate_score` 对 `'[B'` 参数遇 `bytes/bytearray` 加 10 分、对 `'[S'` 直接返回 −1（确定性命中 byte[] 重载，不会误选 short[]），`convert_pyarray_to_java` 对 `bytes` 走单次 `SetByteArrayRegion` 整块拷贝。⚠️ **pyjnius 没有 `jarray`**，写 `from jnius import autoclass, jarray` 会 ImportError 且被 `except` 吞掉 → 整条 AudioTrack 路径静默不执行（历史 bug，见下方"音效卡顿"）。MODE_STATIC 的 native `writeToTrack()` 每次 write 都 memcpy 到缓冲**起始处**，必须一次写完，不能分块
 3. **用 `$Builder` 优先**：pyjnius 用 `autoclass('AudioTrack$Builder')` 的 `$` 符号访问嵌套类（`.` 点号无法解析）；降级兜底：传统 `AudioTrack(streamType, ...)` 构造函数
 4. `getState() == STATE_INITIALIZED` 校验 + `write()` 完整写入校验 + `setLoopPoints()` 返回值校验
 5. `MODE_STATIC` → 一次性写入全部 PCM + `setLoopPoints(0, frames, -1)` 硬件回绕
@@ -114,14 +114,16 @@ Android 方案的核心细节：
 7. `_active` 标志**后置于** `play()` 成功后，防止异常后半永久静音
 8. **Android AudioTrack 失败时 fallthrough 到 Kivy SoundLoader 兜底**（至少有声）
 
-**WAV 必须用 44100Hz**：22050Hz 在 Android 设备上需 AudioFlinger 非整数倍重采样（22050→48000≅2.18x），MODE_STATIC 循环时重采样器相位不连续 → 每 15s 循环点可闻跳变。已重采样到 44100Hz（1.3MB）。
+**采样率不必和设备原生率对齐**：AudioFlinger 的 SRC 挂在 track 流上，loop 在更上游解析成连续重复流，**不会在循环点重置相位**。曾经"22050→48000 非整数重采样导致循环点跳变"的说法已被推翻（真因见"音效卡顿"）。也**不要**在 Python 里自己重采样 —— 逐样本循环 72 万样本跑在 UI 线程上会冻屏数秒。`_init_audio_track` 只打印 `wav_rate=/native_rate=` 供诊断。
 
-`sand_loop.wav` 是 15s 无缝 PCM 16bit mono **44100Hz**（~1.3MB）。修改采样率需同步调整 `_init_audio_track` 中的参数。
+`sand_loop.wav` 是 15s 无缝 PCM 16bit mono **48000Hz**（~1.4MB）。修改采样率需同步调整 `_init_audio_track` 中的参数。
+
+**后端可见化**：`_SoundProxy` 有 `backend`（`audiotrack`/`winsound`/`soundloader`/`none`）和 `error` 两个字段，音效弹窗底部小字显示 `HourglassWidget.sound_backend_desc()` —— **装机后不用 adb 就能看出走的是硬件循环还是会卡的应用层循环**。兜底路径必须把失败原因暴露出来，否则静默 fallback 会让后续所有修复打空（见 README 经验教训）。
 
 ### 音效库（5 选 1：沙沙/水流/风/钟表 + 无声音）
 
 - 「音效:开/关」开关已删除，旧配置键 `sound_on` 忽略。**主界面音效按钮直接显示当前音效名（沙沙声/水流声/风声/钟表声/无声音）**。打开弹窗点选项 → 点击即切换（运行中停旧播新），**弹窗不关、高亮跟随点击项，可连续试听**；底部「确定」按钮是唯一关闭出口。选「无声音」(静音)：按钮显示「无声音」+ 暖灰底 `#b7afa4`，启动静默。
-- `SOUND_EFFECTS` 表（名字与 pc v4 **逐字一致**，共享配置文件）4 种：沙沙声（`sand_loop.wav`，合成保留）/ 水流声 / 风声 / 钟表声（`sounds/{water,wind,clock}.wav`，44100Hz 16bit mono 无缝循环；clock 源仅 9s → 7s 短循环，由 `import_sounds.py` 自适应短源路径生成）。后 3 个为**实录**，由 `tools/import_sounds.py` 从 `MP3/` 源文件加工：miniaudio 解码 → 首尾最像片段选段（频谱相似度+响度差+接缝低谷惩罚）→ ±0.15s 互相关对齐 + crossfade 焊循环（尾段钳文件边界）→ 幂律软压缩 + RMS 对齐。源 MP3 仅本机不入库（.gitignore）。
+- `SOUND_EFFECTS` 表（名字与 pc v4 **逐字一致**，共享配置文件）4 种：沙沙声（`sand_loop.wav`，合成保留）/ 水流声 / 风声 / 钟表声（`sounds/{water,wind,clock}.wav`，48000Hz 16bit mono 无缝循环；water/wind 14s，clock 源仅 9s → 6s 短循环，由 `import_sounds.py` 自适应短源路径生成）。后 3 个为**实录**，由 `tools/import_sounds.py` 从 `MP3/` 源文件加工：miniaudio 解码 → 首尾最像片段选段（频谱相似度+响度差+接缝低谷惩罚）→ ±0.15s 互相关对齐 + crossfade 焊循环（尾段钳文件边界）→ 幂律软压缩 + RMS 对齐。源 MP3 仅本机不入库（.gitignore）。
 - 切换 `_set_sound(name)`：**①新建 `_SoundProxy`（失败→旧态原样保留）②stop 旧 ③`close()` 旧（AudioTrack `release()`）④挂新 ⑤running 则 play**；同名幂等。**不要给旧实例加 reload 复用**——AudioTrack MODE_STATIC 缓冲长度构造时锁死，换 wav 必须重建 track。`_SoundProxy.close()` 释放后端资源。
 - 音效弹窗 `on_sound_picker` 复用 `_SandBgPopup`，遍历 `SOUND_OPTIONS`（= `SOUND_EFFECTS` + `(SILENT_NAME, None)`，现 5 项两行 3+2）+ 底部**「确定」按钮**（唯一出口），当前项金色高亮，高度自适应（复用周期弹窗 `minimum_height` 三行链路）；按钮 label/btns 的 lambda 必须默认参数绑定（闭包延迟绑定坑）。`_on_sound_picked(label, btns)`：点击即 `_set_sound`，**不 dismiss**，只刷新 `btns` 高亮；「确定」→ `_close_sound_picker(popup)`（`_sound_popup=None` + dismiss）。选「无声音」→ `_set_sound` 静音分支：stop+close 旧 proxy、`_sound=None`（不建 proxy，`_play_sound/_stop_sound` 对 None 空操作）。`_update_sound_btn()` 把主按钮文字设为当前音效名（静音暖灰、有声金色）。
 
@@ -162,7 +164,7 @@ Android 方案的核心细节：
 
 ## Android 装机坑(桌面预览看不到，只在 APK 暴露)
 - **中文乱码**：`LabelBase.register(name="Roboto", fn=fonts/NotoSansSC-Medium.otf)` 全局覆盖默认字体；`buildozer.spec` 的 `source.include_patterns` **必须含 `fonts/*.otf`** 否则字体不进 APK。
-- **音效卡顿/无声**：Android MODE_STATIC + 44100Hz WAV 是当前最优解。历史踩坑：22050Hz→AudioFlinger 非整数重采样相位不连续；Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。
+- **音效卡顿（已解决 2026-08-28）**：真机每到 wav 末尾卡一次。真因是 `_init_audio_track` 第一行 `from jnius import autoclass, jarray` —— **pyjnius 没有 `jarray`** → ImportError → `except` 吞掉 → 静默回退 Kivy `SoundLoader`；Android 上 Kivy 用 `audio_android`(`MediaPlayer.setLooping`)，**应用层循环不是 gapless**，卡顿周期跟文件时长走。该行自 AudioTrack 方案第一版就在，**硬件循环一次都没跑起来过**，所以"改采样率"和"设备原生率对齐"两轮修复全打在从未执行的代码上。历史其它坑：Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`（且 reload/setPosition 会清 loop 状态，`play()` 里要重新 `setLoopPoints`）；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。
 - **新音效无声（打包漏列）**：新增 wav 必须进 `buildozer.spec` 的 `source.include_patterns`（现为 `sand_loop.wav,fonts/*.otf,sounds/*.wav`）。漏列的表现是桌面预览有声、装机无声——桌面验证查不出来。
 - **粒子视觉**：千万不要用"直觉"替代 v4 的公式。v4 的流量守恒收缩 + Line 渲染是经过验证的成熟方案。历史上改成扩张(spread)、Ellipse、Rectangle、motion streak 全部失败。**移植 = 照搬 v4 公式 + 坐标翻转 + 参数不变。**
 - **配置路径**：Android 用 `App.user_data_dir`，桌面用 `~/.hourglass_config.json`(与 pc 版共享同一文件)。
@@ -183,4 +185,4 @@ Android 方案的核心细节：
 | 按钮行高 | dp(40-54) | dp(58) |
 
 ## 资源文件
-`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **44100Hz**, ~1.3MB) / `sounds/{water,wind}.wav`(15s 无缝循环)、`sounds/clock.wav`(7s 短循环，44100Hz 16bit mono，`tools/import_sounds.py` 从 `MP3/` 实录加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发) / `ui/slider_track.png`(8×8 纯色 #8a7a68，周期弹窗滑杆未滑段贴图)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav、`sounds/*.wav` 和 `ui/*.png`。
+`icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **48000Hz**, ~1.4MB) / `sounds/{water,wind}.wav`(14s 无缝循环)、`sounds/clock.wav`(6s 短循环，48000Hz 16bit mono，`tools/import_sounds.py` 从 `MP3/` 实录加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发) / `ui/slider_track.png`(8×8 纯色 #8a7a68，周期弹窗滑杆未滑段贴图)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav、`sounds/*.wav` 和 `ui/*.png`。

@@ -82,7 +82,7 @@ Kivy 2.3.0 + python-for-android v2024.01.21 + buildozer 1.5.0 + cython<3.0 + hos
 | Windows | `winsound` | `SND_LOOP` 驱动层循环 | 0ms |
 | 其他桌面 | Kivy `SoundLoader` | `loop=True` 应用层循环 | 可忽略 |
 
-Android 方案的核心：手动解析 WAV 头提取 PCM 裸数据 → 一次性写入 AudioTrack 硬件缓冲区 → `setLoopPoints` 告诉音频 DSP 自动回绕读指针。整个循环发生在音频芯片内部，**不经过任何软件层**。pyjnius 传 `byte[]` 需 `jarray('b')(pcm)` 显式转换。
+Android 方案的核心：手动解析 WAV 头提取 PCM 裸数据 → 一次性写入 AudioTrack 硬件缓冲区 → `setLoopPoints` 告诉音频 DSP 自动回绕读指针。整个循环发生在音频芯片内部，**不经过任何软件层**。pyjnius 传 `byte[]` **直接传 Python `bytes` 即可**(单次 `SetByteArrayRegion` 整块拷贝) —— pyjnius **没有** `jarray`,写了会 ImportError 并静默回退到会卡的应用层循环。
 
 **音效素材**：3 个实录音效(水流/风/钟表)由 `tools/import_sounds.py` 加工(miniaudio 解码 → 44.1kHz 单声道 → 首尾相似片段选段 + 互相关对齐 + crossfade 无缝循环 → 软压缩 + 音量对齐沙沙声;短源如 9s 钟表自动整段成环)。源 MP3 放 `MP3/`(已进 .gitignore,不入库)。
 
@@ -173,6 +173,36 @@ v4 有 PIL 4× 超采样 + LANCZOS,轮廓最干净,适合判断"形状对不对"
 把它放大了 —— 回退只会把问题重新藏起来。**用证据讲清因果,然后修真正的原因**;同时把回退
 成本讲明白(备份路径),让用户有的选。反过来也一样:别因为自己改过就嘴硬,证据指向哪就是哪。
 
+### 静默 fallback 会让后续所有修复打空
+
+Android 音频"每 15s 循环点卡一次"排查了两轮（改采样率、对齐设备原生率）都毫无效果。真因是
+`_init_audio_track` 的**第一行**：
+
+```python
+from jnius import autoclass, jarray   # ← pyjnius 根本没有 jarray
+```
+
+ImportError 被外层 `except Exception` 吞成一句 print，静默回退 Kivy `SoundLoader`；Android 上
+Kivy 走 `audio_android`(`MediaPlayer.setLooping`)，**应用层循环不是 gapless**。也就是说
+AudioTrack 硬件循环从第一版起**一次都没执行过**，那两轮修复改的代码全在这行下面，永远跑不到。
+
+三条可复用的教训：
+
+1. **"某后端在用"不能靠假设。** 兜底路径必须把选中的后端和失败原因**暴露到界面上**
+   （现在音效弹窗底部有一行 `音频: audiotrack`），否则装机后无从判断，只能靠 adb —— 而没有
+   adb 就会像交接文档那样卡住："必须先上真机才能分支"。
+2. **改完没效果时，先确认那段代码真的执行了**，再怀疑参数。加一句 print 在函数入口，
+   比再猜一轮参数便宜得多。
+3. **上游 API 别凭印象写。** `jarray` 看起来很像 pyjnius 该有的东西，实际不存在
+   （`jnius/__init__.py` 只 star-import `jnius.jnius` + `jnius.reflect`，都没有这个名字；
+   唯一含该字串的是内部 `cdef convert_jarray_to_python`）。查 30 秒上游源码即可证伪。
+   顺带一提，byte[] 参数**直接传 Python `bytes`** 就行，pyjnius 有单次 `SetByteArrayRegion` 快路径。
+
+同一轮还发现一个"看起来很合理但是有害"的改动：`_resample_pcm` 纯 Python 逐样本重采样
+72 万样本跑在 UI 线程上，命中即冻屏数秒 —— 而且没必要（AudioFlinger 的 SRC 在 track 流上，
+loop 在更上游解析成连续重复流，不会在循环点重置相位）。**兜底代码也要算成本**，
+不能因为"平时不走"就随便写。
+
 ### 流程红线
 
 1. **改 `pc/` 之前先手动备份** —— `pc/` 不在任何 git 仓库里,改错没法回滚
@@ -194,10 +224,10 @@ apk/
 ├── buildozer.spec                # 构建配置(锁 p4a v2024.01.21)
 ├── icon.png                      # 启动器图标 1024×1024
 ├── presplash.png                 # 启动屏 1080×1920(#fdf6e3 底)
-├── sand_loop.wav                 # 15s 无缝循环 PCM 16bit mono 44100Hz
+├── sand_loop.wav                 # 15s 无缝循环 PCM 16bit mono 48000Hz
 ├── sounds/
 │   ├── water.wav / wind.wav / clock.wav
-│   │                             # 3 个实录音效:无缝循环 44100Hz(import_sounds.py 加工;clock 7s 短循环)
+│   │                             # 3 个实录音效:无缝循环 48000Hz(import_sounds.py 加工;water/wind 14s,clock 6s 短循环)
 ├── ui/
 │   └── slider_track.png          # 滑杆未滑段贴图 8×8 纯色 #8a7a68(暖灰棕,9-patch 可拉伸)
 ├── tools/
