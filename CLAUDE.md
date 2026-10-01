@@ -88,6 +88,22 @@ python main.py
 9. 暂停遮罩(`BG_COLOR` 55% 透明度)
 10. 完成闪烁(350ms 白色 25% 全屏)
 
+### 帧率优化与隐藏 Benchmark(2026-10-01)
+
+- `_build_dynamic_canvas()` 在几何变化时重建固定指令；`redraw()` 更新保留的 Stencil 沙面、Quad 沙柱及 Line/Rectangle 图元池。不要重新退回逐帧 `canvas.clear()`。
+- 同色同线宽共用 Color 指令，渲染分桶不排序物理粒子列表；没有减少粒子数量、改变形状或降低抗锯齿。
+- 沙柱注满后从直筒出口生成粒子，出生时刻均匀分布在帧内；恒加速度积分、单调时钟、暂停冻结粒子。重力/生成速率/收缩/摆动参数保留。
+- `frame_benchmark.py`：底部音效与开始之间的 spacer 长按 3 秒；依次测试 1/5/15 秒。
+  用 Window.on_flip 间隔计算平均 FPS、1% low、最慢 5 帧分别的 FPS；测试时不显示结果弹窗。
+- 结果页有帧率曲线和「复制结果」；每轮自动保存 benchmark_logs/*.txt，含逐帧更新/Canvas/Swap/GC 耗时。
+- Windows/Python 3.11 的 monotonic() 基于 GetTickCount64，精度只有 15.625ms；动画统一用 perf_counter()，
+  Clock.schedule_interval(tick, 0) 跟随帧更新。分组复用粒子引用，避免每帧创建上千个临时坐标列表；不要全局禁用 GC。
+- `_reserve_stream_lines()` 按最慢初速度的飞行时间预留图元，不限制/减少实际粒子；重置和新周期开始前全量回收旧场景，
+  不在暂停恢复时强制回收。空池容量保持可增长，窄颈全 1px 粒子的工况也要预留正确线宽。
+- BenchmarkRunner 快照并恢复动画状态，不调用配置保存；取消、后台、退出必须解绑 on_flip 并取消定时事件。
+- `tools/verify_hourglass.py` 验证同几何下渲染像素、入口、取消恢复及四轮完整测试；不读取/修改用户配置。
+  `tools/profile_frames.py` 的独立测试窗口必须设正式 BG_COLOR，否则颈部背景覆盖会在黑底上露成两条横板。
+
 ### 坐标系陷阱(最易出错)
 Kivy y 向上(原点左下)，pc 是 y 向下 —— 所有几何**上下翻转**：上球 y 大、下球 y 小；重力 `g = -450`(Kivy y 向上，向下运动是 y 减小)；粒子触底判断是 `p.y ≤ mound_top`。移植 pc 逻辑时逐个翻转，别照抄符号。
 
@@ -130,6 +146,15 @@ Android 方案的核心细节：
   - **⚠️ 有拍子的（clock）绝不能用同一套流程**：钟表是滴/答强弱交替（周期 0.2535s、强弱比 2.48），循环长度必须是**整数个滴答对**、切点落在滴答前的静音里，否则每绕一圈就抢/拖一拍；且**不能压缩**（压扁了强弱交替就没了）。由 `tools/make_clock_loop.py` 按拍切：包络检出滴答 → 取同奇偶强拍 i→j（跨偶数拍）→ 切 `t[i]-60ms` 到 `t[j]-60ms` → 40ms crossfade 全程待在静音里 → 只做峰值归一化到 0.90。踩坑史见 README 经验教训。
 - 切换 `_set_sound(name)`：**①新建 `_SoundProxy`（失败→旧态原样保留）②stop 旧 ③`close()` 旧（AudioTrack `release()`）④挂新 ⑤running 则 play**；同名幂等。**不要给旧实例加 reload 复用**——AudioTrack MODE_STATIC 缓冲长度构造时锁死，换 wav 必须重建 track。`_SoundProxy.close()` 释放后端资源。
 - 音效弹窗 `on_sound_picker` 复用 `_SandBgPopup`，遍历 `SOUND_OPTIONS`（= `SOUND_EFFECTS` + `(SILENT_NAME, None)`，现 5 项两行 3+2）+ 底部**「确定」按钮**（唯一出口），当前项金色高亮，高度自适应（复用周期弹窗 `minimum_height` 三行链路）；按钮 label/btns 的 lambda 必须默认参数绑定（闭包延迟绑定坑）。`_on_sound_picked(label, btns)`：点击即 `_set_sound`，**不 dismiss**，只刷新 `btns` 高亮；「确定」→ `_close_sound_picker(popup)`（`_sound_popup=None` + dismiss）。选「无声音」→ `_set_sound` 静音分支：stop+close 旧 proxy、`_sound=None`（不建 proxy，`_play_sound/_stop_sound` 对 None 空操作）。`_update_sound_btn()` 把主按钮文字设为当前音效名（静音暖灰、有声金色）。
+
+### 完成播报(2026-10-01)
+
+- `sounds/completion.wav`：短柔和提示音 + 微软 `zh-CN-XiaoxiaoNeural` 整句「沙漏计时完成」，一次播放、不弹窗。
+  生成脚本 `tools/generate_completion_voice.py` 复用 PC 预录管线，不在手机上安装 TTS 或联网合成。
+- `_SoundProxy(loop=False)` 用于完成播报；默认 `loop=True` 保留背景音的全部行为。
+  Windows 无 SND_LOOP，AudioTrack 的 loopCount=0，SoundLoader.loop=False；重置/新周期必须停止旧播报。
+- `_completion_triggered` 保证每轮只播一次；`completion_enabled` 在 Benchmark 中临时关闭并恢复。
+  「无声音」只控制背景循环音，完成提示独立。Android 恢复前台时重建单次播放后端，退出时停止并释放。
 
 ### 配色系统(独立暖金/沙色系，不随沙色变化)
 

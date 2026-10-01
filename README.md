@@ -16,6 +16,57 @@ python main.py
 
 非 Android 平台默认窗口 400×800(模拟手机竖屏)。点沙漏两个球 = 开始/暂停。
 
+## 计时完成语音
+
+结束时播放一小段柔和提示音，再由微软晓晓 `zh-CN-XiaoxiaoNeural` 说一次「沙漏计时完成」，
+不弹确认框。整段声音已预录到 `sounds/completion.wav`，无需联网或手机系统 TTS。
+背景音效选「无声音」不影响完成播报；重置或开始新一轮会停止上一轮的播报。
+Benchmark 自动禁用完成语音并在结束后恢复，避免连续短周期打断播报或影响测量。
+开发机重新生成：`python tools/generate_completion_voice.py`，只需开发环境的 `edge-tts` / `miniaudio`。
+
+## 帧率与 Benchmark
+
+长按底部音效按钮与开始按钮之间的空白区域 3 秒，打开 Benchmark。
+点击「开始测试」，依次完整运行 1、5、15 秒周期；测试过程中「开始」按钮变为「取消」。
+结束后弹窗显示各周期的平均 FPS、1% low 和最慢 5 帧各自的 FPS。
+结果页同时显示帧率曲线，点击「复制结果」复制完整统计；每轮结果和逐帧耗时自动写入 `benchmark_logs/*.txt`。
+Windows 日志在本工程目录下，Android 日志在应用私有数据目录下。曲线纵轴为 0–90 FPS，
+超过 90 的瞬时值只在曲线中顶格显示，统计与原始日志不裁剪。
+测试不会保存配置，结束、取消或切到后台都会恢复原周期、进度、动画和音效状态。
+
+- 平均 FPS = 帧数 / 帧间隔总和。
+- 1% low = 最慢 `ceil(帧数 × 1%)` 帧的平均耗时的倒数；1 秒样本较短，通常仅取 1 帧。
+- 最慢 5 帧逐项按 `1 / 帧耗时` 列出，由慢到快排列。
+- 从 Kivy `Window.on_flip` 采样，包含起步、物理更新和渲染提交的间隔；不统计弹窗退场和周期准备时间。
+  这是应用侧提交帧间隔，不等同于 Android 合成器的实际显示时间；请在目标手机上实测。
+
+2026-10-01 的优化保留 `Ellipse/Stencil/Line` 画法、沙粒密度、线宽、拖尾和特效：
+固定绘制指令只在几何改变时重建，粒子/飞溅/闪光复用图元，同色同线宽共享颜色指令。
+起步先注满沙柱再从出口发射，出生时间分散到帧内，恒加速度积分不再依赖帧长；暂停不再推进粒子。
+Windows 使用 `perf_counter()` 高精度时钟，避免 Python 3.11 `GetTickCount64` 的 15.625ms 量化；
+动画每个 Kivy 帧更新一次，绘制分组复用粒子引用，减少临时坐标/特效列表分配，GC 保持启用。
+按飞行时间预留流动图元，重置/首次开始时清理旧场景的循环引用，把大分配和全量回收放在流动之前。
+
+开发验证：`python tools/verify_hourglass.py`，快速回归加 `--quick`，横屏加 `--landscape`。
+无配置读写的帧率对比：`python tools/profile_frames.py --seconds 20 --duration 30`。
+自动跑三周期并逐轮保存日志：`python tools/verify_hourglass.py --benchmark-only --rounds 2`。
+加 `--capture` 会记录每个周期最慢 3 帧的画面状态，结束采样后重建并截图，不在测量期间抓屏。
+后台视频压缩等负载会影响 Windows 和模拟器测量，不能据此承诺真机最低帧率。
+
+排查依据：[Kivy Clock](https://kivy.org/doc/stable/api-kivy.clock.html)、
+[Line.points 性能说明](https://kivy.org/doc/stable/api-kivy.graphics.vertex_instructions.html#kivy.graphics.vertex_instructions.Line.points)、
+[Python 高精度计时器](https://docs.python.org/3.11/library/time.html#time.perf_counter)。
+
+### 沙流合批研究
+
+参考 [Kivy 粒子 Mesh 案例](https://stackoverflow.com/questions/55587933/kivy-custom-shaders-touch-events)
+与 [Mesh 连续缓冲区文档](https://kivy.org/doc/stable/api-kivy.graphics.vertex_instructions.html#kivy.graphics.vertex_instructions.Mesh)，
+增加了仅用于开发测试的同色线段合批实验，保留原圆头、线宽与拖尾，玻璃/沙体仍是 Ellipse/Stencil。
+`python tools/verify_hourglass.py --benchmark-only --compare-flow --rounds 4`
+会在同一窗口中交替测试两轮图元池、两轮合批，并记录 renderer 名称。
+本次 Windows 试验中，合批降低了 Canvas 提交耗时，但增加了 Python 顶点更新耗时，1% low 没有稳定改善。
+因此正式运行保持原图元池方案，不默认开启合批；实验入口为 `--batch-flow`。
+
 ## 云端构建 APK
 
 1. 本目录单独建一个 git 仓库并 push 到 GitHub(见下方"推送")

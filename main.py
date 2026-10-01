@@ -18,14 +18,16 @@ import random
 import sys
 import time
 import json
+import gc
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase, Label as CoreLabel
 from kivy.core.window import Window
 from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
                            StencilPush, StencilUse, StencilUnUse, StencilPop,
-                           PushMatrix, PopMatrix, Rotate)
+                           PushMatrix, PopMatrix, Rotate, InstructionGroup)
 from kivy.metrics import dp, sp
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
@@ -33,10 +35,15 @@ from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.slider import Slider
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import platform
+from frame_benchmark import (BenchmarkHoldArea, BenchmarkRunner, PERIODS,
+                             BenchmarkFrameChart,
+                             format_benchmark_result, format_benchmark_report,
+                             save_benchmark_log)
 
 
 # ---- 中文字体: 用 name="Roboto" 覆盖 Kivy 默认字体,全局生效 ----
@@ -263,13 +270,14 @@ class _SoundProxy:
     """Android: AudioTrack MODE_STATIC($Builder) + getState校验 + reloadStaticData
     三星设备兼容; Windows: winsound SND_LOOP; 其他桌面/Android失败: Kivy SoundLoader。"""
 
-    def __init__(self, wav_path):
+    def __init__(self, wav_path, loop=True):
         self._is_android = (platform == "android")
         self._is_windows = (platform == "win")
         self._audio_track = None
         self._kivy_sound = None
         self._winsound = None
         self._wav_path = wav_path
+        self._loop = loop
         self._active = False
         self._needs_reload = False
         self._loop_frames = 0
@@ -301,7 +309,7 @@ class _SoundProxy:
             from kivy.core.audio import SoundLoader
             self._kivy_sound = SoundLoader.load(wav_path)
             if self._kivy_sound is not None:
-                self._kivy_sound.loop = True
+                self._kivy_sound.loop = self._loop
             else:
                 self.error = self.error or "SoundLoader.load returned None"
             self.backend = "soundloader"
@@ -429,7 +437,7 @@ class _SoundProxy:
         # 硬件循环点
         frame_size = channels * (bits // 8)
         total_frames = len(pcm) // frame_size
-        result = track.setLoopPoints(0, total_frames, -1)
+        result = track.setLoopPoints(0, total_frames, -1 if self._loop else 0)
         if result != 0:  # SUCCESS = 0
             raise ValueError(f"setLoopPoints failed: {result}")
 
@@ -452,7 +460,8 @@ class _SoundProxy:
                 # native 层 reload()/setPosition() 会清掉 loop 状态(setLoop(...,0)),
                 # 每次播放前重新武装, 否则"停止再播"只响一遍就没了
                 if self._loop_frames:
-                    self._audio_track.setLoopPoints(0, self._loop_frames, -1)
+                    self._audio_track.setLoopPoints(
+                        0, self._loop_frames, -1 if self._loop else 0)
                 self._audio_track.play()
                 self._active = True  # 成功后置,防异常后半永久静音
             except Exception:
@@ -463,8 +472,10 @@ class _SoundProxy:
                 return
             self._active = True
             try:
-                self._winsound.PlaySound(self._wav_path,
-                    self._winsound.SND_LOOP | self._winsound.SND_ASYNC | self._winsound.SND_FILENAME)
+                flags = self._winsound.SND_ASYNC | self._winsound.SND_FILENAME
+                if self._loop:
+                    flags |= self._winsound.SND_LOOP
+                self._winsound.PlaySound(self._wav_path, flags)
             except Exception:
                 self._active = False
             return
@@ -690,7 +701,7 @@ class HourglassWidget(Widget):
         self.elapsed = 0.0
         self.running = False
         self.last_tick = None
-        self.last_frame = time.time()
+        self.last_frame = time.perf_counter()
 
         self.sand_base = hex_rgb(SAND_PRESETS[0][1])
         self.sand_dark = hex_rgb(SAND_PRESETS[0][2])
@@ -712,10 +723,12 @@ class HourglassWidget(Widget):
 
         self.sound_name = "沙沙声"
         self._sound = self._make_sound_proxy(self.sound_name)
+        self.completion_enabled = True
+        self._completion_sound = self._make_completion_sound()
 
         self.bind(size=self._on_size, pos=self._on_size)
         Clock.schedule_once(self._on_size, 0)
-        Clock.schedule_interval(self.tick, 1 / 60.0)
+        Clock.schedule_interval(self.tick, 0)
 
     # ---------- 几何(自适应; Kivy y 向上) ----------
 
@@ -832,6 +845,7 @@ class HourglassWidget(Widget):
         }
         self._geom_ready = True
         self._build_glass_shell()
+        self._build_dynamic_canvas()
 
     def _raw_height_ratio(self, vol_ratio):
         """体积比 → 高度比 raw=v⁻¹(vol)。球对称 ⟹ 上沙(1-raw)+下沙(raw)=1 守恒。"""
@@ -857,15 +871,20 @@ class HourglassWidget(Widget):
         return max(0.0, 1 - self.elapsed / self.duration) if self.duration > 0 else 0
 
     @property
+    def _neck_fill_time(self):
+        return max(0.05, min(NECK_FILL, self.duration * 0.15))
+
+    @property
     def _fall_delay(self):
         if not self._geom_ready:
             return FALL_DELAY
-        dist = self._upper_ball_cut - self._lower_sand_bot
+        outlet = 2 * self._neck_y - self._taper['y_bot']
+        dist = outlet - self._lower_sand_bot
         if dist <= 0:
             return 0.5
         v0 = 50.0
         g = 450.0
-        t = (-v0 + math.sqrt(v0 ** 2 + 2 * g * dist)) / g + 0.05
+        t = self._neck_fill_time + (-v0 + math.sqrt(v0 ** 2 + 2 * g * dist)) / g + 0.05
         return max(0.30, min(t, self.duration * 0.45))
 
     def _effective_fallen(self):
@@ -904,7 +923,7 @@ class HourglassWidget(Widget):
         tp = self._taper
         pts = tp['in_pts']
         y_top, y_end = pts[0][1], 2 * self._neck_y - tp['y_bot']
-        fill_t = max(0.05, min(NECK_FILL, self.duration * 0.15))
+        fill_t = self._neck_fill_time
         f = min(1.0, max(0.0, self.elapsed / fill_t))
         if f <= 0:
             return []
@@ -941,11 +960,14 @@ class HourglassWidget(Widget):
             self.running = False
             self._stop_sound()
         else:
+            self._stop_completion_sound()
             if self.elapsed >= self.duration:
                 self.elapsed = 0
                 self._reset_run_state()
+            elif self.elapsed == 0:
+                gc.collect()
             self.running = True
-            self.last_tick = time.time()
+            self.last_tick = self.last_frame = time.perf_counter()
             self._play_sound()
 
     def reset(self):
@@ -956,6 +978,7 @@ class HourglassWidget(Widget):
         self._stop_sound()
 
     def _reset_run_state(self):
+        self._stop_completion_sound()
         self.particles = []
         self.particle_acc = 0.0
         self.splashes = []
@@ -964,6 +987,8 @@ class HourglassWidget(Widget):
         self.mound_peak_offset = 0.0
         self.flash_end = 0.0
         self._completion_triggered = False
+        # 旧场景的循环引用在重置时清理,避免留到流动中触发全量回收。
+        gc.collect()
 
     def set_duration(self, d):
         try:
@@ -999,6 +1024,26 @@ class HourglassWidget(Widget):
         except Exception as e:
             print(f"sound proxy init failed: {e}")
             return None
+
+    def _make_completion_sound(self):
+        path = resource_path("sounds/completion.wav")
+        if not os.path.isfile(path):
+            print("Completion recording missing: sounds/completion.wav")
+            return None
+        try:
+            return _SoundProxy(path, loop=False)
+        except Exception as exc:
+            print(f"Completion audio init failed: {exc}")
+            return None
+
+    def _stop_completion_sound(self):
+        if self._completion_sound is not None:
+            self._completion_sound.stop()
+
+    def _play_completion_sound(self):
+        if self.completion_enabled and self._completion_sound is not None:
+            self._completion_sound.stop()
+            self._completion_sound.play()
 
     def _set_sound(self, name):
         """切换音效(五步序):①先新建 proxy(失败→旧态原样,绝不静音)②停旧
@@ -1070,8 +1115,8 @@ class HourglassWidget(Widget):
     def tick(self, _dt_kivy):
         if not self._geom_ready:
             return
-        now = time.time()
-        dt = min(0.05, now - self.last_frame)   # 物理限幅,防卡顿后飞跳
+        now = time.perf_counter()
+        dt = max(0.0, min(0.05, now - self.last_frame))   # 物理限幅,防卡顿后飞跳
         self.last_frame = now
         if self.running:
             if self.last_tick is not None:
@@ -1085,10 +1130,12 @@ class HourglassWidget(Widget):
                 if not self._completion_triggered:
                     self._spawn_dust()
                     self._completion_triggered = True
+                    self._play_completion_sound()
                 app = App.get_running_app()
                 if app is not None:
                     app.on_run_state_changed()
-        self.update_particles(dt)
+        if self.running or self._completion_triggered:
+            self.update_particles(dt)
         self.redraw()
         app = App.get_running_app()
         if app is not None:
@@ -1098,7 +1145,7 @@ class HourglassWidget(Widget):
         mound_top = self.get_mound_top_y()
         cx = self._cx
         w = self._sand_half_w(mound_top, self._lower_y_c)
-        now = time.time()
+        now = time.perf_counter()
         for _ in range(DUST_COUNT):
             self.dusts.append({
                 "x": cx + random.uniform(-w * 0.7, w * 0.7),
@@ -1114,16 +1161,18 @@ class HourglassWidget(Widget):
         cx = self._cx
         mound_top = self.get_mound_top_y()
         remaining = self.get_remaining()
-        now = time.time()
+        now = time.perf_counter()
         neck_w = self.neck_w
         ow = self._ow
-        gen_y = self._upper_ball_cut   # 粒子从上球截口起落
+        gen_y = 2 * self._neck_y - self._taper['y_bot']
 
         if self.running and remaining > 0:
             rate = 600 * self.speed_factor
             if remaining < 0.08:
                 rate *= max(0.1, (remaining / 0.08) ** 0.5)
-            self.particle_acc += dt * rate
+            # 沙柱先接通出口; 在帧内均匀发射,避免每一帧生出一整排同龄沙粒。
+            emit_dt = min(dt, max(0.0, self.elapsed - self._neck_fill_time))
+            self.particle_acc += emit_dt * rate
             x_clip = max(1.0, neck_w - ow)
             while self.particle_acc >= 1:
                 self.particle_acc -= 1
@@ -1138,13 +1187,16 @@ class HourglassWidget(Widget):
                     "wobble_amp": random.uniform(0.4, 1.0),
                     "is_light": random.random() < 0.10,
                     "size": (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1,
+                    "_step_dt": self.particle_acc / rate,
                 })
 
         g = -450.0   # 重力向下(Kivy y 向上 → 负)
+        tube_lim = max(1.0, neck_w - ow)
         new_list = []
         for p in self.particles:
-            p["vy"] += g * dt
-            p["y"] += p["vy"] * dt
+            step_dt = p.pop("_step_dt", dt)
+            p["y"] += p["vy"] * step_dt + 0.5 * g * step_dt * step_dt
+            p["vy"] += g * step_dt
             fallen_dist = max(0.0, gen_y - p["y"])
             # 管内: 管壁约束,填满内径 shrink=1.0
             # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
@@ -1167,7 +1219,6 @@ class HourglassWidget(Widget):
             p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
 
             # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
-            tube_lim = max(1.0, neck_w - ow)
             if p["y"] > self._lower_ball_cut:
                 lim = tube_lim
             else:
@@ -1197,8 +1248,8 @@ class HourglassWidget(Widget):
 
         new_splashes = []
         for s in self.splashes:
+            s["y"] += s["vy"] * dt + 0.5 * g * dt * dt
             s["vy"] += g * dt
-            s["y"] += s["vy"] * dt
             s["x"] += s["vx"] * dt
             half = self._sand_half_w(s["y"], self._lower_y_c)
             if abs(s["x"] - cx) > half - 1:
@@ -1214,8 +1265,8 @@ class HourglassWidget(Widget):
 
         new_dusts = []
         for d in self.dusts:
+            d["y"] += d["vy"] * dt + 0.5 * g * dt * dt
             d["vy"] += g * dt
-            d["y"] += d["vy"] * dt
             d["x"] += d["vx"] * dt
             if now > d["end"] or d["y"] < mound_top - 1:
                 continue
@@ -1290,115 +1341,188 @@ class HourglassWidget(Widget):
 
     # ---------- 渲染 ----------
 
-    def redraw(self):
+    def _build_dynamic_canvas(self):
+        """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
         self.canvas.clear()
+        cx, Ri = self._cx, self._R_inner
+        self._sand_chords = []
+        with self.canvas:
+            for yc in (self._upper_y_c, self._lower_y_c):
+                bottom = yc - Ri
+                StencilPush()
+                Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
+                StencilUse()
+                color = Color(*self.sand_base)
+                rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
+                StencilUnUse()
+                Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
+                StencilPop()
+                self._sand_chords.append((color, rect))
+            self._neck_color = Color(*self.sand_base)
+            self._neck_quads = [
+                Quad(points=[0] * 8) for _ in range(TAPER_SEGS + 1)]
+
+        # 同色同线宽共用一条 Color 指令,且不再排序/改变物理粒子列表。
+        self._stream_pools = {}
+        for index in range(-1, len(self._color_table)):
+            for size in (1, 2):
+                group = InstructionGroup()
+                color = Color(*(self.sand_light if index < 0 else self._color_table[index]))
+                group.add(color)
+                self.canvas.add(group)
+                self._stream_pools[index, size] = (group, color, [])
+        self._stream_buckets = {key: [] for key in self._stream_pools}
+        self._stream_counts = {key: 0 for key in self._stream_pools}
+        self._reserve_stream_lines()
+
+        self._splash_group = InstructionGroup()
+        self._splash_color = Color(*self.sand_light)
+        self._splash_group.add(self._splash_color)
+        self.canvas.add(self._splash_group)
+        self._splash_rects = []
+        self._flare_group = InstructionGroup()
+        self.canvas.add(self._flare_group)
+        self._flare_rects = []
+        self._dust_group = InstructionGroup()
+        self._dust_color = Color(*self.sand_light)
+        self._dust_group.add(self._dust_color)
+        self.canvas.add(self._dust_group)
+        self._dust_rects = []
+        with self.canvas:
+            self._bore_color = Color(0.8, 0.8, 0.8, 0)
+            bore = self._taper['t_in']
+            for x in (cx - bore + 1, cx + bore - 1):
+                Line(points=[x, self._neck_y - 7, x, self._neck_y + 7], width=1)
+            self._pause_color = Color(*hex_rgb(BG_COLOR), 0)
+            Rectangle(pos=self.pos, size=self.size)
+            self._flash_color = Color(1, 1, 1, 0)
+            Rectangle(pos=self.pos, size=self.size)
+        self._render_colors = None
+
+    def _reserve_stream_lines(self):
+        """按最长飞行时间预留图元,只影响分配时机,实际粒子仍按原速率生成。"""
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        floor = self._lower_sand_bot
+        rate = 600 * self.speed_factor
+        div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
+        thin_only = max(1, self.neck_w - self._ow) < 3
+
+        def travel(y):
+            return (math.sqrt(35 ** 2 + 900 * max(0, outlet - y)) - 35) / 450
+
+        for (index, size), (group, _color, pool) in self._stream_pools.items():
+            if index < 0:
+                expected = rate * travel(floor) * 0.10
+            else:
+                upper = min(outlet, self._neck_y - index * div)
+                lower = max(floor, self._neck_y - (index + 1) * div)
+                expected = rate * max(0, travel(lower) - travel(upper))
+            share = (int(size == 1) if thin_only else
+                     (0.85 if size == 2 else 0.15))
+            count = math.ceil(expected * share + 3 * math.sqrt(expected) + 2)
+            for _ in range(count):
+                line = Line(points=[], width=size)
+                group.add(line)
+                pool.append(line)
+
+    @staticmethod
+    def _sync_rects(group, pool, particles, fixed_size=None):
+        for i, particle in enumerate(particles):
+            sz = particle["size"] if fixed_size is None else fixed_size
+            offset = sz / 2 if fixed_size is None else 0
+            pos = (particle["x"] - offset, particle["y"] - offset)
+            size = (sz, sz)
+            if i == len(pool):
+                rect = Rectangle(pos=pos, size=size)
+                group.add(rect)
+                pool.append(rect)
+            else:
+                pool[i].pos = pos
+                pool[i].size = size
+        for rect in pool[len(particles):]:
+            if rect.size[0] or rect.size[1]:
+                rect.size = (0, 0)
+
+    def redraw(self):
         if not self._geom_ready:
             return
-        cx, Ri = self._cx, self._R_inner
-        uyc, lyc = self._upper_y_c, self._lower_y_c
         remaining = self.get_remaining()
-        now = time.time()
-        nw = self.neck_w
-        ow = self._ow
+        now = time.perf_counter()
+        colors = (self.sand_base, self.sand_light)
+        if colors != self._render_colors:
+            for color, _rect in self._sand_chords:
+                color.rgb = self.sand_base
+            self._neck_color.rgb = self.sand_base
+            for (index, _size), (_group, color, _pool) in self._stream_pools.items():
+                color.rgb = self.sand_light if index < 0 else self._color_table[index]
+            self._splash_color.rgb = self._dust_color.rgb = self.sand_light
+            self._render_colors = colors
 
-        with self.canvas:
-            # --- 1. 上沙弓形 ---
-            if remaining > 0.001:
-                upper_eff = max(0.0, min(1.0, self.elapsed / self.duration)) if self.duration > 0 else 0
-                cut_y = self._upper_sand_bot + (self._upper_sand_top - self._upper_sand_bot) * (1 - self._raw_height_ratio(upper_eff))
-                self._draw_sand_chord(uyc, cut_y)
+        upper_eff = max(0.0, min(1.0, self.elapsed / self.duration))
+        upper_height = 2 * self._R_inner * (1 - self._raw_height_ratio(upper_eff))
+        self._sand_chords[0][1].size = (2 * self._R_inner,
+                                      upper_height if remaining > 0.001 else 0)
+        h_mound = self._mound_height_px()
+        self._sand_chords[1][1].size = (2 * self._R_inner,
+                                      h_mound if h_mound > 0.5 else 0)
+        side = self._neck_sand_side() if remaining > 0.001 else []
+        for i, quad in enumerate(self._neck_quads):
+            if i < len(side) - 1:
+                (x0, y0), (x1, y1) = side[i], side[i + 1]
+                quad.points = [self._cx - x0, y0, self._cx + x0, y0,
+                               self._cx + x1, y1, self._cx - x1, y1]
+            else:
+                quad.points = [0] * 8
 
-            # --- 2. 下沙堆弓形 ---
-            h_mound = self._mound_height_px()
-            if h_mound > 0.5:
-                self._draw_sand_chord(lyc, self._lower_sand_bot + h_mound)
+        self._draw_stream()
+        self._sync_rects(self._splash_group, self._splash_rects, self.splashes)
+        for i, f in enumerate(self.flares):
+            if i == len(self._flare_rects):
+                color, rect = Color(), Rectangle()
+                self._flare_group.add(color)
+                self._flare_group.add(rect)
+                self._flare_rects.append((color, rect))
+            color, rect = self._flare_rects[i]
+            life = max(0.0, f["end"] - now) / 0.08
+            color.rgba = (*self.sand_light, 0.45 * life)
+            sz = 4 + life * 2
+            rect.pos = (f["x"] - sz / 2, f["y"] - sz / 2)
+            rect.size = (sz, sz)
+        for color, rect in self._flare_rects[len(self.flares):]:
+            color.a = 0
+            rect.size = (0, 0)
+        self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
+        self._bore_color.a = 1 if remaining <= 0.001 else 0
+        self._pause_color.a = 0.55 if not self.running and 0 < self.elapsed < self.duration else 0
+        self._flash_color.a = 0.25 if now < self.flash_end else 0
 
-            # --- 3. 颈部沙柱(上喇叭口+直筒; 下喇叭口敞开, 交给下落粒子) ---
-            if remaining > 0.001:
-                side = self._neck_sand_side()
-                if len(side) >= 2:
-                    Color(*self.sand_base)
-                    for (x0, y0), (x1, y1) in zip(side, side[1:]):
-                        Quad(points=[cx - x0, y0, cx + x0, y0, cx + x1, y1, cx - x1, y1])
-
-            # --- 4. 沙流粒子(按颜色排序,减少 draw call) ---
-            n_colors = len(self._color_table)
-            neck_span = max(1.0, self._neck_y - self._glass_bot)
-            div = neck_span / n_colors
-            for p in self.particles:
-                if p["is_light"]:
-                    p["_sk"] = (-1, p["size"])
+    def _draw_stream(self):
+        buckets = self._stream_buckets
+        for bucket in buckets.values():
+            bucket.clear()
+        n_colors = len(self._color_table)
+        div = max(1.0, self._neck_y - self._glass_bot) / n_colors
+        for p in self.particles:
+            index = -1 if p["is_light"] else max(
+                0, min(n_colors - 1, int((self._neck_y - p["y"]) / div)))
+            if p["y"] < self._upper_ball_cut:
+                buckets[index, p["size"]].append(p)
+        for key, particles in buckets.items():
+            group, _color, pool = self._stream_pools[key]
+            for i, particle in enumerate(particles):
+                trail = max(2.0, abs(particle["vy"]) * 0.08)
+                top = min(self._upper_ball_cut, particle["y"] + trail)
+                coords = (particle["x"], particle["y"], particle["x"], top)
+                if i == len(pool):
+                    line = Line(points=coords, width=key[1])
+                    group.add(line)
+                    pool.append(line)
                 else:
-                    idx = int((self._neck_y - p["y"]) / div)
-                    p["_sk"] = (max(0, min(n_colors - 1, idx)), p["size"])
-            self.particles.sort(key=lambda p: p["_sk"])
-            for p in self.particles:
-                if p["is_light"]:
-                    Color(*self.sand_light)
-                else:
-                    Color(*self._color_table[p["_sk"][0]])
-                trail = max(2.0, abs(p["vy"]) * 0.08)
-                top_y_p = min(self._upper_ball_cut, p["y"] + trail)
-                if top_y_p <= p["y"]:
-                    continue
-                Line(points=[p["x"], p["y"], p["x"], top_y_p], width=p["size"])
-
-            # --- 6. splash 反弹粒子 ---
-            Color(*self.sand_light)
-            for s in self.splashes:
-                sz = s["size"]
-                Rectangle(pos=(s["x"] - sz / 2, s["y"] - sz / 2), size=(sz, sz))
-
-            # --- 7. 触底闪光 ---
-            for f in self.flares:
-                life = max(0.0, f["end"] - now) / 0.08
-                Color(self.sand_light[0], self.sand_light[1], self.sand_light[2], 0.45 * life)
-                sz = 4 + life * 2
-                Rectangle(pos=(f["x"] - sz / 2, f["y"] - sz / 2), size=(sz, sz))
-
-            # --- 8. 完成尘埃 ---
-            Color(*self.sand_light)
-            for d in self.dusts:
-                Rectangle(pos=(d["x"], d["y"]), size=(dp(1.2), dp(1.2)))
-
-            # --- 9. 颈部高光(漏完可见) ---
-            if remaining <= 0.001:
-                bore = self._taper['t_in']   # 孔壁半宽(曲线过渡后不再是 neck_w)
-                Color(0.8, 0.8, 0.8, 1)
-                Line(points=[cx - bore + 1, self._neck_y - 7,
-                             cx - bore + 1, self._neck_y + 7], width=1)
-                Line(points=[cx + bore - 1, self._neck_y - 7,
-                             cx + bore - 1, self._neck_y + 7], width=1)
-
-            # --- 10. 暂停遮罩 ---
-            if not self.running and 0 < self.elapsed < self.duration:
-                Color(*hex_rgb(BG_COLOR), 0.55)
-                Rectangle(pos=self.pos, size=self.size)
-
-            # --- 11. 完成闪烁 ---
-            if now < self.flash_end:
-                Color(1, 1, 1, 0.25)
-                Rectangle(pos=self.pos, size=self.size)
-
-    def _draw_sand_chord(self, yc, cut_y):
-        """Stencil 裁出真圆弓形"""
-        Ri = self._R_inner
-        cx = self._cx
-        bottom = yc - Ri
-        if cut_y <= bottom:
-            return
-        if cut_y >= yc + Ri:
-            Color(*self.sand_base)
-            Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
-            return
-        StencilPush()
-        Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
-        StencilUse()
-        Color(*self.sand_base)
-        Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, cut_y - bottom))
-        StencilUnUse()
-        Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
-        StencilPop()
+                    pool[i].points = coords
+            for line in pool[len(particles):self._stream_counts[key]]:
+                if line.points:
+                    line.points = []
+            self._stream_counts[key] = len(particles)
 
 
 # ---------- App / UI(v2 布局: 色块在上, 控件在下) ----------
@@ -1479,7 +1603,12 @@ class HourglassApp(App):
                                 color=POPUP_TEXT)
         self.sound_btn.bind(on_press=self.on_sound_picker)
         bottom.add_widget(self.sound_btn)
-        bottom.add_widget(Widget())   # spacer
+        self._benchmark_runner = None
+        self._benchmark_results = []
+        self._benchmark_cancelled = False
+        self._benchmark_popup = None
+        self._benchmark_area = BenchmarkHoldArea(self.on_benchmark)
+        bottom.add_widget(self._benchmark_area)
         self.start_btn = Button(text="开始", size_hint=(None, 1), width=dp(74),
                                 font_size=sp(16), bold=True,
                                 background_normal="",
@@ -1488,6 +1617,7 @@ class HourglassApp(App):
         bottom.add_widget(self.start_btn)
         reset_btn = Button(text="重置", size_hint=(None, 1), width=dp(74), font_size=sp(16))
         reset_btn.bind(on_press=self.on_reset)
+        self._reset_btn = reset_btn
         bottom.add_widget(reset_btn)
         root.add_widget(bottom)
 
@@ -1749,6 +1879,9 @@ class HourglassApp(App):
         self.on_run_state_changed()
 
     def on_toggle(self, *_):
+        if self._benchmark_active():
+            self._benchmark_runner.cancel()
+            return
         self.hourglass.toggle()
         self.on_run_state_changed()
 
@@ -1757,12 +1890,125 @@ class HourglassApp(App):
         self.on_run_state_changed()
 
     def on_run_state_changed(self):
+        if self._benchmark_active():
+            self.start_btn.text = "取消"
+            self.start_btn.background_color = POPUP_CONFIRM
+            return
         if self.hourglass.running:
             self.start_btn.text = "暂停"
             self.start_btn.background_color = (0.851, 0.557, 0.243, 1)
         else:
             self.start_btn.text = "开始"
             self.start_btn.background_color = (0.353, 0.620, 0.243, 1)
+
+    def _benchmark_active(self):
+        return self._benchmark_runner is not None and self._benchmark_runner.active
+
+    def on_benchmark(self, *_):
+        if self._benchmark_active() or self._benchmark_popup is not None:
+            return
+        content = BoxLayout(orientation="vertical", spacing=dp(8),
+                            padding=(dp(8), dp(6), dp(8), dp(6)))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
+        rows = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(8))
+        rows.bind(minimum_height=rows.setter("height"))
+        scroll.add_widget(rows)
+        content.add_widget(scroll)
+        result_by_period = {r["period"]: r for r in self._benchmark_results}
+        for period in PERIODS:
+            result = result_by_period.get(period)
+            text = format_benchmark_result(period, result)
+            label = Label(text=text, font_size=sp(14), color=POPUP_TEXT,
+                          size_hint=(1, None), halign="left", valign="top")
+            label.bind(width=lambda inst, width: setattr(inst, "text_size", (width, None)))
+            label.bind(texture_size=lambda inst, size: setattr(inst, "height", size[1] + dp(8)))
+            rows.add_widget(label)
+            if result and result.get("frame_trace"):
+                rows.add_widget(BenchmarkFrameChart(
+                    result, size_hint=(1, None), height=dp(112)))
+        if self._benchmark_cancelled:
+            rows.add_widget(Label(text="测试已取消", color=POPUP_CONFIRM,
+                                  font_size=sp(14), size_hint_y=None, height=dp(26)))
+        commands = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+        run_btn = Button(text="重新测试" if self._benchmark_results else "开始测试",
+                         font_size=sp(16), background_normal="",
+                         background_color=POPUP_GOLD_SEL, color=POPUP_TEXT)
+        close_btn = Button(text="关闭", font_size=sp(16), background_normal="",
+                           background_color=POPUP_CANCEL_BG, color=POPUP_TEXT)
+        copy_btn = Button(text="复制结果", font_size=sp(16), background_normal="",
+                          background_color=POPUP_UNSEL_BASE, color=POPUP_TEXT,
+                          disabled=not self._benchmark_results)
+        copy_btn.bind(on_press=self._copy_benchmark_results)
+        self._benchmark_copy_btn = copy_btn
+        commands.add_widget(run_btn)
+        commands.add_widget(copy_btn)
+        commands.add_widget(close_btn)
+        content.add_widget(commands)
+        popup_height = min(dp(600 if self._benchmark_results else 360),
+                           max(Window.width, Window.height) * 0.85)
+        popup = _SandBgPopup(title="Benchmark", content=content, size_hint=(0.94, None),
+                            height=popup_height,
+                            auto_dismiss=False)
+        popup.title_align = "center"
+        popup.title_size = sp(19)
+        self._benchmark_popup = popup
+        popup.bind(on_dismiss=lambda *_: setattr(self, "_benchmark_popup", None))
+        close_btn.bind(on_press=lambda *_: popup.dismiss())
+        run_btn.bind(on_press=lambda *_: self._start_benchmark(popup))
+        popup.open()
+
+    def _copy_benchmark_results(self, button):
+        if not self._benchmark_results:
+            return
+        try:
+            Clipboard.copy(format_benchmark_report(
+                self._benchmark_results, self._benchmark_cancelled))
+        except Exception as exc:
+            print(f"Benchmark clipboard failed: {exc}")
+            button.text = "复制失败"
+        else:
+            button.text = "已复制"
+
+    def _benchmark_controls(self, disabled):
+        for control in [self.duration_btn, self.sound_btn, self._reset_btn] + [
+                btn for _name, btn in self.color_btns]:
+            control.disabled = disabled
+
+    def _start_benchmark(self, popup):
+        if self._benchmark_active():
+            return
+        popup.dismiss()
+        self._benchmark_results = []
+        self._benchmark_cancelled = False
+        self._benchmark_controls(True)
+        self._benchmark_runner = BenchmarkRunner(
+            self.hourglass, self._benchmark_case, self._benchmark_finished)
+        self._benchmark_runner.start()
+        self.on_run_state_changed()
+
+    def _benchmark_case(self, period, index):
+        self.duration_btn.text = f"{period} 秒"
+        self.on_run_state_changed()
+
+    def _benchmark_finished(self, results, cancelled):
+        self._benchmark_results = results
+        self._benchmark_cancelled = cancelled
+        directory = (self.user_data_dir if platform == "android"
+                     else os.path.dirname(os.path.abspath(__file__)))
+        try:
+            self._benchmark_log_path = save_benchmark_log(
+                os.path.join(directory, "benchmark_logs"), results, cancelled)
+            print(f"Benchmark log: {self._benchmark_log_path}")
+        except OSError as exc:
+            self._benchmark_log_path = None
+            print(f"Benchmark log failed: {exc}")
+        self._benchmark_controls(False)
+        self.duration_btn.text = _fmt_duration(self.hourglass.duration)
+        self.update_time(max(0, self.hourglass.duration - self.hourglass.elapsed),
+                         self.hourglass.duration)
+        self.on_run_state_changed()
+        if not getattr(self, "_benchmark_closing", False):
+            self.on_benchmark()
 
     def on_sound_picker(self, *_):
         """音效选择弹窗:点击即切换(生效但**不关窗**,可连续试听),当前项金色高亮,
@@ -1880,10 +2126,26 @@ class HourglassApp(App):
         self.time_label.text = _fmt_countdown_pair(remaining_sec, duration)
 
     def on_pause(self):
+        if self._benchmark_active():
+            self._benchmark_runner.cancel()
+        self.hourglass._stop_completion_sound()
         return True
+
+    def on_stop(self):
+        self._benchmark_closing = True
+        if self._benchmark_active():
+            self._benchmark_runner.cancel()
+        self.hourglass._stop_completion_sound()
+        if self.hourglass._completion_sound is not None:
+            self.hourglass._completion_sound.close()
+        self.hourglass._stop_sound()
 
     def on_resume(self):
         if platform == "android":
+            self.hourglass._stop_completion_sound()
+            if self.hourglass._completion_sound is not None:
+                self.hourglass._completion_sound.close()
+            self.hourglass._completion_sound = self.hourglass._make_completion_sound()
             # SDL 回前台会重报方向(可能把 fullSensor 覆盖回竖屏), 再抢一次话语权
             self._apply_orientation()
             layer = _land_layer()
