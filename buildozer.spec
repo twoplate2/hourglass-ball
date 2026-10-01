@@ -42,9 +42,9 @@ android.allow_backup = True
 
 icon.filename = %(source.dir)s/icon.png
 
-# 启动屏背景必须和 app 背景同色,避免闪屏黑闪
+# 用单色占位防止回退到框架默认图; 首帧后立即移除原生加载遮罩
 android.presplash_color = #fdf6e3
-presplash.filename = %(source.dir)s/presplash.png
+presplash.filename = %(source.dir)s/ui/startup_blank.png
 
 
 [buildozer]

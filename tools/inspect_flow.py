@@ -125,6 +125,15 @@ def main():
                 if image.size != requested:
                     image = image.resize(requested, Image.Resampling.LANCZOS)
                 image.save(output / f"period-{period}-time-{elapsed:.2f}.png")
+                x_scale, y_scale = requested[0] / width, requested[1] / height
+                widget = self.hourglass
+                crop = image.crop((
+                    round((widget._cx - 52) * x_scale),
+                    round((height - widget._neck_y - 62) * y_scale),
+                    round((widget._cx + 52) * x_scale),
+                    round((height - widget._neck_y + 62) * y_scale)))
+                crop.resize((416, 496), Image.Resampling.NEAREST).save(
+                    output / f"neck-{period}-time-{elapsed:.2f}.png")
 
         VisualApp().run()
         print("Visual measurements:", output)

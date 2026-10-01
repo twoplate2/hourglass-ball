@@ -200,6 +200,14 @@ Android 方案的核心细节：
 - 新生颗粒保存 `trail_time=18–32ms`；高光组在主体组后面，仍用 Line，不增加装饰粒子。
 - 反弹能量来自入射速度的 14–28%，闪光为细小横向颗粒；完成尘埃保持原 1 秒时间尺度。
 - 视觉工具 `tools/inspect_flow.py` 保存相同时刻图片和接触差/末段高度指标；不能用模拟时钟结果宣称帧率。
+- `_draw_neck_grains()` 将现有高光粒子投影到直管，透明度从入口到出口平滑增加，消除纯色/颗粒硬分界。
+  固定 32 个图元池，不新增物理粒子，重置后必须隐藏。
+
+### 无加载图片启动
+
+`presplash.filename` 指向 `ui/startup_blank.png`（1px、与 BG_COLOR 同色），避免移除配置后退回默认 Python 图。
+Android `on_start` 绑定首个可用 `on_flip`，调用锁定 p4a 的 `android.loadingscreen.hide_loading_screen()`，
+不等待框架 5 秒兜底。系统自身启动动画不等同于应用加载图片。
 
 ## Android 装机坑(桌面预览看不到，只在 APK 暴露)
 - **中文乱码**：`LabelBase.register(name="Roboto", fn=fonts/NotoSansSC-Medium.otf)` 全局覆盖默认字体；`buildozer.spec` 的 `source.include_patterns` **必须含 `fonts/*.otf`** 否则字体不进 APK。

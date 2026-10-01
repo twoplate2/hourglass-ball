@@ -1379,6 +1379,18 @@ class HourglassWidget(Widget):
             self._neck_quads = [
                 Quad(points=[0] * 8) for _ in range(TAPER_SEGS + 1)]
 
+        self._neck_grain_group = InstructionGroup()
+        self.canvas.add(self._neck_grain_group)
+        self._neck_grain_pool = []
+        self._neck_grain_count = 0
+        # Highlights project existing grains upstream; they do not add physics particles.
+        for _ in range(32):
+            color = Color(*self.sand_light, 0)
+            line = Line(points=[], width=1)
+            self._neck_grain_group.add(color)
+            self._neck_grain_group.add(line)
+            self._neck_grain_pool.append((color, line))
+
         # 同色同线宽共用一条 Color 指令,且不再排序/改变物理粒子列表。
         self._stream_pools = {}
         # 高光在普通粒子之后绘制,避免被密集的主体完全盖住。
@@ -1492,6 +1504,7 @@ class HourglassWidget(Widget):
                 quad.points = [0] * 8
 
         self._draw_stream()
+        self._draw_neck_grains(side)
         self._sync_rects(self._splash_group, self._splash_rects, self.splashes)
         for i, f in enumerate(self.flares):
             if i == len(self._flare_rects):
@@ -1547,11 +1560,54 @@ class HourglassWidget(Widget):
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
         return max(2.0, abs(particle["vy"]) * particle.get("trail_time", 0.08) / scale)
 
+    def _draw_neck_grains(self, side):
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        inlet = self._taper["y_bot"]
+        length = max(1e-6, inlet - outlet)
+        count = 0
+        if side and side[-1][1] <= outlet + 1e-6:
+            for particle in reversed(self.particles):
+                distance = outlet - particle["y"]
+                if not particle["is_light"] or not 0 <= distance < length:
+                    continue
+                y = inlet - distance
+                half_stroke = particle["size"] if particle["size"] > 1 else 0.5
+                limit = max(0, self._taper["t_in"] - half_stroke)
+                x = self._cx + max(-limit, min(limit, particle["x"] - self._cx))
+                phase = distance / length
+                alpha = phase * phase * (3 - 2 * phase)
+                color, line = self._neck_grain_pool[count]
+                color.rgba = (*self.sand_light, alpha)
+                if line.width != particle["size"]:
+                    line.width = particle["size"]
+                line.points = (x, y, x, min(inlet, y + 2))
+                count += 1
+                if count == len(self._neck_grain_pool):
+                    break
+        for color, line in self._neck_grain_pool[count:self._neck_grain_count]:
+            color.a = 0
+            line.points = []
+        self._neck_grain_count = count
+
 
 # ---------- App / UI(v2 布局: 色块在上, 控件在下) ----------
 
 class HourglassApp(App):
     title = "跳跳的沙漏"
+
+    def on_start(self):
+        if platform == "android":
+            Window.bind(on_flip=self._hide_startup_screen)
+
+    def _hide_startup_screen(self, *_):
+        if not self.hourglass._geom_ready or self.hourglass.height <= dp(100):
+            return
+        Window.unbind(on_flip=self._hide_startup_screen)
+        try:
+            from android.loadingscreen import hide_loading_screen
+            hide_loading_screen()
+        except Exception as exc:
+            print(f"Startup overlay removal failed: {exc}")
 
     def build(self):
         self._sound_popup = None

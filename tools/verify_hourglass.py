@@ -12,6 +12,8 @@ import tempfile
 import time
 import wave
 from unittest.mock import patch
+from configparser import ConfigParser
+from types import ModuleType
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,6 +131,7 @@ def main():
 
             def run_checks(self):
                 self.verify_completion_audio()
+                self.verify_neck_and_startup()
                 samples = [1 / 60] * 99 + [0.1]
                 stats = frame_statistics(samples)
                 check(stats["frames"] == 100, "statistics frame count")
@@ -255,6 +258,53 @@ def main():
                 check(widget.particles == frozen, "paused particles remain frozen")
                 widget.reset()
                 Window.screenshot(name=str(OUT / "normal.png"))
+
+            def verify_neck_and_startup(self):
+                widget = self.hourglass
+                widget.set_duration(15)
+                widget.elapsed = 0.6
+                widget.running = True
+                outlet = 2 * widget._neck_y - widget._taper["y_bot"]
+                length = widget._taper["y_bot"] - outlet
+                widget.particles = [{
+                    "x": widget._cx, "x_offset": 0, "y": outlet - length * 0.5,
+                    "vy": -50, "size": 1, "is_light": True, "trail_time": 0.02,
+                }]
+                ids = [id(p) for p in widget.particles]
+                widget.redraw()
+                check(widget._neck_grain_count == 1, "existing grain texture bridges the outlet")
+                color, line = widget._neck_grain_pool[0]
+                check(outlet < line.points[1] < widget._taper["y_bot"],
+                      "neck texture stays inside the straight conduit")
+                check(0 < color.a < 1, "neck texture fades in without a hard top edge")
+                check(ids == [id(p) for p in widget.particles],
+                      "neck texture adds no physics particles")
+                widget.reset()
+                widget.redraw()
+                check(widget._neck_grain_count == 0 and not line.points,
+                      "reset clears the conduit texture")
+
+                spec = ConfigParser()
+                spec.read(ROOT / "buildozer.spec", encoding="utf-8")
+                asset = spec.get("app", "presplash.filename", raw=True).replace(
+                    "%(source.dir)s", str(ROOT))
+                with Image.open(asset) as startup:
+                    check(startup.size == (1, 1), "startup contains no illustration")
+                    check(startup.convert("RGB").getpixel((0, 0)) == (253, 246, 227),
+                          "startup placeholder matches the application background")
+                removed = []
+                android = ModuleType("android")
+                android.__path__ = []
+                loading = ModuleType("android.loadingscreen")
+                loading.hide_loading_screen = lambda: removed.append(True)
+                with patch.dict(sys.modules, {"android": android,
+                                               "android.loadingscreen": loading}):
+                    with patch.object(app_module, "platform", "android"):
+                        app_module.HourglassApp.on_start(self)
+                        self._hide_startup_screen()
+                check(removed == [True], "first usable frame removes native startup overlay")
+                widget.set_duration(60)
+                widget.reset()
 
             def verify_flow_realism(self):
                 widget = self.hourglass
