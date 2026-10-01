@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import wave
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,10 +24,19 @@ def main():
         os.environ["KIVY_NO_ARGS"] = "1"
         os.environ["KIVY_NO_FILELOG"] = "1"
         sys.path.insert(0, str(ROOT))
+        if "--no-vsync" in sys.argv:
+            from kivy.config import Config
+            Config.set("graphics", "vsync", "0")
         from kivy.clock import Clock
         from kivy.core.window import Window
         from PIL import Image, ImageChops
         import main as app_module
+        if "--source" in sys.argv:
+            source = Path(sys.argv[sys.argv.index("--source") + 1])
+            spec = importlib.util.spec_from_file_location("verification_source", source)
+            app_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(app_module)
+            app_module.__file__ = str(ROOT / "main.py")
         from frame_benchmark import (BenchmarkRunner, PERIODS, frame_statistics,
                                      format_benchmark_report)
         original_stream_build = app_module.HourglassWidget._build_dynamic_canvas
@@ -131,6 +141,11 @@ def main():
                 check(frame_statistics([])["average_fps"] is None, "empty sample handling")
                 check(frame_statistics([0, float("nan"), -1, 0.02])["frames"] == 1,
                       "invalid samples are ignored")
+                check(app_module._fmt_countdown_pair(0.1, 1) == "1 / 1",
+                      "countdown does not show zero while sand is still falling")
+                check(app_module._fmt_countdown_pair(0, 1) == "0 / 1",
+                      "countdown reaches zero only at completion")
+                self.verify_flow_realism()
 
                 widget = self.hourglass
                 print("Viewport:", Window.size, "widget:", widget.size, widget.pos,
@@ -195,17 +210,10 @@ def main():
                             obj.flares = []
                             obj.dusts = []
                             obj.flash_end = 0
-                            if state in ("mid", "paused"):
-                                obj.particles = [
-                                    {"x": widget._cx + i % 3 - 1,
-                                     "y": widget._neck_y - i * 2,
-                                     "vy": -100 - i, "size": 1 + i % 2,
-                                     "is_light": i % 10 == 0}
-                                    for i in range(80)]
-                                obj.splashes = [
-                                    {"x": widget._cx, "y": widget._lower_y_c, "size": 2}]
                         # Compare the renderer at identical geometry, independent of new timing.
                         old._mound_height_px = widget._mound_height_px
+                        old._raw_height_ratio = lambda _volume: (
+                            widget._mound_height_px() / (2 * widget._R_inner))
                         for obj in (old, widget):
                             obj.redraw()
                         textures = [obj.export_as_image().texture for obj in (old, widget)]
@@ -213,7 +221,7 @@ def main():
                                   for tex in textures]
                         diff = ImageChops.difference(*images)
                         check(diff.convert("RGB").getbbox() is None,
-                              "pixel-identical renderer: " + state)
+                              "unchanged glass and true-circle sand rendering: " + state)
                     for period in (1, 5, 10, 30, 360000):
                         widget.set_duration(period)
                         check(widget._taper["y_bot"] > widget._neck_y,
@@ -247,6 +255,55 @@ def main():
                 check(widget.particles == frozen, "paused particles remain frozen")
                 widget.reset()
                 Window.screenshot(name=str(OUT / "normal.png"))
+
+            def verify_flow_realism(self):
+                widget = self.hourglass
+                for period in (1, 5, 15, 60, 360000):
+                    widget.set_duration(period)
+                    for fraction in (0, 0.02, 0.2, 0.5, 0.99, 1):
+                        widget.elapsed = period * fraction
+                        widget.running = fraction < 1
+                        widget.redraw()
+                        upper, lower = [rect.size[1] for _color, rect in widget._sand_chords]
+                        # Kivy graphics stores coordinates as float32, unlike the float64 model.
+                        epsilon = max(1e-4, 2 * widget._R_inner * 1e-6)
+                        check(math.isclose(upper + lower, 2 * widget._R_inner,
+                                           abs_tol=epsilon),
+                              "complementary visible heights: %ss %.2f" % (period, fraction))
+                        rendered_surface = widget._sand_chords[1][1].pos[1] + lower
+                        check(math.isclose(widget.get_mound_top_y(), rendered_surface,
+                                           abs_tol=epsilon),
+                              "contact matches visible surface: %ss %.2f" % (period, fraction))
+                    widget.elapsed = period - min(1e-5, period * 1e-5)
+                    widget.running = True
+                    check(widget._mound_height_px() > 2 * widget._R_inner * 0.99,
+                          "no forced last-frame refill: %ss" % period)
+                    check(widget._natural_flight_time / widget._particle_motion_scale <=
+                          widget._fall_delay - widget._neck_fill_time + 1e-9,
+                          "first-flight timing fits period: %ss" % period)
+
+                widget.set_duration(60)
+                widget.elapsed = 30
+                widget.running = False
+                surface = widget.get_mound_top_y()
+                widget.particles = [{
+                    "x": widget._cx, "x_offset": 0, "y": surface + 1, "vy": -200,
+                    "wobble_phase": 0, "wobble_amp": 0, "size": 2,
+                    "is_light": False, "trail_time": 0.02,
+                }]
+                with patch.object(app_module.random, "random", return_value=0):
+                    widget.update_particles(0.02)
+                check(not widget.particles and len(widget.splashes) == 1,
+                      "crossing the actual surface produces one impact")
+                check(widget.flares[-1]["y"] == surface, "impact highlight does not float")
+                splash = widget.splashes[0]
+                check(math.hypot(splash["vx"], splash["vy"]) < 200 * 0.30,
+                      "rebound cannot gain energy over the incoming grain")
+                check(widget._particle_trail({"vy": -400, "trail_time": 0.02}) == 8,
+                      "individual short trails preserve granular detail")
+                check(list(widget._stream_pools)[-1] == (-1, 2),
+                      "bright grains render after the dense base stream")
+                widget.reset()
 
             def verify_completion_audio(self):
                 path = ROOT / "sounds" / "completion.wav"

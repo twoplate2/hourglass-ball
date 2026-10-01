@@ -38,7 +38,7 @@ class FlowBatch:
                 self.indices.extend((center, len(self.template) - 1, last))
             self.mode = "triangles"
 
-    def update(self, particles, top_limit):
+    def update(self, particles, top_limit, motion_scale=1):
         stride = len(self.template) * 4
         index_stride = len(self.indices)
         chunks = math.ceil(len(particles) / self.CHUNK)
@@ -61,7 +61,8 @@ class FlowBatch:
             for i in range(count):
                 particle = particles[start + i]
                 x, bottom = particle["x"], particle["y"]
-                top = min(top_limit, bottom + max(2, abs(particle["vy"]) * 0.08))
+                top = min(top_limit, bottom + max(
+                    2, abs(particle["vy"]) * particle.get("trail_time", 0.08) / motion_scale))
                 base = i * stride
                 for vertex, (dx, dy, end) in enumerate(self.template):
                     offset = base + vertex * 4
@@ -94,13 +95,15 @@ def install(widget_class):
             bucket.clear()
         div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
         for particle in self.particles:
-            if particle["y"] >= self._upper_ball_cut:
+            if particle["y"] >= 2 * self._neck_y - self._taper["y_bot"]:
                 continue
             index = -1 if particle["is_light"] else max(
                 0, min(len(self._color_table) - 1, int((self._neck_y - particle["y"]) / div)))
             self._stream_buckets[index, particle["size"]].append(particle)
         for key, bucket in self._stream_buckets.items():
-            self._flow_batches[key].update(bucket, self._upper_ball_cut)
+            self._flow_batches[key].update(
+                bucket, 2 * self._neck_y - self._taper["y_bot"],
+                self._particle_motion_scale)
 
     widget_class._build_dynamic_canvas = build_batches
     widget_class._draw_stream = draw_batches

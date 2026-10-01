@@ -58,6 +58,7 @@ def main():
         spec.loader.exec_module(module)
         Window.clearcolor = (*module.hex_rgb(module.BG_COLOR), 1)
         module.HourglassWidget._make_sound_proxy = lambda *_: None
+        module.HourglassWidget._make_completion_sound = lambda *_: None
         random.seed(23)
         flips, cpu = [], []
         start = previous = None
@@ -90,7 +91,7 @@ def main():
                     original_tick(dt)
                     cpu.append(time.perf_counter() - before)
 
-                Clock.schedule_interval(timed_tick, 1 / 60)
+                Clock.schedule_interval(timed_tick, 0)
                 start = previous = time.perf_counter()
                 Window.bind(on_flip=self.record_flip)
                 Clock.schedule_once(lambda _dt: self.stop(), args.seconds)

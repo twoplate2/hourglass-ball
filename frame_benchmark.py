@@ -9,6 +9,7 @@ import sys
 import time
 
 from kivy.clock import Clock
+from kivy.config import Config
 from kivy.core.window import Window
 from kivy.core.text import Label as CoreLabel
 from kivy.graphics import Color, Line, Rectangle
@@ -47,6 +48,7 @@ def save_benchmark_log(directory, results, cancelled=False):
     lines = [format_benchmark_report(results, cancelled),
              f"\nPlatform: {sys.platform}; Window: {tuple(Window.size)}",
              f"Timer resolution: {time.get_clock_info('perf_counter').resolution}s",
+             f"VSync configuration: {Config.get('graphics', 'vsync')}",
              "Timing units: milliseconds; samples: Window.on_flip intervals.",
              "Host load note: Windows video compression may be running; cross-run FPS is not a controlled comparison."]
     for result in results:

@@ -191,6 +191,16 @@ Android 方案的核心细节：
 - splash 反弹粒子：向上反弹 vy=-110~-55，实心方块渲染，受 `_sand_half_w` 横向约束
 - 完成尘埃：漏完时 spawn 25 颗，1s 寿命，向上喷射
 
+### 新沙流衔接与颗粒表现
+
+当前 Android 版的视觉基准在本工程验证，不再要求沙流像素与旧 PC 完全一致；玻璃与真圆沙体仍须保持原轮廓。
+- `_effective_fallen()` 按 `duration - fall_delay` 归一化，`redraw()` 使用互补上下高度，防止末帧补满跳变。
+- `_particle_motion_scale` 仅在飞行时间放不进短周期时加速，初速度乘倍率、重力乘倍率平方；不改生成速率。
+- `get_mound_top_y()` 与实际 Rectangle 沙面一致。帧内计算触底时刻，避免越过沙面后才生成效果。
+- 新生颗粒保存 `trail_time=18–32ms`；高光组在主体组后面，仍用 Line，不增加装饰粒子。
+- 反弹能量来自入射速度的 14–28%，闪光为细小横向颗粒；完成尘埃保持原 1 秒时间尺度。
+- 视觉工具 `tools/inspect_flow.py` 保存相同时刻图片和接触差/末段高度指标；不能用模拟时钟结果宣称帧率。
+
 ## Android 装机坑(桌面预览看不到，只在 APK 暴露)
 - **中文乱码**：`LabelBase.register(name="Roboto", fn=fonts/NotoSansSC-Medium.otf)` 全局覆盖默认字体；`buildozer.spec` 的 `source.include_patterns` **必须含 `fonts/*.otf`** 否则字体不进 APK。
 - **音效卡顿（2026-08-28）**：真机每到 wav 末尾卡一次，且冷启动前几秒断续（MediaPlayer 解码预热）。**两个 bug 叠罗汉**：①`_init_audio_track` 第一行 `from jnius import autoclass, jarray` —— **pyjnius 没有 `jarray`** → ImportError → `except` 吞掉 → 静默回退 Kivy `SoundLoader`；Android 上 Kivy 用 `audio_android`(`MediaPlayer.setLooping`)，**应用层循环不是 gapless**，卡顿周期跟文件时长走。该行自 AudioTrack 方案第一版就在，**硬件循环一次都没跑起来过**，所以"改采样率"和"设备原生率对齐"两轮修复全打在从未执行的代码上。②修掉①之后才露出第二个：写入前用 `getState()==STATE_INITIALIZED` 做校验，而 MODE_STATIC 此时必然是 `STATE_NO_STATIC_DATA`(2) → 照样回退。**修完一层要预期下一层**，别以为一个 bug 就是全部。历史其它坑：Builder 点号 pyjnius 无法解析需用 `$`；三星需 `reloadStaticData()`（且 reload/setPosition 会清 loop 状态，`play()` 里要重新 `setLoopPoints`）；`_active` 必须后置于 play() 成功后；失败需 fallthrough 到 Kivy SoundLoader。

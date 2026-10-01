@@ -182,7 +182,7 @@ def _mult_from_slider(t):
 def _fmt_countdown_pair(remaining, total):
     """倒计时显示,格式由总时长决定:H:MM:SS / M:SS / 秒。"""
     tot = int(round(total))
-    rem = int(round(remaining))
+    rem = max(0, math.ceil(remaining))
     if tot >= 3600:
         fmt = lambda s: f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
     elif tot >= 60:
@@ -872,27 +872,32 @@ class HourglassWidget(Widget):
 
     @property
     def _neck_fill_time(self):
-        return max(0.05, min(NECK_FILL, self.duration * 0.15))
+        return max(1e-6, min(NECK_FILL, self.duration * 0.15))
 
     @property
-    def _fall_delay(self):
+    def _natural_flight_time(self):
         if not self._geom_ready:
             return FALL_DELAY
         outlet = 2 * self._neck_y - self._taper['y_bot']
-        dist = outlet - self._lower_sand_bot
-        if dist <= 0:
-            return 0.5
-        v0 = 50.0
-        g = 450.0
-        t = self._neck_fill_time + (-v0 + math.sqrt(v0 ** 2 + 2 * g * dist)) / g + 0.05
-        return max(0.30, min(t, self.duration * 0.45))
+        distance = max(0, outlet - self._lower_sand_bot)
+        return (math.sqrt(50 ** 2 + 900 * distance) - 50) / 450
+
+    @property
+    def _fall_delay(self):
+        return min(self._neck_fill_time + self._natural_flight_time + 0.05,
+                   self.duration * 0.45)
+
+    @property
+    def _particle_motion_scale(self):
+        """极短周期以缩时播放飞行,首批粒子仍先触底再堆积。"""
+        available = max(1e-6, self._fall_delay - self._neck_fill_time)
+        return max(1.0, self._natural_flight_time / available)
 
     def _effective_fallen(self):
         if self.duration <= 0:
             return 0.0
-        if not self.running and self.elapsed >= self.duration:
-            return 1.0
-        return max(0.0, (self.elapsed - self._fall_delay) / self.duration)
+        return max(0.0, min(1.0, (self.elapsed - self._fall_delay) /
+                           max(1e-6, self.duration - self._fall_delay)))
 
     def _mound_floor(self, eff):
         if eff <= 0:
@@ -939,15 +944,8 @@ class HourglassWidget(Widget):
         return side
 
     def get_mound_top_y(self):
-        """下沙堆顶 y(含中央堆尖; Kivy y 向上,堆从底往上)。"""
-        h = self._mound_height_px()
-        if h <= 0:
-            return self._lower_sand_bot
-        mound_base_y = self._lower_sand_bot + h
-        eff = self._effective_fallen()
-        peak = max(0.0, eff - 0.10) * 10
-        peak = min(peak, max(0.0, self._lower_sand_top - mound_base_y - 2))
-        return mound_base_y + peak
+        """碰撞面与实际绘制的水平沙面一致,不使用未绘制的堆尖。"""
+        return self._lower_sand_bot + self._mound_height_px()
 
     def _sand_half_w(self, y, yc):
         Ri = self._R_inner
@@ -1165,6 +1163,7 @@ class HourglassWidget(Widget):
         neck_w = self.neck_w
         ow = self._ow
         gen_y = 2 * self._neck_y - self._taper['y_bot']
+        motion_scale = self._particle_motion_scale
 
         if self.running and remaining > 0:
             rate = 600 * self.speed_factor
@@ -1178,25 +1177,36 @@ class HourglassWidget(Widget):
                 self.particle_acc -= 1
                 x_off = random.uniform(-x_clip, x_clip)
                 vy0 = -(random.uniform(90, 120) if random.random() < 0.05
-                        else random.uniform(35, 60))   # 向下为负
+                        else random.uniform(35, 60)) * motion_scale
                 self.particles.append({
                     "x": cx + x_off, "x_offset": x_off,
-                    "y": gen_y + random.uniform(-2, 1),
+                    "y": gen_y,
                     "vy": vy0,
                     "wobble_phase": random.uniform(0, math.tau),
                     "wobble_amp": random.uniform(0.4, 1.0),
                     "is_light": random.random() < 0.10,
                     "size": (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1,
+                    "trail_time": random.uniform(0.018, 0.032),
                     "_step_dt": self.particle_acc / rate,
                 })
 
-        g = -450.0   # 重力向下(Kivy y 向上 → 负)
+        g = -450.0 * motion_scale * motion_scale
         tube_lim = max(1.0, neck_w - ow)
         new_list = []
         for p in self.particles:
             step_dt = p.pop("_step_dt", dt)
+            old_y, old_vy = p["y"], p["vy"]
             p["y"] += p["vy"] * step_dt + 0.5 * g * step_dt * step_dt
             p["vy"] += g * step_dt
+            hit = p["y"] <= mound_top
+            if hit:
+                distance = max(0, old_y - mound_top)
+                speed = max(0, -old_vy)
+                hit_dt = (2 * distance / max(
+                    1e-6, speed + math.sqrt(speed * speed + 2 * abs(g) * distance)))
+                hit_dt = min(step_dt, hit_dt)
+                p["y"] = mound_top
+                p["vy"] = old_vy + g * hit_dt
             fallen_dist = max(0.0, gen_y - p["y"])
             # 管内: 管壁约束,填满内径 shrink=1.0
             # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
@@ -1204,8 +1214,9 @@ class HourglassWidget(Widget):
                 shrink = 1.0
             else:
                 below_tube = self._lower_ball_cut - p["y"]
-                v_at_y = (60.0 ** 2 + 2 * abs(g) * below_tube) ** 0.5
-                target = max(0.70, (60.0 / v_at_y) ** 0.5)
+                source_speed = 60.0 * motion_scale
+                v_at_y = (source_speed ** 2 + 2 * abs(g) * below_tube) ** 0.5
+                target = max(0.70, (source_speed / v_at_y) ** 0.5)
                 transition = 40.0  # 平滑过渡区长度(px)
                 if below_tube < transition:
                     t = below_tube / transition
@@ -1219,28 +1230,33 @@ class HourglassWidget(Widget):
             p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
 
             # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
-            if p["y"] > self._lower_ball_cut:
+            if p["y"] >= self._lower_sand_top:
                 lim = tube_lim
             else:
                 raw_ball = self._sand_half_w(p["y"], self._lower_y_c)
-                below = self._lower_ball_cut - p["y"]
+                below = self._lower_sand_top - p["y"]
                 t = min(1.0, below / 30.0)
-                lim = tube_lim + (max(tube_lim, raw_ball) - tube_lim) * t
-            lim = max(0.2, lim - p["size"] / 2.0)
+                lim = tube_lim + (raw_ball - tube_lim) * t
+            half_stroke = p["size"] if p["size"] > 1 else 0.5
+            lim = max(0.0, lim - half_stroke)
             off = p["x"] - cx
             p["x"] = cx + max(-lim, min(lim, off))
 
-            if p["y"] <= mound_top + 1:   # 触底
+            if hit:
                 if mound_top > self._lower_sand_bot + 1:
                     self.mound_peak_offset = self.mound_peak_offset * 0.97 + (p["x"] - cx) * 0.03
                 if random.random() < 0.25:
                     self.flares.append({"x": p["x"], "y": mound_top, "end": now + 0.08})
                 if random.random() < 0.50:
+                    bounce = min(110 * motion_scale,
+                                 max(0, -p["vy"]) * random.uniform(0.14, 0.28))
+                    angle = random.uniform(-0.85, 0.85)
                     self.splashes.append({
-                        "x": p["x"], "y": mound_top,
-                        "vx": random.uniform(-35, 35),
-                        "vy": random.uniform(55, 110),   # 反弹向上
+                        "x": p["x"], "y": mound_top + 0.5,
+                        "vx": math.sin(angle) * bounce,
+                        "vy": math.cos(angle) * bounce,
                         "size": random.choice([1, 1, 2]),
+                        "_step_dt": max(0, step_dt - hit_dt),
                     })
                 continue
             new_list.append(p)
@@ -1248,13 +1264,14 @@ class HourglassWidget(Widget):
 
         new_splashes = []
         for s in self.splashes:
-            s["y"] += s["vy"] * dt + 0.5 * g * dt * dt
-            s["vy"] += g * dt
-            s["x"] += s["vx"] * dt
+            step_dt = s.pop("_step_dt", dt)
+            s["y"] += s["vy"] * step_dt + 0.5 * g * step_dt * step_dt
+            s["vy"] += g * step_dt
+            s["x"] += s["vx"] * step_dt
             half = self._sand_half_w(s["y"], self._lower_y_c)
             if abs(s["x"] - cx) > half - 1:
                 continue
-            if s["vy"] < 0 and s["y"] <= mound_top + 1:
+            if s["vy"] < 0 and s["y"] <= mound_top:
                 continue
             if s["y"] < self._lower_sand_bot or s["y"] > self._lower_sand_top - 5:
                 continue
@@ -1265,8 +1282,8 @@ class HourglassWidget(Widget):
 
         new_dusts = []
         for d in self.dusts:
-            d["y"] += d["vy"] * dt + 0.5 * g * dt * dt
-            d["vy"] += g * dt
+            d["y"] += d["vy"] * dt - 225 * dt * dt
+            d["vy"] -= 450 * dt
             d["x"] += d["vx"] * dt
             if now > d["end"] or d["y"] < mound_top - 1:
                 continue
@@ -1364,7 +1381,8 @@ class HourglassWidget(Widget):
 
         # 同色同线宽共用一条 Color 指令,且不再排序/改变物理粒子列表。
         self._stream_pools = {}
-        for index in range(-1, len(self._color_table)):
+        # 高光在普通粒子之后绘制,避免被密集的主体完全盖住。
+        for index in list(range(len(self._color_table))) + [-1]:
             for size in (1, 2):
                 group = InstructionGroup()
                 color = Color(*(self.sand_light if index < 0 else self._color_table[index]))
@@ -1404,11 +1422,13 @@ class HourglassWidget(Widget):
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         floor = self._lower_sand_bot
         rate = 600 * self.speed_factor
+        motion_scale = self._particle_motion_scale
         div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
         thin_only = max(1, self.neck_w - self._ow) < 3
 
         def travel(y):
-            return (math.sqrt(35 ** 2 + 900 * max(0, outlet - y)) - 35) / 450
+            return ((math.sqrt(35 ** 2 + 900 * max(0, outlet - y)) - 35) /
+                    (450 * motion_scale))
 
         for (index, size), (group, _color, pool) in self._stream_pools.items():
             if index < 0:
@@ -1458,14 +1478,11 @@ class HourglassWidget(Widget):
             self._splash_color.rgb = self._dust_color.rgb = self.sand_light
             self._render_colors = colors
 
-        upper_eff = max(0.0, min(1.0, self.elapsed / self.duration))
-        upper_height = 2 * self._R_inner * (1 - self._raw_height_ratio(upper_eff))
-        self._sand_chords[0][1].size = (2 * self._R_inner,
-                                      upper_height if remaining > 0.001 else 0)
         h_mound = self._mound_height_px()
-        self._sand_chords[1][1].size = (2 * self._R_inner,
-                                      h_mound if h_mound > 0.5 else 0)
-        side = self._neck_sand_side() if remaining > 0.001 else []
+        upper_height = max(0, 2 * self._R_inner - h_mound)
+        self._sand_chords[0][1].size = (2 * self._R_inner, upper_height)
+        self._sand_chords[1][1].size = (2 * self._R_inner, h_mound)
+        side = self._neck_sand_side() if upper_height > 0 else []
         for i, quad in enumerate(self._neck_quads):
             if i < len(side) - 1:
                 (x0, y0), (x1, y1) = side[i], side[i + 1]
@@ -1485,9 +1502,9 @@ class HourglassWidget(Widget):
             color, rect = self._flare_rects[i]
             life = max(0.0, f["end"] - now) / 0.08
             color.rgba = (*self.sand_light, 0.45 * life)
-            sz = 4 + life * 2
-            rect.pos = (f["x"] - sz / 2, f["y"] - sz / 2)
-            rect.size = (sz, sz)
+            width, height = 2 + life * 2, 0.8 + life * 0.4
+            rect.pos = (f["x"] - width / 2, f["y"] - height / 2)
+            rect.size = (width, height)
         for color, rect in self._flare_rects[len(self.flares):]:
             color.a = 0
             rect.size = (0, 0)
@@ -1502,16 +1519,18 @@ class HourglassWidget(Widget):
             bucket.clear()
         n_colors = len(self._color_table)
         div = max(1.0, self._neck_y - self._glass_bot) / n_colors
+        motion_scale = self._particle_motion_scale
         for p in self.particles:
             index = -1 if p["is_light"] else max(
                 0, min(n_colors - 1, int((self._neck_y - p["y"]) / div)))
-            if p["y"] < self._upper_ball_cut:
+            if p["y"] < 2 * self._neck_y - self._taper["y_bot"]:
                 buckets[index, p["size"]].append(p)
         for key, particles in buckets.items():
             group, _color, pool = self._stream_pools[key]
             for i, particle in enumerate(particles):
-                trail = max(2.0, abs(particle["vy"]) * 0.08)
-                top = min(self._upper_ball_cut, particle["y"] + trail)
+                trail = max(2.0, abs(particle["vy"]) *
+                            particle.get("trail_time", 0.08) / motion_scale)
+                top = min(2 * self._neck_y - self._taper["y_bot"], particle["y"] + trail)
                 coords = (particle["x"], particle["y"], particle["x"], top)
                 if i == len(pool):
                     line = Line(points=coords, width=key[1])
@@ -1523,6 +1542,10 @@ class HourglassWidget(Widget):
                 if line.points:
                     line.points = []
             self._stream_counts[key] = len(particles)
+
+    def _particle_trail(self, particle, motion_scale=None):
+        scale = self._particle_motion_scale if motion_scale is None else motion_scale
+        return max(2.0, abs(particle["vy"]) * particle.get("trail_time", 0.08) / scale)
 
 
 # ---------- App / UI(v2 布局: 色块在上, 控件在下) ----------
