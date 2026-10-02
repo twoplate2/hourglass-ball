@@ -25,17 +25,21 @@ jobs:
 
       - name: 取 CPython 3.11.5 头文件 + pyconfig.h
         run: |
-          curl -sLO https://www.python.org/ftp/python/3.11.5/Python-3.11.5.tgz
-          tar xf Python-3.11.5.tgz
-          ls Python-3.11.5/Include | head -3
-          # 源码包的 Include/ 没有 pyconfig.h(它由构建期生成; configure 也不产出,
-          # 实测 configure 之后仍然没有)。这里借用 runner 自带的 Python 头文件里的
-          # 那份 —— 模块只用类型/尺寸宏, LP64 下与目标一致; 用到的 API 都是稳定 API,
-          # 不依赖 glibc/bionic 差异那些 HAVE_* 宏。
-          HOST_INC=$(python3 -c "import sysconfig;print(sysconfig.get_paths()['include'])")
-          cp "$HOST_INC/pyconfig.h" Python-3.11.5/Include/pyconfig.h
-          ls -l Python-3.11.5/Include/pyconfig.h
-          grep -E "^#define SIZEOF_(VOID_P|LONG|SIZE_T)" Python-3.11.5/Include/pyconfig.h
+          curl -sLO https://www.python.org/ftp/python/3.11.5/Python-3.11.5.tgz && tar xf Python-3.11.5.tgz
+          ls Python-3.11.5/Include | head -2
+          HOST_INC=$(python3 -c "import sysconfig;print(sysconfig.get_paths()['include'])" 2>&1)
+          echo "HOST_INC=$HOST_INC"
+          SRC=""
+          if [ -f "$HOST_INC/pyconfig.h" ]; then SRC="$HOST_INC/pyconfig.h"; fi
+          if [ -z "$SRC" ]; then SRC=$(find / -name pyconfig.h -not -path "*/Python-3.11.5/*" 2>/dev/null | head -1); fi
+          echo "找到 pyconfig.h: $SRC"
+          if [ -n "$SRC" ]; then
+            cp "$SRC" Python-3.11.5/Include/pyconfig.h
+            ls -l Python-3.11.5/Include/pyconfig.h
+          else
+            find / -name "pyconfig.h*" 2>/dev/null | head -8
+            echo "::error title=pyconfig-missing::HOST_INC=$HOST_INC"
+          fi
 
       - name: 交叉编译 arm64 .so
         run: |
