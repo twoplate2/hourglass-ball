@@ -33,8 +33,8 @@ jobs:
           ./configure --without-ensurepip > cfg.log 2>&1 || true
           echo "configure 退出码: $?"
           tail -5 cfg.log
-          if [ -f Include/pyconfig.h ]; then
-            echo "pyconfig.h 已生成"
+          if [ -f pyconfig.h ] || [ -f Include/pyconfig.h ]; then
+            ls -l pyconfig.h Include/pyconfig.h 2>/dev/null || true
           else
             echo "::error title=configure-failed::$(tail -6 cfg.log | sed 's/%/%25/g' | paste -sd'|' -)"
           fi
