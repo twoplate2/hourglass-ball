@@ -29,9 +29,17 @@ jobs:
           ls Python-3.11.5/Include | head -2
           HOST_INC=$(python3 -c "import sysconfig;print(sysconfig.get_paths()['include'])" 2>&1)
           echo "HOST_INC=$HOST_INC"
-          SRC=""
-          if [ -f "$HOST_INC/pyconfig.h" ]; then SRC="$HOST_INC/pyconfig.h"; fi
-          if [ -z "$SRC" ]; then SRC=$(find / -name pyconfig.h -not -path "*/Python-3.11.5/*" 2>/dev/null | head -1); fi
+          # 注意: /usr/include/python3.x/pyconfig.h 在 Debian 系上常是"转发壳"
+          # (内容只有一行 #include <triplet/python3.x/pyconfig.h>), 拷了会在编译时报
+          # 'aarch64-linux-gnu/python3.10/pyconfig.h' file not found。
+          # 真正的那份在 hostedtoolcache 的 Python 里。
+          SRC=$(ls -d /opt/hostedtoolcache/Python/*/x64/include/python*/pyconfig.h 2>/dev/null | head -1)
+          if [ -z "$SRC" ] || ! grep -q "SIZEOF_VOID_P" "$SRC" 2>/dev/null; then
+            SRC=""
+            for c in $(find / -name pyconfig.h -not -path "*/Python-3.11.5/*" 2>/dev/null); do
+              if grep -q "SIZEOF_VOID_P" "$c" 2>/dev/null; then SRC="$c"; break; fi
+            done
+          fi
           echo "找到 pyconfig.h: $SRC"
           if [ -n "$SRC" ]; then
             cp "$SRC" Python-3.11.5/Include/pyconfig.h
