@@ -23,11 +23,15 @@ jobs:
           ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -5 || echo "(无 $ANDROID_HOME/ndk)"
           ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | head -5 || echo "(无 /usr/local/lib/android/sdk/ndk)"
 
-      - name: 取 CPython 3.11.5 头文件
+      - name: 取 CPython 3.11.5 头文件并生成 pyconfig.h
         run: |
           curl -sLO https://www.python.org/ftp/python/3.11.5/Python-3.11.5.tgz
-          tar xf Python-3.11.5.tgz Python-3.11.5/Include
-          ls Python-3.11.5/Include | head -3
+          tar xf Python-3.11.5.tgz
+          # 源码包里的 Include/ 没有 pyconfig.h —— 它是 configure 时生成的。
+          # 目标侧只需要 LP64 的类型/尺寸宏, 用宿主 configure 生成的即可。
+          cd Python-3.11.5
+          ./configure --without-ensurepip --quiet > /dev/null 2>&1 || ./configure --without-ensurepip
+          ls -l Include/pyconfig.h
 
       - name: 交叉编译 arm64 .so
         run: |
