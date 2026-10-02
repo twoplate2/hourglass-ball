@@ -8,6 +8,8 @@
   setuptools —— 实测报错就是 `ModuleNotFoundError: No module named 'setuptools'`。
   只声明 depends=['setuptools'] 不够(那是目标侧 recipe, 不装进 host 环境)。
 """
+import sys
+
 from pythonforandroid.logger import shprint
 from pythonforandroid.recipe import CompiledComponentsPythonRecipe, IncludedFilesBehaviour
 from pythonforandroid.util import current_directory
@@ -26,7 +28,10 @@ class FlowcoreRecipe(IncludedFilesBehaviour, CompiledComponentsPythonRecipe):
 
     def prebuild_arch(self, arch):
         super().prebuild_arch(arch)
-        hostpython = sh.Command(self.ctx.hostpython)
+        # 用当前进程的解释器(p4a 自己跑在这个 Python 上), 不能取 ctx.hostpython ——
+        # prebuild 阶段它还没赋值, 实测报 AttributeError: 'Context' object has no
+        # attribute 'hostpython'。
+        hostpython = sh.Command(sys.executable)
         with current_directory(self.get_build_dir(arch.arch)):
             shprint(hostpython, "-m", "pip", "install", "--quiet", "setuptools")
 
