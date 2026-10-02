@@ -3,8 +3,6 @@ name: Build native lib
 # 只编 flowcore 的 arm64 .so 并提交回分支 —— 用于在设备上实测 C 加速,
 # 绕开 APK/recipe 那条路。
 on:
-  push:
-    branches: [ native-flowcore ]
   workflow_dispatch:
 
 jobs:
