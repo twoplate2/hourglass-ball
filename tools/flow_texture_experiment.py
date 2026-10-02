@@ -145,26 +145,6 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     mesh.indices = indices[:count * len(self.indices)]
                     part[4] = count
                 continue
-            _sx = _sy = _st = 0.0
-            _n = 0
-            for i in (range(start, start + count) if chunk else
-                      range(start, start + count)):
-                _q = particles[i]
-                _b = _q["y"]
-                _v = _q["vy"]
-                if _v < 0:
-                    _v = -_v
-                _tr = _v * _q["trail_time"] / motion_scale
-                if _tr < 2:
-                    _tr = 2
-                _t = _b + _tr
-                if _t > top_limit:
-                    _t = top_limit
-                _sx += _q["x"]; _sy += _b; _st += _t; _n += 1
-            if chunk == 0:
-                with open("ref_probe.log", "a", encoding="utf-8") as _f:
-                    _f.write("w%d n=%d sx=%.4f sy=%.4f st=%.4f%s" % (
-                        int(self.width), _n, _sx, _sy, _st, chr(10)))
             offset = 0
             for i in range(start, start + count):
                 particle = particles[i]
@@ -222,9 +202,27 @@ def install(widget_class):
         self._flow_texture_context = context
 
     def draw_texture_batches(self):
+        _tl = self._taper["y_bot"]
+        _ms = self._particle_motion_scale
+        _n = _sx = _sy = _st = 0.0
+        _n = 0
+        for _k, _b in self._group_stream_particles().items():
+            for _q in _b:
+                _bb = _q["y"]
+                _v = _q["vy"]
+                if _v < 0:
+                    _v = -_v
+                _tr = _v * _q["trail_time"] / _ms
+                if _tr < 2:
+                    _tr = 2
+                _t = _bb + _tr
+                if _t > _tl:
+                    _t = _tl
+                _sx += _q["x"]; _sy += _bb; _st += _t; _n += 1
+        with open("ref_probe.log", "a", encoding="utf-8") as _f:
+            _f.write("n=%d sx=%.4f sy=%.4f st=%.4f%s" % (_n, _sx, _sy, _st, chr(10)))
         for key, bucket in self._group_stream_particles().items():
-            self._flow_batches[key].update(
-                bucket, self._taper["y_bot"], self._particle_motion_scale)
+            self._flow_batches[key].update(bucket, _tl, _ms)
 
     widget_class._build_dynamic_canvas = build_texture_batches
     widget_class._draw_stream = draw_texture_batches

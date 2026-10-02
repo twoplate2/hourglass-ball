@@ -202,12 +202,11 @@ def install(widget_class):
                     index = last
                 r, g, b = table[index]
             (thin if p["size"] == 1 else thick).append((p["x"], y, top, r, g, b))
-        for _w, _lst in ((1, thin), (2, thick)):
-            _sx = _sy = _st = 0.0
-            for _e in _lst:
-                _sx += _e[0]; _sy += _e[1]; _st += _e[2]
-            _probe("w%d n=%d sx=%.4f sy=%.4f st=%.4f" % (
-                _w, len(_lst), _sx, _sy, _st))
+        _sx = _sy = _st = 0.0
+        for _e in thin + thick:
+            _sx += _e[0]; _sy += _e[1]; _st += _e[2]
+        _probe("n=%d sx=%.4f sy=%.4f st=%.4f" % (
+            len(thin) + len(thick), _sx, _sy, _st))
         for width, entries in ((1, thin), (2, thick)):
             batches = self._flow_single[width]
             for i, batch in enumerate(batches):
