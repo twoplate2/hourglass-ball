@@ -1,7 +1,7 @@
 name: Build native lib
 
-# 只编 flowcore 的 arm64 .so 并提交回分支 —— 用来在设备上实测 C 加速,
-# 绕开 APK/recipe 那条路(那条要 p4a 环境, 反复出问题)。
+# 只编 flowcore 的 arm64 .so 并提交回分支 —— 用于在设备上实测 C 加速,
+# 绕开 APK/recipe 那条路。
 on:
   push:
     branches: [ native-flowcore ]
@@ -15,27 +15,39 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: 环境自检
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
+          ls -d $ANDROID_HOME/ndk/* 2>/dev/null | head -5 || echo "(无 $ANDROID_HOME/ndk)"
+          ls -d /usr/local/lib/android/sdk/ndk/* 2>/dev/null | head -5 || echo "(无 /usr/local/lib/android/sdk/ndk)"
+
       - name: 取 CPython 3.11.5 头文件
         run: |
           curl -sLO https://www.python.org/ftp/python/3.11.5/Python-3.11.5.tgz
           tar xf Python-3.11.5.tgz Python-3.11.5/Include
           ls Python-3.11.5/Include | head -3
 
-      - name: 装 NDK(只要 clang + sysroot)
+      - name: 交叉编译 arm64 .so
         run: |
-          yes | sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653" > /dev/null 2>&1 || \
-          yes | sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653"
-          ls $ANDROID_HOME/ndk
-
-      - name: 交叉编译 arm64 的 flowcore.so
-        run: |
-          NDK=$ANDROID_HOME/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin
-          $NDK/clang --target=aarch64-linux-android21 -shared -fPIC -O2 \
+          set -o pipefail
+          NDK_DIR=$(ls -d ${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/*} 2>/dev/null | sort -V | tail -1)
+          echo "NDK_DIR=$NDK_DIR"
+          CLANG=$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+          ls -l $CLANG
+          $CLANG --target=aarch64-linux-android21 -shared -fPIC -O2 \
             -I Python-3.11.5/Include \
             -o flowcore.cpython-311-aarch64-linux-android.so \
-            p4a-recipes/flowcore/src/flowcore.c
+            p4a-recipes/flowcore/src/flowcore.c 2>&1 | tee cc.log
           file flowcore.cpython-311-aarch64-linux-android.so
           ls -l flowcore.cpython-311-aarch64-linux-android.so
+
+      - name: 失败时把编译报错发成 annotation
+        if: failure()
+        run: |
+          grep -i -E "error|no such|not found|cannot|undefined" cc.log 2>/dev/null | tail -8 | sed 's/%/%25/g' | paste -sd'|' - > e.txt || true
+          echo "::error title=cc-errors::$(cat e.txt)"
 
       - name: 提交回分支
         run: |
