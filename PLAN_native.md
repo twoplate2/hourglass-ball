@@ -238,3 +238,28 @@ recipe 编译阶段: ModuleNotFoundError: No module named 'setuptools'
 `grep -i -E "error|traceback|exception|not exist|ValueError|recipe" buildozer.log | tail -14`
 → 用 `::error title=...::` 发成注解 → **公开 run 页面直接可读**(job 日志要管理员权限,
 注解不要)。
+
+---
+
+# 不用 C 的路线:消融实测(2026-10-02, 1.2 为底)
+
+同机同日、2525 颗粒、15s 档 2~6s 段均值:
+
+| 变体 | physics | redraw | canvas | 帧 |
+|---|---|---|---|---|
+| 基线 | 5.79 | 4.98 | 4.50 | **16.35ms** |
+| 关粒子批 | 4.93 | **1.45** | **1.38** | **8.61ms** |
+| 关沙弓形 | 4.83 | 4.36 | 4.19 | 14.28ms |
+
+- **粒子管线 = 7.7ms(占整帧 47%)**;physics 另 5.8ms ⇒ 与粒子相关的共 ~13.4ms(82%)。
+- **"缓存静态大块"不值** —— 两个沙弓形合计只值 ~0.5ms(GPU 填大块本就便宜),
+  而且 FBO 会丢 MSAA(改画质)。**这条路实测否决, 不要再试。**
+- 下一步(不用 C 的最大可打点): **GL 侧 3.1ms**。现在按"11 档颜色 × 2 线宽"分成
+  **24 个 Mesh**, 每帧 24 次状态切换 + 24 次纹理上传 + 24 次 draw call。做法:
+  - 颜色改**顶点属性**(Kivy Mesh 支持自定义 fmt, 如 `(b'v_color',4,'float')` +
+    shader 里 `attribute vec4 v_color;`), 线宽也可做成顶点属性(端帽偏移),
+  - 所有粒子合成**一个 Mesh**、一个共享端点纹理: capacity 取 reserve 的 2 次幂
+    (≈4096 → 纹理宽 3*4096=12288, MuMu 报 texture max size 32768, 安全),
+  - 预计 24 次 → 1 次, 省 1.5~2ms(+10% 上下), 且**可做到逐像素相同**。
+- 验证顺序照旧: 本地 `tools/inspect_flow.py` 像素闸门(0 差异) → 推 MuMu 量
+  canvas/redraw 分项。
