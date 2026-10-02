@@ -114,6 +114,10 @@ u 的步长 `1/(512*3)` 对所有分块都一样 —— shader 里只要一个 `
 不用逐块改。实测 15s 峰载段帧时间 13.77→13.54ms、5s 12.62→12.42ms(平均帧率
 89.0→90.2 / 87.3→88.9)，104 张截图逐像素 **0 差异**。
 ⚠️ 别把 `capacity` 改回按需取幂：u 步长会随分块变化，shader 就没法用一个 uniform 表达。
+⚠️ **设 uniform 要用 `context["名字"] = 值`，不能写 `context.shader["名字"] = 值`** ——
+   `Shader.__setitem__` 是 Kivy **2.3.1** 才有的，设备上跑的是 **2.3.0**，写了会在
+   `_build_dynamic_canvas` 里 `TypeError: object does not support item assignment`，
+   表现为 app 一启动就死。PC 上是 2.3.1，**本地像素闸门照样全绿**，只有装机才炸。
 
 ⚠️ 打包进 APK 的只有 `tools/*.pyc`，所以按 `sys.path + import` 装载，不能按 `.py` 路径。
 ⚠️ 纹理方案的报错发生在**画布构建时**(不是 `install()` 时)，外面 try/except 包不住 ——

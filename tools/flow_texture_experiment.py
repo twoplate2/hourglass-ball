@@ -144,7 +144,9 @@ def install(widget_class):
         context.shader.fs = FRAGMENT_SHADER
         if not context.shader.success:
             raise RuntimeError("Endpoint texture shader failed to compile")
-        context.shader[TEXEL_STEP_UNIFORM] = TEXEL_STEP
+        # 用 RenderContext 的 __setitem__ 设 uniform(shader[...] 在 Kivy 2.3.0 上不支持
+        # 下标赋值, 2.3.1 才加 —— 设备上是 2.3.0, 写 context.shader[...] 会 TypeError 崩)。
+        context[TEXEL_STEP_UNIFORM] = TEXEL_STEP
         context["endpoints"] = 1
         first_group = next(iter(self._stream_pools.values()))[0]
         position = self.canvas.children.index(first_group)
