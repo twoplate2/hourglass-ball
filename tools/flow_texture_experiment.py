@@ -220,7 +220,8 @@ def install(widget_class):
                     _t = _tl
                 _sx += _q["x"]; _sy += _bb; _st += _t; _n += 1
         with open("ref_probe.log", "a", encoding="utf-8") as _f:
-            _f.write("n=%d sx=%.4f sy=%.4f st=%.4f%s" % (_n, _sx, _sy, _st, chr(10)))
+            _f.write("t=%.4f n=%d sx=%.4f sy=%.4f st=%.4f%s" % (
+                self.elapsed, _n, _sx, _sy, _st, chr(10)))
         for key, bucket in self._group_stream_particles().items():
             self._flow_batches[key].update(bucket, _tl, _ms)
 
