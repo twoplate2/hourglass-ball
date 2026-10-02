@@ -382,8 +382,11 @@ def main():
                     "neck texture preblend stays opaque and inside the sand ramp")
                 check(ids == [id(p) for p in widget.particles],
                       "neck texture adds no physics particles")
-                widget.particles[0]["y"] = outlet - 1
-                widget.particles[0]["vy"] = -200
+                # 粒子真值现在是并行数组, 视图(_pv)在 update_particles 末尾刷新。
+                # 这里手动改状态后必须显式刷新视图, redraw 才会看到。
+                widget.py[0] = outlet - 1
+                widget.pvy[0] = -200
+                widget._p_refresh_view()
                 widget.redraw()
                 if not hasattr(widget, "_flow_batches"):
                     stream = widget._stream_pools[-1, 2][2][0]
