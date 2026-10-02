@@ -13,7 +13,7 @@ import time
 import wave
 from unittest.mock import patch
 from configparser import ConfigParser
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +40,9 @@ def main():
             spec.loader.exec_module(app_module)
             app_module.__file__ = str(ROOT / "main.py")
         from frame_benchmark import (BenchmarkRunner, PERIODS, frame_statistics,
-                                     format_benchmark_report)
+                                     format_benchmark_report, format_frame_diagnostics,
+                                     benchmark_environment)
+        import frame_benchmark as benchmark_module
         original_stream_build = app_module.HourglassWidget._build_dynamic_canvas
         original_stream_draw = app_module.HourglassWidget._draw_stream
         experiment = None
@@ -144,6 +146,44 @@ def main():
                 check(frame_statistics([])["average_fps"] is None, "empty sample handling")
                 check(frame_statistics([0, float("nan"), -1, 0.02])["frames"] == 1,
                       "invalid samples are ignored")
+                frame = {
+                    "frame_ms": 48, "elapsed_s": 10, "particles": 2100, "splashes": 170,
+                    "physics_ms": 3, "update_draw_ms": 2, "canvas_ms": 4,
+                    "previous_swap_ms": 35, "gc_ms": 0, "gc_generation": -1}
+                diagnostic = format_frame_diagnostics({
+                    "frame_trace": [frame], "slowest_frame_details": [frame],
+                    "stage_mean_ms": {"physics_ms": 3, "update_draw_ms": 2,
+                                      "canvas_ms": 4, "previous_swap_ms": 35}})
+                check("2100" in diagnostic and "35.00" in diagnostic,
+                      "copied diagnostics include live particle counts and swap timing")
+                check(">25ms 1" in diagnostic and "GC最大 0.00" in diagnostic,
+                      "copied diagnostics retain slow frames without blaming GC")
+                report = format_benchmark_report([
+                    {"period": 15, **frame_statistics([0.048]),
+                     "frame_trace": [frame], "slowest_frame_details": [frame],
+                     "environment": {"model": "K90", "refresh_hz": 120,
+                                     "code_hash": "sample-build"}}])
+                check("model=K90" in report and "sample-build" in report,
+                      "copied diagnostics identify device and code revision")
+                power = SimpleNamespace(isPowerSaveMode=lambda: False,
+                                        getCurrentThermalStatus=lambda: 2)
+                display = SimpleNamespace(getRefreshRate=lambda: 120)
+                activity = SimpleNamespace(
+                    getWindowManager=lambda: SimpleNamespace(getDefaultDisplay=lambda: display),
+                    getSystemService=lambda _service: object())
+                fake_jnius = ModuleType("jnius")
+                fake_jnius.cast = lambda _class, _object: power
+                classes = {
+                    "android.os.Build": SimpleNamespace(MODEL="K90", MANUFACTURER="test"),
+                    "android.os.Build$VERSION": SimpleNamespace(SDK_INT=35),
+                    "org.kivy.android.PythonActivity": SimpleNamespace(mActivity=activity)}
+                fake_jnius.autoclass = classes.__getitem__
+                with patch.dict(sys.modules, {"jnius": fake_jnius}):
+                    with patch.object(benchmark_module, "runtime_platform", "android"):
+                        environment = benchmark_environment(self.hourglass)
+                check(environment.get("refresh_hz") == 120 and
+                      environment.get("thermal_status") == 2,
+                      "Android diagnostic adapter reads refresh and thermal state")
                 check(app_module._fmt_countdown_pair(0.1, 1) == "1 / 1",
                       "countdown does not show zero while sand is still falling")
                 check(app_module._fmt_countdown_pair(0, 1) == "0 / 1",

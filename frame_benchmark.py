@@ -3,6 +3,7 @@
 import copy
 from datetime import datetime
 import gc
+import hashlib
 import math
 import os
 import sys
@@ -15,9 +16,80 @@ from kivy.core.text import Label as CoreLabel
 from kivy.graphics import Color, Line, Rectangle
 from kivy.metrics import dp, sp
 from kivy.uix.widget import Widget
+from kivy.utils import platform as runtime_platform
 
 
 PERIODS = (1, 5, 15)
+REPORT_REVISION = 2
+
+
+def benchmark_environment(widget):
+    environment = {
+        "report_revision": REPORT_REVISION,
+        "platform": runtime_platform,
+        "window_pixels": tuple(Window.size),
+        "maxfps": Config.get("graphics", "maxfps"),
+        "vsync": Config.get("graphics", "vsync"),
+        "python": sys.version.split()[0],
+    }
+    source = sys.modules.get(type(widget).__module__)
+    path = getattr(source, "__file__", None)
+    if path:
+        try:
+            with open(path, "rb") as stream:
+                environment["code_hash"] = hashlib.sha256(stream.read()).hexdigest()[:12]
+        except OSError:
+            pass
+    if runtime_platform == "android":
+        try:
+            from jnius import autoclass, cast
+            build = autoclass("android.os.Build")
+            version = autoclass("android.os.Build$VERSION")
+            activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            display = activity.getWindowManager().getDefaultDisplay()
+            power = cast("android.os.PowerManager", activity.getSystemService("power"))
+            environment.update(
+                model=str(build.MODEL), manufacturer=str(build.MANUFACTURER),
+                android_sdk=int(version.SDK_INT),
+                refresh_hz=round(float(display.getRefreshRate()), 1),
+                power_save=bool(power.isPowerSaveMode()))
+            if version.SDK_INT >= 29:
+                environment["thermal_status"] = int(power.getCurrentThermalStatus())
+        except Exception as exc:
+            environment["device_info_error"] = type(exc).__name__
+    return environment
+
+
+def format_frame_diagnostics(result):
+    trace = result.get("frame_trace", [])
+    details = result.get("slowest_frame_details", [])
+    means = result.get("stage_mean_ms", {})
+    if not trace and not details and not means:
+        return ""
+    lines = ["诊断耗时(ms): " + " / ".join(
+        f"{label} {means.get(key, 0):.2f}" for label, key in (
+            ("物理", "physics_ms"), ("图元", "update_draw_ms"),
+            ("Canvas", "canvas_ms"), ("前次Swap", "previous_swap_ms")))]
+    if trace:
+        peak = max(frame.get("particles", 0) for frame in trace)
+        average = sum(frame.get("particles", 0) for frame in trace) / len(trace)
+        peak_splash = max(frame.get("splashes", 0) for frame in trace)
+        gc_peak = max(frame.get("gc_ms", 0) for frame in trace)
+        gc_full = sum(frame.get("gc_generation", -1) == 2 for frame in trace)
+        long_frames = sum(frame["frame_ms"] > 25 for frame in trace)
+        lines.extend((
+            f"存活粒子 平均 {average:.0f} / 峰值 {peak}；飞溅峰值 {peak_splash}",
+            f">25ms {long_frames} 帧；GC最大 {gc_peak:.2f}ms / 全量GC涉及 {gc_full} 帧"))
+    if details:
+        lines.append("最慢帧明细(ms):")
+        for frame in details:
+            lines.append(
+                f"t={frame.get('elapsed_s', 0):.2f}s 总={frame['frame_ms']:.2f} "
+                f"粒子={frame.get('particles', 0)} 飞溅={frame.get('splashes', 0)} "
+                f"物理={frame.get('physics_ms', 0):.2f} 图元={frame.get('update_draw_ms', 0):.2f} "
+                f"Canvas={frame.get('canvas_ms', 0):.2f} 前次Swap={frame.get('previous_swap_ms', 0):.2f} "
+                f"GC={frame.get('gc_ms', 0):.2f}/代{frame.get('gc_generation', -1)}")
+    return "\n".join(lines)
 
 
 def format_benchmark_result(period, result=None):
@@ -34,8 +106,26 @@ def format_benchmark_result(period, result=None):
 
 def format_benchmark_report(results, cancelled=False):
     by_period = {r["period"]: r for r in results}
-    blocks = ["Benchmark"] + [
-        format_benchmark_result(period, by_period.get(period)) for period in PERIODS]
+    blocks = [f"Benchmark / 诊断报告 v{REPORT_REVISION}"]
+    if results and results[0].get("environment"):
+        environment = results[0]["environment"]
+        blocks.append("环境: " + " / ".join(
+            f"{key}={value}" for key, value in environment.items()))
+    for period in PERIODS:
+        result = by_period.get(period)
+        block = format_benchmark_result(period, result)
+        if result:
+            diagnostic = format_frame_diagnostics(result)
+            if diagnostic:
+                block += "\n" + diagnostic
+            end_state = result.get("environment_end", {})
+            state_keys = ("refresh_hz", "thermal_status", "power_save")
+            if any(key in end_state for key in state_keys):
+                block += "\n结束状态: " + " ".join(
+                    f"{key}={end_state.get(key, '--')}" for key in state_keys)
+        blocks.append(block)
+    if results:
+        blocks.append("采样为应用侧提交间隔；Canvas含驱动等待，前次Swap属于上一帧，GC可能包含在各阶段内。")
     if cancelled:
         blocks.append("测试已取消")
     return "\n\n".join(blocks)
@@ -200,6 +290,7 @@ class BenchmarkRunner:
         self._saved = {name: copy.deepcopy(getattr(self.widget, name))
                        for name in self._STATE_FIELDS}
         self._paused_at = time.perf_counter()
+        self._environment = benchmark_environment(self.widget)
         self.widget.running = False
         self.widget.completion_enabled = False
         self.widget._stop_sound()
@@ -278,6 +369,8 @@ class BenchmarkRunner:
             self._sampling = False
             self.results.append({
                 "period": self.periods[self._index],
+                "environment": self._environment,
+                "environment_end": benchmark_environment(self.widget),
                 "flow_renderer": getattr(self.widget, "flow_renderer", "line_pool"),
                 **frame_statistics(self._intervals),
                 "stage_mean_ms": {

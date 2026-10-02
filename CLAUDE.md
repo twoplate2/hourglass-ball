@@ -96,6 +96,8 @@ python main.py
 - `frame_benchmark.py`：底部音效与开始之间的 spacer 长按 3 秒；依次测试 1/5/15 秒。
   用 Window.on_flip 间隔计算平均 FPS、1% low、最慢 5 帧分别的 FPS；测试时不显示结果弹窗。
 - 结果页有帧率曲线和「复制结果」；每轮自动保存 benchmark_logs/*.txt，含逐帧更新/Canvas/Swap/GC 耗时。
+- 复制报告 v2 将分段均值、并发粒子峰值、GC、最慢帧明细及设备/代码指纹一起导出，不改 FPS 算法。
+  环境只在开始/周期结束查询；PowerManager 从 getSystemService 返回对象需 jnius.cast 后使用。
 - Windows/Python 3.11 的 monotonic() 基于 GetTickCount64，精度只有 15.625ms；动画统一用 perf_counter()，
   Clock.schedule_interval(tick, 0) 跟随帧更新。分组复用粒子引用，避免每帧创建上千个临时坐标列表；不要全局禁用 GC。
 - `_reserve_stream_lines()` 按最慢初速度的飞行时间预留图元，不限制/减少实际粒子；重置和新周期开始前全量回收旧场景，
