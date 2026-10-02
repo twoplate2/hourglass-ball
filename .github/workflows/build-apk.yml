@@ -74,15 +74,20 @@ jobs:
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
 
-      - name: 失败时把构建日志尾部写进 summary(日志本身要管理员权限, summary 公开可读)
+      - name: 失败时把日志尾部发成 annotation(check-runs API 免登录可读)
         if: failure()
         run: |
-          {
-            echo '## buildozer 失败尾部'
-            echo '```'
-            tail -c 6000 buildozer.log 2>/dev/null || echo '(no buildozer.log)'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import pathlib
+          p = pathlib.Path('buildozer.log')
+          text = p.read_text(errors='replace') if p.exists() else '(no buildozer.log)'
+          tail = text[-3000:]
+          for i in range(0, len(tail), 900):
+              chunk = (tail[i:i + 900].replace('', '')
+                       .replace('%', '%25').replace('
+', ' | '))
+              print(f"::error title=buildozer tail {i // 900 + 1}::{chunk}")
+          PY
 
       - name: Show output
         run: ls -lh bin/ || true
