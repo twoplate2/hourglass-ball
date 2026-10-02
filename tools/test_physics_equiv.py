@@ -159,6 +159,8 @@ def main():
     psz = [2.0 if random.random() < 0.85 else 1.0 for _ in range(N)]
 
     dt = 0.016
+    # ⚠️ 必须混合步长: 真实工况里帧内新生的粒子带"偏步长"(0 ~ dt), 其余用整帧 dt。
+    #    全程固定 dt 会漏掉这一类 —— 上一版测试就是这么放过 bug 的。
     pdt = [dt] * N
 
     # 同一份初值喂给向量化版本
@@ -228,12 +230,16 @@ def main():
         c["peak_offset"] = ref_peak
         py, pvy, px = ref["y"], ref["vy"], ref["x"]
         pxo, pwp, pwa, psz = ref["xo"], ref["wp"], ref["wa"], ref["sz"]
+        # 每帧随机让最后 k 颗粒子带偏步长(模拟帧内新生)
         pdt = [dt] * len(py)
+        k = random.randint(0, 6)
+        for j in range(max(0, len(py) - k), len(py)):
+            pdt[j] = random.uniform(0.0, dt)
         kp = keep
         npy, npvy, npx = npy[:n][kp].copy(), npvy[:n][kp].copy(), npx[:n][kp].copy()
         npxo, npwp, npwa = npxo[:n][kp].copy(), npwp[:n][kp].copy(), npwa[:n][kp].copy()
         npsz = npsz[:n][kp].copy()
-        npdt = np.full(len(npy), dt)
+        npdt = np.array(pdt, dtype=np.float64)
 
     print("跑了 %d 帧, 累计命中 %d 次, 存活 %d" % (frames, total_hits, len(py)))
     if bad == 0:
