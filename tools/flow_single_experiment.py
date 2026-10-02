@@ -73,7 +73,7 @@ class SingleFlowBatch:
     def __init__(self, group, width, capacity):
         base = flow_batch_experiment.FlowBatch(group, width)
         self.template = base.template
-        self.indices = base.indices
+        self.index_template = base.indices
         self.mode = base.mode
         self.capacity = capacity
         span = capacity * TEXELS_PER_PARTICLE
@@ -94,9 +94,10 @@ class SingleFlowBatch:
         # = 65536 / len(template); 由 build_single 保证 capacity(=每块) 不超过 2048。
         indices = array("H", (
             index + i * len(self.template)
-            for i in range(capacity) for index in self.indices))
+            for i in range(capacity) for index in self.index_template))
         self.data = data
         self.texture = texture
+        self.index_array = indices
         self.mesh = Mesh(mode=self.mode, vertices=vertices, indices=indices)
         group.add(BindTexture(index=1, texture=texture))
         group.add(self.mesh)
@@ -117,14 +118,24 @@ class SingleFlowBatch:
         count = len(entries)
         self.texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
         if self.count != count:
-            self.mesh.indices = self.indices[:count * len(self.indices)]
+            self.mesh.indices = self.index_array[:count * len(self.index_template)]
             self.count = count
 
 
+def _probe(msg):
+    try:
+        with open("single_flow_probe.log", "a", encoding="utf-8") as f:
+            f.write(msg + chr(10))
+    except OSError:
+        pass
+
+
 def install(widget_class):
+    _probe("install() called")
     build = widget_class._build_dynamic_canvas
 
     def build_single(self):
+        _probe("build_single() called")
         build(self)
         units = glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS)[0]
         if units < 1:
