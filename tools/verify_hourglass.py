@@ -379,12 +379,13 @@ def main():
                 color, line = widget._neck_grain_pool[1]
                 check(outlet < line.points[1] < widget._taper["y_bot"],
                       "neck texture stays inside the straight conduit")
-                expected = [(base + light) / 2
-                            for base, light in zip(widget.sand_base, widget.sand_light)]
+                # 真正要守的: 颗粒色是不透明的预混色(不走半透明描边),且落在
+                # 底色↔亮色之间 —— 不再写死旧公式的"中点位"常数。
                 check(color.a == 1 and all(
-                    math.isclose(actual, target, abs_tol=1e-6)
-                    for actual, target in zip(color.rgb, expected)),
-                    "neck texture preblend preserves fade without translucent stencil")
+                    min(base, light) - 1e-6 <= actual <= max(base, light) + 1e-6
+                    for actual, base, light in zip(
+                        color.rgb, widget.sand_base, widget.sand_light)),
+                    "neck texture preblend stays opaque and inside the sand ramp")
                 check(ids == [id(p) for p in widget.particles],
                       "neck texture adds no physics particles")
                 widget.particles[0]["y"] = outlet - 1
@@ -611,12 +612,16 @@ def main():
                 if self._benchmark_popup is not None:
                     check(self._benchmark_popup.title == f"Benchmark v{app_module.APP_VERSION}",
                           "benchmark title includes the application version")
+                check(any(getattr(child, "text", None) == f"v{app_module.APP_VERSION}"
+                          and child.size == self._benchmark_area.size
+                          for child in self._benchmark_area.children),
+                      "hold area advertises the version where the user must press")
                 self._benchmark_area.on_touch_up(self._hold_touch)
                 Window.screenshot(name=str(OUT / "benchmark-ready.png"))
                 if self._benchmark_popup is None:
                     self.stop()
                     return
-                check(self._benchmark_copy_btn.disabled, "no results disables copy")
+                check(self._benchmark_save_btn.disabled, "no results disables save")
                 if "--quick" in sys.argv:
                     self._start_benchmark(self._benchmark_popup)
                     Clock.schedule_once(self.cancel_checks, 0.75)
@@ -652,33 +657,38 @@ def main():
                       "benchmark restores interactive controls")
                 check(self._benchmark_popup is not None, "results popup opens")
                 Window.screenshot(name=str(OUT / "benchmark-results.png"))
-                self.verify_copy()
+                self.verify_save()
                 self.stop()
 
-            def verify_copy(self):
-                original = app_module.Clipboard
+            def verify_save(self):
+                """保存文件按钮: 把这一轮结果整体交给 save_benchmark_log 并给出落盘提示。"""
+                original = app_module.save_benchmark_log
                 captured = []
 
-                class CaptureClipboard:
-                    copy = staticmethod(captured.append)
+                def fake_save(directory, results, cancelled=False):
+                    captured.append((directory, results, cancelled))
+                    return os.path.join(directory, "benchmark_fake.txt")
 
                 try:
-                    app_module.Clipboard = CaptureClipboard
+                    app_module.save_benchmark_log = fake_save
                     if not self._benchmark_results:
                         self._benchmark_popup.dismiss()
                         self._benchmark_results = [
                             {"period": period, **frame_statistics([1 / 60] * 60)}
                             for period in PERIODS]
                         self.on_benchmark()
-                    button = self._benchmark_copy_btn
-                    check(not button.disabled, "results enable copy")
+                    button = self._benchmark_save_btn
+                    check(not button.disabled, "results enable save")
                     button.dispatch("on_press")
-                    check(captured == [format_benchmark_report(
-                        self._benchmark_results, self._benchmark_cancelled)],
-                        "copy button copies the entire report")
-                    check(button.text == "已复制", "copy confirmation")
+                    check(captured and captured[0][1] is self._benchmark_results,
+                          "save button writes the entire run")
+                    check(captured[0][2] == self._benchmark_cancelled,
+                          "save button keeps the cancelled flag")
+                    check(button.text == "已保存", "save confirmation")
+                    check(self._benchmark_hint.text.startswith("已写入"),
+                          "save reports where the file went")
                 finally:
-                    app_module.Clipboard = original
+                    app_module.save_benchmark_log = original
 
             def auto_start(self, _dt):
                 self.root.apply_orientation()

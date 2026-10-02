@@ -84,6 +84,9 @@ def format_frame_diagnostics(result):
         lines.extend((
             f"存活粒子 平均 {average:.0f} / 峰值 {peak}；飞溅峰值 {peak_splash}",
             f">25ms {long_frames} 帧；GC最大 {gc_peak:.2f}ms / 全量GC涉及 {gc_full} 帧"))
+    digest = format_benchmark_digest(result)
+    if digest:
+        lines.append(digest)
     if details:
         lines.append("最慢帧明细(ms):")
         for frame in details:
@@ -135,6 +138,94 @@ def format_benchmark_report(results, cancelled=False):
     return "\n\n".join(blocks)
 
 
+STAGE_KEYS = ("physics_ms", "update_draw_ms", "canvas_ms", "previous_swap_ms")
+
+
+def benchmark_digest(result, bin_seconds=0.5):
+    """把逐帧 trace 压成便于定位瓶颈的统计量(分位/超阈值/残差/相关性/分桶)。"""
+    trace = result.get("frame_trace") or []
+    if not trace:
+        return {}
+    frame_ms = sorted(frame["frame_ms"] for frame in trace)
+    count = len(frame_ms)
+
+    def percentile(q):
+        return frame_ms[min(count - 1, max(0, int(round(q * (count - 1)))))]
+
+    # 帧时间减去四个被探针包住的阶段与 GC 后剩下的部分:
+    # 若某一帧这一项突然变大,说明卡顿不在渲染/物理里(例如系统调度、锁、纹理上传)。
+    residual = [frame["frame_ms"]
+                - sum(frame.get(key, 0) for key in STAGE_KEYS)
+                - frame.get("gc_ms", 0) for frame in trace]
+    # 相关性必须按"同一帧"配对, 所以这里用未排序的帧时间(上面的 frame_ms 已排序)。
+    particles = [frame.get("particles", 0) for frame in trace]
+    per_frame_ms = [frame["frame_ms"] for frame in trace]
+    mean_p = sum(particles) / count
+    mean_f = sum(per_frame_ms) / count
+    cov = sum((p - mean_p) * (f - mean_f)
+              for p, f in zip(particles, per_frame_ms))
+    var_p = sum((p - mean_p) ** 2 for p in particles)
+    var_f = sum((f - mean_f) ** 2 for f in per_frame_ms)
+    correlation = cov / math.sqrt(var_p * var_f) if var_p > 0 and var_f > 0 else 0.0
+    buckets = {}
+    for frame in trace:
+        buckets.setdefault(int(frame["elapsed_s"] / bin_seconds), []).append(frame)
+    rows = []
+    for index in sorted(buckets):
+        group = buckets[index]
+        size = len(group)
+        rows.append({
+            "t0": round(index * bin_seconds, 2),
+            "frames": size,
+            "fps": round(1000.0 * size / sum(f["frame_ms"] for f in group), 1),
+            "frame_ms": round(sum(f["frame_ms"] for f in group) / size, 2),
+            "particles": round(sum(f.get("particles", 0) for f in group) / size),
+            "splashes": round(sum(f.get("splashes", 0) for f in group) / size),
+            **{key: round(sum(f.get(key, 0) for f in group) / size, 2) for key in STAGE_KEYS},
+        })
+    return {
+        "frames": count,
+        "p50_ms": round(percentile(0.50), 2),
+        "p90_ms": round(percentile(0.90), 2),
+        "p99_ms": round(percentile(0.99), 2),
+        "max_ms": round(frame_ms[-1], 2),
+        "over_60hz": sum(1 for ms in frame_ms if ms > 1000 / 60),
+        "over_120hz": sum(1 for ms in frame_ms if ms > 1000 / 120),
+        "over_25ms": sum(1 for ms in frame_ms if ms > 25),
+        "over_50ms": sum(1 for ms in frame_ms if ms > 50),
+        "residual_mean_ms": round(sum(residual) / count, 2),
+        "residual_max_ms": round(max(residual), 2),
+        "particle_peak": max(particles),
+        "particle_mean": round(mean_p),
+        "particle_frame_corr": round(correlation, 3),
+        "bins": rows,
+    }
+
+
+def format_benchmark_digest(result, bins=False):
+    digest = benchmark_digest(result)
+    if not digest:
+        return ""
+    lines = [
+        f"帧时间分位(ms): p50={digest['p50_ms']} p90={digest['p90_ms']} "
+        f"p99={digest['p99_ms']} max={digest['max_ms']}",
+        f"超阈值帧数: >8.33ms {digest['over_120hz']} / >16.7ms {digest['over_60hz']} "
+        f"/ >25ms {digest['over_25ms']} / >50ms {digest['over_50ms']}",
+        f"阶段残差(帧时间-物理-图元-Canvas-Swap-GC): 均值 {digest['residual_mean_ms']}ms "
+        f"/ 最大 {digest['residual_max_ms']}ms",
+        f"粒子峰值 {digest['particle_peak']} / 均值 {digest['particle_mean']};"
+        f" 粒子数↔帧时间 相关 r={digest['particle_frame_corr']:+.3f}",
+    ]
+    if bins:
+        lines.append("分桶表 t0s,frames,avgFPS,frame_ms,particles,splashes,"
+                     + ",".join(STAGE_KEYS))
+        for row in digest["bins"]:
+            lines.append(",".join(str(row[key]) for key in (
+                "t0", "frames", "fps", "frame_ms", "particles", "splashes",
+                *STAGE_KEYS)))
+    return "\n".join(lines)
+
+
 def save_benchmark_log(directory, results, cancelled=False):
     os.makedirs(directory, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -151,6 +242,9 @@ def save_benchmark_log(directory, results, cancelled=False):
         means = result.get("stage_mean_ms", {})
         lines.append("Stage means: " + ", ".join(
             f"{name}={value:.3f}" for name, value in means.items()))
+        digest = format_benchmark_digest(result, bins=True)
+        if digest:
+            lines.append(digest)
         lines.append("Slowest frames:")
         for frame in result.get("slowest_frame_details", []):
             lines.append(", ".join(f"{key}={value:.3f}" for key, value in frame.items()))
@@ -204,6 +298,22 @@ class BenchmarkFrameChart(Widget):
             if len(points) >= 4:
                 Color(0.18, 0.45, 0.36, 1)
                 Line(points=points, width=1)
+            # 第二条序列:在途粒子数(按本图峰值归一化)—— 一眼看出"低帧是不是跟着负载走"。
+            trace = self.result.get("frame_trace", [])
+            peak = max((frame.get("particles", 0) for frame in trace), default=0)
+            if peak > 0:
+                load_points = []
+                for frame in trace:
+                    load_points.extend((
+                        left + width * min(1, frame["elapsed_s"] / period),
+                        bottom + height * frame.get("particles", 0) / peak))
+                if len(load_points) >= 4:
+                    Color(0.85, 0.45, 0.18, 0.55)
+                    Line(points=load_points, width=1)
+                Color(1, 1, 1, 1)
+                self._label(f"粒子峰值 {peak}", left + dp(4), self.top - dp(26))
+            Color(1, 1, 1, 1)
+            self._label("绿=FPS 橙=粒子数", left + width, self.top - dp(13), right=True)
 
 
 def frame_statistics(intervals):

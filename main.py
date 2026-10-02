@@ -24,7 +24,6 @@ from app_version import APP_VERSION
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.clipboard import Clipboard
 from kivy.core.text import LabelBase, Label as CoreLabel
 from kivy.core.window import Window
 from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
@@ -1619,56 +1618,86 @@ class HourglassWidget(Widget):
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
         return max(2.0, abs(particle["vy"]) * particle.get("trail_time", 0.08) / scale)
 
+    def _hide_neck_grains(self):
+        for color, line in self._neck_grain_pool[:self._neck_grain_count]:
+            line.points = []
+        self._neck_grain_count = 0
+
     def _draw_neck_grains(self, side):
+        """把已流出的粒子投影回**整条**颈部轮廓(喇叭口 + 直筒),做连续颗粒纹理。
+
+        旧写法只覆盖直筒、且颗粒可见度从入口的 0 起 —— 颗粒在入口一段完全看不见,
+        于是"可见度前沿"在颈部留下一条横向分界线(线上是纯平色块、线下才有颗粒),
+        就是那条看不出画在哪的横线。这里改为:
+        ① 覆盖整条 side(喇叭口→孔口),颗粒横向按轮廓半宽展开成扇形;
+        ② 可见度恒定、不再归零;
+        ③ 色调只在 [底色 → sand_light] 之间走且入口端不归零 —— 既保留原设计的
+           "闪砂"观感(压暗会变成脏斑),又不留纯平区,横向突变随之消失。
+        """
+        if not side or side[-1][1] > 2 * self._neck_y - self._taper["y_bot"] + 1e-6:
+            self._hide_neck_grains()
+            return
         outlet = 2 * self._neck_y - self._taper["y_bot"]
-        inlet = self._taper["y_bot"]
-        length = max(1e-6, inlet - outlet)
-        div = max(1.0, self._neck_y - self._glass_bot) / len(self._color_table)
-        tone_scale = 5 / math.tau
+        length = max(1e-6, self._taper["y_bot"] - outlet)
+        top_y, bottom_y = side[0][1], side[-1][1]
+        span = max(1e-6, top_y - bottom_y)
         scale = self._particle_motion_scale
-        source_limit_squared = (75 * scale) ** 2
         twice_gravity = 900 * scale * scale
-        projection_depth = None
+        source_limit_squared = (75 * scale) ** 2
+        candidates = []
+        depth = 1e-6
+        for particle in self.particles:
+            distance = outlet - particle["y"]
+            if distance < 0 or distance > length + 1e-6:
+                continue
+            # An isolated fast grain must not stretch the startup texture ahead of the main flow.
+            if particle["vy"] ** 2 - twice_gravity * distance > source_limit_squared:
+                continue
+            candidates.append((distance, particle))
+            if distance > depth:
+                depth = distance
+        ys = [y for _x, y in side]
+        xs = [x for x, _y in side]
+
+        def half_w_at(y):
+            if y >= ys[0]:
+                return xs[0]
+            for i in range(len(side) - 1):
+                y0, y1 = ys[i], ys[i + 1]
+                if y1 <= y <= y0:
+                    if y0 - y1 < 1e-9:
+                        return xs[i]
+                    return xs[i] + (xs[i + 1] - xs[i]) * (y0 - y) / (y0 - y1)
+            return xs[-1]
+
+        t_in = max(1e-6, self._taper["t_in"])
+        tone_scale = 5 / math.tau
         count = 0
-        if side and side[-1][1] <= outlet + 1e-6:
-            # Prioritize the outlet when the fixed visual pool fills up.
-            for particle in self.particles:
-                distance = outlet - particle["y"]
-                if not 0 <= distance <= length + 1e-6:
-                    continue
-                if projection_depth is None:
-                    # An isolated fast grain must not stretch the startup texture ahead of the main flow.
-                    if (distance < 1e-6 or
-                            particle["vy"] ** 2 - twice_gravity * distance > source_limit_squared):
-                        continue
-                    projection_depth = distance
-                projected = distance * length / projection_depth
-                if projected > length + 1e-6:
-                    continue
-                projected = min(length, projected)
-                y = inlet - projected
-                half_stroke = particle["size"] if particle["size"] > 1 else 0.5
-                limit = max(0, self._taper["t_in"] - half_stroke)
-                x = self._cx + max(-limit, min(limit, particle["x"] - self._cx))
-                phase = projected / length
-                alpha = phase * phase * (3 - 2 * phase)
-                color, line = self._neck_grain_pool[count]
-                if particle["is_light"]:
-                    target = self.sand_light
-                else:
-                    variation = min(4, int(particle.get("wobble_phase", 0) * tone_scale)) - 2
-                    index = max(0, min(len(self._color_table) - 1,
-                                     int((self._neck_y - particle["y"]) / div) + variation))
-                    target = self._color_table[index]
-                # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
-                color.rgb = tuple(base + (light - base) * alpha
-                                  for base, light in zip(self.sand_base, target))
-                if line.width != particle["size"]:
-                    line.width = particle["size"]
-                line.points = (x, y, x, min(inlet, y + 2))
-                count += 1
-                if count == len(self._neck_grain_pool):
-                    break
+        for distance, particle in candidates:
+            t = min(1.0, distance / depth)          # 0 = 刚出孔口, 1 = 流得最深的一颗
+            y = top_y - t * span
+            half_w = half_w_at(y)
+            half_stroke = particle["size"] if particle["size"] > 1 else 0.5
+            limit = max(0.0, half_w - half_stroke)
+            spread = (particle["x"] - self._cx) * (half_w / t_in)
+            x = self._cx + max(-limit, min(limit, spread))
+            tone_t = 0.28 + 0.72 * t
+            if particle["is_light"]:
+                target = self.sand_light
+            else:
+                variation = min(4, int(particle.get("wobble_phase", 0) * tone_scale)) - 2
+                target = lerp_rgb(self.sand_base, self.sand_light,
+                                  max(0.0, min(1.0, tone_t + variation * 0.09)))
+            color, line = self._neck_grain_pool[count]
+            # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
+            color.rgb = tuple(base + (tar - base) * 0.85
+                              for base, tar in zip(self.sand_base, target))
+            if line.width != particle["size"]:
+                line.width = particle["size"]
+            line.points = (x, max(bottom_y, y - 1), x, min(top_y, y + 1))
+            count += 1
+            if count == len(self._neck_grain_pool):
+                break
         for color, line in self._neck_grain_pool[count:self._neck_grain_count]:
             line.points = []
         self._neck_grain_count = count
@@ -1771,6 +1800,20 @@ class HourglassApp(App):
         self._benchmark_cancelled = False
         self._benchmark_popup = None
         self._benchmark_area = BenchmarkHoldArea(self.on_benchmark)
+        # 长按处印出版本号: 隐藏入口总得让人找得到该按哪儿。
+        # BenchmarkHoldArea 是裸 Widget、不做子控件布局, 得手动跟着它铺满。
+        hold_label = Label(text=f"v{APP_VERSION}", font_size=sp(11),
+                           color=(*POPUP_TEXT[:3], 0.38), halign="center",
+                           valign="middle")
+
+        def _fit_hold_label(instance, *_):
+            hold_label.pos = instance.pos
+            hold_label.size = instance.size
+            hold_label.text_size = instance.size
+
+        self._benchmark_area.bind(pos=_fit_hold_label, size=_fit_hold_label)
+        _fit_hold_label(self._benchmark_area)
+        self._benchmark_area.add_widget(hold_label)
         bottom.add_widget(self._benchmark_area)
         self.start_btn = Button(text="开始", size_hint=(None, 1), width=dp(74),
                                 font_size=sp(16), bold=True,
@@ -2098,15 +2141,21 @@ class HourglassApp(App):
                          background_color=POPUP_GOLD_SEL, color=POPUP_TEXT)
         close_btn = Button(text="关闭", font_size=sp(16), background_normal="",
                            background_color=POPUP_CANCEL_BG, color=POPUP_TEXT)
-        copy_btn = Button(text="复制结果", font_size=sp(16), background_normal="",
+        save_btn = Button(text="保存文件", font_size=sp(16), background_normal="",
                           background_color=POPUP_UNSEL_BASE, color=POPUP_TEXT,
                           disabled=not self._benchmark_results)
-        copy_btn.bind(on_press=self._copy_benchmark_results)
-        self._benchmark_copy_btn = copy_btn
+        save_btn.bind(on_press=self._save_benchmark_results)
+        self._benchmark_save_btn = save_btn
         commands.add_widget(run_btn)
-        commands.add_widget(copy_btn)
+        commands.add_widget(save_btn)
         commands.add_widget(close_btn)
         content.add_widget(commands)
+        self._benchmark_hint = Label(text="", font_size=sp(11), color=POPUP_TEXT,
+                                     size_hint_y=None, height=dp(30), halign="center",
+                                     valign="middle")
+        self._benchmark_hint.bind(
+            size=lambda inst, size: setattr(inst, "text_size", size))
+        content.add_widget(self._benchmark_hint)
         popup_height = min(dp(600 if self._benchmark_results else 360),
                            max(Window.width, Window.height) * 0.85)
         popup = _SandBgPopup(title=f"Benchmark v{APP_VERSION}", content=content, size_hint=(0.94, None),
@@ -2120,17 +2169,41 @@ class HourglassApp(App):
         run_btn.bind(on_press=lambda *_: self._start_benchmark(popup))
         popup.open()
 
-    def _copy_benchmark_results(self, button):
+    def _benchmark_save_dir(self):
+        """保存目录:Android 优先外部私有目录(adb / 文件管理器免 root 可取),
+        取不到再退回内部 user_data_dir;桌面仍写工程目录下的 benchmark_logs。"""
+        if platform == "android":
+            try:
+                from jnius import autoclass
+                activity = autoclass("org.kivy.android.PythonActivity").mActivity
+                external = activity.getExternalFilesDir(None)
+                if external is not None:
+                    return os.path.join(str(external.getAbsolutePath()),
+                                        "benchmark_logs")
+            except Exception as exc:
+                print(f"External dir unavailable: {exc}")
+            return os.path.join(self.user_data_dir, "benchmark_logs")
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "benchmark_logs")
+
+    def _save_benchmark_results(self, button):
+        """把这一轮的全部记录写成文件(逐帧 trace + 分位/超阈值/残差/分桶表)。"""
         if not self._benchmark_results:
             return
         try:
-            Clipboard.copy(format_benchmark_report(
-                self._benchmark_results, self._benchmark_cancelled))
-        except Exception as exc:
-            print(f"Benchmark clipboard failed: {exc}")
-            button.text = "复制失败"
-        else:
-            button.text = "已复制"
+            path = save_benchmark_log(self._benchmark_save_dir(),
+                                      self._benchmark_results,
+                                      self._benchmark_cancelled)
+        except OSError as exc:
+            print(f"Benchmark save failed: {exc}")
+            button.text = "保存失败"
+            return
+        self._benchmark_log_path = path
+        print(f"Benchmark saved: {path}")
+        button.text = "已保存"
+        hint = getattr(self, "_benchmark_hint", None)
+        if hint is not None:
+            hint.text = f"已写入 {path}"
 
     def _benchmark_controls(self, disabled):
         for control in [self.duration_btn, self.sound_btn, self._reset_btn] + [
@@ -2315,6 +2388,54 @@ class HourglassApp(App):
             if layer is not None:
                 layer.apply_orientation()
         return True
+
+
+# ---------- 沙流渲染器(仅安卓启用批处理) ----------
+#
+# Kivy 的 Line 在 width>1 时**不用 glLineWidth**, 而是**每条线**自建一个带 10 段
+# 圆头帽的三角网格。峰值约 2500 条 width=2 的粒子线 = 数千次网格提交 + 每颗粒的
+# Python 提交成本;桌面 GL 余量大(实测帧率对粒子数几乎不变: 63.2→63.3fps),
+# 所以**在 PC 上永远调不出这个问题**, 只有 GLES 暴露 ——
+# 实测帧耗时 ≈ 2.5ms + 10.05µs × 在途粒子数, 2829 颗 → 30.9ms/帧(32fps),
+# 表现为"一整段周期帧率都上不去"。
+# 批处理把同色同线宽的粒子并进一个 Mesh, 端点走顶点纹理;几何(含圆头帽)与
+# 逐 Line 版一致, 实测画面逐像素同一。同机同配置: 15s 47.9→65.4fps, Canvas 8.46→3.06ms。
+FLOW_RENDERER = "texture"      # line | batch | gpu | texture
+
+
+def _install_flow_renderer(widget_class):
+    """装载批处理沙流渲染器; 任何不满足都退回原 Line 池, 不给出沙制造风险。
+
+    注意 ①: 打包进 APK 的只有 tools/*.pyc, 所以按 sys.path + import 装载 ——
+            源码缺失时 CPython 会走 sourceless import, 不能按 .py 路径装载。
+    注意 ②: 纹理方案的报错发生在**画布构建时**(不是 install() 时), 外面包不住,
+            所以这里先自己探测顶点纹理采样能力, 不支持就直接不装。
+    """
+    if FLOW_RENDERER == "line":
+        return
+    import importlib
+    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    target = {"batch": "flow_batch_experiment",
+              "gpu": "flow_gpu_experiment",
+              "texture": "flow_texture_experiment"}[FLOW_RENDERER]
+    if target == "flow_texture_experiment":
+        from kivy.graphics.opengl import (
+            glGetIntegerv, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS)
+        if glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS)[0] < 1:
+            print("no vertex texture sampling; keeping line pool")
+            return
+    if target != "flow_batch_experiment":
+        importlib.import_module("flow_batch_experiment")
+    importlib.import_module(target).install(widget_class)
+
+
+if platform == "android":
+    try:
+        _install_flow_renderer(HourglassWidget)
+    except Exception as exc:
+        print(f"flow renderer {FLOW_RENDERER} unavailable, using line pool: {exc}")
 
 
 if __name__ == "__main__":
