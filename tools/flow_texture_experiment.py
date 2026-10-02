@@ -83,22 +83,36 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
 
     def update(self, particles, top_limit, motion_scale=1):
         pack = FLOAT32.pack_into
-        chunks = math.ceil(len(particles) / self.CHUNK)
+        total = len(particles)
+        chunks = -(-total // self.CHUNK)
         for chunk in range(chunks):
             start = chunk * self.CHUNK
-            count = min(self.CHUNK, len(particles) - start)
+            count = total - start
+            if count > self.CHUNK:
+                count = self.CHUNK
             part = self._ensure_part(chunk, count)
             mesh, _vertices, indices, capacity, previous, texture, data, _binding = part
             row = capacity * 4
-            for i in range(count):
-                particle = particles[start + i]
+            row2 = row * 2
+            # 逐颗粒只做 3 次 pack_into;max/min 与下标乘法都换成条件与累加,
+            # 数值与原来逐字相同(见 README 经验教训:改热循环必须先过像素一致性)。
+            offset = 0
+            for i in range(start, start + count):
+                particle = particles[i]
                 bottom = particle["y"]
-                top = min(top_limit, bottom + max(
-                    2, abs(particle["vy"]) * particle.get("trail_time", 0.08) / motion_scale))
-                offset = i * 4
+                vy = particle["vy"]
+                if vy < 0:
+                    vy = -vy
+                trail = vy * particle.get("trail_time", 0.08) / motion_scale
+                if trail < 2:
+                    trail = 2
+                top = bottom + trail
+                if top > top_limit:
+                    top = top_limit
                 pack(data, offset, particle["x"])
                 pack(data, row + offset, bottom)
-                pack(data, row * 2 + offset, top)
+                pack(data, row2 + offset, top)
+                offset += 4
             texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
             if previous != count:
                 mesh.indices = indices[:count * len(self.indices)]

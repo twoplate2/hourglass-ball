@@ -364,18 +364,12 @@ def main():
                 ids = [id(p) for p in widget.particles]
                 widget.redraw()
                 check(widget._neck_grain_count == 2, "existing grain texture bridges the outlet")
-                fade = widget._neck_fade_rect.texture.pixels
-                check(fade[3] < fade[-1] and tuple(widget._neck_fade_rect.size) != (0, 0),
-                      "outlet material uses a smooth GPU-sampled gradient")
-                probe = app_module.Widget(size=(32, 32), size_hint=(None, None))
-                with probe.canvas:
-                    app_module.Color(*widget.sand_light)
-                    app_module.Rectangle(texture=widget._neck_fade_rect.texture, size=(0, 0))
-                    app_module.Line(points=(16, 8, 16, 24), width=2)
-                texture = probe.export_as_image().texture
-                pixel = Image.frombytes("RGBA", texture.size, texture.pixels).getpixel((16, 16))
-                check(pixel[3] == 255,
-                      "ordinary grain lines remain opaque after the gradient")
+                # 沙柱下段现在是不透明沙色矩形(去掉了会形成半透明横线的渐变蒙版)。
+                # 注意 Kivy 的 Rectangle 默认带一张白色 default.png, 所以不能靠
+                # "texture is None" 判断 —— 查它真正要守的: 参与了绘制 + 颜色不透明。
+                check(tuple(widget._neck_fade_rect.size) != (0, 0)
+                      and widget._neck_fade_color.a == 1,
+                      "outlet material is opaque and covers the conduit bottom")
                 color, line = widget._neck_grain_pool[1]
                 check(outlet < line.points[1] < widget._taper["y_bot"],
                       "neck texture stays inside the straight conduit")

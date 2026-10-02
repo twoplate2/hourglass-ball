@@ -111,6 +111,15 @@ python main.py
 ⚠️ 纹理方案的报错发生在**画布构建时**(不是 `install()` 时)，外面 try/except 包不住 ——
 必须**装载前**先探测 `GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS`，否则不支持的设备直接崩。
 
+### 每帧热循环的等价改写(2026-10-02)
+
+Canvas 降下来之后剩下的时间几乎全是纯 Python(物理 + 每帧提交)。这类优化**必须
+逐位等价**：算式一字不改、随机数调用顺序一个不挪，否则粒子流一变画面就变了。
+手法见 `README.md`「压 Python 热循环」；实测 11.7ms/帧 → 6.7ms/帧(−43%)，
+函数调用数 −60%，`max`/`min` 内置调用从 220 万次降到热点榜外。
+
+**验收**：`tools/inspect_flow.py` 的 `random.seed(23)` 下逐像素比对必须 0 差异。
+
 ### 帧率优化与隐藏 Benchmark(2026-10-01)
 
 - `_build_dynamic_canvas()` 在几何变化时重建固定指令；`redraw()` 更新保留的 Stencil 沙面、Quad 沙柱及 Line/Rectangle 图元池。不要重新退回逐帧 `canvas.clear()`。

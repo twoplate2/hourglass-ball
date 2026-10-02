@@ -26,9 +26,14 @@ class ReleaseTests(unittest.TestCase):
     def test_patch_increment(self):
         release.validate_increment((0, 1, 0), (0, 1, 1))
         release.validate_increment((0, 1, 9), (0, 1, 10))
-        for version in ((0, 1, 0), (0, 1, 2), (0, 2, 0)):
+        for version in ((0, 1, 0), (0, 1, 2)):
             with self.assertRaises(ValueError):
                 release.validate_increment((0, 1, 0), version)
+        # 里程碑式跃迁允许(1.0.0 这种), 但必须严格递增
+        release.validate_increment((0, 1, 3), (1, 0, 0))
+        for version in ((0, 1, 3), (0, 0, 9)):
+            with self.assertRaises(ValueError):
+                release.validate_increment((0, 1, 3), version)
 
     def test_chinese_version_title(self):
         release.validate_title("0.1.1 修复沙流衔接", (0, 1, 1))

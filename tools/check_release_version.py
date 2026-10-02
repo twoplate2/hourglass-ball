@@ -46,11 +46,19 @@ def version_at(ref):
 
 
 def validate_increment(before, after):
-    expected = (*before[:2], before[2] + 1)
-    if after != expected:
-        raise ValueError(f"Each push must increment the patch version: "
-                         f"expected {'.'.join(map(str, expected))}, "
-                         f"found {'.'.join(map(str, after))}")
+    """同一 major.minor 下必须正好 +1 补丁号;里程碑式的版本跃迁(major/minor 变化)
+    也允许, 但必须严格递增 —— 两种情况都不许回落。"""
+    if after[:2] == before[:2]:
+        expected = (before[0], before[1], before[2] + 1)
+        if after != expected:
+            raise ValueError(f"Each push must increment the patch version: "
+                             f"expected {'.'.join(map(str, expected))}, "
+                             f"found {'.'.join(map(str, after))}")
+        return
+    if after <= before:
+        raise ValueError(f"Version must increase: "
+                         f"found {'.'.join(map(str, after))} "
+                         f"after {'.'.join(map(str, before))}")
 
 
 def validate_title(title, version):

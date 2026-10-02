@@ -29,7 +29,6 @@ from kivy.core.window import Window
 from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
                            StencilPush, StencilUse, StencilUnUse, StencilPop,
                            PushMatrix, PopMatrix, Rotate, InstructionGroup)
-from kivy.graphics.texture import Texture
 from kivy.metrics import dp, sp
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
@@ -1202,22 +1201,45 @@ class HourglassWidget(Widget):
         sand_half_w = self._sand_half_w
         tube_lim = max(1.0, neck_w - ow)
         new_list = []
+        append_particle = new_list.append
+        append_flare = self.flares.append
+        append_splash = self.splashes.append
+        lower_bot = self._lower_sand_bot
+        Ri2 = self._R_inner * self._R_inner      # _sand_half_w 内联用(值与原来一致)
+        peak_offset = self.mound_peak_offset
+        rand = random.random
+        rand_uniform = random.uniform
+        rand_choice = random.choice
+        sin = math.sin
+        sqrt = math.sqrt
+        mound_top_plus_1 = mound_top + 1
         for p in self.particles:
+            # 局部变量缓存:原来每颗粒几十次 dict 查找,这里改成读一次写回一次。
+            # 所有算式与随机数调用顺序保持逐字不变, 保证粒子流与画面完全一致。
             step_dt = p.pop("_step_dt", dt)
-            old_y, old_vy = p["y"], p["vy"]
-            p["y"] += p["vy"] * step_dt + 0.5 * g * step_dt * step_dt
-            p["vy"] += g * step_dt
-            hit = p["y"] <= mound_top
-            if hit:
-                distance = max(0, old_y - mound_top)
-                speed = max(0, -old_vy)
-                hit_dt = (2 * distance / max(
-                    1e-6, speed + math.sqrt(speed * speed + 2 * g_abs * distance)))
-                hit_dt = min(step_dt, hit_dt)
-                p["y"] = mound_top
-                p["vy"] = old_vy + g * hit_dt
             y = p["y"]
-            fallen_dist = max(0.0, gen_y - y)
+            vy = p["vy"]
+            old_y, old_vy = y, vy
+            x_offset = p["x_offset"]
+            wobble_phase = p["wobble_phase"]
+            wobble_amp = p["wobble_amp"]
+            size = p["size"]
+            y += vy * step_dt + 0.5 * g * step_dt * step_dt
+            vy += g * step_dt
+            hit = y <= mound_top
+            hit_dt = 0.0
+            if hit:
+                d = old_y - mound_top
+                distance = d if d > 0 else 0
+                v = -old_vy
+                speed = v if v > 0 else 0
+                denom = speed + sqrt(speed * speed + 2 * g_abs * distance)
+                hit_dt = 2 * distance / (denom if denom > 1e-6 else 1e-6)
+                hit_dt = hit_dt if hit_dt < step_dt else step_dt
+                y = mound_top
+                vy = old_vy + g * hit_dt
+            fd = gen_y - y
+            fallen_dist = fd if fd > 0.0 else 0.0
             # 管内: 管壁约束,填满内径 shrink=1.0
             # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
             if y > lower_cut:
@@ -1225,66 +1247,90 @@ class HourglassWidget(Widget):
             else:
                 below_tube = lower_cut - y
                 v_at_y = (source_speed_squared + 2 * g_abs * below_tube) ** 0.5
-                target = max(0.70, (source_speed / v_at_y) ** 0.5)
-                transition = 40.0  # 平滑过渡区长度(px)
-                if below_tube < transition:
-                    t = below_tube / transition
-                    shrink = 1.0 + (target - 1.0) * t
+                target = (source_speed / v_at_y) ** 0.5
+                if target <= 0.70:
+                    target = 0.70
+                # 平滑过渡区长度(px)
+                if below_tube < 40.0:
+                    shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
                 else:
                     shrink = target
                 dist_to_floor = y - mound_top
                 if 0 < dist_to_floor < 30:
                     shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
-            wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * p["wobble_amp"]
-            p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
+            x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
+                * wobble_amp * (1 - shrink * 0.4)
 
             # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
             if y >= lower_top:
                 lim = tube_lim
             else:
-                raw_ball = sand_half_w(y, lower_center)
+                dy = y - lower_center
+                r = Ri2 - dy ** 2
+                raw_ball = sqrt(r) if r > 0.0 else 0.0
                 below = lower_top - y
-                t = min(1.0, below / 30.0)
+                t = below / 30.0
+                if t > 1.0:
+                    t = 1.0
                 lim = tube_lim + (raw_ball - tube_lim) * t
-            half_stroke = p["size"] if p["size"] > 1 else 0.5
-            lim = max(0.0, lim - half_stroke)
-            off = p["x"] - cx
-            p["x"] = cx + max(-lim, min(lim, off))
+            half_stroke = size if size > 1 else 0.5
+            lim = lim - half_stroke
+            if lim <= 0.0:
+                lim = 0.0
+            off = x - cx
+            if off > lim:
+                off = lim
+            elif off < -lim:
+                off = -lim
+            x = cx + off
 
             if hit:
-                if mound_top > self._lower_sand_bot + 1:
-                    self.mound_peak_offset = self.mound_peak_offset * 0.97 + (p["x"] - cx) * 0.03
-                if random.random() < 0.25:
-                    self.flares.append({"x": p["x"], "y": mound_top, "end": now + 0.08})
-                if random.random() < 0.50:
+                if mound_top > lower_bot + 1:
+                    peak_offset = peak_offset * 0.97 + (x - cx) * 0.03
+                if rand() < 0.25:
+                    append_flare({"x": x, "y": mound_top, "end": now + 0.08})
+                if rand() < 0.50:
+                    v = -vy
                     bounce = min(110 * motion_scale,
-                                 max(0, -p["vy"]) * random.uniform(0.14, 0.28))
-                    angle = random.uniform(-0.85, 0.85)
-                    self.splashes.append({
-                        "x": p["x"], "y": mound_top + 0.5,
-                        "vx": math.sin(angle) * bounce,
+                                 (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
+                    angle = rand_uniform(-0.85, 0.85)
+                    step_left = step_dt - hit_dt
+                    append_splash({
+                        "x": x, "y": mound_top + 0.5,
+                        "vx": sin(angle) * bounce,
                         "vy": math.cos(angle) * bounce,
-                        "size": random.choice([1, 1, 2]),
-                        "_step_dt": max(0, step_dt - hit_dt),
+                        "size": rand_choice([1, 1, 2]),
+                        "_step_dt": step_left if step_left > 0 else 0,
                     })
                 continue
-            new_list.append(p)
+            p["y"] = y
+            p["vy"] = vy
+            p["x"] = x
+            append_particle(p)
         self.particles = new_list
+        self.mound_peak_offset = peak_offset
 
         new_splashes = []
+        append_splash_keep = new_splashes.append
         for s in self.splashes:
             step_dt = s.pop("_step_dt", dt)
-            s["y"] += s["vy"] * step_dt + 0.5 * g * step_dt * step_dt
-            s["vy"] += g * step_dt
-            s["x"] += s["vx"] * step_dt
-            half = sand_half_w(s["y"], lower_center)
-            if abs(s["x"] - cx) > half - 1:
+            y = s["y"] + s["vy"] * step_dt + 0.5 * g * step_dt * step_dt
+            vy = s["vy"] + g * step_dt
+            x = s["x"] + s["vx"] * step_dt
+            s["y"] = y
+            s["vy"] = vy
+            s["x"] = x
+            dy = y - lower_center
+            r = Ri2 - dy ** 2
+            half = sqrt(r) if r > 0.0 else 0.0
+            sx = x - cx
+            if (sx if sx > 0 else -sx) > half - 1:
                 continue
-            if s["vy"] < 0 and s["y"] <= mound_top:
+            if vy < 0 and y <= mound_top:
                 continue
-            if s["y"] < self._lower_sand_bot or s["y"] > lower_top - 5:
+            if y < lower_bot or y > lower_top - 5:
                 continue
-            new_splashes.append(s)
+            append_splash_keep(s)
         self.splashes = new_splashes
 
         self.flares = [f for f in self.flares if f["end"] > now]
@@ -1389,18 +1435,13 @@ class HourglassWidget(Widget):
                 Quad(points=[0] * 8) for _ in range(TAPER_SEGS + 1)]
             self._neck_solid_color = Color(*self.sand_base)
             self._neck_solid_rect = Rectangle(size=(0, 0))
+            # 沙柱下段(孔口往上 transition 那段): 直接画不透明的沙色矩形。
+            # 原来这里用 1×64 渐变纹理做 alpha 0.7→1.0 的"出口柔化", 但这条矩形
+            # 只有几个像素高, **任何 alpha 变化都等于硬边** —— 实测在管内留下一条
+            # 半透明横线(关掉颗粒层后单行跳变 dB=10.9;改成不透明后降到 5.3,
+            # 剩下的是"沙柱→敞开喇叭口"的自然边界)。
             self._neck_fade_color = Color(*self.sand_base)
-            texture = Texture.create(size=(1, 64), colorfmt="rgba")
-            pixels = bytes(value for row in range(64)
-                           for value in (255, 255, 255, round(255 * (0.7 + 0.3 * row / 63))))
-
-            def reload_fade(target):
-                target.blit_buffer(pixels, colorfmt="rgba", bufferfmt="ubyte")
-
-            reload_fade(texture)
-            texture.add_reload_observer(reload_fade)
-            texture.mag_filter = texture.min_filter = "linear"
-            self._neck_fade_rect = Rectangle(texture=texture, size=(0, 0))
+            self._neck_fade_rect = Rectangle(size=(0, 0))
 
         self._neck_grain_group = InstructionGroup()
         self.canvas.add(self._neck_grain_group)
@@ -1583,13 +1624,29 @@ class HourglassWidget(Widget):
         div = max(1.0, self._neck_y - self._glass_bot) / n_colors
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         tone_scale = 5 / math.tau
+        # 预先摊平成二维表: 原来每颗粒都要现造一个 (index, size) 元组再查字典,
+        # 这里换成两次列表下标。分组结果与原来逐字相同。
+        by_key = [[buckets.get((i, s)) for s in (1, 2)]
+                  for i in list(range(n_colors)) + [-1]]
+        light_row = by_key[n_colors]
+        last = n_colors - 1
         for p in self.particles:
-            if p["y"] >= outlet:
+            y = p["y"]
+            if y >= outlet:
                 continue
-            index = -1 if p["is_light"] else max(
-                0, min(n_colors - 1, int((self._neck_y - p["y"]) / div) +
-                       min(4, int(p.get("wobble_phase", 0) * tone_scale)) - 2))
-            buckets[index, p["size"]].append(p)
+            if p["is_light"]:
+                row = light_row
+            else:
+                w = int(p["wobble_phase"] * tone_scale)
+                if w > 4:
+                    w = 4
+                index = int((self._neck_y - y) / div) + w - 2
+                if index < 0:
+                    index = 0
+                elif index > last:
+                    index = last
+                row = by_key[index]
+            row[0 if p["size"] == 1 else 1].append(p)
         return buckets
 
     def _draw_stream(self):
@@ -1672,31 +1729,62 @@ class HourglassWidget(Widget):
 
         t_in = max(1e-6, self._taper["t_in"])
         tone_scale = 5 / math.tau
+        pool = self._neck_grain_pool
+        pool_len = len(pool)
+        cx = self._cx
+        base_r, base_g, base_b = self.sand_base
+        light_r, light_g, light_b = self.sand_light
         count = 0
         for distance, particle in candidates:
-            t = min(1.0, distance / depth)          # 0 = 刚出孔口, 1 = 流得最深的一颗
+            t = distance / depth                     # 0 = 刚出孔口, 1 = 流得最深的一颗
+            if t > 1.0:
+                t = 1.0
             y = top_y - t * span
             half_w = half_w_at(y)
-            half_stroke = particle["size"] if particle["size"] > 1 else 0.5
-            limit = max(0.0, half_w - half_stroke)
-            spread = (particle["x"] - self._cx) * (half_w / t_in)
-            x = self._cx + max(-limit, min(limit, spread))
+            size = particle["size"]
+            half_stroke = size if size > 1 else 0.5
+            limit = half_w - half_stroke
+            if limit <= 0.0:
+                limit = 0.0
+            spread = (particle["x"] - cx) * (half_w / t_in)
+            if spread > limit:
+                spread = limit
+            elif spread < -limit:
+                spread = -limit
+            x = cx + spread
             tone_t = 0.28 + 0.72 * t
             if particle["is_light"]:
-                target = self.sand_light
+                tr, tg, tb = light_r, light_g, light_b
             else:
-                variation = min(4, int(particle.get("wobble_phase", 0) * tone_scale)) - 2
-                target = lerp_rgb(self.sand_base, self.sand_light,
-                                  max(0.0, min(1.0, tone_t + variation * 0.09)))
-            color, line = self._neck_grain_pool[count]
+                variation = int(particle.get("wobble_phase", 0) * tone_scale)
+                if variation > 4:
+                    variation = 4
+                variation -= 2
+                mix = tone_t + variation * 0.09
+                if mix < 0.0:
+                    mix = 0.0
+                elif mix > 1.0:
+                    mix = 1.0
+                # 等价于 lerp_rgb(sand_base, sand_light, mix)
+                tr = base_r + (light_r - base_r) * mix
+                tg = base_g + (light_g - base_g) * mix
+                tb = base_b + (light_b - base_b) * mix
+            color, line = pool[count]
             # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
-            color.rgb = tuple(base + (tar - base) * 0.85
-                              for base, tar in zip(self.sand_base, target))
-            if line.width != particle["size"]:
-                line.width = particle["size"]
-            line.points = (x, max(bottom_y, y - 1), x, min(top_y, y + 1))
+            color.rgb = (base_r + (tr - base_r) * 0.85,
+                         base_g + (tg - base_g) * 0.85,
+                         base_b + (tb - base_b) * 0.85)
+            if line.width != size:
+                line.width = size
+            top_pt = y + 1
+            if top_pt > top_y:
+                top_pt = top_y
+            bot_pt = y - 1
+            if bot_pt < bottom_y:
+                bot_pt = bottom_y
+            line.points = (x, bot_pt, x, top_pt)
             count += 1
-            if count == len(self._neck_grain_pool):
+            if count == pool_len:
                 break
         for color, line in self._neck_grain_pool[count:self._neck_grain_count]:
             line.points = []
