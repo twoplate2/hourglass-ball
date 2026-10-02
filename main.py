@@ -23,6 +23,23 @@ import json
 # 沙流粒子的并行数组字段(见 NUMPY_PLAN.md)。numpy 缺失时整条向量化路径关闭,
 # 自动退回 update_particles 里的原标量循环 —— 不给沙漏制造风险。
 _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt")
+
+
+class _FlowView:
+    """本帧粒子数组的 Python list 快照, 渲染层按**下标**读它。
+
+    为什么要它: `px[i]` 每读一次都要新建一个 np.float64 标量对象, 逐颗粒读比读 dict
+    还慢; `arr[:pn].tolist()` 一次 C 循环就把字段摊成原生 float(2500 颗 × 7 个字段
+    合计约 0.08ms), 循环里读到的就是普通 float。字段对应见 `_p_refresh_view`。
+    """
+
+    __slots__ = ("n", "x", "y", "vy", "tl", "sz", "light", "wp")
+
+    def __init__(self):
+        self.n = 0
+        self.x = self.y = self.vy = self.tl = self.sz = self.light = self.wp = []
+
+
 _TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
@@ -731,6 +748,9 @@ class HourglassWidget(Widget):
 
         self.pn = 0
         self._p_alloc(2048)
+        # 渲染层的读端(分组/打包/颈部颗粒)按**下标**读这份 list 快照, 见 _p_refresh_view。
+        self._pv = _FlowView()
+        self._p_dict_cache = None
         self.particles = []
         self.particle_acc = 0.0
         self.splashes = []
@@ -997,7 +1017,7 @@ class HourglassWidget(Widget):
     def _reset_run_state(self):
         self._stop_completion_sound()
         self.pn = 0
-        self.particles = []
+        self._p_refresh_view()
         self.particle_acc = 0.0
         self.splashes = []
         self.flares = []
@@ -1174,8 +1194,9 @@ class HourglassWidget(Widget):
             })
 
     # ------------------------------------------------------------- 粒子存储(numpy)
-    # 并行 numpy 数组是真值; self.particles(dict 列表)由 _p_sync_dicts() 每帧派生,
-    # 供尚未迁移的渲染/装饰代码按老接口读取。迁移计划见 NUMPY_PLAN.md。
+    # 并行数组是真值; 渲染层的读端一律按**下标**读 `_pv`(本帧的 list 快照),
+    # `particles` 只是给外部工具看的 dict 列表视图, 按需构建、不再每帧同步。
+    # 迁移计划与消费方清单见 NUMPY_PLAN.md。
     @staticmethod
     def _newbuf(cap):
         """numpy 缺席时退回 Python list —— 存储层两种后端都能跑, 只有物理分叉。"""
@@ -1200,13 +1221,60 @@ class HourglassWidget(Widget):
             setattr(self, name, dst)
         self._p_cap = cap
 
-    def _p_sync_dicts(self, new_from=None):
-        """数组 -> dict 列表(临时兼容层; NUMPY_PLAN.md 步骤 3/4 完成后删掉)。
+    def _p_refresh_view(self):
+        """数组 -> `_pv`(Python list 快照)。每帧调一次, 并让 dict 缓存失效。
 
-        它每帧要新建 ~2500 个 dict, 是本方案里最大的剩余开销, 所以只是过渡。
+        只在物理/存储真正改动数组之后调用; 读端不碰 numpy 标量。
+        """
+        pv = self._pv
+        n = self.pn
+        pv.n = n
+        if _np is None:
+            # 兜底后端本身就是 Python list, 切片即得原生 float。
+            pv.x = self.px[:n]
+            pv.y = self.py[:n]
+            pv.vy = self.pvy[:n]
+            pv.tl = self.ptl[:n]
+            pv.sz = self.psz[:n]
+            pv.light = self.pli[:n]
+            pv.wp = self.pwp[:n]
+        else:
+            pv.x = self.px[:n].tolist()
+            pv.y = self.py[:n].tolist()
+            pv.vy = self.pvy[:n].tolist()
+            pv.tl = self.ptl[:n].tolist()
+            pv.sz = self.psz[:n].tolist()
+            pv.light = self.pli[:n].tolist()
+            pv.wp = self.pwp[:n].tolist()
+        self._p_dict_cache = None
+        return pv
+
+    @property
+    def particles(self):
+        """数组真相的 dict 列表视图 —— 只给外部工具读(inspect_flow / benchmark 快照)。
+
+        渲染层不再用它, 所以每帧那 ~2500 个 dict 的构建已经删掉。这里按需构建并缓存:
+        同一批数组状态下反复读拿到的是同一批对象(部分校验工具依赖 id 稳定),
+        物理一推进(`_p_refresh_view`)就失效。
+        """
+        cached = self._p_dict_cache
+        if cached is None:
+            cached = self._p_to_dicts()
+            self._p_dict_cache = cached
+        return cached
+
+    @particles.setter
+    def particles(self, value):
+        self._p_from_dicts(value)
+        self._p_refresh_view()
+
+    def _p_to_dicts(self, new_from=None):
+        """数组 -> dict 列表。
+
+        只有外部读者和 **numpy 缺席时的标量兜底路径**用它; 向量化路径每帧不再构建。
 
         `new_from`: 本帧新生的起始下标。标量兜底路径靠它把 `_step_dt`(帧内偏步长)
-        补回去 —— 漏了的话新粒子会拿到整帧 dt, 落得更远、提前触底, 画面就变了。
+        带回去 —— 漏了的话新粒子会拿到整帧 dt, 落得更远、提前触底, 画面就变了。
         """
         pn = self.pn
         px = self.px
@@ -1231,11 +1299,14 @@ class HourglassWidget(Widget):
             if new_from is not None and i >= new_from:
                 d["_step_dt"] = float(pdt[i])
             append(d)
-        self.particles = particles
+        return particles
 
-    def _p_from_dicts(self):
-        """dict 列表 -> 数组。只在 numpy 缺席、走标量物理那条兜底路径上用。"""
-        particles = self.particles
+    def _p_from_dicts(self, particles):
+        """dict 列表 -> 数组。标量兜底路径与 `particles` 的写入端共用。
+
+        缺字段按渲染层的既有默认值补(wobble 系列 0、trail_time 0.08), 让只写部分字段的
+        外部工具仍能把粒子放进来; 兜底路径的 dict 由 `_p_to_dicts` 生成, 字段必然齐。
+        """
         n = len(particles)
         self._p_grow(n)
         px = self.px
@@ -1249,15 +1320,15 @@ class HourglassWidget(Widget):
         pli = self.pli
         for k in range(n):
             d = particles[k]
-            px[k] = d["x"]
-            py[k] = d["y"]
-            pvy[k] = d["vy"]
-            pxo[k] = d["x_offset"]
-            pwp[k] = d["wobble_phase"]
-            pwa[k] = d["wobble_amp"]
-            psz[k] = 2 if d["size"] == 2 else 1
-            ptl[k] = d["trail_time"]
-            pli[k] = 1.0 if d["is_light"] else 0.0
+            px[k] = d.get("x", 0.0)
+            py[k] = d.get("y", 0.0)
+            pvy[k] = d.get("vy", 0.0)
+            pxo[k] = d.get("x_offset", 0.0)
+            pwp[k] = d.get("wobble_phase", 0.0)
+            pwa[k] = d.get("wobble_amp", 0.0)
+            psz[k] = 2 if d.get("size", 1) == 2 else 1
+            ptl[k] = d.get("trail_time", 0.08)
+            pli[k] = 1.0 if d.get("is_light", False) else 0.0
         self.pn = n
 
     def _replay_hits(self, hit_idx, hit_dt, mound_top, motion_scale, now):
@@ -1314,7 +1385,10 @@ class HourglassWidget(Widget):
         #    存上一帧的 dt 会让下一帧的粒子落得更远、提前触底(实测每周期末 2% 分叉)。
         #    语义对齐原来的 `p.pop("_step_dt", dt)`: 老粒子用**本帧** dt, 帧内新生的
         #    粒子随后在 spawn 里覆盖成自己的偏步长。
-        self.pdt[:self.pn] = dt
+        if _np is None:
+            self.pdt[:self.pn] = [dt] * self.pn   # list 切片不吃标量广播
+        else:
+            self.pdt[:self.pn] = dt
 
         if self.running and remaining > 0:
             rate = 600 * self.speed_factor
@@ -1402,11 +1476,10 @@ class HourglassWidget(Widget):
                         _arr = getattr(self, _name)
                         _arr[:newpn] = _arr[:pn][keep]
                     self.pn = newpn
-            self._p_sync_dicts()
         else:
-            # numpy 缺席时的兜底: 数组 -> dicts -> 原标量循环 -> 写回数组。
-            self._p_sync_dicts(self._spawn_from)
-            for p in self.particles:
+            # numpy 缺席时的兜底: 数组 -> dict -> 原标量循环 -> 写回数组。
+            particles = self._p_to_dicts(self._spawn_from)
+            for p in particles:
                 # 局部变量缓存:原来每颗粒几十次 dict 查找,这里改成读一次写回一次。
                 # 所有算式与随机数调用顺序保持逐字不变, 保证粒子流与画面完全一致。
                 step_dt = p.pop("_step_dt", dt)
@@ -1500,9 +1573,10 @@ class HourglassWidget(Widget):
                 p["vy"] = vy
                 p["x"] = x
                 append_particle(p)
-            self.particles = new_list
-            self._p_from_dicts()
+            self._p_from_dicts(new_list)
         self.mound_peak_offset = peak_offset
+        # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
+        self._p_refresh_view()
 
         new_splashes = []
         append_splash_keep = new_splashes.append
@@ -1811,6 +1885,11 @@ class HourglassWidget(Widget):
         self._flash_rect.size = self.size if self._flash_color.a else (0, 0)
 
     def _group_stream_particles(self):
+        """按 (色调, 线宽) 分桶 —— 返回 `{key: [粒子下标, ...]}`, 不再是 dict 列表。
+
+        下标升序、桶内顺序与逐 dict 版逐字相同(渲染顺序不变); 渲染器从 `self._pv`
+        按下标取 x / y / vy / trail_time, 于是每帧不必再建 2500 个 dict。
+        """
         buckets = self._stream_buckets
         for bucket in buckets.values():
             bucket.clear()
@@ -1824,14 +1903,19 @@ class HourglassWidget(Widget):
                   for i in list(range(n_colors)) + [-1]]
         light_row = by_key[n_colors]
         last = n_colors - 1
-        for p in self.particles:
-            y = p["y"]
+        pv = self._pv
+        ys = pv.y
+        phases = pv.wp
+        sizes = pv.sz
+        lights = pv.light
+        for i in range(pv.n):
+            y = ys[i]
             if y >= outlet:
                 continue
-            if p["is_light"]:
+            if lights[i]:
                 row = light_row
             else:
-                w = int(p["wobble_phase"] * tone_scale)
+                w = int(phases[i] * tone_scale)
                 if w > 4:
                     w = 4
                 index = int((self._neck_y - y) / div) + w - 2
@@ -1840,30 +1924,36 @@ class HourglassWidget(Widget):
                 elif index > last:
                     index = last
                 row = by_key[index]
-            row[0 if p["size"] == 1 else 1].append(p)
+            row[0 if sizes[i] == 1 else 1].append(i)
         return buckets
 
     def _draw_stream(self):
         buckets = self._group_stream_particles()
         motion_scale = self._particle_motion_scale
         top_limit = self._taper["y_bot"]
-        for key, particles in buckets.items():
+        pv = self._pv
+        xs = pv.x
+        ys = pv.y
+        vys = pv.vy
+        trails = pv.tl
+        for key, indices in buckets.items():
             group, _color, pool = self._stream_pools[key]
-            for i, particle in enumerate(particles):
-                trail = max(2.0, abs(particle["vy"]) *
-                            particle["trail_time"] / motion_scale)
-                top = min(top_limit, particle["y"] + trail)
-                coords = (particle["x"], particle["y"], particle["x"], top)
+            for i, index in enumerate(indices):
+                y = ys[index]
+                x = xs[index]
+                trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale)
+                top = min(top_limit, y + trail)
+                coords = (x, y, x, top)
                 if i == len(pool):
                     line = Line(points=coords, width=key[1])
                     group.add(line)
                     pool.append(line)
                 else:
                     pool[i].points = coords
-            for line in pool[len(particles):self._stream_counts[key]]:
+            for line in pool[len(indices):self._stream_counts[key]]:
                 if line.points:
                     line.points = []
-            self._stream_counts[key] = len(particles)
+            self._stream_counts[key] = len(indices)
 
     def _particle_trail(self, particle, motion_scale=None):
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
@@ -1897,14 +1987,17 @@ class HourglassWidget(Widget):
         source_limit_squared = (75 * scale) ** 2
         # 第一趟只求最深的投影深度, 第二趟再画 —— 原来给每个候选都分配一个
         # (distance, particle) 元组(峰值约 1800 次/帧)。两趟的候选顺序与 depth
-        # 都与原实现一致, 所以 128 上限的截断结果也相同。
+        # 都与原实现一致, 所以 128 上限的截断结果也相同。按下标遍历 `_pv` 快照。
+        pv = self._pv
+        ys_p = pv.y
+        vys_p = pv.vy
         depth = 1e-6
-        for particle in self.particles:
-            distance = outlet - particle["y"]
+        for i in range(pv.n):
+            distance = outlet - ys_p[i]
             if distance < 0 or distance > length + 1e-6:
                 continue
             # An isolated fast grain must not stretch the startup texture ahead of the main flow.
-            if particle["vy"] ** 2 - twice_gravity * distance > source_limit_squared:
+            if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
                 continue
             if distance > depth:
                 depth = distance
@@ -1929,34 +2022,38 @@ class HourglassWidget(Widget):
         cx = self._cx
         base_r, base_g, base_b = self.sand_base
         light_r, light_g, light_b = self.sand_light
+        sizes_p = pv.sz
+        phases_p = pv.wp
+        lights_p = pv.light
+        xs_p = pv.x
         count = 0
-        for particle in self.particles:
-            distance = outlet - particle["y"]
+        for i in range(pv.n):
+            distance = outlet - ys_p[i]
             if distance < 0 or distance > length + 1e-6:
                 continue
-            if particle["vy"] ** 2 - twice_gravity * distance > source_limit_squared:
+            if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
                 continue
             t = distance / depth                     # 0 = 刚出孔口, 1 = 流得最深的一颗
             if t > 1.0:
                 t = 1.0
             y = top_y - t * span
             half_w = half_w_at(y)
-            size = particle["size"]
+            size = sizes_p[i]
             half_stroke = size if size > 1 else 0.5
             limit = half_w - half_stroke
             if limit <= 0.0:
                 limit = 0.0
-            spread = (particle["x"] - cx) * (half_w / t_in)
+            spread = (xs_p[i] - cx) * (half_w / t_in)
             if spread > limit:
                 spread = limit
             elif spread < -limit:
                 spread = -limit
             x = cx + spread
             tone_t = 0.28 + 0.72 * t
-            if particle["is_light"]:
+            if lights_p[i]:
                 tr, tg, tb = light_r, light_g, light_b
             else:
-                variation = int(particle.get("wobble_phase", 0) * tone_scale)
+                variation = int(phases_p[i] * tone_scale)
                 if variation > 4:
                     variation = 4
                 variation -= 2

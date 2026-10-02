@@ -66,24 +66,29 @@ class GPUFlowBatch(flow_batch_experiment.FlowBatch):
             part[0].vertices = vertices
         return part
 
-    def update(self, particles, top_limit, motion_scale=1):
+    def update(self, view, indices, top_limit, motion_scale=1):
         rgba = tuple(self.color.rgba)
         if rgba != self._last_color:
             self.group["sand_color"] = rgba
             self._last_color = rgba
+        ys = view.y
+        vys = view.vy
+        trails = view.tl
+        xs = view.x
         vertex_count = len(self.template)
         stride = vertex_count * 6
-        chunks = math.ceil(len(particles) / self.CHUNK)
+        total = len(indices)
+        chunks = math.ceil(total / self.CHUNK)
         for chunk in range(chunks):
             start = chunk * self.CHUNK
-            count = min(self.CHUNK, len(particles) - start)
+            count = min(self.CHUNK, total - start)
             part = self._ensure_part(chunk, count)
-            mesh, vertices, indices, capacity, previous = part
+            mesh, vertices, indices_arr, capacity, previous = part
             for i in range(count):
-                particle = particles[start + i]
-                x, bottom = particle["x"], particle["y"]
+                pi = indices[start + i]
+                x, bottom = xs[pi], ys[pi]
                 top = min(top_limit, bottom + max(
-                    2, abs(particle["vy"]) * particle.get("trail_time", 0.08) / motion_scale))
+                    2, abs(vys[pi]) * trails[pi] / motion_scale))
                 base, end = i * stride, (i + 1) * stride
                 # Native strided copies avoid translating every cap vertex in Python.
                 vertices[base:end:6] = array("f", [x]) * vertex_count
@@ -91,7 +96,7 @@ class GPUFlowBatch(flow_batch_experiment.FlowBatch):
                 vertices[base + 2:end:6] = array("f", [top]) * vertex_count
             mesh.vertices = vertices
             if previous != count:
-                mesh.indices = indices[:count * len(self.indices)]
+                mesh.indices = indices_arr[:count * len(self.indices)]
                 part[4] = count
         for part in self.parts[chunks:]:
             if part[4]:

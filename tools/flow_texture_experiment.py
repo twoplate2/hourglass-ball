@@ -94,9 +94,17 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             part[0].vertices = vertices
         return part
 
-    def update(self, particles, top_limit, motion_scale=1):
+    def update(self, view, indices, top_limit, motion_scale=1):
+        """`view` 是 widget 的 `_pv`(本帧 list 快照), `indices` 是本桶的粒子下标。
+
+        按下标读原生 float, 不再逐颗粒取 numpy 标量。
+        """
         pack = FLOAT3.pack_into
-        total = len(particles)
+        ys = view.y
+        vys = view.vy
+        trails = view.tl
+        xs = view.x
+        total = len(indices)
         chunks = -(-total // self.CHUNK)
         for chunk in range(chunks):
             start = chunk * self.CHUNK
@@ -104,26 +112,26 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             if count > self.CHUNK:
                 count = self.CHUNK
             part = self._ensure_part(chunk, count)
-            mesh, _vertices, indices, capacity, previous, texture, data, _binding = part
+            mesh, _vertices, _indices, _capacity, previous, texture, data, _binding = part
             # 每颗粒只做 1 次 pack_into(x, bottom, top 连续); 数值与逐字相同。
             offset = 0
-            for i in range(start, start + count):
-                particle = particles[i]
-                bottom = particle["y"]
-                vy = particle["vy"]
+            for k in range(start, start + count):
+                i = indices[k]
+                bottom = ys[i]
+                vy = vys[i]
                 if vy < 0:
                     vy = -vy
-                trail = vy * particle["trail_time"] / motion_scale
+                trail = vy * trails[i] / motion_scale
                 if trail < 2:
                     trail = 2
                 top = bottom + trail
                 if top > top_limit:
                     top = top_limit
-                pack(data, offset, particle["x"], bottom, top)
+                pack(data, offset, xs[i], bottom, top)
                 offset += 12
             texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
             if previous != count:
-                mesh.indices = indices[:count * len(self.indices)]
+                mesh.indices = _indices[:count * len(self.indices)]
                 part[4] = count
         for part in self.parts[chunks:]:
             if part[4]:
@@ -164,8 +172,9 @@ def install(widget_class):
 
     def draw_texture_batches(self):
         for key, bucket in self._group_stream_particles().items():
+            view, indices = flow_batch_experiment.flow_bucket(self, bucket)
             self._flow_batches[key].update(
-                bucket, self._taper["y_bot"], self._particle_motion_scale)
+                view, indices, self._taper["y_bot"], self._particle_motion_scale)
 
     widget_class._build_dynamic_canvas = build_texture_batches
     widget_class._draw_stream = draw_texture_batches

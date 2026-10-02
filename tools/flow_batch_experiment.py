@@ -6,6 +6,39 @@ import math
 from kivy.graphics import Mesh
 
 
+class DictFlowView:
+    """老 main.py(粒子还是 dict 列表)的只读适配器。
+
+    正式路径上 `_group_stream_particles()` 返**下标**、widget 上有 `_pv` 数组快照,
+    走不到这里; 它只为 `tools/inspect_flow.py --source <main 分支的 main.py>` 那套
+    对照闸门保留 —— 两侧用同一份渲染器, 只有被对照的 main.py 不同。
+    """
+
+    __slots__ = ("n", "x", "y", "vy", "tl", "sz", "light", "wp")
+
+    def __init__(self, particles):
+        self.n = len(particles)
+        self.x = [p["x"] for p in particles]
+        self.y = [p["y"] for p in particles]
+        self.vy = [p["vy"] for p in particles]
+        self.tl = [p.get("trail_time", 0.08) for p in particles]
+        self.sz = [p["size"] for p in particles]
+        self.light = [p["is_light"] for p in particles]
+        self.wp = [p.get("wobble_phase", 0) for p in particles]
+
+
+def flow_bucket(widget, bucket):
+    """把 `_group_stream_particles()` 的桶翻成 (view, indices)。
+
+    新版: 桶就是下标列表, view 是 widget 的 `_pv` 数组快照。
+    老 main.py(`--source` 对照): 桶里是 dict, 现摊一份适配器 + `range`。
+    """
+    view = getattr(widget, "_pv", None)
+    if view is None:
+        return DictFlowView(bucket), range(len(bucket))
+    return view, bucket
+
+
 class FlowBatch:
     CHUNK = 512
 
@@ -38,31 +71,39 @@ class FlowBatch:
                 self.indices.extend((center, len(self.template) - 1, last))
             self.mode = "triangles"
 
-    def update(self, particles, top_limit, motion_scale=1):
+    def update(self, view, indices, top_limit, motion_scale=1):
+        """`view` 是粒子快照(`_pv` 或 dict 适配器), `indices` 是本桶的粒子下标。
+
+        按下标读原生 float —— 不再逐颗粒取 numpy 标量(那比读 dict 还慢)。
+        """
         stride = len(self.template) * 4
         index_stride = len(self.indices)
-        chunks = math.ceil(len(particles) / self.CHUNK)
+        ys = view.y
+        vys = view.vy
+        trails = view.tl
+        total = len(indices)
+        chunks = math.ceil(total / self.CHUNK)
         for chunk in range(chunks):
             start = chunk * self.CHUNK
-            count = min(self.CHUNK, len(particles) - start)
+            count = min(self.CHUNK, total - start)
             if chunk == len(self.parts):
                 mesh = Mesh(mode=self.mode)
                 self.group.add(mesh)
                 self.parts.append([mesh, array("f"), array("H"), 0, 0])
             part = self.parts[chunk]
-            mesh, vertices, indices, capacity, previous = part
+            mesh, vertices, indices_arr, capacity, previous = part
             if capacity < count:
                 capacity = min(self.CHUNK, max(32, count, capacity * 2))
                 vertices = array("f", [0]) * (capacity * stride)
-                indices = array("H", (
+                indices_arr = array("H", (
                     index + i * len(self.template)
                     for i in range(capacity) for index in self.indices))
-                part[1:4] = vertices, indices, capacity
+                part[1:4] = vertices, indices_arr, capacity
             for i in range(count):
-                particle = particles[start + i]
-                x, bottom = particle["x"], particle["y"]
+                pi = indices[start + i]
+                x, bottom = view.x[pi], ys[pi]
                 top = min(top_limit, bottom + max(
-                    2, abs(particle["vy"]) * particle.get("trail_time", 0.08) / motion_scale))
+                    2, abs(vys[pi]) * trails[pi] / motion_scale))
                 base = i * stride
                 for vertex, (dx, dy, end) in enumerate(self.template):
                     offset = base + vertex * 4
@@ -70,7 +111,7 @@ class FlowBatch:
                     vertices[offset + 1] = (top if end else bottom) + dy
             mesh.vertices = vertices
             if previous != count:
-                mesh.indices = indices[:count * index_stride]
+                mesh.indices = indices_arr[:count * index_stride]
                 part[4] = count
         for part in self.parts[chunks:]:
             if part[4]:
@@ -93,24 +134,10 @@ def install(widget_class):
             self._flow_batches[key] = FlowBatch(group, key[1])
 
     def draw_batches(self):
-        group_particles = getattr(self, "_group_stream_particles", None)
-        if group_particles is not None:
-            group_particles()
-            top_limit = self._taper["y_bot"]
-        else:
-            for bucket in self._stream_buckets.values():
-                bucket.clear()
-            div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
-            top_limit = 2 * self._neck_y - self._taper["y_bot"]
-            for particle in self.particles:
-                if particle["y"] >= top_limit:
-                    continue
-                index = -1 if particle["is_light"] else max(
-                    0, min(len(self._color_table) - 1, int((self._neck_y - particle["y"]) / div)))
-                self._stream_buckets[index, particle["size"]].append(particle)
-        for key, bucket in self._stream_buckets.items():
+        for key, bucket in self._group_stream_particles().items():
+            view, indices = flow_bucket(self, bucket)
             self._flow_batches[key].update(
-                bucket, top_limit, self._particle_motion_scale)
+                view, indices, self._taper["y_bot"], self._particle_motion_scale)
 
     widget_class._build_dynamic_canvas = build_batches
     widget_class._draw_stream = draw_batches

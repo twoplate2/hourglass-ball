@@ -459,7 +459,9 @@ class BenchmarkRunner:
             "frame_ms": interval * 1000,
             "elapsed_s": self.widget.elapsed,
             **self._stages,
-            "particles": len(self.widget.particles),
+            # 粒子的真值是并行数组, pn 就是存活数 —— 不要读 `widget.particles`
+            # (那是按需构建的 dict 列表视图, 每帧读会把兼容层开销算进基准)。
+            "particles": self.widget.pn,
             "splashes": len(self.widget.splashes),
             "mound_px": self.widget._mound_height_px(),
             "neck_filling": int(self.widget.elapsed < self.widget._neck_fill_time),
