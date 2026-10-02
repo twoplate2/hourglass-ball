@@ -211,3 +211,30 @@ C 侧接口建议:
 `float.__pow__` 对 0.5 的路径一致, 但**要用 sqrt** —— `pow(x,0.5)` 在某些 libm 上差 1ULP);
 `sin` 用 libm。这些是唯一可能不逐位一致的算子, 所以**必须过逐像素闸门**, 而且要在一台设备上
 再目视确认一次。
+
+## CI 真实报错(2026-10-02, run 69 诊断注解)
+
+```
+recipe 编译阶段: ModuleNotFoundError: No module named 'setuptools'
+失败命令: pythonforandroid.toolchain create --dist_name=hourglass --bootstrap=sdl2
+          --requirements=python3,kivy==2.3.0,pyjnius,flowcore
+          --arch=arm64-v8a,armeabi-v7a --ignore-setup-py --debug
+```
+
+即: recipe **被找到了**、也走到了 `build_compiled_components` 调 `setup.py build_ext`,
+但跑 setup.py 的那个解释器里没有 setuptools。recipe 里写的 `depends = ["setuptools"]`
+是**目标侧**的 recipe, 并不等于把 setuptools 装进**构建期用的 hostpython 环境**。
+
+候选修法(按尝试顺序):
+1. recipe 里改用 p4a 的 hostpython 显式调用: `env = self.get_recipe('hostpython3',
+   self.ctx).get_build_env(arch)` 再 `install_python_package`; 或在 recipe 里覆盖
+   `build_compiled_components` 前先 `self.ctx.hostpython -m pip install setuptools`。
+2. 干脆不走 setuptools: 在 recipe 里自己写 `build_arch`, 直接用 NDK 的 clang 编一个
+   .so(`-shared -I<hostpython include> -I<python3 recipe include>`), 不碰 setup.py ——
+   纯 C、没有依赖, 这条路最可控(参考 p4a 里 libffi 这类 C-only recipe)。
+3. 换 `CythonRecipe` 骨架试试(同样是 setup.py 路线, 不一定解决)。
+
+诊断通路(可复用): workflow 里失败时
+`grep -i -E "error|traceback|exception|not exist|ValueError|recipe" buildozer.log | tail -14`
+→ 用 `::error title=...::` 发成注解 → **公开 run 页面直接可读**(job 日志要管理员权限,
+注解不要)。
