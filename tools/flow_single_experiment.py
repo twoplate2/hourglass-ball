@@ -203,6 +203,10 @@ def install(widget_class):
                 r, g, b = table[index]
             (thin if p["size"] == 1 else thick).append((p["x"], y, top, r, g, b))
         _sx = _sy = _st = 0.0
+        _below = sum(1 for _q in self.particles if _q["y"] < outlet)
+        _probe("t=%.4f len(particles)=%d below_outlet=%d outlet=%.2f neck_y=%.2f y_bot=%.2f" % (
+            self.elapsed, len(self.particles), _below, outlet,
+            self._neck_y, self._taper["y_bot"]))
         for _e in thin + thick:
             _sx += _e[0]; _sy += _e[1]; _st += _e[2]
         _probe("t=%.4f n=%d sx=%.4f sy=%.4f st=%.4f" % (
