@@ -129,3 +129,33 @@ Python 0.503 ms/帧   ->   C 0.225 ms/帧   快 2.2 倍
 
 已完成且可复用的: `native/flowcore.c` + `tools/build_native.py`(zig 本地编译) +
 `tools/test_native_pack.py`(逐字节等价测试)。下一个 C 函数按同样方式加进去即可。
+
+---
+
+# 下一步:update_particles(4.7ms)进 C —— 设计与关键坑
+
+代码位置: `main.py:1157` 起, 每颗粒主循环从 `1216` 行 `for p in self.particles:` 开始。
+循环体是**纯算术**(y/vy 积分 → hit 判定 → shrink 流量守恒 → wobble → 横向 clamp),
+只有两处要随机数: 触底时 `rand()<0.25` 生成 flare、`rand()<0.50` 生成 splash。
+
+## ⚠️ 随机流必须逐字保持
+
+Python 版是**逐颗粒交错**地抽随机数。若 C 里把事件攒到最后再处理, 随机数顺序就变了,
+`random.seed(23)` 的逐像素验收会直接崩。做法: C 按颗粒顺序把命中事件写进一个小缓冲
+(下标 + x/y/vy/speed), 返回给 Python; **Python 按同一顺序回放**这些判定与抽样
+(flare 判定 → splash 判定 → rand_uniform ×2 → rand_choice), 顺序与原来完全相同。
+
+## ⚠️ 只搬算术的收益有限 —— 这才是平铺数组真正不可省的地方
+
+打包函数能到 12 倍, 是因为它**只读不写**字典(4 次读/颗粒)。
+物理每颗粒要 **读 + 写回**(y/vy/x 各一次写), interned key 下每次约 40ns,
+7~8 次字典操作 ≈ 0.3µs/颗粒 —— 相对现在 1.7µs 只有约 2~3 倍。
+**要把物理拿到 10 倍, 必须把这几个字段改成平铺 `array('d')`**, C 侧用
+`PyObject_GetBuffer` 拿裸 `double*` 原地改, 零字典操作。
+
+所以顺序建议:
+1. 先只把物理做 C 化(2~3 倍, 4.7ms → ~1.7ms, 峰值帧约 +23%), 过逐字节+逐像素闸门。
+2. 再做 y/vy/x/x_offset/wobble_phase/wobble_amp/size/trail_time 的平铺数组改造
+   (读端 `_group_stream_particles` / 打包 / 颈部颗粒 / dust 都要换下标),
+   每换一处跑一次闸门; 换完物理进 C 可再快 3~5 倍。
+3. canvas: splashes/dust 的 Mesh 合批(见前面的两条结论) + 可能的 flow 批次数合并。
