@@ -1,5 +1,5 @@
 [app]
-# 本地 recipe 目录(flowcore)
+# local p4a recipes (flowcore)
 p4a.local_recipes = ./p4a-recipes
 
 # 启动器中显示的可见名称

@@ -69,9 +69,20 @@ jobs:
 
       - name: Build APK (debug)
         run: |
-          yes | buildozer android debug
+          set -o pipefail
+          yes | buildozer android debug 2>&1 | tee buildozer.log
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
+
+      - name: 失败时把构建日志尾部写进 summary(日志本身要管理员权限, summary 公开可读)
+        if: failure()
+        run: |
+          {
+            echo '## buildozer 失败尾部'
+            echo '```'
+            tail -c 6000 buildozer.log 2>/dev/null || echo '(no buildozer.log)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Show output
         run: ls -lh bin/ || true
