@@ -202,6 +202,11 @@ def install(widget_class):
                     index = last
                 r, g, b = table[index]
             (thin if p["size"] == 1 else thick).append((p["x"], y, top, r, g, b))
+        _probe("outlet=%.3f top_limit=%.3f scale=%.4f n_thin=%d n_thick=%d" % (
+            outlet, top_limit, scale, len(thin), len(thick)))
+        for _lst, _tag in ((thin, "thin"), (thick, "thick")):
+            for _e in (_lst[:3] + _lst[-3:] if len(_lst) > 3 else _lst):
+                _probe("%s %.4f %.4f %.4f %.6f %.6f %.6f" % ((_tag,) + tuple(_e)))
         for width, entries in ((1, thin), (2, thick)):
             batches = self._flow_single[width]
             for i, batch in enumerate(batches):
