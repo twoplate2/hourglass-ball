@@ -40,10 +40,31 @@ class GPUFlowBatch(flow_batch_experiment.FlowBatch):
         (b"cap_end", 1, "float"),
     ]
 
-    def __init__(self, group, color):
+    def __init__(self, group, color, reserve=0):
         super().__init__(group, 2)
         self.color = color
         self._last_color = None
+        for chunk in range(math.ceil(reserve / self.CHUNK)):
+            self._ensure_part(chunk, min(self.CHUNK, reserve - chunk * self.CHUNK))
+
+    def _ensure_part(self, chunk, count):
+        if chunk == len(self.parts):
+            mesh = Mesh(fmt=self.FORMAT, mode=self.mode)
+            self.group.add(mesh)
+            self.parts.append([mesh, array("f"), array("H"), 0, 0])
+        part = self.parts[chunk]
+        if part[3] < count:
+            capacity = min(self.CHUNK, max(32, count, part[3] * 2))
+            template = array("f", (
+                value for dx, dy, end in self.template
+                for value in (0, 0, 0, dx, dy, end)))
+            vertices = template * capacity
+            indices = array("H", (
+                index + i * len(self.template)
+                for i in range(capacity) for index in self.indices))
+            part[1:4] = vertices, indices, capacity
+            part[0].vertices = vertices
+        return part
 
     def update(self, particles, top_limit, motion_scale=1):
         rgba = tuple(self.color.rgba)
@@ -56,22 +77,8 @@ class GPUFlowBatch(flow_batch_experiment.FlowBatch):
         for chunk in range(chunks):
             start = chunk * self.CHUNK
             count = min(self.CHUNK, len(particles) - start)
-            if chunk == len(self.parts):
-                mesh = Mesh(fmt=self.FORMAT, mode=self.mode)
-                self.group.add(mesh)
-                self.parts.append([mesh, array("f"), array("H"), 0, 0])
-            part = self.parts[chunk]
+            part = self._ensure_part(chunk, count)
             mesh, vertices, indices, capacity, previous = part
-            if capacity < count:
-                capacity = min(self.CHUNK, max(32, count, capacity * 2))
-                template = array("f", (
-                    value for dx, dy, end in self.template
-                    for value in (0, 0, 0, dx, dy, end)))
-                vertices = template * capacity
-                indices = array("H", (
-                    index + i * vertex_count
-                    for i in range(capacity) for index in self.indices))
-                part[1:4] = vertices, indices, capacity
             for i in range(count):
                 particle = particles[start + i]
                 x, bottom = particle["x"], particle["y"]
@@ -107,7 +114,8 @@ def install(widget_class):
             if not context.shader.success:
                 raise RuntimeError("Flow vertex shader failed to compile")
             group.add(context)
-            self._flow_batches[key] = GPUFlowBatch(context, color)
+            self._flow_batches[key] = GPUFlowBatch(
+                context, color, self._flow_reserve_counts[key])
 
     widget_class._build_dynamic_canvas = build_gpu_batches
-    widget_class.flow_renderer = "mesh_gpu"
+    widget_class.flow_renderer = "mesh_gpu_reserved"

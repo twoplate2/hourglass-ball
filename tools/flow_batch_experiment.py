@@ -84,6 +84,8 @@ def install(widget_class):
     def build_batches(self):
         build(self)
         self._flow_batches = {}
+        self._flow_reserve_counts = {
+            key: len(pool) for key, (_group, _color, pool) in self._stream_pools.items()}
         for key, (group, color, pool) in self._stream_pools.items():
             group.clear()
             group.add(color)
@@ -91,19 +93,24 @@ def install(widget_class):
             self._flow_batches[key] = FlowBatch(group, key[1])
 
     def draw_batches(self):
-        for bucket in self._stream_buckets.values():
-            bucket.clear()
-        div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
-        for particle in self.particles:
-            if particle["y"] >= 2 * self._neck_y - self._taper["y_bot"]:
-                continue
-            index = -1 if particle["is_light"] else max(
-                0, min(len(self._color_table) - 1, int((self._neck_y - particle["y"]) / div)))
-            self._stream_buckets[index, particle["size"]].append(particle)
+        group_particles = getattr(self, "_group_stream_particles", None)
+        if group_particles is not None:
+            group_particles()
+            top_limit = self._taper["y_bot"]
+        else:
+            for bucket in self._stream_buckets.values():
+                bucket.clear()
+            div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
+            top_limit = 2 * self._neck_y - self._taper["y_bot"]
+            for particle in self.particles:
+                if particle["y"] >= top_limit:
+                    continue
+                index = -1 if particle["is_light"] else max(
+                    0, min(len(self._color_table) - 1, int((self._neck_y - particle["y"]) / div)))
+                self._stream_buckets[index, particle["size"]].append(particle)
         for key, bucket in self._stream_buckets.items():
             self._flow_batches[key].update(
-                bucket, 2 * self._neck_y - self._taper["y_bot"],
-                self._particle_motion_scale)
+                bucket, top_limit, self._particle_motion_scale)
 
     widget_class._build_dynamic_canvas = build_batches
     widget_class._draw_stream = draw_batches

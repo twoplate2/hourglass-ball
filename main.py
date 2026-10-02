@@ -20,6 +20,8 @@ import time
 import json
 import gc
 
+from app_version import APP_VERSION
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
@@ -28,6 +30,7 @@ from kivy.core.window import Window
 from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
                            StencilPush, StencilUse, StencilUnUse, StencilPop,
                            PushMatrix, PopMatrix, Rotate, InstructionGroup)
+from kivy.graphics.texture import Texture
 from kivy.metrics import dp, sp
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
@@ -1191,6 +1194,13 @@ class HourglassWidget(Widget):
                 })
 
         g = -450.0 * motion_scale * motion_scale
+        g_abs = abs(g)
+        source_speed = 60.0 * motion_scale
+        source_speed_squared = source_speed ** 2
+        lower_cut = self._lower_ball_cut
+        lower_top = self._lower_sand_top
+        lower_center = self._lower_y_c
+        sand_half_w = self._sand_half_w
         tube_lim = max(1.0, neck_w - ow)
         new_list = []
         for p in self.particles:
@@ -1203,19 +1213,19 @@ class HourglassWidget(Widget):
                 distance = max(0, old_y - mound_top)
                 speed = max(0, -old_vy)
                 hit_dt = (2 * distance / max(
-                    1e-6, speed + math.sqrt(speed * speed + 2 * abs(g) * distance)))
+                    1e-6, speed + math.sqrt(speed * speed + 2 * g_abs * distance)))
                 hit_dt = min(step_dt, hit_dt)
                 p["y"] = mound_top
                 p["vy"] = old_vy + g * hit_dt
-            fallen_dist = max(0.0, gen_y - p["y"])
+            y = p["y"]
+            fallen_dist = max(0.0, gen_y - y)
             # 管内: 管壁约束,填满内径 shrink=1.0
             # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
-            if p["y"] > self._lower_ball_cut:
+            if y > lower_cut:
                 shrink = 1.0
             else:
-                below_tube = self._lower_ball_cut - p["y"]
-                source_speed = 60.0 * motion_scale
-                v_at_y = (source_speed ** 2 + 2 * abs(g) * below_tube) ** 0.5
+                below_tube = lower_cut - y
+                v_at_y = (source_speed_squared + 2 * g_abs * below_tube) ** 0.5
                 target = max(0.70, (source_speed / v_at_y) ** 0.5)
                 transition = 40.0  # 平滑过渡区长度(px)
                 if below_tube < transition:
@@ -1223,18 +1233,18 @@ class HourglassWidget(Widget):
                     shrink = 1.0 + (target - 1.0) * t
                 else:
                     shrink = target
-                dist_to_floor = p["y"] - mound_top
+                dist_to_floor = y - mound_top
                 if 0 < dist_to_floor < 30:
                     shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
             wobble = math.sin(fallen_dist * 0.07 + p["wobble_phase"]) * p["wobble_amp"]
             p["x"] = cx + p["x_offset"] * shrink + wobble * (1 - shrink * 0.4)
 
             # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
-            if p["y"] >= self._lower_sand_top:
+            if y >= lower_top:
                 lim = tube_lim
             else:
-                raw_ball = self._sand_half_w(p["y"], self._lower_y_c)
-                below = self._lower_sand_top - p["y"]
+                raw_ball = sand_half_w(y, lower_center)
+                below = lower_top - y
                 t = min(1.0, below / 30.0)
                 lim = tube_lim + (raw_ball - tube_lim) * t
             half_stroke = p["size"] if p["size"] > 1 else 0.5
@@ -1268,12 +1278,12 @@ class HourglassWidget(Widget):
             s["y"] += s["vy"] * step_dt + 0.5 * g * step_dt * step_dt
             s["vy"] += g * step_dt
             s["x"] += s["vx"] * step_dt
-            half = self._sand_half_w(s["y"], self._lower_y_c)
+            half = sand_half_w(s["y"], lower_center)
             if abs(s["x"] - cx) > half - 1:
                 continue
             if s["vy"] < 0 and s["y"] <= mound_top:
                 continue
-            if s["y"] < self._lower_sand_bot or s["y"] > self._lower_sand_top - 5:
+            if s["y"] < self._lower_sand_bot or s["y"] > lower_top - 5:
                 continue
             new_splashes.append(s)
         self.splashes = new_splashes
@@ -1378,13 +1388,27 @@ class HourglassWidget(Widget):
             self._neck_color = Color(*self.sand_base)
             self._neck_quads = [
                 Quad(points=[0] * 8) for _ in range(TAPER_SEGS + 1)]
+            self._neck_solid_color = Color(*self.sand_base)
+            self._neck_solid_rect = Rectangle(size=(0, 0))
+            self._neck_fade_color = Color(*self.sand_base)
+            texture = Texture.create(size=(1, 64), colorfmt="rgba")
+            pixels = bytes(value for row in range(64)
+                           for value in (255, 255, 255, round(255 * (0.7 + 0.3 * row / 63))))
+
+            def reload_fade(target):
+                target.blit_buffer(pixels, colorfmt="rgba", bufferfmt="ubyte")
+
+            reload_fade(texture)
+            texture.add_reload_observer(reload_fade)
+            texture.mag_filter = texture.min_filter = "linear"
+            self._neck_fade_rect = Rectangle(texture=texture, size=(0, 0))
 
         self._neck_grain_group = InstructionGroup()
         self.canvas.add(self._neck_grain_group)
         self._neck_grain_pool = []
         self._neck_grain_count = 0
-        # Highlights project existing grains upstream; they do not add physics particles.
-        for _ in range(32):
+        # Project existing grains upstream; they do not add physics particles.
+        for _ in range(128):
             color = Color(*self.sand_base)
             line = Line(points=[], width=1)
             self._neck_grain_group.add(color)
@@ -1442,13 +1466,19 @@ class HourglassWidget(Widget):
             return ((math.sqrt(35 ** 2 + 900 * max(0, outlet - y)) - 35) /
                     (450 * motion_scale))
 
+        expected_by_color = [0.0] * len(self._color_table)
+        for index in range(len(self._color_table)):
+            upper = min(outlet, self._neck_y - index * div)
+            lower = max(floor, self._neck_y - (index + 1) * div)
+            expected = rate * max(0, travel(lower) - travel(upper))
+            for variation in range(-2, 3):
+                target = max(0, min(len(self._color_table) - 1, index + variation))
+                expected_by_color[target] += expected / 5
         for (index, size), (group, _color, pool) in self._stream_pools.items():
             if index < 0:
                 expected = rate * travel(floor) * 0.10
             else:
-                upper = min(outlet, self._neck_y - index * div)
-                lower = max(floor, self._neck_y - (index + 1) * div)
-                expected = rate * max(0, travel(lower) - travel(upper))
+                expected = expected_by_color[index]
             share = (int(size == 1) if thin_only else
                      (0.85 if size == 2 else 0.15))
             count = math.ceil(expected * share + 3 * math.sqrt(expected) + 2)
@@ -1485,6 +1515,7 @@ class HourglassWidget(Widget):
             for color, _rect in self._sand_chords:
                 color.rgb = self.sand_base
             self._neck_color.rgb = self.sand_base
+            self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
                 color.rgb = self.sand_light if index < 0 else self._color_table[index]
             self._splash_color.rgb = self._dust_color.rgb = self.sand_light
@@ -1495,13 +1526,29 @@ class HourglassWidget(Widget):
         self._sand_chords[0][1].size = (2 * self._R_inner, upper_height)
         self._sand_chords[1][1].size = (2 * self._R_inner, h_mound)
         side = self._neck_sand_side() if upper_height > 0 else []
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        inlet = self._taper["y_bot"]
+        transition = min(inlet - outlet, max(8, self._taper["t_in"] * 0.7))
+        connected = bool(side and side[-1][1] <= outlet + 1e-6)
+        fade_top = outlet + transition
         for i, quad in enumerate(self._neck_quads):
             if i < len(side) - 1:
                 (x0, y0), (x1, y1) = side[i], side[i + 1]
+                if connected and i == len(side) - 2:
+                    y1 = fade_top
                 quad.points = [self._cx - x0, y0, self._cx + x0, y0,
                                self._cx + x1, y1, self._cx - x1, y1]
             else:
                 quad.points = [0] * 8
+        if connected:
+            pos = (self._cx - self._taper["t_in"], outlet)
+            size = (2 * self._taper["t_in"], transition)
+            self._neck_solid_rect.pos = self._neck_fade_rect.pos = pos
+            self._neck_solid_rect.size = self._neck_fade_rect.size = size
+            strength = min(1, max(0, (self.elapsed - self._neck_fill_time) / 0.1))
+            self._neck_solid_color.a = 1 - strength
+        else:
+            self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
 
         self._draw_stream()
         self._draw_neck_grains(side)
@@ -1529,24 +1576,33 @@ class HourglassWidget(Widget):
         self._pause_rect.size = self.size if self._pause_color.a else (0, 0)
         self._flash_rect.size = self.size if self._flash_color.a else (0, 0)
 
-    def _draw_stream(self):
+    def _group_stream_particles(self):
         buckets = self._stream_buckets
         for bucket in buckets.values():
             bucket.clear()
         n_colors = len(self._color_table)
         div = max(1.0, self._neck_y - self._glass_bot) / n_colors
-        motion_scale = self._particle_motion_scale
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        tone_scale = 5 / math.tau
         for p in self.particles:
+            if p["y"] >= outlet:
+                continue
             index = -1 if p["is_light"] else max(
-                0, min(n_colors - 1, int((self._neck_y - p["y"]) / div)))
-            if p["y"] < 2 * self._neck_y - self._taper["y_bot"]:
-                buckets[index, p["size"]].append(p)
+                0, min(n_colors - 1, int((self._neck_y - p["y"]) / div) +
+                       min(4, int(p.get("wobble_phase", 0) * tone_scale)) - 2))
+            buckets[index, p["size"]].append(p)
+        return buckets
+
+    def _draw_stream(self):
+        buckets = self._group_stream_particles()
+        motion_scale = self._particle_motion_scale
+        top_limit = self._taper["y_bot"]
         for key, particles in buckets.items():
             group, _color, pool = self._stream_pools[key]
             for i, particle in enumerate(particles):
                 trail = max(2.0, abs(particle["vy"]) *
                             particle.get("trail_time", 0.08) / motion_scale)
-                top = min(2 * self._neck_y - self._taper["y_bot"], particle["y"] + trail)
+                top = min(top_limit, particle["y"] + trail)
                 coords = (particle["x"], particle["y"], particle["x"], top)
                 if i == len(pool):
                     line = Line(points=coords, width=key[1])
@@ -1567,22 +1623,46 @@ class HourglassWidget(Widget):
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
         length = max(1e-6, inlet - outlet)
+        div = max(1.0, self._neck_y - self._glass_bot) / len(self._color_table)
+        tone_scale = 5 / math.tau
+        scale = self._particle_motion_scale
+        source_limit_squared = (75 * scale) ** 2
+        twice_gravity = 900 * scale * scale
+        projection_depth = None
         count = 0
         if side and side[-1][1] <= outlet + 1e-6:
-            for particle in reversed(self.particles):
+            # Prioritize the outlet when the fixed visual pool fills up.
+            for particle in self.particles:
                 distance = outlet - particle["y"]
-                if not particle["is_light"] or not 0 <= distance < length:
+                if not 0 <= distance <= length + 1e-6:
                     continue
-                y = inlet - distance
+                if projection_depth is None:
+                    # An isolated fast grain must not stretch the startup texture ahead of the main flow.
+                    if (distance < 1e-6 or
+                            particle["vy"] ** 2 - twice_gravity * distance > source_limit_squared):
+                        continue
+                    projection_depth = distance
+                projected = distance * length / projection_depth
+                if projected > length + 1e-6:
+                    continue
+                projected = min(length, projected)
+                y = inlet - projected
                 half_stroke = particle["size"] if particle["size"] > 1 else 0.5
                 limit = max(0, self._taper["t_in"] - half_stroke)
                 x = self._cx + max(-limit, min(limit, particle["x"] - self._cx))
-                phase = distance / length
+                phase = projected / length
                 alpha = phase * phase * (3 - 2 * phase)
                 color, line = self._neck_grain_pool[count]
+                if particle["is_light"]:
+                    target = self.sand_light
+                else:
+                    variation = min(4, int(particle.get("wobble_phase", 0) * tone_scale)) - 2
+                    index = max(0, min(len(self._color_table) - 1,
+                                     int((self._neck_y - particle["y"]) / div) + variation))
+                    target = self._color_table[index]
                 # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
                 color.rgb = tuple(base + (light - base) * alpha
-                                  for base, light in zip(self.sand_base, self.sand_light))
+                                  for base, light in zip(self.sand_base, target))
                 if line.width != particle["size"]:
                     line.width = particle["size"]
                 line.points = (x, y, x, min(inlet, y + 2))
@@ -2029,7 +2109,7 @@ class HourglassApp(App):
         content.add_widget(commands)
         popup_height = min(dp(600 if self._benchmark_results else 360),
                            max(Window.width, Window.height) * 0.85)
-        popup = _SandBgPopup(title="Benchmark", content=content, size_hint=(0.94, None),
+        popup = _SandBgPopup(title=f"Benchmark v{APP_VERSION}", content=content, size_hint=(0.94, None),
                             height=popup_height,
                             auto_dismiss=False)
         popup.title_align = "center"

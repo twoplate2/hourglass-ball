@@ -12,7 +12,8 @@ source.include_exts = py,png,jpg,kv,atlas,ttf,otf,wav,mp3
 # 子目录里的非 .py 资源必须显式列出,否则不进 APK(字体不列会中文乱码,音效不列会无声)
 source.include_patterns = sand_loop.wav,fonts/*.otf,sounds/*.wav,ui/*.png
 
-version = 0.1.0
+version.regex = APP_VERSION = ['"]([^'"]+)['"]
+version.filename = %(source.dir)s/app_version.py
 
 requirements = python3,kivy==2.3.0,pyjnius
 

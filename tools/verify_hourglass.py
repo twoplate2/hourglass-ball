@@ -1,4 +1,4 @@
-"""Isolated desktop regression and full four-period benchmark integration test."""
+"""Isolated desktop regression and three-period benchmark integration test."""
 
 import copy
 import importlib.util
@@ -29,6 +29,9 @@ def main():
         if "--no-vsync" in sys.argv:
             from kivy.config import Config
             Config.set("graphics", "vsync", "0")
+        if "--uncapped" in sys.argv:
+            from kivy.config import Config
+            Config.set("graphics", "maxfps", "0")
         from kivy.clock import Clock
         from kivy.core.window import Window
         from PIL import Image, ImageChops
@@ -37,7 +40,9 @@ def main():
             source = Path(sys.argv[sys.argv.index("--source") + 1])
             spec = importlib.util.spec_from_file_location("verification_source", source)
             app_module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = app_module
             spec.loader.exec_module(app_module)
+            app_module._benchmark_source_path = str(source.resolve())
             app_module.__file__ = str(ROOT / "main.py")
         from frame_benchmark import (BenchmarkRunner, PERIODS, frame_statistics,
                                      format_benchmark_report, format_frame_diagnostics,
@@ -179,6 +184,8 @@ def main():
                                      "code_hash": "sample-build"}}])
                 check("model=K90" in report and "sample-build" in report,
                       "copied diagnostics identify device and code revision")
+                check(f"Benchmark v{app_module.APP_VERSION}" in report,
+                      "copied benchmark report includes the application version")
                 power = SimpleNamespace(isPowerSaveMode=lambda: False,
                                         getCurrentThermalStatus=lambda: 2)
                 display = SimpleNamespace(getRefreshRate=lambda: 120)
@@ -203,6 +210,7 @@ def main():
                 check(app_module._fmt_countdown_pair(0, 1) == "0 / 1",
                       "countdown reaches zero only at completion")
                 self.verify_flow_realism()
+                self.verify_gpu_reserve()
 
                 widget = self.hourglass
                 print("Viewport:", Window.size, "widget:", widget.size, widget.pos,
@@ -254,7 +262,9 @@ def main():
                     reference.HourglassWidget._make_sound_proxy = lambda *_: None
                     old = reference.HourglassWidget(size=widget.size, pos=widget.pos)
                     Clock.unschedule(old.tick)
-                    old._rebuild_height_table()
+                    for obj in (old, widget):
+                        obj.duration = 60
+                        obj._rebuild_height_table()
                     for state, elapsed, running in (
                             ("idle", 0, False), ("mid", 24, True),
                             ("paused", 24, False), ("done", 60, False)):
@@ -273,10 +283,18 @@ def main():
                             widget._mound_height_px() / (2 * widget._R_inner))
                         for obj in (old, widget):
                             obj.redraw()
+                        # This reference checks the original shell/body geometry, not new material shading.
+                        widget._neck_solid_color.a = 1
                         textures = [obj.export_as_image().texture for obj in (old, widget)]
                         images = [Image.frombytes("RGBA", tex.size, tex.pixels)
                                   for tex in textures]
                         diff = ImageChops.difference(*images)
+                        if diff.convert("RGB").getbbox() is not None:
+                            directory = ROOT / "benchmark_logs" / "geometry_regression"
+                            directory.mkdir(exist_ok=True)
+                            for label, image in zip(("before", "after"), images):
+                                image.save(directory / f"{state}-{label}.png")
+                            print("Geometry pixel difference:", state, diff.getbbox(), diff.getextrema())
                         check(diff.convert("RGB").getbbox() is None,
                               "unchanged glass and true-circle sand rendering: " + state)
                     for period in (1, 5, 10, 30, 360000):
@@ -321,13 +339,28 @@ def main():
                 outlet = 2 * widget._neck_y - widget._taper["y_bot"]
                 length = widget._taper["y_bot"] - outlet
                 widget.particles = [{
+                    "x": widget._cx, "x_offset": 0, "y": outlet - length,
+                    "vy": -50, "size": 2, "is_light": True, "trail_time": 0.02,
+                }, {
                     "x": widget._cx, "x_offset": 0, "y": outlet - length * 0.5,
                     "vy": -50, "size": 2, "is_light": True, "trail_time": 0.02,
                 }]
                 ids = [id(p) for p in widget.particles]
                 widget.redraw()
-                check(widget._neck_grain_count == 1, "existing grain texture bridges the outlet")
-                color, line = widget._neck_grain_pool[0]
+                check(widget._neck_grain_count == 2, "existing grain texture bridges the outlet")
+                fade = widget._neck_fade_rect.texture.pixels
+                check(fade[3] < fade[-1] and tuple(widget._neck_fade_rect.size) != (0, 0),
+                      "outlet material uses a smooth GPU-sampled gradient")
+                probe = app_module.Widget(size=(32, 32), size_hint=(None, None))
+                with probe.canvas:
+                    app_module.Color(*widget.sand_light)
+                    app_module.Rectangle(texture=widget._neck_fade_rect.texture, size=(0, 0))
+                    app_module.Line(points=(16, 8, 16, 24), width=2)
+                texture = probe.export_as_image().texture
+                pixel = Image.frombytes("RGBA", texture.size, texture.pixels).getpixel((16, 16))
+                check(pixel[3] == 255,
+                      "ordinary grain lines remain opaque after the gradient")
+                color, line = widget._neck_grain_pool[1]
                 check(outlet < line.points[1] < widget._taper["y_bot"],
                       "neck texture stays inside the straight conduit")
                 expected = [(base + light) / 2
@@ -338,10 +371,20 @@ def main():
                     "neck texture preblend preserves fade without translucent stencil")
                 check(ids == [id(p) for p in widget.particles],
                       "neck texture adds no physics particles")
+                widget.particles[0]["y"] = outlet - 1
+                widget.particles[0]["vy"] = -200
+                widget.redraw()
+                if not hasattr(widget, "_flow_batches"):
+                    stream = widget._stream_pools[-1, 2][2][0]
+                    check(outlet < stream.points[3] <= widget._taper["y_bot"],
+                          "real grain trails cross the outlet without a horizontal cut")
                 widget.reset()
                 widget.redraw()
                 check(widget._neck_grain_count == 0 and not line.points,
                       "reset clears the conduit texture")
+                check(tuple(widget._neck_fade_rect.size) == (0, 0) and
+                      tuple(widget._neck_solid_rect.size) == (0, 0),
+                      "reset hides the outlet transition")
                 check(tuple(widget._pause_rect.size) == (0, 0) and
                       tuple(widget._flash_rect.size) == (0, 0),
                       "inactive full-screen overlays have no geometry")
@@ -425,6 +468,30 @@ def main():
                       "individual short trails preserve granular detail")
                 check(list(widget._stream_pools)[-1] == (-1, 2),
                       "bright grains render after the dense base stream")
+                widget.reset()
+
+            def verify_gpu_reserve(self):
+                widget = self.hourglass
+                if getattr(widget, "flow_renderer", "") != "mesh_gpu_reserved":
+                    return
+                batch = max(
+                    (batch for batch in widget._flow_batches.values()
+                     if hasattr(batch, "_ensure_part")),
+                    key=lambda batch: sum(part[3] for part in batch.parts))
+                capacity = sum(part[3] for part in batch.parts)
+                buffers = [(id(part[0]), id(part[1])) for part in batch.parts]
+                outlet = 2 * widget._neck_y - widget._taper["y_bot"]
+                particle = {"x": widget._cx, "y": outlet - 10,
+                            "vy": -60, "trail_time": 0.02}
+                batch.update([particle] * capacity, outlet)
+                check(buffers == [(id(part[0]), id(part[1])) for part in batch.parts],
+                      "GPU reserved vertex buffers do not grow within capacity")
+                batch.update([particle] * (capacity + 1), outlet)
+                check(sum(part[4] for part in batch.parts) == capacity + 1,
+                      "GPU buffer reserve never limits the actual grain count")
+                batch.update([], outlet)
+                check(all(part[4] == 0 and not part[0].indices for part in batch.parts),
+                      "GPU reserve hides all unused geometry after reset")
                 widget.reset()
 
             def verify_completion_audio(self):
@@ -524,6 +591,9 @@ def main():
 
             def start_full_benchmark(self, _dt):
                 check(self._benchmark_popup is not None, "real 3-second hold opens popup")
+                if self._benchmark_popup is not None:
+                    check(self._benchmark_popup.title == f"Benchmark v{app_module.APP_VERSION}",
+                          "benchmark title includes the application version")
                 self._benchmark_area.on_touch_up(self._hold_touch)
                 Window.screenshot(name=str(OUT / "benchmark-ready.png"))
                 if self._benchmark_popup is None:
@@ -688,7 +758,10 @@ def main():
                         name=str(Path(self._benchmark_log_path).with_suffix(".png"))), 0.2)
                     Clock.schedule_once(lambda _dt: self.stop(), 0.4)
 
-        VerificationApp().run()
+        app = VerificationApp()
+        app.run()
+        if "--benchmark-only" in sys.argv and app._rounds_left:
+            failures.append("benchmark cancelled or stopped before all requested rounds completed")
         print("Screenshots:", OUT)
         if failures:
             print("FAILED:", failures)

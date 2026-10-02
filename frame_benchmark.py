@@ -9,6 +9,8 @@ import os
 import sys
 import time
 
+from app_version import APP_VERSION
+
 from kivy.clock import Clock
 from kivy.config import Config
 from kivy.core.window import Window
@@ -26,14 +28,16 @@ REPORT_REVISION = 2
 def benchmark_environment(widget):
     environment = {
         "report_revision": REPORT_REVISION,
+        "app_version": APP_VERSION,
         "platform": runtime_platform,
         "window_pixels": tuple(Window.size),
         "maxfps": Config.get("graphics", "maxfps"),
+        "clock_resolution_s": round(Clock.get_resolution(), 6),
         "vsync": Config.get("graphics", "vsync"),
         "python": sys.version.split()[0],
     }
     source = sys.modules.get(type(widget).__module__)
-    path = getattr(source, "__file__", None)
+    path = getattr(source, "_benchmark_source_path", getattr(source, "__file__", None))
     if path:
         try:
             with open(path, "rb") as stream:
@@ -106,7 +110,7 @@ def format_benchmark_result(period, result=None):
 
 def format_benchmark_report(results, cancelled=False):
     by_period = {r["period"]: r for r in results}
-    blocks = [f"Benchmark / 诊断报告 v{REPORT_REVISION}"]
+    blocks = [f"Benchmark v{APP_VERSION} / 诊断报告 v{REPORT_REVISION}"]
     if results and results[0].get("environment"):
         environment = results[0]["environment"]
         blocks.append("环境: " + " / ".join(
