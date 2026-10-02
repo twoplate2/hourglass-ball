@@ -57,28 +57,15 @@ jobs:
           path: |
             ~/.buildozer
             .buildozer
-          key: buildozer-v2-${{ runner.os }}-${{ hashFiles('p4a-recipes/**', 'buildozer.spec') }}
+          key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             buildozer-v1-${{ runner.os }}-
 
-      - name: 本地 recipe 用绝对路径(buildozer 会切 CWD, 相对路径会静默失效)
-        run: |
-          sed -i "s|^p4a.local_recipes = .*$|p4a.local_recipes = $PWD/p4a-recipes|" buildozer.spec
-          grep -n "^p4a.local_recipes" buildozer.spec
-          ls -l p4a-recipes/flowcore/__init__.py p4a-recipes/flowcore/src/
-
       - name: Build APK (debug)
         run: |
-          set -o pipefail
-          yes | buildozer android debug 2>&1 | tee buildozer.log
+          yes | buildozer android debug
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
-
-      - name: 失败时把日志里的报错行发成 annotation
-        if: failure()
-        run: |
-          grep -n -i -E "error|traceback|exception|not exist|no such|ValueError|recipe" buildozer.log 2>/dev/null | tail -14 | sed 's/%/%25/g' | paste -sd'|' - > errs.txt || true
-          echo "::error title=buildozer-errors::$(cat errs.txt)"
 
       - name: Show output
         run: ls -lh bin/ || true
