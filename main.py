@@ -18,6 +18,22 @@ import random
 import sys
 import time
 import json
+
+
+# 沙流粒子的并行数组字段(见 NUMPY_PLAN.md)。numpy 缺失时整条向量化路径关闭,
+# 自动退回 update_particles 里的原标量循环 —— 不给沙漏制造风险。
+_P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt")
+_TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+try:
+    import numpy as _np
+    import flow_numpy as _flow_numpy
+except Exception as _exc:                    # 别静默: 退回标量循环时要能从 logcat 看出来
+    _np = None
+    _flow_numpy = None
+    print("numpy flow core unavailable, using scalar loop: %r" % (_exc,))
+
 import gc
 
 from app_version import APP_VERSION
@@ -713,6 +729,8 @@ class HourglassWidget(Widget):
         self._geom_ready = False
         self._vol_to_height = []
 
+        self.pn = 0
+        self._p_alloc(2048)
         self.particles = []
         self.particle_acc = 0.0
         self.splashes = []
@@ -978,6 +996,7 @@ class HourglassWidget(Widget):
 
     def _reset_run_state(self):
         self._stop_completion_sound()
+        self.pn = 0
         self.particles = []
         self.particle_acc = 0.0
         self.splashes = []
@@ -1154,6 +1173,130 @@ class HourglassWidget(Widget):
                 "end": now + DUST_LIFETIME,
             })
 
+    # ------------------------------------------------------------- 粒子存储(numpy)
+    # 并行 numpy 数组是真值; self.particles(dict 列表)由 _p_sync_dicts() 每帧派生,
+    # 供尚未迁移的渲染/装饰代码按老接口读取。迁移计划见 NUMPY_PLAN.md。
+    @staticmethod
+    def _newbuf(cap):
+        """numpy 缺席时退回 Python list —— 存储层两种后端都能跑, 只有物理分叉。"""
+        return _np.zeros(cap, dtype=_np.float64) if _np is not None else [0.0] * cap
+
+    def _p_alloc(self, cap):
+        self._p_cap = cap
+        for name in _P_FIELDS:
+            setattr(self, name, self._newbuf(cap))
+
+    def _p_grow(self, need):
+        if need <= self._p_cap:
+            return
+        cap = self._p_cap or 1024
+        while cap < need:
+            cap *= 2
+        old = self._p_cap
+        for name in _P_FIELDS:
+            src = getattr(self, name)
+            dst = self._newbuf(cap)
+            dst[:old] = src[:old]
+            setattr(self, name, dst)
+        self._p_cap = cap
+
+    def _p_sync_dicts(self, new_from=None):
+        """数组 -> dict 列表(临时兼容层; NUMPY_PLAN.md 步骤 3/4 完成后删掉)。
+
+        它每帧要新建 ~2500 个 dict, 是本方案里最大的剩余开销, 所以只是过渡。
+
+        `new_from`: 本帧新生的起始下标。标量兜底路径靠它把 `_step_dt`(帧内偏步长)
+        补回去 —— 漏了的话新粒子会拿到整帧 dt, 落得更远、提前触底, 画面就变了。
+        """
+        pn = self.pn
+        px = self.px
+        py = self.py
+        pvy = self.pvy
+        pxo = self.pxo
+        pwp = self.pwp
+        pwa = self.pwa
+        psz = self.psz
+        ptl = self.ptl
+        pli = self.pli
+        pdt = self.pdt
+        particles = []
+        append = particles.append
+        for i in range(pn):
+            d = {
+                "x": float(px[i]), "y": float(py[i]), "vy": float(pvy[i]),
+                "x_offset": float(pxo[i]), "wobble_phase": float(pwp[i]),
+                "wobble_amp": float(pwa[i]), "size": int(psz[i]),
+                "trail_time": float(ptl[i]), "is_light": bool(pli[i]),
+            }
+            if new_from is not None and i >= new_from:
+                d["_step_dt"] = float(pdt[i])
+            append(d)
+        self.particles = particles
+
+    def _p_from_dicts(self):
+        """dict 列表 -> 数组。只在 numpy 缺席、走标量物理那条兜底路径上用。"""
+        particles = self.particles
+        n = len(particles)
+        self._p_grow(n)
+        px = self.px
+        py = self.py
+        pvy = self.pvy
+        pxo = self.pxo
+        pwp = self.pwp
+        pwa = self.pwa
+        psz = self.psz
+        ptl = self.ptl
+        pli = self.pli
+        for k in range(n):
+            d = particles[k]
+            px[k] = d["x"]
+            py[k] = d["y"]
+            pvy[k] = d["vy"]
+            pxo[k] = d["x_offset"]
+            pwp[k] = d["wobble_phase"]
+            pwa[k] = d["wobble_amp"]
+            psz[k] = 2 if d["size"] == 2 else 1
+            ptl[k] = d["trail_time"]
+            pli[k] = 1.0 if d["is_light"] else 0.0
+        self.pn = n
+
+    def _replay_hits(self, hit_idx, hit_dt, mound_top, motion_scale, now):
+        """按下标升序回放命中事件 —— 随机数调用顺序与原标量循环逐字一致。
+
+        ⚠️ 三个随机数只在 splash 成立时才抽, 顺序:
+           rand()<0.25 → rand()<0.50 → uniform(0.14,0.28) → uniform(-0.85,0.85)
+           → choice([1,1,2])。
+        """
+        px = self.px
+        pvy = self.pvy
+        pdt = self.pdt
+        rand = random.random
+        rand_uniform = random.uniform
+        rand_choice = random.choice
+        sin = math.sin
+        cos = math.cos
+        append_flare = self.flares.append
+        append_splash = self.splashes.append
+        for k in range(len(hit_idx)):
+            i = int(hit_idx[k])
+            x = float(px[i])
+            vy = float(pvy[i])
+            step_dt = float(pdt[i])
+            if rand() < 0.25:
+                append_flare({"x": x, "y": mound_top, "end": now + 0.08})
+            if rand() < 0.50:
+                v = -vy
+                bounce = min(110 * motion_scale,
+                             (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
+                angle = rand_uniform(-0.85, 0.85)
+                step_left = step_dt - float(hit_dt[k])
+                append_splash({
+                    "x": x, "y": mound_top + 0.5,
+                    "vx": sin(angle) * bounce,
+                    "vy": cos(angle) * bounce,
+                    "size": rand_choice([1, 1, 2]),
+                    "_step_dt": step_left if step_left > 0 else 0,
+                })
     def update_particles(self, dt):
         if not self._geom_ready:
             return
@@ -1165,6 +1308,7 @@ class HourglassWidget(Widget):
         ow = self._ow
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
+        self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
 
         if self.running and remaining > 0:
             rate = 600 * self.speed_factor
@@ -1174,22 +1318,33 @@ class HourglassWidget(Widget):
             emit_dt = min(dt, max(0.0, self.elapsed - self._neck_fill_time))
             self.particle_acc += emit_dt * rate
             x_clip = max(1.0, neck_w - ow)
+            self._spawn_from = self.pn
+            # 一次把本帧要生的量预留够, 不在循环里反复扩容。
+            self._p_grow(self.pn + int(self.particle_acc) + 2)
             while self.particle_acc >= 1:
                 self.particle_acc -= 1
                 x_off = random.uniform(-x_clip, x_clip)
                 vy0 = -(random.uniform(90, 120) if random.random() < 0.05
                         else random.uniform(35, 60)) * motion_scale
-                self.particles.append({
-                    "x": cx + x_off, "x_offset": x_off,
-                    "y": gen_y,
-                    "vy": vy0,
-                    "wobble_phase": random.uniform(0, math.tau),
-                    "wobble_amp": random.uniform(0.4, 1.0),
-                    "is_light": random.random() < 0.10,
-                    "size": (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1,
-                    "trail_time": random.uniform(0.018, 0.032),
-                    "_step_dt": self.particle_acc / rate,
-                })
+                # ⚠️ 抽取顺序必须与原来那个 dict 字面量的求值顺序逐字一致; 尤其
+                #    `size` 的条件表达式在 x_clip < 3.0 时短路, **不抽**那个随机数。
+                phase = random.uniform(0, math.tau)
+                amp = random.uniform(0.4, 1.0)
+                is_light = random.random() < 0.10
+                size = (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1
+                trail_time = random.uniform(0.018, 0.032)
+                i = self.pn
+                self.px[i] = cx + x_off
+                self.pxo[i] = x_off
+                self.py[i] = gen_y
+                self.pvy[i] = vy0
+                self.pwp[i] = phase
+                self.pwa[i] = amp
+                self.pli[i] = 1.0 if is_light else 0.0
+                self.psz[i] = size
+                self.ptl[i] = trail_time
+                self.pdt[i] = self.particle_acc / rate
+                self.pn = i + 1
 
         g = -450.0 * motion_scale * motion_scale
         g_abs = abs(g)
@@ -1213,101 +1368,136 @@ class HourglassWidget(Widget):
         sin = math.sin
         sqrt = math.sqrt
         mound_top_plus_1 = mound_top + 1
-        for p in self.particles:
-            # 局部变量缓存:原来每颗粒几十次 dict 查找,这里改成读一次写回一次。
-            # 所有算式与随机数调用顺序保持逐字不变, 保证粒子流与画面完全一致。
-            step_dt = p.pop("_step_dt", dt)
-            y = p["y"]
-            vy = p["vy"]
-            old_y, old_vy = y, vy
-            x_offset = p["x_offset"]
-            wobble_phase = p["wobble_phase"]
-            wobble_amp = p["wobble_amp"]
-            size = p["size"]
-            y += vy * step_dt + 0.5 * g * step_dt * step_dt
-            vy += g * step_dt
-            hit = y <= mound_top
-            hit_dt = 0.0
-            if hit:
-                d = old_y - mound_top
-                distance = d if d > 0 else 0
-                v = -old_vy
-                speed = v if v > 0 else 0
-                denom = speed + sqrt(speed * speed + 2 * g_abs * distance)
-                hit_dt = 2 * distance / (denom if denom > 1e-6 else 1e-6)
-                hit_dt = hit_dt if hit_dt < step_dt else step_dt
-                y = mound_top
-                vy = old_vy + g * hit_dt
-            fd = gen_y - y
-            fallen_dist = fd if fd > 0.0 else 0.0
-            # 管内: 管壁约束,填满内径 shrink=1.0
-            # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
-            if y > lower_cut:
-                shrink = 1.0
-            else:
-                below_tube = lower_cut - y
-                v_at_y = (source_speed_squared + 2 * g_abs * below_tube) ** 0.5
-                target = (source_speed / v_at_y) ** 0.5
-                if target <= 0.70:
-                    target = 0.70
-                # 平滑过渡区长度(px)
-                if below_tube < 40.0:
-                    shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
+        if _flow_numpy is not None:
+            # numpy 路线: 纯算术向量化(逐位等价由 tools/test_physics_equiv.py 验收),
+            # 随机数仍留在 Python, 命中事件按下标升序回放。
+            pn = self.pn
+            if pn:
+                consts = {
+                    "g": g, "g_abs": g_abs, "mound_top": mound_top,
+                    "gen_y": gen_y, "lower_cut": lower_cut,
+                    "lower_top": lower_top, "lower_center": lower_center,
+                    "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
+                    "source_speed": source_speed,
+                    "source_speed_squared": source_speed_squared,
+                    "cx": cx, "peak_offset": peak_offset,
+                }
+                hit_idx, hit_dt, peak_offset = _flow_numpy.step(
+                    self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
+                    self.psz, self.pdt, pn, consts)
+                nhit = len(hit_idx)
+                if nhit:
+                    self._replay_hits(hit_idx, hit_dt, mound_top,
+                                      motion_scale, now)
+                    keep = _np.ones(pn, dtype=bool)
+                    keep[hit_idx] = False
+                    newpn = pn - nhit
+                    for _name in _P_FIELDS:
+                        _arr = getattr(self, _name)
+                        _arr[:newpn] = _arr[:pn][keep]
+                    self.pn = newpn
+            # 本帧步长用完即废: 下帧统一用 dt(等价于原 dict.pop("_step_dt", dt))
+            self.pdt[:self.pn] = dt
+            self._p_sync_dicts()
+        else:
+            # numpy 缺席时的兜底: 数组 -> dicts -> 原标量循环 -> 写回数组。
+            self._p_sync_dicts(self._spawn_from)
+            for p in self.particles:
+                # 局部变量缓存:原来每颗粒几十次 dict 查找,这里改成读一次写回一次。
+                # 所有算式与随机数调用顺序保持逐字不变, 保证粒子流与画面完全一致。
+                step_dt = p.pop("_step_dt", dt)
+                y = p["y"]
+                vy = p["vy"]
+                old_y, old_vy = y, vy
+                x_offset = p["x_offset"]
+                wobble_phase = p["wobble_phase"]
+                wobble_amp = p["wobble_amp"]
+                size = p["size"]
+                y += vy * step_dt + 0.5 * g * step_dt * step_dt
+                vy += g * step_dt
+                hit = y <= mound_top
+                hit_dt = 0.0
+                if hit:
+                    d = old_y - mound_top
+                    distance = d if d > 0 else 0
+                    v = -old_vy
+                    speed = v if v > 0 else 0
+                    denom = speed + sqrt(speed * speed + 2 * g_abs * distance)
+                    hit_dt = 2 * distance / (denom if denom > 1e-6 else 1e-6)
+                    hit_dt = hit_dt if hit_dt < step_dt else step_dt
+                    y = mound_top
+                    vy = old_vy + g * hit_dt
+                fd = gen_y - y
+                fallen_dist = fd if fd > 0.0 else 0.0
+                # 管内: 管壁约束,填满内径 shrink=1.0
+                # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
+                if y > lower_cut:
+                    shrink = 1.0
                 else:
-                    shrink = target
-                dist_to_floor = y - mound_top
-                if 0 < dist_to_floor < 30:
-                    shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
-            x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
-                * wobble_amp * (1 - shrink * 0.4)
+                    below_tube = lower_cut - y
+                    v_at_y = (source_speed_squared + 2 * g_abs * below_tube) ** 0.5
+                    target = (source_speed / v_at_y) ** 0.5
+                    if target <= 0.70:
+                        target = 0.70
+                    # 平滑过渡区长度(px)
+                    if below_tube < 40.0:
+                        shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
+                    else:
+                        shrink = target
+                    dist_to_floor = y - mound_top
+                    if 0 < dist_to_floor < 30:
+                        shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
+                x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
+                    * wobble_amp * (1 - shrink * 0.4)
 
-            # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
-            if y >= lower_top:
-                lim = tube_lim
-            else:
-                dy = y - lower_center
-                r = Ri2 - dy ** 2
-                raw_ball = sqrt(r) if r > 0.0 else 0.0
-                below = lower_top - y
-                t = below / 30.0
-                if t > 1.0:
-                    t = 1.0
-                lim = tube_lim + (raw_ball - tube_lim) * t
-            half_stroke = size if size > 1 else 0.5
-            lim = lim - half_stroke
-            if lim <= 0.0:
-                lim = 0.0
-            off = x - cx
-            if off > lim:
-                off = lim
-            elif off < -lim:
-                off = -lim
-            x = cx + off
+                # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
+                if y >= lower_top:
+                    lim = tube_lim
+                else:
+                    dy = y - lower_center
+                    r = Ri2 - dy ** 2
+                    raw_ball = sqrt(r) if r > 0.0 else 0.0
+                    below = lower_top - y
+                    t = below / 30.0
+                    if t > 1.0:
+                        t = 1.0
+                    lim = tube_lim + (raw_ball - tube_lim) * t
+                half_stroke = size if size > 1 else 0.5
+                lim = lim - half_stroke
+                if lim <= 0.0:
+                    lim = 0.0
+                off = x - cx
+                if off > lim:
+                    off = lim
+                elif off < -lim:
+                    off = -lim
+                x = cx + off
 
-            if hit:
-                if mound_top > lower_bot + 1:
-                    peak_offset = peak_offset * 0.97 + (x - cx) * 0.03
-                if rand() < 0.25:
-                    append_flare({"x": x, "y": mound_top, "end": now + 0.08})
-                if rand() < 0.50:
-                    v = -vy
-                    bounce = min(110 * motion_scale,
-                                 (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
-                    angle = rand_uniform(-0.85, 0.85)
-                    step_left = step_dt - hit_dt
-                    append_splash({
-                        "x": x, "y": mound_top + 0.5,
-                        "vx": sin(angle) * bounce,
-                        "vy": math.cos(angle) * bounce,
-                        "size": rand_choice([1, 1, 2]),
-                        "_step_dt": step_left if step_left > 0 else 0,
-                    })
-                continue
-            p["y"] = y
-            p["vy"] = vy
-            p["x"] = x
-            append_particle(p)
-        self.particles = new_list
+                if hit:
+                    if mound_top > lower_bot + 1:
+                        peak_offset = peak_offset * 0.97 + (x - cx) * 0.03
+                    if rand() < 0.25:
+                        append_flare({"x": x, "y": mound_top, "end": now + 0.08})
+                    if rand() < 0.50:
+                        v = -vy
+                        bounce = min(110 * motion_scale,
+                                     (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
+                        angle = rand_uniform(-0.85, 0.85)
+                        step_left = step_dt - hit_dt
+                        append_splash({
+                            "x": x, "y": mound_top + 0.5,
+                            "vx": sin(angle) * bounce,
+                            "vy": math.cos(angle) * bounce,
+                            "size": rand_choice([1, 1, 2]),
+                            "_step_dt": step_left if step_left > 0 else 0,
+                        })
+                    continue
+                p["y"] = y
+                p["vy"] = vy
+                p["x"] = x
+                append_particle(p)
+            self.particles = new_list
+            self._p_from_dicts()
         self.mound_peak_offset = peak_offset
 
         new_splashes = []
