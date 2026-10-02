@@ -21,10 +21,13 @@ def _load_flowcore():
     except ImportError:
         import os
         import sys
-        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        candidate = os.path.join(here, "native")
-        if candidate not in sys.path:
-            sys.path.insert(0, candidate)
+        # base: 本地跑像素闸门时是工程根(<repo>/pc/apk), 设备上就是 app 目录 ——
+        # 设备端把 .so 放在 app 目录, 而 p4a 的 sys.path 主要指向 _python_bundle,
+        # 不补这一条 import flowcore 会静默失败(实测没有 ON 提示, 一直走 Python 兜底)。
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for candidate in (os.path.join(base, "native"), base):
+            if os.path.isdir(candidate) and candidate not in sys.path:
+                sys.path.insert(0, candidate)
         try:
             import flowcore
         except ImportError:
