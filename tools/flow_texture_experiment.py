@@ -30,7 +30,8 @@ def _load_flowcore():
                 sys.path.insert(0, candidate)
         try:
             import flowcore
-        except ImportError:
+        except Exception as exc:                        # 别静默: 设备上要靠 logcat 定位
+            print("flowcore import failed: %r" % (exc,))
             return None
     print("flowcore native packing: ON")
     return flowcore
