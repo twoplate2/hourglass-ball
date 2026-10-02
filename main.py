@@ -1309,6 +1309,12 @@ class HourglassWidget(Widget):
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
+        # ⚠️ 本帧步长必须在这里铺满, **不能**在帧尾存"上一帧的 dt"。
+        #    闸门用 step = min(1/120, target-elapsed), 到采样点附近会产生偏步长;
+        #    存上一帧的 dt 会让下一帧的粒子落得更远、提前触底(实测每周期末 2% 分叉)。
+        #    语义对齐原来的 `p.pop("_step_dt", dt)`: 老粒子用**本帧** dt, 帧内新生的
+        #    粒子随后在 spawn 里覆盖成自己的偏步长。
+        self.pdt[:self.pn] = dt
 
         if self.running and remaining > 0:
             rate = 600 * self.speed_factor
@@ -1396,8 +1402,6 @@ class HourglassWidget(Widget):
                         _arr = getattr(self, _name)
                         _arr[:newpn] = _arr[:pn][keep]
                     self.pn = newpn
-            # 本帧步长用完即废: 下帧统一用 dt(等价于原 dict.pop("_step_dt", dt))
-            self.pdt[:self.pn] = dt
             self._p_sync_dicts()
         else:
             # numpy 缺席时的兜底: 数组 -> dicts -> 原标量循环 -> 写回数组。
