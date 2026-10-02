@@ -159,3 +159,55 @@ Python 版是**逐颗粒交错**地抽随机数。若 C 里把事件攒到最后
    (读端 `_group_stream_particles` / 打包 / 颈部颗粒 / dust 都要换下标),
    每换一处跑一次闸门; 换完物理进 C 可再快 3~5 倍。
 3. canvas: splashes/dust 的 Mesh 合批(见前面的两条结论) + 可能的 flow 批次数合并。
+
+## update_particles 逐字规格(已逐行核对 main.py:1216-1310)
+
+每颗粒(顺序 = self.particles 顺序):
+
+```
+step_dt = p.pop("_step_dt", dt)          # 只有帧中新生的粒子有
+y, vy = p["y"], p["vy"];  old_y, old_vy = y, vy
+读 x_offset, wobble_phase, wobble_amp, size
+y += vy*step_dt + 0.5*g*step_dt*step_dt
+vy += g*step_dt
+hit = (y <= mound_top)
+若 hit:  d = old_y - mound_top;  distance = d>0?d:0;  v = -old_vy;  speed = v>0?v:0
+        denom = speed + sqrt(speed*speed + 2*g_abs*distance)
+        hit_dt = 2*distance / (denom>1e-6 ? denom : 1e-6);  hit_dt = min(hit_dt, step_dt)
+        y = mound_top;  vy = old_vy + g*hit_dt
+fd = gen_y - y;  fallen_dist = fd>0?fd:0
+若 y > lower_cut:  shrink = 1.0
+否则: below_tube = lower_cut - y
+      v_at_y = (source_speed_sq + 2*g_abs*below_tube) ** 0.5
+      target = (source_speed / v_at_y) ** 0.5;  target = target<=0.70 ? 0.70 : target
+      shrink = below_tube < 40 ? 1.0 + (target-1.0)*(below_tube/40.0) : target
+      dist_to_floor = y - mound_top
+      若 0 < dist_to_floor < 30:  shrink *= 1 + (1 - dist_to_floor/30)*0.4
+x = cx + x_offset*shrink + sin(fallen_dist*0.07 + wobble_phase)*wobble_amp*(1-shrink*0.4)
+若 y >= lower_top:  lim = tube_lim
+否则: dy = y - lower_center;  r = Ri2 - dy*dy;  raw_ball = r>0?sqrt(r):0
+      t = min((lower_top - y)/30.0, 1.0);  lim = tube_lim + (raw_ball - tube_lim)*t
+half_stroke = size>1 ? size : 0.5;  lim = max(lim - half_stroke, 0)
+off = clamp(x-cx, ±lim);  x = cx + off
+若 hit:  (mound_top > lower_bot+1) 时 peak_offset = peak_offset*0.97 + (x-cx)*0.03
+        **该颗粒不再进入 new_list(落地即移除)**
+否则: 写回 p["y"], p["vy"], p["x"], 并 append 到 new_list
+```
+
+C 侧接口建议:
+`flowcore.step(particles, consts, dt)` -> 返回命中事件列表
+- `consts` = (g, g_abs, gen_y, mound_top, lower_cut, lower_top, lower_center, Ri2,
+  tube_lim, source_speed_sq, source_speed, cx, lower_bot, motion_scale, now)
+- 返回: [(x, vy, step_dt, hit_dt), ...] **按颗粒顺序**; 以及新的 mound_peak_offset
+  (EMA 只依赖 x, 可在 C 里算完回传)。
+- Python 侧按返回顺序**逐个回放随机数**:
+  `if rand() < 0.25: flare(...)` → `if rand() < 0.50:` → `bounce = min(110*motion_scale,
+  max(-vy,0)*rand_uniform(0.14,0.28))` → `angle = rand_uniform(-0.85,0.85)` →
+  `size = rand_choice([1,1,2])`; 然后 append splash。
+  ⚠️ 三个随机数**只在 splash 成立时才抽**, 顺序与条件必须逐字照抄。
+- 命中颗粒的移除: Python 侧按返回的命中下标过滤 `self.particles`。
+
+**逐位等价的风险点**: C 用 `double`、表达式顺序照抄; `** 0.5` 用 `sqrt()`(与 CPython 的
+`float.__pow__` 对 0.5 的路径一致, 但**要用 sqrt** —— `pow(x,0.5)` 在某些 libm 上差 1ULP);
+`sin` 用 libm。这些是唯一可能不逐位一致的算子, 所以**必须过逐像素闸门**, 而且要在一台设备上
+再目视确认一次。
