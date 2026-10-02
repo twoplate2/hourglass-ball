@@ -28,8 +28,8 @@ from kivy.graphics.texture import Texture
 import flow_batch_experiment
 
 
-FLOAT3I = Struct("<3fI")
-TEXELS_PER_PARTICLE = 4
+FLOAT6 = Struct("<6f")     # x, bottom, top, r, g, b —— 全 float, 逐位精确
+TEXELS_PER_PARTICLE = 6
 SINGLE_CHUNK = 2048      # 每块颗粒数上限(Kivy Mesh 16 位索引)
 TEXEL_STEP_UNIFORM = "texel_step"
 
@@ -52,9 +52,11 @@ void main(void) {
     float x = read_float(u);
     float bottom = read_float(u + texel_step);
     float top = read_float(u + texel_step * 2.0);
-    vec3 tint = texture2D(endpoints, vec2(u + texel_step * 3.0, 0.5)).rgb;
+    float cr = read_float(u + texel_step * 3.0);
+    float cg = read_float(u + texel_step * 4.0);
+    float cb = read_float(u + texel_step * 5.0);;
     vec2 position = vec2(x, mix(bottom, top, vTexCoords0.y)) + vPosition;
-    frag_color = vec4(tint, 1.0) * vec4(1.0, 1.0, 1.0, opacity);
+    frag_color = vec4(cr, cg, cb, 1.0) * vec4(1.0, 1.0, 1.0, opacity);
     gl_Position = projection_mat * modelview_mat * vec4(position, 0.0, 1.0);
 }
 """
@@ -105,16 +107,14 @@ class SingleFlowBatch:
 
     def write(self, entries, top_limit):
         """entries: [(x, bottom, top, r, g, b), ...] 按绘制顺序; 每颗粒 1 次 pack_into。"""
-        pack = FLOAT3I.pack_into
+        pack = FLOAT6.pack_into
         data = self.data
         offset = 0
         for x, bottom, top, r, g, b in entries:
             if top > top_limit:
                 top = top_limit
-            rgba = (int(r * 255.0 + 0.5) | (int(g * 255.0 + 0.5) << 8)
-                    | (int(b * 255.0 + 0.5) << 16) | 0xFF000000)
-            pack(data, offset, x, bottom, top, rgba)
-            offset += 16
+            pack(data, offset, x, bottom, top, r, g, b)
+            offset += 24
         count = len(entries)
         self.texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
         if self.count != count:
