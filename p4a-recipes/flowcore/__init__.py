@@ -27,14 +27,19 @@ class FlowcoreRecipe(IncludedFilesBehaviour, CompiledComponentsPythonRecipe):
         return True
 
     def build_arch(self, arch):
-        # 跑 setup.py 的是 p4a 自建的 hostpython(recipe.py:990 hostpython_location),
-        # 不是当前进程的解释器 —— 必须给它装 setuptools。
-        # prebuild_arch 阶段 ctx.hostpython 还没赋值(实测 AttributeError), build_arch
-        # 阶段才有, 所以安装放这里。
-        hostpython = sh.Command(self.ctx.hostpython)
-        with current_directory(self.get_build_dir(arch.arch)):
-            shprint(hostpython, "-m", "pip", "install", "--quiet", "setuptools")
-        super().build_arch(arch)
+        # p4a 的 build_compiled_components / install_python_package 都是用
+        # ctx.hostpython(它自建的 hostpython, 没有 pip, 也未必有 setuptools)跑
+        # setup.py —— 实测报 ModuleNotFoundError: No module named 'setuptools'。
+        # 这里临时换成"当前正在跑 p4a 的那个解释器"(runner 自带的 Python, 有
+        # setuptools); 编出来仍是目标架构, 因为 CC/CFLAGS/LDFLAGS 都来自
+        # get_recipe_env(arch) 指向的 NDK clang。
+        saved = getattr(self.ctx, "hostpython", None)
+        self.ctx.hostpython = sys.executable
+        try:
+            super().build_arch(arch)
+        finally:
+            if saved is not None:
+                self.ctx.hostpython = saved
 
 
 recipe = FlowcoreRecipe()
