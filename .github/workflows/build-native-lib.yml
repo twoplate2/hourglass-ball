@@ -30,8 +30,14 @@ jobs:
           # 源码包里的 Include/ 没有 pyconfig.h —— 它是 configure 时生成的。
           # 目标侧只需要 LP64 的类型/尺寸宏, 用宿主 configure 生成的即可。
           cd Python-3.11.5
-          ./configure --without-ensurepip --quiet > /dev/null 2>&1 || ./configure --without-ensurepip
-          ls -l Include/pyconfig.h
+          ./configure --without-ensurepip > cfg.log 2>&1 || true
+          echo "configure 退出码: $?"
+          tail -5 cfg.log
+          if [ -f Include/pyconfig.h ]; then
+            echo "pyconfig.h 已生成"
+          else
+            echo "::error title=configure-failed::$(tail -6 cfg.log | sed 's/%/%25/g' | paste -sd'|' -)"
+          fi
 
       - name: 交叉编译 arm64 .so
         run: |
