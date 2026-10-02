@@ -164,10 +164,6 @@ def install(widget_class):
         for width in (1, 2):
             self._flow_single[width] = [SingleFlowBatch(context, width, SINGLE_CHUNK)
                                         for _ in range(chunks)]
-        # 用 canvas 的 Callback 指令驱动绘制: 它在每次 canvas.draw() 时执行,
-        # 不依赖"类级替换 _draw_stream 是否生效"(实测那条路在这台机器上没生效,
-        # 而同样的写法在 flow_texture_experiment 里是生效的 —— 暂不深究)。
-        context.add(Callback(lambda *_: draw_single(self)))   # Kivy 会传 1 个参数
         self.canvas.insert(position, context)
         self._flow_single_context = context
         self._flow_single_draw = draw_single
@@ -211,15 +207,16 @@ def install(widget_class):
             for i, batch in enumerate(batches):
                 batch.write(entries[i * SINGLE_CHUNK:(i + 1) * SINGLE_CHUNK], top_limit)
 
-    def safe_draw(self):
-        try:
-            draw_single(self)
-        except Exception:
-            import traceback
-            _probe("draw_single EXC: " + traceback.format_exc()[-600:])
-            raise
+    # 挂在 update_particles 上: 基准探针证明它每帧必被调用(而 _draw_stream 的类级
+    # 替换在这里不触发, canvas Callback 也不执行 —— 原因未明, 先绕开)。
+    # update_particles 在 redraw 之前跑, 所以纹理在本帧 GL 绘制前就写好了。
+    original_update = widget_class.update_particles
+
+    def update_and_draw(self, dt):
+        original_update(self, dt)
+        draw_single(self)
 
     widget_class._build_dynamic_canvas = build_single
-    widget_class._draw_stream = safe_draw
+    widget_class.update_particles = update_and_draw
     widget_class._flow_single_capacity = 64
     widget_class.flow_renderer = "single_mesh"
