@@ -202,6 +202,26 @@ def install(widget_class):
                     index = last
                 r, g, b = table[index]
             (thin if p["size"] == 1 else thick).append((p["x"], y, top, r, g, b))
+        _rn = 0
+        _rsx = _rsy = _rst = 0.0
+        for _k, _b in self._group_stream_particles().items():
+            for _q in _b:
+                _bb = _q["y"]
+                _v = _q["vy"]
+                if _v < 0:
+                    _v = -_v
+                _tr = _v * _q["trail_time"] / scale
+                if _tr < 2:
+                    _tr = 2
+                _t = _bb + _tr
+                if _t > top_limit:
+                    _t = top_limit
+                _rsx += _q["x"]
+                _rsy += _bb
+                _rst += _t
+                _rn += 1
+        _probe("REF t=%.4f n=%d sx=%.2f sy=%.2f st=%.2f" % (
+            self.elapsed, _rn, _rsx, _rsy, _rst))
         _sx = _sy = _st = 0.0
         try:
             from kivy.app import App as _App
