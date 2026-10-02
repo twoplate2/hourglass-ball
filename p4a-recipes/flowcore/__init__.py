@@ -26,14 +26,15 @@ class FlowcoreRecipe(IncludedFilesBehaviour, CompiledComponentsPythonRecipe):
     def should_build(self, arch):
         return True
 
-    def prebuild_arch(self, arch):
-        super().prebuild_arch(arch)
-        # 用当前进程的解释器(p4a 自己跑在这个 Python 上), 不能取 ctx.hostpython ——
-        # prebuild 阶段它还没赋值, 实测报 AttributeError: 'Context' object has no
-        # attribute 'hostpython'。
-        hostpython = sh.Command(sys.executable)
+    def build_arch(self, arch):
+        # 跑 setup.py 的是 p4a 自建的 hostpython(recipe.py:990 hostpython_location),
+        # 不是当前进程的解释器 —— 必须给它装 setuptools。
+        # prebuild_arch 阶段 ctx.hostpython 还没赋值(实测 AttributeError), build_arch
+        # 阶段才有, 所以安装放这里。
+        hostpython = sh.Command(self.ctx.hostpython)
         with current_directory(self.get_build_dir(arch.arch)):
             shprint(hostpython, "-m", "pip", "install", "--quiet", "setuptools")
+        super().build_arch(arch)
 
 
 recipe = FlowcoreRecipe()
