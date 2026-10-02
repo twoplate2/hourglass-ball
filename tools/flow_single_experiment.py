@@ -21,7 +21,7 @@ from array import array
 import math
 from struct import Struct
 
-from kivy.graphics import BindTexture, Mesh, RenderContext
+from kivy.graphics import BindTexture, Callback, Mesh, RenderContext
 from kivy.graphics.opengl import glGetIntegerv, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS
 from kivy.graphics.texture import Texture
 
@@ -122,9 +122,13 @@ class SingleFlowBatch:
             self.count = count
 
 
+import os as _os
+
 def _probe(msg):
     try:
-        with open("single_flow_probe.log", "a", encoding="utf-8") as f:
+        path = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), "single_flow_probe.log")
+        with open(path, "a", encoding="utf-8") as f:
             f.write(msg + chr(10))
     except OSError:
         pass
@@ -160,8 +164,13 @@ def install(widget_class):
         for width in (1, 2):
             self._flow_single[width] = [SingleFlowBatch(context, width, SINGLE_CHUNK)
                                         for _ in range(chunks)]
+        # 用 canvas 的 Callback 指令驱动绘制: 它在每次 canvas.draw() 时执行,
+        # 不依赖"类级替换 _draw_stream 是否生效"(实测那条路在这台机器上没生效,
+        # 而同样的写法在 flow_texture_experiment 里是生效的 —— 暂不深究)。
+        context.add(Callback(lambda *_: draw_single(self)))   # Kivy 会传 1 个参数
         self.canvas.insert(position, context)
         self._flow_single_context = context
+        self._flow_single_draw = draw_single
 
     def draw_single(self):
         outlet = 2 * self._neck_y - self._taper["y_bot"]
