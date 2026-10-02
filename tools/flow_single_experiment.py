@@ -203,6 +203,16 @@ def install(widget_class):
                 r, g, b = table[index]
             (thin if p["size"] == 1 else thick).append((p["x"], y, top, r, g, b))
         _sx = _sy = _st = 0.0
+        try:
+            from kivy.app import App as _App
+            _app = _App.get_running_app()
+            _live = getattr(_app, "hourglass", None) if _app else None
+            _probe("SELF id=%s live id=%s live_n=%s self_n=%d" % (
+                id(self), id(_live),
+                len(getattr(_live, "particles", [])) if _live is not None else "n/a",
+                len(self.particles)))
+        except Exception as _e:
+            _probe("SELF probe failed: %r" % (_e,))
         _below = sum(1 for _q in self.particles if _q["y"] < outlet)
         _probe("t=%.4f len(particles)=%d below_outlet=%d outlet=%.2f neck_y=%.2f y_bot=%.2f" % (
             self.elapsed, len(self.particles), _below, outlet,
