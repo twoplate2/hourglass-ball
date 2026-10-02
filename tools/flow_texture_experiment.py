@@ -145,6 +145,26 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     mesh.indices = indices[:count * len(self.indices)]
                     part[4] = count
                 continue
+            _sx = _sy = _st = 0.0
+            _n = 0
+            for i in (range(start, start + count) if chunk else
+                      range(start, start + count)):
+                _q = particles[i]
+                _b = _q["y"]
+                _v = _q["vy"]
+                if _v < 0:
+                    _v = -_v
+                _tr = _v * _q["trail_time"] / motion_scale
+                if _tr < 2:
+                    _tr = 2
+                _t = _b + _tr
+                if _t > top_limit:
+                    _t = top_limit
+                _sx += _q["x"]; _sy += _b; _st += _t; _n += 1
+            if chunk == 0:
+                with open("ref_probe.log", "a", encoding="utf-8") as _f:
+                    _f.write("w%d n=%d sx=%.4f sy=%.4f st=%.4f%s" % (
+                        int(self.width), _n, _sx, _sy, _st, chr(10)))
             offset = 0
             for i in range(start, start + count):
                 particle = particles[i]
