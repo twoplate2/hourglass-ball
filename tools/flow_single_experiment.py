@@ -202,7 +202,15 @@ def install(widget_class):
             for i, batch in enumerate(batches):
                 batch.write(entries[i * SINGLE_CHUNK:(i + 1) * SINGLE_CHUNK], top_limit)
 
+    def safe_draw(self):
+        try:
+            draw_single(self)
+        except Exception:
+            import traceback
+            _probe("draw_single EXC: " + traceback.format_exc()[-600:])
+            raise
+
     widget_class._build_dynamic_canvas = build_single
-    widget_class._draw_stream = draw_single
+    widget_class._draw_stream = safe_draw
     widget_class._flow_single_capacity = 64
     widget_class.flow_renderer = "single_mesh"
