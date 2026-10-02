@@ -74,6 +74,18 @@ Windows 使用 `perf_counter()` 高精度时钟，避免 Python 3.11 `GetTickCou
 本次 Windows 试验中，合批降低了 Canvas 提交耗时，但增加了 Python 顶点更新耗时，1% low 没有稳定改善。
 因此正式运行保持原图元池方案，不默认开启合批；实验入口为 `--batch-flow`。
 
+PC 开发实验另有两项，均不改变正式渲染：
+
+- `--chunk-flow` / `--compare-chunks`：预留 Line 按 64 个分块，仅挂载当前使用的块，沙粒数量与画法不变。
+- `--gpu-flow` / `--compare-gpu`：保留原圆头顶点与拖尾，将宽沙粒的顶点平移交给 GLSL；窄沙粒保留线段合批。
+
+交替复测：`python tools/verify_hourglass.py --benchmark-only --compare-gpu --rounds 4 --no-vsync`。
+`--no-vsync` 仅用于该测试进程，正式 VSync 不变；不要与 `--capture` 的成绩混比。
+视觉对照：`python tools/inspect_flow.py --label gpu --gpu-flow --pixels 400,800`。
+2026-10-02 的 PC 四轮测试中，分块池未显示稳定的 15 秒 low 帧收益；
+GPU 方案降低了 Canvas 耗时，但增加了 Python 图元更新耗时，尚未证明整体 low 帧改善，因此两者都不默认启用。
+结果以本地 `benchmark_logs` 的完整记录为准，不据此推断真机性能。
+
 ### 沙流视觉与衔接
 
 - 亮色颗粒后置绘制，避免被主体盖住；新生颗粒使用 18–32ms 的不同拖尾，保留同样的生成速率和 Line 画法。

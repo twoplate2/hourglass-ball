@@ -19,6 +19,8 @@ def main():
     parser.add_argument("--source", type=Path, default=ROOT / "main.py")
     parser.add_argument("--label", default="current")
     parser.add_argument("--pixels", default="400,800")
+    parser.add_argument("--chunk-flow", action="store_true")
+    parser.add_argument("--gpu-flow", action="store_true")
     args = parser.parse_args()
     output = ROOT / "benchmark_logs" / ("flow_visual_" + args.label)
     output.mkdir(exist_ok=True)
@@ -39,6 +41,18 @@ def main():
         spec = importlib.util.spec_from_file_location("flow_visual_source", args.source)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        if args.chunk_flow:
+            chunk_spec = importlib.util.spec_from_file_location(
+                "flow_chunk_experiment", ROOT / "tools" / "flow_chunk_experiment.py")
+            chunk_module = importlib.util.module_from_spec(chunk_spec)
+            chunk_spec.loader.exec_module(chunk_module)
+            chunk_module.install(module.HourglassWidget)
+        if args.gpu_flow:
+            gpu_spec = importlib.util.spec_from_file_location(
+                "flow_gpu_experiment", ROOT / "tools" / "flow_gpu_experiment.py")
+            gpu_module = importlib.util.module_from_spec(gpu_spec)
+            gpu_spec.loader.exec_module(gpu_module)
+            gpu_module.install(module.HourglassWidget)
         module.HourglassWidget._make_sound_proxy = lambda *_: None
         module.HourglassWidget._make_completion_sound = lambda *_: None
         module.HourglassWidget.load_config = lambda *_: {"duration": 60}
