@@ -23,17 +23,23 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(captured.group(1), APP_VERSION)
         self.assertFalse(spec.has_option("app", "version"))
 
-    def test_patch_increment(self):
+    def test_last_component_increment(self):
         release.validate_increment((0, 1, 0), (0, 1, 1))
         release.validate_increment((0, 1, 9), (0, 1, 10))
-        for version in ((0, 1, 0), (0, 1, 2)):
+        release.validate_increment((1, 0), (1, 1))          # 两段号同样适用
+        for before, version in (((0, 1, 0), (0, 1, 0)), ((0, 1, 0), (0, 1, 2)),
+                                ((1, 0), (1, 0)), ((1, 0), (1, 2))):
             with self.assertRaises(ValueError):
-                release.validate_increment((0, 1, 0), version)
-        # 里程碑式跃迁允许(1.0.0 这种), 但必须严格递增
+                release.validate_increment(before, version)
+        # 里程碑式跃迁允许(段数或前几段变化), 但必须严格递增
+        release.validate_increment((0, 1, 3), (1, 0))
         release.validate_increment((0, 1, 3), (1, 0, 0))
-        for version in ((0, 1, 3), (0, 0, 9)):
+        for version in ((0, 1, 3), (0, 0, 9), (0, 1)):
             with self.assertRaises(ValueError):
                 release.validate_increment((0, 1, 3), version)
+        # 同一版本换写法(补零对齐后相等)放行
+        release.validate_increment((1, 0, 0), (1, 0))
+        release.validate_increment((1, 0), (1, 0, 0))
 
     def test_chinese_version_title(self):
         release.validate_title("0.1.1 修复沙流衔接", (0, 1, 1))

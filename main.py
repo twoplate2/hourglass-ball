@@ -1701,7 +1701,9 @@ class HourglassWidget(Widget):
         scale = self._particle_motion_scale
         twice_gravity = 900 * scale * scale
         source_limit_squared = (75 * scale) ** 2
-        candidates = []
+        # 第一趟只求最深的投影深度, 第二趟再画 —— 原来给每个候选都分配一个
+        # (distance, particle) 元组(峰值约 1800 次/帧)。两趟的候选顺序与 depth
+        # 都与原实现一致, 所以 128 上限的截断结果也相同。
         depth = 1e-6
         for particle in self.particles:
             distance = outlet - particle["y"]
@@ -1710,7 +1712,6 @@ class HourglassWidget(Widget):
             # An isolated fast grain must not stretch the startup texture ahead of the main flow.
             if particle["vy"] ** 2 - twice_gravity * distance > source_limit_squared:
                 continue
-            candidates.append((distance, particle))
             if distance > depth:
                 depth = distance
         ys = [y for _x, y in side]
@@ -1735,7 +1736,12 @@ class HourglassWidget(Widget):
         base_r, base_g, base_b = self.sand_base
         light_r, light_g, light_b = self.sand_light
         count = 0
-        for distance, particle in candidates:
+        for particle in self.particles:
+            distance = outlet - particle["y"]
+            if distance < 0 or distance > length + 1e-6:
+                continue
+            if particle["vy"] ** 2 - twice_gravity * distance > source_limit_squared:
+                continue
             t = distance / depth                     # 0 = 刚出孔口, 1 = 流得最深的一颗
             if t > 1.0:
                 t = 1.0

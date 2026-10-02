@@ -24,8 +24,8 @@ def parse_version(text):
                 isinstance(target, ast.Name) and target.id == "APP_VERSION"
                 for target in node.targets):
             version = ast.literal_eval(node.value)
-            if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
-                raise ValueError("APP_VERSION must have the form major.minor.patch")
+            if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+(\.\d+)?", version):
+                raise ValueError("APP_VERSION must have the form major.minor[.patch]")
             return tuple(map(int, version.split(".")))
     raise ValueError("APP_VERSION is missing")
 
@@ -46,19 +46,28 @@ def version_at(ref):
 
 
 def validate_increment(before, after):
-    """同一 major.minor 下必须正好 +1 补丁号;里程碑式的版本跃迁(major/minor 变化)
-    也允许, 但必须严格递增 —— 两种情况都不许回落。"""
-    if after[:2] == before[:2]:
-        expected = (before[0], before[1], before[2] + 1)
-        if after != expected:
-            raise ValueError(f"Each push must increment the patch version: "
-                             f"expected {'.'.join(map(str, expected))}, "
-                             f"found {'.'.join(map(str, after))}")
-        return
-    if after <= before:
+    """版本号必须严格递增(按补零对齐后比较, 如 1.0 与 1.0.0 视为同一版本)。
+    同段数时最后一段必须正好 +1(1.0 -> 1.1);里程碑式跃迁(段数或前几段变化,
+    如 0.1.3 -> 1.0)也允许。同一版本只换写法(1.0.0 <-> 1.0)放行 —— 那不是回落。
+    """
+    width = max(len(before), len(after))
+    padded_before = before + (0,) * (width - len(before))
+    padded_after = after + (0,) * (width - len(after))
+    if padded_after == padded_before:
+        if len(before) != len(after):
+            return                      # 只是写法变了(补零对齐后相等)
+        raise ValueError(f"Version must change: "
+                         f"still {'.'.join(map(str, after))}")
+    if padded_after < padded_before:
         raise ValueError(f"Version must increase: "
                          f"found {'.'.join(map(str, after))} "
                          f"after {'.'.join(map(str, before))}")
+    if len(after) == len(before) and after[:-1] == before[:-1]:
+        expected = (*before[:-1], before[-1] + 1)
+        if after != expected:
+            raise ValueError(f"Each push must increment the last component: "
+                             f"expected {'.'.join(map(str, expected))}, "
+                             f"found {'.'.join(map(str, after))}")
 
 
 def validate_title(title, version):
