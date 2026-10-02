@@ -1,10 +1,17 @@
-"""p4a recipe: 把 native 的 flowcore 编成 APK 内的扩展模块(纯 C, 无需 Cython)。
+"""p4a recipe: 把 flowcore(纯 C 扩展)编进 APK。
 
-- 源码放本 recipe 的 src/(IncludedFilesBehaviour 会把它拷进构建目录)。
+- 源码放本 recipe 的 src/(IncludedFilesBehaviour 会拷进构建目录)。
 - should_build 必须返回 True: PythonRecipe 默认按"site-packages 里有没有这个包"判断,
   CI 命中 buildozer 缓存后会**永远不再重编**, 拿旧 .so 跑一整天。
+- prebuild_arch 里给 hostpython 装 setuptools: p4a 的 build_compiled_components 是用
+  **hostpython** 跑 `setup.py build_ext`(recipe.py:990), 而 CI 的 host 环境里可能没有
+  setuptools —— 实测报错就是 `ModuleNotFoundError: No module named 'setuptools'`。
+  只声明 depends=['setuptools'] 不够(那是目标侧 recipe, 不装进 host 环境)。
 """
+from pythonforandroid.logger import shprint
 from pythonforandroid.recipe import CompiledComponentsPythonRecipe, IncludedFilesBehaviour
+from pythonforandroid.util import current_directory
+import sh
 
 
 class FlowcoreRecipe(IncludedFilesBehaviour, CompiledComponentsPythonRecipe):
@@ -16,6 +23,12 @@ class FlowcoreRecipe(IncludedFilesBehaviour, CompiledComponentsPythonRecipe):
 
     def should_build(self, arch):
         return True
+
+    def prebuild_arch(self, arch):
+        super().prebuild_arch(arch)
+        hostpython = sh.Command(self.ctx.hostpython)
+        with current_directory(self.get_build_dir(arch.arch)):
+            shprint(hostpython, "-m", "pip", "install", "--quiet", "setuptools")
 
 
 recipe = FlowcoreRecipe()
