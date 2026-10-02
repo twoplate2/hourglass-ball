@@ -117,7 +117,7 @@ def main():
                           "early release cancels hold")
                     moving = Touch()
                     area.on_touch_down(moving)
-                    moving.x += 20
+                    moving.x += app_module.dp(20)
                     moving.pos = (moving.x, moving.y)
                     area.on_touch_move(moving)
                     check(area._hold_event is None, "moving away cancels hold")
@@ -308,7 +308,7 @@ def main():
                 length = widget._taper["y_bot"] - outlet
                 widget.particles = [{
                     "x": widget._cx, "x_offset": 0, "y": outlet - length * 0.5,
-                    "vy": -50, "size": 1, "is_light": True, "trail_time": 0.02,
+                    "vy": -50, "size": 2, "is_light": True, "trail_time": 0.02,
                 }]
                 ids = [id(p) for p in widget.particles]
                 widget.redraw()
@@ -316,13 +316,31 @@ def main():
                 color, line = widget._neck_grain_pool[0]
                 check(outlet < line.points[1] < widget._taper["y_bot"],
                       "neck texture stays inside the straight conduit")
-                check(0 < color.a < 1, "neck texture fades in without a hard top edge")
+                expected = [(base + light) / 2
+                            for base, light in zip(widget.sand_base, widget.sand_light)]
+                check(color.a == 1 and all(
+                    math.isclose(actual, target, abs_tol=1e-6)
+                    for actual, target in zip(color.rgb, expected)),
+                    "neck texture preblend preserves fade without translucent stencil")
                 check(ids == [id(p) for p in widget.particles],
                       "neck texture adds no physics particles")
                 widget.reset()
                 widget.redraw()
                 check(widget._neck_grain_count == 0 and not line.points,
                       "reset clears the conduit texture")
+                check(tuple(widget._pause_rect.size) == (0, 0) and
+                      tuple(widget._flash_rect.size) == (0, 0),
+                      "inactive full-screen overlays have no geometry")
+                widget.elapsed = 1
+                widget.running = False
+                widget.flash_end = time.perf_counter() + 1
+                widget.redraw()
+                check(tuple(widget._pause_rect.size) == tuple(widget.size) and
+                      tuple(widget._flash_rect.size) == tuple(widget.size) and
+                      math.isclose(widget._pause_color.a, 0.55, abs_tol=1e-6) and
+                      math.isclose(widget._flash_color.a, 0.25, abs_tol=1e-6),
+                      "active pause and completion overlays retain their appearance")
+                widget.flash_end = 0
 
                 spec = ConfigParser()
                 spec.read(ROOT / "buildozer.spec", encoding="utf-8")

@@ -57,6 +57,7 @@ Windows 使用 `perf_counter()` 高精度时钟，避免 Python 3.11 `GetTickCou
 无配置读写的帧率对比：`python tools/profile_frames.py --seconds 20 --duration 30`。
 自动跑三周期并逐轮保存日志：`python tools/verify_hourglass.py --benchmark-only --rounds 2`。
 加 `--capture` 会记录每个周期最慢 3 帧的画面状态，结束采样后重建并截图，不在测量期间抓屏。
+状态快照本身仍有复制开销，`--capture` 只用于定位画面，不用于比较优化成绩；评分应另跑不带它的测试。
 后台视频压缩等负载会影响 Windows 和模拟器测量，不能据此承诺真机最低帧率。
 
 排查依据：[Kivy Clock](https://kivy.org/doc/stable/api-kivy.clock.html)、
@@ -82,6 +83,11 @@ Windows 使用 `perf_counter()` 高精度时钟，避免 Python 3.11 `GetTickCou
 - 极短周期对粒子飞行作缩时播放，使首批沙粒在开始堆积前触底；普通周期仍使用原始 450 重力和原始初速度。
 - 玻璃、球体积反函数、真圆裁切、沙色和粒子生成速率不变。
 - 直管内用现有高光颗粒的投影渐入纹理，与出口下方衔接；最多复用 32 个图元，不增加物理粒子。
+
+2026-10-02：直管高光改为与沙柱底色预混合的实色，保留平滑渐入、位置和线宽，
+避免 Kivy 对半透明宽 Line 的额外 Stencil 绘制。未激活的暂停/完成全屏遮罩使用零尺寸，
+激活时恢复原尺寸和透明度；已隐藏的闪光不再重复改写。沙粒数量、物理和真圆裁切不变。
+Windows 的负载、窗口尺寸与驱动等待仍会造成长帧，桌面结果不能代替 K90 真机验证。
 
 视觉检查：`python tools/inspect_flow.py --label current`，输出到 `benchmark_logs/flow_visual_current/`。
 该工具使用独立模拟时钟，只检查画面与几何，不用于评分 FPS。

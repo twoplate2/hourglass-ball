@@ -1385,7 +1385,7 @@ class HourglassWidget(Widget):
         self._neck_grain_count = 0
         # Highlights project existing grains upstream; they do not add physics particles.
         for _ in range(32):
-            color = Color(*self.sand_light, 0)
+            color = Color(*self.sand_base)
             line = Line(points=[], width=1)
             self._neck_grain_group.add(color)
             self._neck_grain_group.add(line)
@@ -1424,9 +1424,9 @@ class HourglassWidget(Widget):
             for x in (cx - bore + 1, cx + bore - 1):
                 Line(points=[x, self._neck_y - 7, x, self._neck_y + 7], width=1)
             self._pause_color = Color(*hex_rgb(BG_COLOR), 0)
-            Rectangle(pos=self.pos, size=self.size)
+            self._pause_rect = Rectangle(pos=self.pos, size=(0, 0))
             self._flash_color = Color(1, 1, 1, 0)
-            Rectangle(pos=self.pos, size=self.size)
+            self._flash_rect = Rectangle(pos=self.pos, size=(0, 0))
         self._render_colors = None
 
     def _reserve_stream_lines(self):
@@ -1519,12 +1519,15 @@ class HourglassWidget(Widget):
             rect.pos = (f["x"] - width / 2, f["y"] - height / 2)
             rect.size = (width, height)
         for color, rect in self._flare_rects[len(self.flares):]:
-            color.a = 0
-            rect.size = (0, 0)
+            if rect.size[0] or rect.size[1]:
+                color.a = 0
+                rect.size = (0, 0)
         self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
         self._bore_color.a = 1 if remaining <= 0.001 else 0
         self._pause_color.a = 0.55 if not self.running and 0 < self.elapsed < self.duration else 0
         self._flash_color.a = 0.25 if now < self.flash_end else 0
+        self._pause_rect.size = self.size if self._pause_color.a else (0, 0)
+        self._flash_rect.size = self.size if self._flash_color.a else (0, 0)
 
     def _draw_stream(self):
         buckets = self._stream_buckets
@@ -1577,7 +1580,9 @@ class HourglassWidget(Widget):
                 phase = distance / length
                 alpha = phase * phase * (3 - 2 * phase)
                 color, line = self._neck_grain_pool[count]
-                color.rgba = (*self.sand_light, alpha)
+                # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
+                color.rgb = tuple(base + (light - base) * alpha
+                                  for base, light in zip(self.sand_base, self.sand_light))
                 if line.width != particle["size"]:
                     line.width = particle["size"]
                 line.points = (x, y, x, min(inlet, y + 2))
@@ -1585,7 +1590,6 @@ class HourglassWidget(Widget):
                 if count == len(self._neck_grain_pool):
                     break
         for color, line in self._neck_grain_pool[count:self._neck_grain_count]:
-            color.a = 0
             line.points = []
         self._neck_grain_count = count
 
