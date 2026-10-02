@@ -1,0 +1,48 @@
+name: Build native lib
+
+# 只编 flowcore 的 arm64 .so 并提交回分支 —— 用来在设备上实测 C 加速,
+# 绕开 APK/recipe 那条路(那条要 p4a 环境, 反复出问题)。
+on:
+  push:
+    branches: [ native-flowcore ]
+  workflow_dispatch:
+
+jobs:
+  lib:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 取 CPython 3.11.5 头文件
+        run: |
+          curl -sLO https://www.python.org/ftp/python/3.11.5/Python-3.11.5.tgz
+          tar xf Python-3.11.5.tgz Python-3.11.5/Include
+          ls Python-3.11.5/Include | head -3
+
+      - name: 装 NDK(只要 clang + sysroot)
+        run: |
+          yes | sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653" > /dev/null 2>&1 || \
+          yes | sudo $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653"
+          ls $ANDROID_HOME/ndk
+
+      - name: 交叉编译 arm64 的 flowcore.so
+        run: |
+          NDK=$ANDROID_HOME/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin
+          $NDK/clang --target=aarch64-linux-android21 -shared -fPIC -O2 \
+            -I Python-3.11.5/Include \
+            -o flowcore.cpython-311-aarch64-linux-android.so \
+            p4a-recipes/flowcore/src/flowcore.c
+          file flowcore.cpython-311-aarch64-linux-android.so
+          ls -l flowcore.cpython-311-aarch64-linux-android.so
+
+      - name: 提交回分支
+        run: |
+          git config user.email "ci@local"
+          git config user.name "ci"
+          mkdir -p prebuilt
+          mv flowcore.cpython-311-aarch64-linux-android.so prebuilt/
+          git add -f prebuilt/
+          git commit -m "CI: 提交 arm64 flowcore.so(供设备实测)" || echo "无变化"
+          git push
