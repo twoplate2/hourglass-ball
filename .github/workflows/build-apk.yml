@@ -74,11 +74,11 @@ jobs:
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
 
-      - name: 失败时把日志尾部发成 annotation
+      - name: 失败时把日志里的报错行发成 annotation
         if: failure()
         run: |
-          tail -c 1500 buildozer.log 2>/dev/null | sed 's/%/%25/g' | paste -sd'|' - > tail.txt || true
-          echo "::error title=buildozer-tail::$(cat tail.txt)"
+          grep -n -i -E "error|traceback|exception|not exist|no such|ValueError|recipe" buildozer.log 2>/dev/null | tail -14 | sed 's/%/%25/g' | paste -sd'|' - > errs.txt || true
+          echo "::error title=buildozer-errors::$(cat errs.txt)"
 
       - name: Show output
         run: ls -lh bin/ || true
