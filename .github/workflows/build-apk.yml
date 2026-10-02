@@ -61,6 +61,12 @@ jobs:
           restore-keys: |
             buildozer-v1-${{ runner.os }}-
 
+      - name: 本地 recipe 用绝对路径(buildozer 会切 CWD, 相对路径会静默失效)
+        run: |
+          sed -i "s|^p4a.local_recipes = .*$|p4a.local_recipes = $PWD/p4a-recipes|" buildozer.spec
+          grep -n "^p4a.local_recipes" buildozer.spec
+          ls -l p4a-recipes/flowcore/__init__.py p4a-recipes/flowcore/src/
+
       - name: Build APK (debug)
         run: |
           yes | buildozer android debug
