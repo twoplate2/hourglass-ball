@@ -1657,7 +1657,7 @@ class HourglassWidget(Widget):
             group, _color, pool = self._stream_pools[key]
             for i, particle in enumerate(particles):
                 trail = max(2.0, abs(particle["vy"]) *
-                            particle.get("trail_time", 0.08) / motion_scale)
+                            particle["trail_time"] / motion_scale)
                 top = min(top_limit, particle["y"] + trail)
                 coords = (particle["x"], particle["y"], particle["x"], top)
                 if i == len(pool):
@@ -1673,7 +1673,7 @@ class HourglassWidget(Widget):
 
     def _particle_trail(self, particle, motion_scale=None):
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
-        return max(2.0, abs(particle["vy"]) * particle.get("trail_time", 0.08) / scale)
+        return max(2.0, abs(particle["vy"]) * particle["trail_time"] / scale)
 
     def _hide_neck_grains(self):
         for color, line in self._neck_grain_pool[:self._neck_grain_count]:

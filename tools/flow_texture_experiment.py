@@ -12,12 +12,22 @@ import flow_batch_experiment
 
 
 FLOAT32 = Struct("<f")
+# 三个端点(x, bottom, top)连续放在同一个颗粒的 12 字节里 -> 一次 pack_into 写完。
+# 每颗粒占 3 个纹素, u = (3i + k + 0.5) / (3 * CHUNK), 步长对所有分块都相同
+# (capacity 恒为 CHUNK), 所以 shader 里只要一个 uniform。
+FLOAT3 = Struct("<3f")
+TEXELS_PER_PARTICLE = 3
+TEXEL_STEP_UNIFORM = "texel_step"
+CHUNK = flow_batch_experiment.FlowBatch.CHUNK
+TEXEL_STEP = 1.0 / (CHUNK * TEXELS_PER_PARTICLE)
+
 
 VERTEX_SHADER = """
 $HEADER$
 uniform sampler2D endpoints;
-float read_float(float u, float row) {
-    vec4 b = floor(texture2D(endpoints, vec2(u, row)) * 255.0 + 0.5);
+uniform float texel_step;
+float read_float(float u) {
+    vec4 b = floor(texture2D(endpoints, vec2(u, 0.5)) * 255.0 + 0.5);
     float exponent = mod(b.a, 128.0) * 2.0 + floor(b.b / 128.0);
     if (exponent == 0.0) {
         return 0.0;
@@ -27,9 +37,9 @@ float read_float(float u, float row) {
     return sign_value * (1.0 + fraction / 8388608.0) * exp2(exponent - 127.0);
 }
 void main(void) {
-    float x = read_float(vTexCoords0.x, 0.125);
-    float bottom = read_float(vTexCoords0.x, 0.375);
-    float top = read_float(vTexCoords0.x, 0.625);
+    float x = read_float(vTexCoords0.x);
+    float bottom = read_float(vTexCoords0.x + texel_step);
+    float top = read_float(vTexCoords0.x + texel_step * 2.0);
     vec2 position = vec2(x, mix(bottom, top, vTexCoords0.y)) + vPosition;
     frag_color = color * vec4(1.0, 1.0, 1.0, opacity);
     gl_Position = projection_mat * modelview_mat * vec4(position, 0.0, 1.0);
@@ -59,9 +69,11 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             self.parts.append([mesh, array("f"), array("H"), 0, 0, None, None, binding])
         part = self.parts[chunk]
         if part[3] < count:
-            capacity = min(self.CHUNK, 1 << (max(32, count) - 1).bit_length())
-            data = bytearray(capacity * 4 * 4)
-            texture = Texture.create(size=(capacity, 4), colorfmt="rgba")
+            # 固定 capacity = CHUNK: u 步长与分块无关, shader 只需一个 uniform。
+            capacity = self.CHUNK
+            data = bytearray(capacity * TEXELS_PER_PARTICLE * 4)
+            texture = Texture.create(
+                size=(capacity * TEXELS_PER_PARTICLE, 1), colorfmt="rgba")
             texture.mag_filter = texture.min_filter = "nearest"
 
             def reload_data(target):
@@ -69,9 +81,10 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
 
             reload_data(texture)
             texture.add_reload_observer(reload_data)
+            span = capacity * TEXELS_PER_PARTICLE
             vertices = array("f", (
                 value for i in range(capacity) for dx, dy, end in self.template
-                for value in (dx, dy, (i + 0.5) / capacity, end)))
+                for value in (dx, dy, (i * TEXELS_PER_PARTICLE + 0.5) / span, end)))
             indices = array("H", (
                 index + i * len(self.template)
                 for i in range(capacity) for index in self.indices))
@@ -82,7 +95,7 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         return part
 
     def update(self, particles, top_limit, motion_scale=1):
-        pack = FLOAT32.pack_into
+        pack = FLOAT3.pack_into
         total = len(particles)
         chunks = -(-total // self.CHUNK)
         for chunk in range(chunks):
@@ -92,10 +105,7 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 count = self.CHUNK
             part = self._ensure_part(chunk, count)
             mesh, _vertices, indices, capacity, previous, texture, data, _binding = part
-            row = capacity * 4
-            row2 = row * 2
-            # 逐颗粒只做 3 次 pack_into;max/min 与下标乘法都换成条件与累加,
-            # 数值与原来逐字相同(见 README 经验教训:改热循环必须先过像素一致性)。
+            # 每颗粒只做 1 次 pack_into(x, bottom, top 连续); 数值与逐字相同。
             offset = 0
             for i in range(start, start + count):
                 particle = particles[i]
@@ -103,16 +113,14 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 vy = particle["vy"]
                 if vy < 0:
                     vy = -vy
-                trail = vy * particle.get("trail_time", 0.08) / motion_scale
+                trail = vy * particle["trail_time"] / motion_scale
                 if trail < 2:
                     trail = 2
                 top = bottom + trail
                 if top > top_limit:
                     top = top_limit
-                pack(data, offset, particle["x"])
-                pack(data, row + offset, bottom)
-                pack(data, row2 + offset, top)
-                offset += 4
+                pack(data, offset, particle["x"], bottom, top)
+                offset += 12
             texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
             if previous != count:
                 mesh.indices = indices[:count * len(self.indices)]
@@ -136,6 +144,7 @@ def install(widget_class):
         context.shader.fs = FRAGMENT_SHADER
         if not context.shader.success:
             raise RuntimeError("Endpoint texture shader failed to compile")
+        context.shader[TEXEL_STEP_UNIFORM] = TEXEL_STEP
         context["endpoints"] = 1
         first_group = next(iter(self._stream_pools.values()))[0]
         position = self.canvas.children.index(first_group)

@@ -107,6 +107,14 @@ python main.py
 | `mesh_batch` (朴素) | 42.6 | 3.24ms | **13.21ms**(净亏) |
 | `mesh_endpoint_texture` | **65.4** | **3.06ms** | 5.28ms |
 
+**端点纹理的布局(2026-10-02 改)**：一个颗粒的 `x/bottom/top` **连续放 3 个纹素**
+(`Texture.create(size=(capacity*3, 1))`)，于是每颗粒只要 **1 次** `struct.pack_into`
+(原来是 x/bottom/top 各占一行、每颗粒 3 次)。`capacity` 固定等于 `CHUNK`(512)，所以
+u 的步长 `1/(512*3)` 对所有分块都一样 —— shader 里只要一个 `uniform float texel_step`，
+不用逐块改。实测 15s 峰载段帧时间 13.77→13.54ms、5s 12.62→12.42ms(平均帧率
+89.0→90.2 / 87.3→88.9)，104 张截图逐像素 **0 差异**。
+⚠️ 别把 `capacity` 改回按需取幂：u 步长会随分块变化，shader 就没法用一个 uniform 表达。
+
 ⚠️ 打包进 APK 的只有 `tools/*.pyc`，所以按 `sys.path + import` 装载，不能按 `.py` 路径。
 ⚠️ 纹理方案的报错发生在**画布构建时**(不是 `install()` 时)，外面 try/except 包不住 ——
 必须**装载前**先探测 `GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS`，否则不支持的设备直接崩。
