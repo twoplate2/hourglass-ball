@@ -30,6 +30,7 @@ import flow_batch_experiment
 
 FLOAT3I = Struct("<3fI")
 TEXELS_PER_PARTICLE = 4
+SINGLE_CHUNK = 2048      # 每块颗粒数上限(Kivy Mesh 16 位索引)
 TEXEL_STEP_UNIFORM = "texel_step"
 
 VERTEX_SHADER = """
@@ -89,6 +90,8 @@ class SingleFlowBatch:
             value for i in range(capacity)
             for dx, dy, end in self.template
             for value in (dx, dy, (i * TEXELS_PER_PARTICLE + 0.5) / span, end)))
+        # Kivy 的 Mesh 只支持 16 位索引(_ensure_ushort_view), 所以每块颗粒数上限
+        # = 65536 / len(template); 由 build_single 保证 capacity(=每块) 不超过 2048。
         indices = array("H", (
             index + i * len(self.template)
             for i in range(capacity) for index in self.indices))
@@ -134,17 +137,18 @@ def install(widget_class):
         context["endpoints"] = 1
         first_group = next(iter(self._stream_pools.values()))[0]
         position = self.canvas.children.index(first_group)
-        # 两个线宽共用一个 capacity(各自独立分配, 简单起见取总预留量的 2 次幂)
+        # 每块固定 2048 颗粒: Kivy Mesh 的 16 位索引上限决定(26 顶点 x 2048 = 53248)。
         reserve = sum(len(pool) for _g, _c, pool in self._stream_pools.values())
-        capacity = 1 << (max(64, reserve) - 1).bit_length()
-        self._flow_single_capacity = capacity
-        context[TEXEL_STEP_UNIFORM] = 1.0 / (capacity * TEXELS_PER_PARTICLE)
+        chunks = max(1, -(-max(64, reserve) // SINGLE_CHUNK))
+        self._flow_single_capacity = SINGLE_CHUNK
+        context[TEXEL_STEP_UNIFORM] = 1.0 / (SINGLE_CHUNK * TEXELS_PER_PARTICLE)
         for _key, (group, _color, _pool) in list(self._stream_pools.items()):
             self.canvas.remove(group)
             group.clear()
         self._flow_single = {}
         for width in (1, 2):
-            self._flow_single[width] = SingleFlowBatch(context, width, capacity)
+            self._flow_single[width] = [SingleFlowBatch(context, width, SINGLE_CHUNK)
+                                        for _ in range(chunks)]
         self.canvas.insert(position, context)
         self._flow_single_context = context
 
@@ -182,8 +186,10 @@ def install(widget_class):
                     index = last
                 r, g, b = table[index]
             (thin if p["size"] == 1 else thick).append((p["x"], y, top, r, g, b))
-        self._flow_single[1].write(thin, top_limit)
-        self._flow_single[2].write(thick, top_limit)
+        for width, entries in ((1, thin), (2, thick)):
+            batches = self._flow_single[width]
+            for i, batch in enumerate(batches):
+                batch.write(entries[i * SINGLE_CHUNK:(i + 1) * SINGLE_CHUNK], top_limit)
 
     widget_class._build_dynamic_canvas = build_single
     widget_class._draw_stream = draw_single

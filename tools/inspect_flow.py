@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--chunk-flow", action="store_true")
     parser.add_argument("--gpu-flow", action="store_true")
     parser.add_argument("--texture-flow", action="store_true")
+    parser.add_argument("--single-flow", action="store_true")
     parser.add_argument("--dense-neck", action="store_true")
     parser.add_argument("--landscape", action="store_true")
     args = parser.parse_args()
@@ -58,6 +59,12 @@ def main():
             gpu_module = importlib.util.module_from_spec(gpu_spec)
             gpu_spec.loader.exec_module(gpu_module)
             gpu_module.install(module.HourglassWidget)
+        if args.single_flow:
+            single_spec = importlib.util.spec_from_file_location(
+                "flow_single_experiment", ROOT / "tools" / "flow_single_experiment.py")
+            single_module = importlib.util.module_from_spec(single_spec)
+            single_spec.loader.exec_module(single_module)
+            single_module.install(module.HourglassWidget)
         if args.texture_flow:
             texture_spec = importlib.util.spec_from_file_location(
                 "flow_texture_experiment", ROOT / "tools" / "flow_texture_experiment.py")
