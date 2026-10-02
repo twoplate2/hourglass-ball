@@ -216,7 +216,26 @@ def install(widget_class):
         original_update(self, dt)
         draw_single(self)
 
+    def safe_draw(self):
+        try:
+            draw_single(self)
+        except Exception:
+            import traceback
+            _probe("draw_single EXC: " + traceback.format_exc()[-500:])
+            raise
+
     widget_class._build_dynamic_canvas = build_single
-    widget_class.update_particles = update_and_draw
+    widget_class._draw_stream = safe_draw
+    _probe("after patch: _draw_stream.__name__=%r" % (
+        getattr(widget_class._draw_stream, "__name__", None),))
+    original_redraw = widget_class.redraw
+
+    def redraw_and_draw(self):
+        original_redraw(self)
+        _probe("redraw_and_draw() ran")
+        draw_single(self)
+
+    widget_class.redraw = redraw_and_draw
+    _probe("redraw patched")
     widget_class._flow_single_capacity = 64
     widget_class.flow_renderer = "single_mesh"
