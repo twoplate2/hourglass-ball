@@ -72,6 +72,13 @@ def main():
             spec.loader.exec_module(experiment)
             if "--gpu-flow" in sys.argv:
                 experiment.install(app_module.HourglassWidget)
+        if "--texture-flow" in sys.argv or "--compare-texture" in sys.argv:
+            spec = importlib.util.spec_from_file_location(
+                "flow_texture_experiment", ROOT / "tools" / "flow_texture_experiment.py")
+            experiment = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(experiment)
+            if "--texture-flow" in sys.argv:
+                experiment.install(app_module.HourglassWidget)
 
         app_module.HourglassWidget._make_sound_proxy = lambda *_: None
         if "--completion-demo" not in sys.argv:
@@ -96,10 +103,19 @@ def main():
                     self._rounds_left = (int(sys.argv[sys.argv.index("--rounds") + 1])
                                          if "--rounds" in sys.argv else 1)
                     self._round = 0
-                    Clock.schedule_once(self.auto_start, 1.5)
+                    if "--pixels" in sys.argv:
+                        Clock.schedule_once(self.resize_benchmark, 1)
+                    else:
+                        Clock.schedule_once(self.auto_start, 1.5)
                     return
                 Clock.schedule_once(lambda _dt: self.root.apply_orientation(), 0.5)
                 Clock.schedule_once(self.verify, 1)
+
+            def resize_benchmark(self, _dt):
+                width, height = map(int, sys.argv[sys.argv.index("--pixels") + 1].split(","))
+                ratio = Window.width / Window.system_size[0]
+                Window.system_size = (round(width / ratio), round(height / ratio))
+                Clock.schedule_once(self.auto_start, 0.5)
 
             def verify(self, _dt):
                 try:
@@ -472,7 +488,8 @@ def main():
 
             def verify_gpu_reserve(self):
                 widget = self.hourglass
-                if getattr(widget, "flow_renderer", "") != "mesh_gpu_reserved":
+                if getattr(widget, "flow_renderer", "") not in (
+                        "mesh_gpu_reserved", "mesh_endpoint_texture"):
                     return
                 batch = max(
                     (batch for batch in widget._flow_batches.values()
@@ -669,7 +686,7 @@ def main():
                 self.root._anchor.do_layout()
                 self.hourglass.parent.do_layout()
                 if any(flag in sys.argv for flag in (
-                        "--compare-flow", "--compare-chunks", "--compare-gpu")):
+                        "--compare-flow", "--compare-chunks", "--compare-gpu", "--compare-texture")):
                     cls = app_module.HourglassWidget
                     cls._build_dynamic_canvas = original_stream_build
                     cls._draw_stream = original_stream_draw
@@ -678,6 +695,8 @@ def main():
                         del self.hourglass._flow_batches
                     if hasattr(self.hourglass, "_flow_chunks"):
                         del self.hourglass._flow_chunks
+                    if hasattr(self.hourglass, "_flow_texture_context"):
+                        del self.hourglass._flow_texture_context
                     if self._round % 2:
                         experiment.install(cls)
                     self.hourglass._rebuild_height_table()

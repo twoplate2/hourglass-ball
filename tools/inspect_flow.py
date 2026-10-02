@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -21,6 +22,9 @@ def main():
     parser.add_argument("--pixels", default="400,800")
     parser.add_argument("--chunk-flow", action="store_true")
     parser.add_argument("--gpu-flow", action="store_true")
+    parser.add_argument("--texture-flow", action="store_true")
+    parser.add_argument("--dense-neck", action="store_true")
+    parser.add_argument("--landscape", action="store_true")
     args = parser.parse_args()
     output = ROOT / "benchmark_logs" / ("flow_visual_" + args.label)
     output.mkdir(exist_ok=True)
@@ -35,6 +39,7 @@ def main():
         from kivy.clock import Clock
         from kivy.core.window import Window
         from kivy.graphics.opengl import glReadPixels, GL_RGBA, GL_UNSIGNED_BYTE
+        from kivy.graphics.transformation import Matrix
         from PIL import Image
         import main  # Register the bundled font before loading a baseline copy.
 
@@ -53,6 +58,12 @@ def main():
             gpu_module = importlib.util.module_from_spec(gpu_spec)
             gpu_spec.loader.exec_module(gpu_module)
             gpu_module.install(module.HourglassWidget)
+        if args.texture_flow:
+            texture_spec = importlib.util.spec_from_file_location(
+                "flow_texture_experiment", ROOT / "tools" / "flow_texture_experiment.py")
+            texture_module = importlib.util.module_from_spec(texture_spec)
+            texture_spec.loader.exec_module(texture_module)
+            texture_module.install(module.HourglassWidget)
         module.HourglassWidget._make_sound_proxy = lambda *_: None
         module.HourglassWidget._make_completion_sound = lambda *_: None
         module.HourglassWidget.load_config = lambda *_: {"duration": 60}
@@ -65,6 +76,14 @@ def main():
             (15, (0.2, 0.6, 1.3, 2, 7.5, 14.98, 15)),
             (60, (30, 59.98, 60)),
         ]
+        if args.dense_neck:
+            extra = {
+                1: (0.125, 0.15, 0.175, 0.225, 0.25, 0.3, 0.35),
+                5: (0.25, 0.275, 0.3, 0.325, 0.35, 0.4, 0.45, 0.5, 0.7, 0.8),
+                15: (0.25, 0.275, 0.3, 0.325, 0.35, 0.4, 0.45, 0.5, 0.55, 0.7, 0.8),
+            }
+            cases = [(period, tuple(sorted(set(times) | set(extra.get(period, ())))))
+                     for period, times in cases]
         targets = [(period, elapsed) for period, times in cases for elapsed in times]
         records = []
 
@@ -121,6 +140,9 @@ def main():
                                       (widget._lower_sand_bot + widget._mound_height_px()),
                     "first_hit_s": self.first_hit,
                     "particles": len(widget.particles), "splashes": len(widget.splashes),
+                    "neck_grains": widget._neck_grain_count,
+                    "neck_outlet_y": 2 * widget._neck_y - widget._taper["y_bot"],
+                    "neck_inlet_y": widget._taper["y_bot"],
                     "max_trail_px": max(
                         (widget._particle_trail(p) if hasattr(widget, "_particle_trail")
                          else abs(p["vy"]) * 0.08 for p in widget.particles), default=0),
@@ -141,11 +163,22 @@ def main():
                 image.save(output / f"period-{period}-time-{elapsed:.2f}.png")
                 x_scale, y_scale = requested[0] / width, requested[1] / height
                 widget = self.hourglass
+                center_x, center_y = widget._cx, widget._neck_y
+                if self.root.angle:
+                    origin_x, origin_y = self.root._rot.origin[:2]
+                    rotation = Matrix().rotate(math.radians(self.root.angle), 0, 0, 1)
+                    dx, dy, _ = rotation.transform_point(
+                        center_x - origin_x, center_y - origin_y, 0)
+                    center_x, center_y = origin_x + dx, origin_y + dy
+                    logical = self.root._to_eq(center_x, center_y)
+                    if not all(math.isclose(a, b, abs_tol=1e-4)
+                               for a, b in zip(logical, (widget._cx, widget._neck_y))):
+                        raise AssertionError("Neck crop rotation disagrees with the application")
                 crop = image.crop((
-                    round((widget._cx - 52) * x_scale),
-                    round((height - widget._neck_y - 62) * y_scale),
-                    round((widget._cx + 52) * x_scale),
-                    round((height - widget._neck_y + 62) * y_scale)))
+                    round((center_x - 52) * x_scale),
+                    round((height - center_y - 62) * y_scale),
+                    round((center_x + 52) * x_scale),
+                    round((height - center_y + 62) * y_scale)))
                 crop.resize((416, 496), Image.Resampling.NEAREST).save(
                     output / f"neck-{period}-time-{elapsed:.2f}.png")
 

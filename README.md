@@ -93,6 +93,15 @@ GPU 实验按原 Line 池的容量估计预留宽粒子顶点缓冲区，避免�
 `--uncapped` 只用于独立 PC 成本诊断，不改正式帧率上限，不能把该成绩当作正常运行 FPS。
 取消或未完成指定轮数的开发 Benchmark 会返回失败，不把部分结果记为通过。
 
+0.1.2 增加独立端点纹理实验：`--texture-flow` / `--compare-texture`。
+固定圆头顶点复用，每帧只上传端点；GPU 从 RGBA8 纹理复原 float32 坐标，不减少颗粒或改变颜色顺序。
+`python tools/verify_hourglass.py --benchmark-only --compare-texture --rounds 4 --pixels 1080,2400`
+可在固定高分辨率下交替比较。当前 PC 测试减少了绘制工作量，但正常配置的 low 帧尚未稳定显著提高，
+因此正式渲染仍保持 Line，不把该实验默认为最终修复。
+`python tools/inspect_flow.py --label endpoint --texture-flow --pixels 1080,2400 --dense-neck`
+增加起步密集截图；本次 52 张图中 50 张逐像素一致，另外两张仅共 7 个边缘像素有差异。
+横屏截图可加 `--landscape --pixels 2400,1080`，裁切按应用旋转矩阵定位颈部。
+
 ### 沙流视觉与衔接
 
 - 亮色颗粒后置绘制，避免被主体盖住；新生颗粒使用 18–32ms 的不同拖尾，保留同样的生成速率和 Line 画法。
