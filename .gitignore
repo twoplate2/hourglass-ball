@@ -8,3 +8,7 @@ backup/
 mp3/
 MP3/
 benchmark_logs/
+native/*.pyd
+native/*.lib
+native/*.pdb
+native/*.exp

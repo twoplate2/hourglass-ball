@@ -1,4 +1,6 @@
 [app]
+# 本地 recipe 目录(flowcore)
+p4a.local_recipes = ./p4a-recipes
 
 # 启动器中显示的可见名称
 title = 跳跳的沙漏
@@ -15,7 +17,7 @@ source.include_patterns = sand_loop.wav,fonts/*.otf,sounds/*.wav,ui/*.png
 version.regex = APP_VERSION = ['"]([^'"]+)['"]
 version.filename = %(source.dir)s/app_version.py
 
-requirements = python3,kivy==2.3.0,pyjnius
+requirements = python3,kivy==2.3.0,pyjnius,flowcore
 
 # ⚠️ 关键:锁定 python-for-android 到 2024 年 tag。
 # 不锁的话 2026 年的新版 p4a 默认下 Python 3.14 alpha,与 Kivy 2.3 C API 不兼容必失败。

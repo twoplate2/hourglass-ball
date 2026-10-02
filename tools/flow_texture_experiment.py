@@ -10,6 +10,31 @@ from kivy.graphics.texture import Texture
 
 import flow_batch_experiment
 
+def _load_flowcore():
+    """原生打包(可选加速): 拿不到就退回下面的 Python 循环。
+
+    本地跑像素闸门时产物在 <repo>/native/(构建脚本的 OUT), 顺手加进 sys.path;
+    设备上它在 site-packages 里, 直接 import 就行。
+    """
+    try:
+        import flowcore
+    except ImportError:
+        import os
+        import sys
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidate = os.path.join(here, "native")
+        if candidate not in sys.path:
+            sys.path.insert(0, candidate)
+        try:
+            import flowcore
+        except ImportError:
+            return None
+    print("flowcore native packing: ON")
+    return flowcore
+
+
+flowcore = _load_flowcore()
+
 
 FLOAT32 = Struct("<f")
 # 三个端点(x, bottom, top)连续放在同一个颗粒的 12 字节里 -> 一次 pack_into 写完。
@@ -106,6 +131,16 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             part = self._ensure_part(chunk, count)
             mesh, _vertices, indices, capacity, previous, texture, data, _binding = part
             # 每颗粒只做 1 次 pack_into(x, bottom, top 连续); 数值与逐字相同。
+            if flowcore is not None:
+                # 与下面 Python 循环逐字节等价(见 tools/test_native_pack.py);
+                # 传本块的切片, 让 C 侧从缓冲 0 偏移写起。
+                flowcore.pack_stream(particles[start:start + count], data,
+                                     top_limit, motion_scale)
+                texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
+                if previous != count:
+                    mesh.indices = indices[:count * len(self.indices)]
+                    part[4] = count
+                continue
             offset = 0
             for i in range(start, start + count):
                 particle = particles[i]

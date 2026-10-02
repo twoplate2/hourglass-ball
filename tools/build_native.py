@@ -10,7 +10,7 @@ import sysconfig
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "native" / "flowcore.c"
+SRC = ROOT / "p4a-recipes" / "flowcore" / "src" / "flowcore.c"
 OUT = ROOT / "native" / "flowcore.pyd"
 
 

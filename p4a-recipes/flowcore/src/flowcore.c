@@ -14,11 +14,30 @@
 #include <Python.h>
 #include <string.h>
 
+/* 键只哈希一次并常驻: 每颗粒 4 次 PyDict_GetItemString 会重新哈希 C 字符串,
+ * 实测这是"字典版 C 化"只有 2.2 倍的主要原因。 */
+static PyObject *key_x, *key_y, *key_vy, *key_trail;
+
+static int cache_keys(void)
+{
+    if (key_x != NULL)
+        return 0;
+    key_x = PyUnicode_InternFromString("x");
+    key_y = PyUnicode_InternFromString("y");
+    key_vy = PyUnicode_InternFromString("vy");
+    key_trail = PyUnicode_InternFromString("trail_time");
+    return (key_x && key_y && key_vy && key_trail) ? 0 : -1;
+}
+
 static PyObject *pack_stream(PyObject *self, PyObject *args)
 {
     PyObject *particles, *data;
     double top_limit, motion_scale;
-    if (!PyArg_ParseTuple(args, "OOdd", &particles, &data, &top_limit, &motion_scale))
+    Py_ssize_t start = 0, count = -1;
+    if (!PyArg_ParseTuple(args, "OOdd|nn", &particles, &data, &top_limit,
+                          &motion_scale, &start, &count))
+        return NULL;
+    if (cache_keys() != 0)
         return NULL;
     if (!PyByteArray_Check(data)) {
         PyErr_SetString(PyExc_TypeError, "data must be a bytearray");
@@ -28,20 +47,26 @@ static PyObject *pack_stream(PyObject *self, PyObject *args)
     if (fast == NULL)
         return NULL;
     const Py_ssize_t n = PySequence_Fast_GET_SIZE(fast);
-    char *buf = PyByteArray_AS_STRING(data);
+    if (start < 0)
+        start = 0;
+    if (count < 0 || start + count > n)
+        count = n - start;
+    if (count < 0)
+        count = 0;
+    char *buf = PyByteArray_AS_STRING(data) + start * 12;   /* 与 Python 同一下标语义 */
     const Py_ssize_t cap = PyByteArray_GET_SIZE(data);
-    if (cap < n * 12) {
+    if (cap < (start + count) * 12) {
         Py_DECREF(fast);
         PyErr_SetString(PyExc_ValueError, "data buffer too small");
         return NULL;
     }
     PyObject **items = PySequence_Fast_ITEMS(fast);
-    for (Py_ssize_t i = 0; i < n; i++) {
+    for (Py_ssize_t i = start; i < start + count; i++) {
         PyObject *p = items[i];
-        PyObject *ox = PyDict_GetItemString(p, "x");
-        PyObject *oy = PyDict_GetItemString(p, "y");
-        PyObject *ovy = PyDict_GetItemString(p, "vy");
-        PyObject *ot = PyDict_GetItemString(p, "trail_time");
+        PyObject *ox = PyDict_GetItem(p, key_x);
+        PyObject *oy = PyDict_GetItem(p, key_y);
+        PyObject *ovy = PyDict_GetItem(p, key_vy);
+        PyObject *ot = PyDict_GetItem(p, key_trail);
         if (ox == NULL || oy == NULL || ovy == NULL || ot == NULL) {
             Py_DECREF(fast);
             PyErr_SetString(PyExc_KeyError, "particle missing x/y/vy/trail_time");

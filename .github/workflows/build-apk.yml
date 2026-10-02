@@ -57,7 +57,7 @@ jobs:
           path: |
             ~/.buildozer
             .buildozer
-          key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-v2-${{ runner.os }}-${{ hashFiles('p4a-recipes/**', 'buildozer.spec') }}
           restore-keys: |
             buildozer-v1-${{ runner.os }}-
 
