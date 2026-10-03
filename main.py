@@ -2423,6 +2423,45 @@ class HourglassApp(App):
     def on_start(self):
         if platform == "android":
             Window.bind(on_flip=self._hide_startup_screen)
+            self._apply_max_refresh_rate()
+            # SDL 把窗口挂稳之后可能再刷一次窗口属性, 补一发(幂等)
+            Clock.schedule_once(lambda _dt: self._apply_max_refresh_rate(), 1.5)
+
+    def _apply_max_refresh_rate(self):
+        """向系统**显式要**当前屏幕的最高刷新率。
+
+        安卓**不会**自动把面板跑到最高档 —— 不给 `preferredRefreshRate` 就按系统默认档走
+        (常见 60/120, 哪怕面板是 165/185)。这里读 `Display.getSupportedModes()` 取最高档,
+        写进窗口的 `WindowManager.LayoutParams`, 并把"要之前/要之后"都打出来便于回溯。
+
+        ⚠️ 与 `maxfps=0` 是**两件事**: maxfps 是"我们自己不设上限", 这一步是"让系统别给低档"。
+        ⚠️ SDL 回前台可能重刷窗口属性 ⇒ `on_resume` 也要再要一次(同 `_apply_orientation`)。
+        ⚠️ 刚 setAttributes 时档位切换是异步的, 紧接着读回仍可能是旧值 ——
+        真正算数的是基准日志里的 `refresh_hz`(它在基准开始时才读)。
+        """
+        try:
+            from jnius import autoclass
+            version = autoclass("android.os.Build$VERSION")
+            activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            display = activity.getWindowManager().getDefaultDisplay()
+            now = float(display.getRefreshRate())
+            best = now
+            if int(version.SDK_INT) >= 23:
+                modes = display.getSupportedModes()
+                for i in range(len(modes)):
+                    best = max(best, float(modes[i].getRefreshRate()))
+            if best <= now + 0.5:
+                print(f"Refresh rate: already at panel max ({now:.1f}Hz)")
+                return
+            attrs = activity.getWindow().getAttributes()
+            attrs.preferredRefreshRate = float(best)
+            activity.getWindow().setAttributes(attrs)
+            after = float(activity.getWindowManager()
+                          .getDefaultDisplay().getRefreshRate())
+            print(f"Refresh rate: requested {best:.1f}Hz "
+                  f"(was {now:.1f}Hz, readback {after:.1f}Hz)")
+        except Exception as exc:
+            print(f"Refresh rate request failed: {exc}")
 
     def _hide_startup_screen(self, *_):
         if not self.hourglass._geom_ready or self.hourglass.height <= dp(100):
@@ -3221,6 +3260,8 @@ class HourglassApp(App):
             self.hourglass._completion_sound = self.hourglass._make_completion_sound()
             # SDL 回前台会重报方向(可能把 fullSensor 覆盖回竖屏), 再抢一次话语权
             self._apply_orientation()
+            # 同理: 回前台可能把窗口的刷新率档位刷回系统默认, 再要一次最高档
+            self._apply_max_refresh_rate()
             layer = _land_layer()
             if layer is not None:
                 layer.apply_orientation()
