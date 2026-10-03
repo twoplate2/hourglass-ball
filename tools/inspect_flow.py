@@ -25,6 +25,12 @@ def main():
     parser.add_argument("--texture-flow", action="store_true")
     parser.add_argument("--dense-neck", action="store_true")
     parser.add_argument("--landscape", action="store_true")
+    # 密度三臂实验用: 固定周期、密采样稳态、可换沙色、可覆写粒子率
+    parser.add_argument("--sand", default=None, help="沙色预设名(金沙/红沙/...)")
+    parser.add_argument("--speed-factor", type=float, default=None,
+                        help="覆写 speed_factor(仅测量脚手架, 不改几何)")
+    parser.add_argument("--steady-period", type=float, default=None)
+    parser.add_argument("--steady-frames", type=int, default=30)
     args = parser.parse_args()
     output = ROOT / "benchmark_logs" / ("flow_visual_" + args.label)
     output.mkdir(exist_ok=True)
@@ -46,6 +52,9 @@ def main():
         spec = importlib.util.spec_from_file_location("flow_visual_source", args.source)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        if args.speed_factor is not None:
+            module.HourglassWidget.speed_factor = property(
+                lambda self, _v=args.speed_factor: _v)
         if args.chunk_flow:
             chunk_spec = importlib.util.spec_from_file_location(
                 "flow_chunk_experiment", ROOT / "tools" / "flow_chunk_experiment.py")
@@ -88,6 +97,10 @@ def main():
             cases = [(period, tuple(sorted(set(times) | set(extra.get(period, ())))))
                      for period, times in cases]
         targets = [(period, elapsed) for period, times in cases for elapsed in times]
+        if args.steady_period:
+            _p, _n = float(args.steady_period), max(2, args.steady_frames)
+            _lo, _hi = 0.5, _p * 0.92          # 切掉前 0.5s 注满与末 8% 收尾
+            targets = [(_p, _lo + (_hi - _lo) * i / (_n - 1)) for i in range(_n)]
         records = []
 
         class VisualApp(module.HourglassApp):
@@ -101,6 +114,11 @@ def main():
                 Clock.schedule_once(self.begin, 0.3)
 
             def begin(self, _dt):
+                if args.sand:
+                    for _nm, _b, _d, _l in module.SAND_PRESETS:
+                        if _nm == args.sand:
+                            self.hourglass.set_sand_color(_b, _d, _l)
+                self.first_hit = None   # 周期与 load_config 桩相同(60)时下面不会初始化
                 self.root.apply_orientation()
                 self.root.do_layout()
                 self.root._anchor.do_layout()
@@ -117,10 +135,14 @@ def main():
                     return
                 period, target = targets.pop(0)
                 widget = self.hourglass
-                if widget.duration != period:
-                    widget.set_duration(period)
+                # 注意: load_config 桩返回 duration=60, 与 --steady-period 60 相同 ⇒
+                # 只判 duration 会跳过启动, running 一直 False, 粒子一个都不生成。
+                if widget.duration != period or not widget.running:
+                    if widget.duration != period:
+                        widget.set_duration(period)
                     widget.completion_enabled = False
-                    widget.toggle()
+                    if not widget.running:
+                        widget.toggle()
                     random.seed(23)
                     self.first_hit = None
                 # Drawing is observational; advancing only physics keeps snapshots inexpensive.
