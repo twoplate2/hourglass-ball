@@ -163,6 +163,9 @@ MOUND_FLOOR_MIN = 2.5     # 前期极小可见保底(dp),仅防薄层消失,不�
 MOUND_FLOOR_MAX = 3.5
 MOUND_FLOOR_EFF = 0.02
 
+COMPLETION_POPUP_DELAY = 1.0   # 完成提示延后(秒): 让闪光/尘埃先演完再弹(用户 2026-10-03 定)
+COMPLETION_POPUP_MIN = 20.0    # 周期短于这个数就**不弹**完成提示(同上)
+
 # (1.39 回滚) 这里曾有 JET_VENA / JET_DIFFUSE / JET_SPREAD / JET_EDGE / JET_WAVE_K ——
 # 出口以下的"vena contracta 收腰 + 沿深度相干摆动"。它把颈部射流做成了一根**静止的
 # 波纹管**: 摆动只随 y 变化(空间函数, 不是时间函数), 同一根 zigzag 每帧钉在同一批行上,
@@ -930,6 +933,7 @@ class HourglassWidget(Widget):
         self.mound_peak_offset = 0.0
         self.flash_end = 0.0
         self._completion_triggered = False
+        self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
 
         self.sound_name = "沙沙声"
         self._sound = self._make_sound_proxy(self.sound_name)
@@ -1222,6 +1226,7 @@ class HourglassWidget(Widget):
         self.mound_peak_offset = 0.0
         self.flash_end = 0.0
         self._completion_triggered = False
+        self._completion_token += 1          # 作废还没到点的完成提示
         # 旧场景的循环引用在重置时清理,避免留到流动中触发全量回收。
         gc.collect()
 
@@ -1407,9 +1412,7 @@ class HourglassWidget(Widget):
                     self._spawn_dust()
                     self._completion_triggered = True
                     self._play_completion_sound(self.duration)
-                    app = App.get_running_app()
-                    if app is not None:
-                        app.on_completed(self.duration)
+                    self._schedule_completion_popup(App.get_running_app())
                 app = App.get_running_app()
                 if app is not None:
                     app.on_run_state_changed()
@@ -1419,6 +1422,29 @@ class HourglassWidget(Widget):
         app = App.get_running_app()
         if app is not None:
             app.update_time(max(0.0, self.duration - self.elapsed), self.duration)
+
+    def _schedule_completion_popup(self, app):
+        """完成提示**延后** COMPLETION_POPUP_DELAY 秒再弹, 让闪光/尘埃先演完;
+        周期 < COMPLETION_POPUP_MIN 的**根本不弹**。
+
+        期间可能被 reset / 重开作废, 所以到点时用**令牌**判定, 不只看状态:
+        `_reset_run_state` 每次都 +1 ⇒ 令牌对不上就不弹。
+        (只看 `running` 不够 —— 重置之后 running 也是 False。)
+        """
+        if app is None or not app.completion_popup_allowed(self.duration):
+            return
+        token = self._completion_token
+
+        def fire(_dt):
+            if token != self._completion_token:
+                return                      # 那一轮已经被重置或重开了
+            if not self._completion_triggered or self.running:
+                return
+            if self.elapsed < self.duration:
+                return
+            app.on_completed(self.duration)
+
+        Clock.schedule_once(fire, COMPLETION_POPUP_DELAY)
 
     def _spawn_dust(self):
         mound_top = self.get_mound_top_y()
@@ -3103,6 +3129,10 @@ class HourglassApp(App):
 
     def update_time(self, remaining_sec, duration):
         self.time_label.text = _fmt_countdown_pair(remaining_sec, duration)
+
+    def completion_popup_allowed(self, duration):
+        """完成提示弹不弹: 基准测试期间不弹; 周期 < COMPLETION_POPUP_MIN 也不弹。"""
+        return (not self._benchmark_active()) and duration >= COMPLETION_POPUP_MIN
 
     def on_completed(self, duration):
         """沙漏流尽:弹窗报时长。auto_dismiss=False —— 不点不关(用户明确要求)。"""
