@@ -1457,7 +1457,10 @@ class HourglassWidget(Widget):
             pv.x = self.px[:n].tolist()
             pv.y = self.py[:n].tolist()
             pv.vy = self.pvy[:n].tolist()
-            pv.tl = self.ptl[:n].tolist()
+            # pv.tl 只在纹理渲染器的**非 numpy 分支**被读(flow_texture_experiment.py:156,
+            # 在 else 里)。安卓 use_np 恒为真 ⇒ 这份 ~2000 个 float 的 tolist 每帧白建。
+            # 给数组视图即可: 该分支走不到, 而真走到的 numpy 分支读的是 ntl。
+            pv.tl = self.ptl[:n]
             pv.sz = self.psz[:n].tolist()
             pv.light = self.pli[:n].tolist()
             pv.wp = self.pwp[:n].tolist()
