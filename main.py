@@ -66,15 +66,18 @@ import gc
 
 from app_version import APP_VERSION
 
-# ---- 实验: 解除 Kivy Clock 的软件节拍 ----
-# kivy/clock.py 的 ClockBaseBehavior.idle() 里:
-#   sleeptime = 1/fps - 已用时间;  undershoot = 4/5*resolution(=4.444ms)
-#   不睡的判据: sleeptime - undershoot <= min_sleep(=5.556ms)
-#   => 工作量 >= 1/fps - 10.0ms 才不睡。maxfps=60 时临界点是 6.667ms。
-# 工作量掉到临界点以下, 帧间隔不是变小而是被顶到固定平台 12.22ms。
-# 设 maxfps=120: 8.333 - work <= 10.0 恒成立 => 永不休眠。
-from kivy.config import Config
-Config.set('graphics', 'maxfps', '120')
+# ---- 生产: 关掉 Kivy Clock 的软件节拍(仅 Android) ----
+# kivy/clock.py `ClockBaseBehavior.idle()` + `_check_ready`(实测 resolution = 1/(3*fps)):
+#   done = (sleeptime - 4/5*min_sleep <= min_sleep),  sleeptime = 1/fps - 本帧已耗时
+#   => 本帧耗时 W >= 0.4/fps 才不睡; W < 0.4/fps 时帧间隔被顶到 (11/15)/fps, 与 W 无关。
+#      maxfps=60  -> 悬崖 6.667ms, 台阶 12.222ms(逐帧直方图实测 12.1~12.6)
+#      maxfps=120 -> 悬崖 3.333ms, 台阶  6.111ms(实测 6.0~6.3) —— 只是把台阶挪近, 没取消
+#   台阶是"算得越快被顶得越死"; 且 6.111ms 在 165Hz 面板(vblank 6.06ms)上会掉一整帧。
+# maxfps=0 => idle() 整段跳过, 完全不休眠, 节拍交给 vsync。安卓的 buffer swap 必然等
+#   SurfaceFlinger 的 vblank, 所以 0 不会空转; 120Hz 机上 120 与 0 等价, 165Hz 机上 0 更好。
+# 只在 Android 生效: 桌面无 vblank 兜底, 设 0 会纯烧 CPU, 也会改掉测量工具的节拍。
+if "P4A_BOOTSTRAP" in os.environ or "ANDROID_ARGUMENT" in os.environ:
+    Config.set('graphics', 'maxfps', '0')
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -98,7 +101,7 @@ from kivy.utils import platform
 from frame_benchmark import (BenchmarkHoldArea, BenchmarkRunner, PERIODS,
                              BenchmarkFrameChart,
                              format_benchmark_result, format_benchmark_report,
-                             save_benchmark_log)
+                             benchmark_log_text, save_benchmark_log)
 
 
 # ---- 中文字体: 用 name="Roboto" 覆盖 Kivy 默认字体,全局生效 ----
@@ -2848,8 +2851,60 @@ class HourglassApp(App):
         return os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "benchmark_logs")
 
+    @staticmethod
+    def _publish_via_mediastore(filename, data):
+        """路线 B: 走 MediaStore 把文件登记进系统的「下载」集合(API 29+, 免权限)。"""
+        from jnius import autoclass
+        if autoclass("android.os.Build$VERSION").SDK_INT < 29:
+            return None
+        MediaColumns = autoclass("android.provider.MediaStore$MediaColumns")
+        Downloads = autoclass("android.provider.MediaStore$Downloads")
+        ContentValues = autoclass("android.content.ContentValues")
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        values = ContentValues()
+        values.put(MediaColumns.DISPLAY_NAME, filename)
+        values.put(MediaColumns.MIME_TYPE, "text/plain")
+        values.put(MediaColumns.RELATIVE_PATH, "Download")
+        resolver = activity.getContentResolver()
+        uri = resolver.insert(Downloads.EXTERNAL_CONTENT_URI, values)
+        if uri is None:
+            return None
+        stream = resolver.openOutputStream(uri)
+        if stream is None:
+            return None
+        try:
+            stream.write(data)
+            stream.flush()
+        finally:
+            stream.close()
+        return "/storage/emulated/0/Download/" + filename
+
+    def _publish_to_download(self, filename, text):
+        """再把日志往公共 Download 目录放一份**同名同内容**的副本(用户/文件管理器直接能取)。
+        返回落地路径; 两条路线都失败返回 None —— 私有目录那份已经写好了, 不影响保底。"""
+        if platform != "android":
+            return None
+        data = text.encode("utf-8")
+        # 路线 A: 直接写文件。Android 11+ 的 FUSE 允许在 Download 里**新建**文件。
+        for directory in ("/storage/emulated/0/Download", "/sdcard/Download"):
+            try:
+                os.makedirs(directory, exist_ok=True)
+                path = os.path.join(directory, filename)
+                with open(path, "wb") as stream:
+                    stream.write(data)
+                return path
+            except OSError as exc:
+                print(f"Download direct write failed ({directory}): {exc}")
+        # 路线 B: MediaStore。jnius 抛的不一定是 OSError, 这里必须宽捕。
+        try:
+            return self._publish_via_mediastore(filename, data)
+        except Exception as exc:
+            print(f"MediaStore publish failed: {exc}")
+        return None
+
     def _save_benchmark_results(self, button):
-        """把这一轮的全部记录写成文件(逐帧 trace + 分位/超阈值/残差/分桶表)。"""
+        """把这一轮的全部记录写成文件(逐帧 trace + 分位/超阈值/残差/分桶表),
+        并再往公共 Download 目录放一份同名副本 —— 私有目录是保底, Download 是给人取的。"""
         if not self._benchmark_results:
             return
         try:
@@ -2863,9 +2918,13 @@ class HourglassApp(App):
         self._benchmark_log_path = path
         print(f"Benchmark saved: {path}")
         button.text = "已保存"
+        published = self._publish_to_download(
+            os.path.basename(path),
+            benchmark_log_text(self._benchmark_results, self._benchmark_cancelled))
+        print(f"Benchmark published: {published or '(Download 不可写, 只留私有目录)'}")
         hint = getattr(self, "_benchmark_hint", None)
         if hint is not None:
-            hint.text = f"已写入 {path}"
+            hint.text = f"已写入 {published or path}"
 
     def _benchmark_controls(self, disabled):
         for control in [self.duration_btn, self.sound_btn, self._reset_btn] + [

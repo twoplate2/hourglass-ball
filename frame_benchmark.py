@@ -226,14 +226,14 @@ def format_benchmark_digest(result, bins=False):
     return "\n".join(lines)
 
 
-def save_benchmark_log(directory, results, cancelled=False):
-    os.makedirs(directory, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    path = os.path.join(directory, f"benchmark_{stamp}.txt")
+def benchmark_log_text(results, cancelled=False):
+    """整份日志的文本(逐帧 trace + 分位/超阈值/残差/分桶表 + 环境行)。
+    单独拎出来是为了让同一次结果能写到两处(应用私有目录 + 公共 Download)而**同名同内容**。"""
     lines = [format_benchmark_report(results, cancelled),
              f"\nPlatform: {sys.platform}; Window: {tuple(Window.size)}",
              f"Timer resolution: {time.get_clock_info('perf_counter').resolution}s",
              f"VSync configuration: {Config.get('graphics', 'vsync')}",
+             f"MaxFPS configuration: {Config.get('graphics', 'maxfps')}",
              "Timing units: milliseconds; samples: Window.on_flip intervals.",
              "Host load note: Windows video compression may be running; cross-run FPS is not a controlled comparison."]
     for result in results:
@@ -258,8 +258,15 @@ def save_benchmark_log(directory, results, cancelled=False):
                 frame.get("gc_generation", -1), frame.get("mound_px", 0),
                 frame.get("gap_between_frames_ms", 0), frame.get("gap_tick_tail_ms", 0),
                 frame.get("gap_draw_to_flip_ms", 0))))
+    return "\n".join(lines) + "\n"
+
+
+def save_benchmark_log(directory, results, cancelled=False):
+    os.makedirs(directory, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    path = os.path.join(directory, f"benchmark_{stamp}.txt")
     with open(path, "w", encoding="utf-8") as stream:
-        stream.write("\n".join(lines) + "\n")
+        stream.write(benchmark_log_text(results, cancelled))
     return path
 
 
