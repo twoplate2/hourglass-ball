@@ -326,21 +326,12 @@ class BenchmarkFrameChart(Widget):
             if len(points) >= 4:
                 Color(0.18, 0.45, 0.36, 1)
                 Line(points=points, width=1)
-            # 第二条序列:在途粒子数(按本图峰值归一化)—— 一眼看出"低帧是不是跟着负载走"。
-            peak = max((frame.get("particles", 0) for frame in trace), default=0)
-            if peak > 0:
-                load_points = []
-                for frame in trace:
-                    load_points.extend((
-                        left + width * min(1, frame["elapsed_s"] / period),
-                        bottom + height * frame.get("particles", 0) / peak))
-                if len(load_points) >= 4:
-                    Color(0.85, 0.45, 0.18, 0.55)
-                    Line(points=load_points, width=1)
-                Color(1, 1, 1, 1)
-                self._label(f"粒子峰值 {peak}", left + dp(4), self.top - dp(26))
+            # (2026-10-03 用户要求) 这里原本还有第二条橙色曲线 = 在途粒子数, 连同"粒子峰值 N"
+            # 的标签一起删掉 —— 图上只留 FPS 一条。
+            # ⚠️ **逐帧 trace 日志里仍然记 `particles` 那一列**: A/B 分析、以及
+            # "慢帧是不是跟着负载走"的诊断都还要用它, 只是不再画到图上。
             Color(1, 1, 1, 1)
-            self._label("绿=FPS 橙=粒子数", left + width, self.top - dp(13), right=True)
+            self._label("绿=FPS", left + width, self.top - dp(13), right=True)
 
 
 def frame_statistics(intervals):
