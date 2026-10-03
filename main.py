@@ -76,6 +76,11 @@ from app_version import APP_VERSION
 # maxfps=0 => idle() 整段跳过, 完全不休眠, 节拍交给 vsync。安卓的 buffer swap 必然等
 #   SurfaceFlinger 的 vblank, 所以 0 不会空转; 120Hz 机上 120 与 0 等价, 165Hz 机上 0 更好。
 # 只在 Android 生效: 桌面无 vblank 兜底, 设 0 会纯烧 CPU, 也会改掉测量工具的节拍。
+from kivy.config import Config          # ⚠️ 必须在下面那个 if **之前**！
+# (2026-10-03 事故: 改这段注释时把这行 import 删了 ⇒ 1.40~1.46 七个版本在 Android 上
+#  启动即死 NameError: name 'Config' is not defined。桌面测不出来 —— 这行只在
+#  Android 分支执行, 而 ast.parse 只查语法不查名字。见 README 经验教训。)
+
 if "P4A_BOOTSTRAP" in os.environ or "ANDROID_ARGUMENT" in os.environ:
     Config.set('graphics', 'maxfps', '0')
 
