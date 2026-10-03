@@ -153,6 +153,12 @@ u 的步长 `1/(512*3)` 对所有分块都一样 —— shader 里只要一个 `
 
 ### 每帧热循环的等价改写(2026-10-02)
 
+⚠️ **`tools/verify_particle_hot_loop.py` 已失效**(2026-10-03 发现):它的 `Fixture` 还是
+**并行数组之前**的形态(塞 `particles=[dict...]`),而 `update_particles` 现在用
+`px/py/pvy/...` + `pn`,**拿同一个文件自比都会 `AttributeError: 'Fixture' object has no
+attribute 'pn'`**。修它等于重写 Fixture,先别花时间 —— **等价守卫改用
+`tools/test_physics_equiv.py`**(标量参考 vs `tools/flow_numpy.py`,逐位比对,当前代码有效)。
+
 Canvas 降下来之后剩下的时间几乎全是纯 Python(物理 + 每帧提交)。这类优化**必须
 逐位等价**：算式一字不改、随机数调用顺序一个不挪，否则粒子流一变画面就变了。
 手法见 `README.md`「压 Python 热循环」；实测 11.7ms/帧 → 6.7ms/帧(−43%)，
