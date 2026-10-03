@@ -51,7 +51,13 @@ class FlowBatch:
             self.indices = [0, 1]
             self.mode = "lines"
         else:
-            # Match Kivy Line's 10-segment round caps and its half-width convention.
+            # Kivy Line 的 10 段圆头帽 + 它的半宽约定。**每颗粒 20 顶点 / 54 索引**
+            # (原 24 / 66), 覆盖像素不变:
+            #   ① 帽的扇形从**矩形角**起扇, 不从平边中点 (0,0) —— 后者是边界上的点、
+            #      不是顶点, 白白多一个顶点;
+            #   ② 弧的第 0 个采样点与矩形角**逐位相同** —— 原写法里
+            #      (center, first, arc0) 是零面积退化三角形, 一并去掉。
+            #   凸多边形从任一顶点起扇覆盖的区域完全相同, 所以可见像素一致。
             angle = math.pi / 2
             half_pi = float(array("f", [math.pi / 2])[0])
             a0, a1 = angle - half_pi, angle + half_pi
@@ -61,14 +67,15 @@ class FlowBatch:
                 (*right, 0), (*right, 1), (*left, 1), (*left, 0)]
             self.indices = [0, 1, 2, 0, 2, 3]
             for end, direction, first, last in ((0, -1, 0, 3), (1, 1, 1, 2)):
-                center = len(self.template)
-                self.template.append((0, 0, end))
-                for i in range(9):
+                base = len(self.template)
+                # 弧采样点取 i=1..8 (i=0 与 first 重合, i=10 就是 last)
+                for i in range(1, 9):
                     a = a0 + direction * (a1 - a0) * i / 10
-                    vertex = len(self.template)
-                    self.template.append((math.cos(a) * width, math.sin(a) * width, end))
-                    self.indices.extend((center, first if i == 0 else vertex - 1, vertex))
-                self.indices.extend((center, len(self.template) - 1, last))
+                    self.template.append(
+                        (math.cos(a) * width, math.sin(a) * width, end))
+                pts = [first] + [base + k for k in range(8)] + [last]
+                for k in range(8):          # 10 个点的扇形 = 8 个三角形
+                    self.indices.extend((pts[0], pts[k + 1], pts[k + 2]))
             self.mode = "triangles"
 
     def update(self, view, indices, top_limit, motion_scale=1):
