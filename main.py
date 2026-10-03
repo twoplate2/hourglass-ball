@@ -66,6 +66,16 @@ import gc
 
 from app_version import APP_VERSION
 
+# ---- 实验: 解除 Kivy Clock 的软件节拍 ----
+# kivy/clock.py 的 ClockBaseBehavior.idle() 里:
+#   sleeptime = 1/fps - 已用时间;  undershoot = 4/5*resolution(=4.444ms)
+#   不睡的判据: sleeptime - undershoot <= min_sleep(=5.556ms)
+#   => 工作量 >= 1/fps - 10.0ms 才不睡。maxfps=60 时临界点是 6.667ms。
+# 工作量掉到临界点以下, 帧间隔不是变小而是被顶到固定平台 12.22ms。
+# 设 maxfps=120: 8.333 - work <= 10.0 恒成立 => 永不休眠。
+from kivy.config import Config
+Config.set('graphics', 'maxfps', '120')
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.text import LabelBase, Label as CoreLabel
