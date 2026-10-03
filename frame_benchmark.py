@@ -23,6 +23,7 @@ from kivy.utils import platform as runtime_platform
 
 PERIODS = (1, 5, 15)
 REPORT_REVISION = 2
+TAIL_MIN_FRAMES = 5     # "1% low" 至少平均这么多帧 —— 见 frame_statistics 里的说明
 
 
 def benchmark_environment(widget):
@@ -106,8 +107,10 @@ def format_benchmark_result(period, result=None):
     avg_text = f"{avg:.1f}" if avg is not None else "--"
     low_text = f"{low:.1f}" if low is not None else "--"
     slow = " / ".join(f"{fps:.1f}" for fps in result["slowest_five_fps"]) or "--"
+    tail = result.get("one_percent_low_frames") or 0
+    tail_text = f"(最差 {tail} 帧)" if tail else ""
     return (f"{period} 秒  ·  {result['frames']} 帧\n"
-            f"平均 {avg_text} FPS    1% low {low_text} FPS\n"
+            f"平均 {avg_text} FPS    1% low {low_text} FPS{tail_text}\n"
             f"最慢 5 帧 FPS:\n{slow}")
 
 
@@ -333,11 +336,16 @@ def frame_statistics(intervals):
         return {"frames": 0, "average_fps": None, "one_percent_low_fps": None,
                 "slowest_five_fps": [], "slowest_five_ms": []}
     slowest = sorted(samples, reverse=True)
-    low_count = max(1, math.ceil(len(samples) * 0.01))
+    # ⚠️ 尾部帧数要设**下限**: 1 秒档只有 ~110 帧, ceil(1%) = 2 帧 ⇒ "1% low" 退化成
+    # "最慢那一帧"(实测 95.6 而最慢帧 93.6 —— 几乎是同一个数), 还跟上面那行
+    # 「最慢 5 帧」重复显示同一信息, 并且会随测试时长漂移(同一段开头测 1s / 5s 给出的值不同)。
+    # 下限取 5 帧, 并把**实际用了几帧**一并报出去(界面和日志都能看见)。
+    low_count = min(len(slowest), max(TAIL_MIN_FRAMES, math.ceil(len(samples) * 0.01)))
     return {
         "frames": len(samples),
         "average_fps": len(samples) / sum(samples),
         "one_percent_low_fps": low_count / sum(slowest[:low_count]),
+        "one_percent_low_frames": low_count,
         "slowest_five_fps": [1 / dt for dt in slowest[:5]],
         "slowest_five_ms": [dt * 1000 for dt in slowest[:5]],
     }
