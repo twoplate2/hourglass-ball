@@ -2038,15 +2038,27 @@ class HourglassWidget(Widget):
         ys_p = pv.y
         vys_p = pv.vy
         depth = 1e-6
-        for i in range(pv.n):
-            distance = outlet - ys_p[i]
-            if distance < 0 or distance > length + 1e-6:
-                continue
-            # An isolated fast grain must not stretch the startup texture ahead of the main flow.
-            if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
-                continue
-            if distance > depth:
-                depth = distance
+        if pv.use_np:
+            # 向量化这一趟: 它每帧都要扫全部 pn 颗粒(第二趟本来就 break 在 128, 不是 O(pn))。
+            # 条件逐字照抄标量版, 且用 ~(A|B) 而不是直接写"保留条件" —— 标量版是
+            # `if <cond>: continue`, NaN 时比较为 False 故**不跳过**, 取反才逐字对齐。
+            _d = outlet - pv.ny[:pv.n]
+            _keep = ~((_d < 0) | (_d > length + 1e-6))
+            _keep &= ~(pv.nvy[:pv.n] ** 2 - twice_gravity * _d > source_limit_squared)
+            if _keep.any():
+                _mx = float(_d[_keep].max())
+                if _mx > depth:
+                    depth = _mx
+        else:
+            for i in range(pv.n):
+                distance = outlet - ys_p[i]
+                if distance < 0 or distance > length + 1e-6:
+                    continue
+                # An isolated fast grain must not stretch the startup texture ahead of the main flow.
+                if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
+                    continue
+                if distance > depth:
+                    depth = distance
         ys = [y for _x, y in side]
         xs = [x for x, _y in side]
 
