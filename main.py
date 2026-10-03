@@ -246,18 +246,18 @@ def _mult_from_slider(t):
 
 
 def _fmt_duration_cn(sec):
-    """完成弹窗里的时长("1 小时 30 秒"),零分量省略。"""
+    """完成弹窗里的时长("1小时30秒"),零分量省略、数字与单位之间不留空格。"""
     total = max(0, int(round(sec)))
     hours, rest = divmod(total, 3600)
     minutes, secs = divmod(rest, 60)
     parts = []
     if hours:
-        parts.append(f"{hours} 小时")
+        parts.append(f"{hours}小时")
     if minutes:
-        parts.append(f"{minutes} 分")
+        parts.append(f"{minutes}分")
     if secs or not parts:
-        parts.append(f"{secs} 秒")
-    return " ".join(parts)
+        parts.append(f"{secs}秒")
+    return "".join(parts)
 
 
 def _fmt_countdown_pair(remaining, total):
@@ -3093,14 +3093,17 @@ class HourglassApp(App):
                             size_hint=(1, None))
         content.bind(minimum_height=content.setter("height"))
 
-        caption = Label(text="沙漏已流尽", font_size=sp(15),
+        caption = Label(text="沙漏计时已完成", font_size=sp(15),
                         color=POPUP_TEXT_SUB, size_hint=(1, None), height=dp(24))
         content.add_widget(caption)
 
-        big = Label(text=_fmt_duration_cn(duration), font_size=sp(28), bold=True,
+        big = Label(text="用时：" + _fmt_duration_cn(duration), font_size=sp(28), bold=True,
                     color=POPUP_GOLD_SEL, size_hint=(1, None), height=dp(52),
                     halign="center", valign="middle")
         big.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+        # 加了"用时："前缀后长周期(如"用时：100小时59分59秒")会折行, 高度得跟着文字长
+        big.bind(texture_size=lambda inst, ts: setattr(
+            inst, "height", max(dp(52), ts[1])))
         content.add_widget(big)
 
         rule = Widget(size_hint=(1, None), height=dp(2))
@@ -3113,7 +3116,7 @@ class HourglassApp(App):
 
         content.add_widget(Widget(size_hint=(1, None), height=dp(4)))
 
-        close_btn = Button(text="好", font_size=sp(16), bold=True,
+        close_btn = Button(text="确定", font_size=sp(16), bold=True,
                            background_normal="",
                            background_color=POPUP_CONFIRM,
                            color=POPUP_TEXT_WHITE,
@@ -3121,7 +3124,7 @@ class HourglassApp(App):
         content.add_widget(close_btn)
 
         popup = _SandBgPopup(title="计时完成", content=content,
-                             size_hint=(0.86, None), height=dp(300),
+                             size_hint=(0.86, None), height=dp(330),
                              auto_dismiss=False)
         popup.title_align = "center"
         popup.title_size = sp(19)
