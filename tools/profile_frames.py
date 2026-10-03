@@ -59,6 +59,8 @@ def main():
         Window.clearcolor = (*module.hex_rgb(module.BG_COLOR), 1)
         module.HourglassWidget._make_sound_proxy = lambda *_: None
         module.HourglassWidget._make_completion_sound = lambda *_: None
+        # 完成弹窗 auto_dismiss=False 会盖住后续所有帧(见 inspect_flow.py 同处注释)
+        module.HourglassApp.on_completed = lambda *_: None
         random.seed(23)
         flips, cpu = [], []
         start = previous = None

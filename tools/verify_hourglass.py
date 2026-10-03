@@ -83,6 +83,9 @@ def main():
         app_module.HourglassWidget._make_sound_proxy = lambda *_: None
         if "--completion-demo" not in sys.argv:
             app_module.HourglassWidget._make_completion_sound = lambda *_: None
+            # 完成弹窗 auto_dismiss=False: 会盖住后续所有截图与断言。
+            # --completion-demo 是唯一要看它的时候(那个用例本来就是演示完成态)。
+            app_module.HourglassApp.on_completed = lambda *_: None
         app_module.HourglassWidget.load_config = lambda *_: {"duration": 60}
         app_module.HourglassWidget.save_config = lambda *_: (_ for _ in ()).throw(
             AssertionError("Test must not save configuration"))

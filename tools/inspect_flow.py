@@ -66,6 +66,9 @@ def main():
             texture_module.install(module.HourglassWidget)
         module.HourglassWidget._make_sound_proxy = lambda *_: None
         module.HourglassWidget._make_completion_sound = lambda *_: None
+        # 完成弹窗 auto_dismiss=False: 用例跑过第 1 秒档就会弹出并**永不关闭**,
+        # 把后面所有裁图盖住。取证工具必须屏蔽它, 与上面的音效桩同理。
+        module.HourglassApp.on_completed = lambda *_: None
         module.HourglassWidget.load_config = lambda *_: {"duration": 60}
         module.HourglassWidget.save_config = lambda *_: None
         now = [1000.0]

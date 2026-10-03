@@ -15,8 +15,10 @@
 import math
 import os
 import random
+import struct
 import sys
 import time
+import wave
 import json
 
 
@@ -119,6 +121,7 @@ POPUP_UNSEL_MULT = (0.722, 0.627, 0.533, 1)       # 未选(倍数):浅棕 #b8a08
 POPUP_CANCEL_BG = (0.847, 0.824, 0.792, 1)        # 取消:暖灰(比未选亮,表示次要操作)
 POPUP_CONFIRM = (0.62, 0.23, 0.16, 1)              # 「确定」:暗红(与选中金色区分,强调确认操作)
 POPUP_TEXT = (0.20, 0.14, 0.08, 1)                # 深咖啡文字
+POPUP_TEXT_SUB = (0.45, 0.38, 0.30, 1)            # 次级说明文字(浅咖啡)
 POPUP_TEXT_WHITE = (1, 1, 1, 1)
 
 # 球↔管的曲线收窄过渡(纯渲染,不参与体积/守恒计算;移植自 pc v4)
@@ -145,6 +148,13 @@ MOUND_APPEAR = 0.5        # 下沙堆出现后平滑渐显时长
 MOUND_FLOOR_MIN = 2.5     # 前期极小可见保底(dp),仅防薄层消失,不拔高
 MOUND_FLOOR_MAX = 3.5
 MOUND_FLOOR_EFF = 0.02
+
+# 出口以下射流的横向包络。原来出口下方沿用 tube_lim(管内壁半宽)恒宽, 而玻璃在那里
+# 是向外张开的 —— 于是看到"一根等宽方柱悬在漏斗里"。真实沙漏在孔口有 vena contracta
+# (流束收缩), 自由落体段再缓慢扩散, 所以边缘不是两条平行直线。
+JET_VENA = 0.68           # 最窄处 / 孔径
+JET_DIFFUSE = 2.60        # 扩散到位时的倍数
+JET_SPREAD = 110.0        # 出口到扩散到位走过的距离(px)
 
 DUST_COUNT = 25
 DUST_LIFETIME = 1.0
@@ -219,6 +229,21 @@ def _mult_from_slider(t):
     t=0→1,t=0.5→√上限≈25,t=1→上限,无右侧死区。"""
     m = int(math.ceil((MULT_SLIDER_MAX ** max(0.0, min(1.0, t))) - 1e-9))
     return max(1, min(MULT_SLIDER_MAX, m))
+
+
+def _fmt_duration_cn(sec):
+    """完成弹窗里的时长("1 小时 30 秒"),零分量省略。"""
+    total = max(0, int(round(sec)))
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours} 小时")
+    if minutes:
+        parts.append(f"{minutes} 分")
+    if secs or not parts:
+        parts.append(f"{secs} 秒")
+    return " ".join(parts)
 
 
 def _fmt_countdown_pair(remaining, total):
@@ -574,6 +599,130 @@ class _SoundProxy:
             self._kivy_sound = None
 
 
+def _read_wav_pcm(path):
+    """读 WAV -> (裸 PCM bytes, 采样率, 声道)。只支持 16bit,失败抛异常。"""
+    with open(path, "rb") as handle:
+        data = handle.read()
+    if data[:4] != b"RIFF" or data[8:12] != b"WAVE" or len(data) < 36:
+        raise ValueError("Not a WAV file")
+    rate = int.from_bytes(data[24:28], "little")
+    channels = int.from_bytes(data[22:24], "little")
+    if int.from_bytes(data[34:36], "little") != 16:
+        raise ValueError("Only 16bit WAV supported")
+    idx = 12
+    while idx + 8 <= len(data):
+        size = int.from_bytes(data[idx + 4:idx + 8], "little")
+        if data[idx:idx + 4] == b"data":
+            return data[idx + 8:idx + 8 + size], rate, channels
+        idx += 8 + size + (size & 1)
+    raise ValueError("No data chunk in WAV")
+
+
+_CHIME_CACHE = {}
+
+
+def _completion_chime(rate):
+    """播报前的短钟声(C 大三和弦琶音, 与 tools/generate_completion_voice.py 同配方)。
+
+    现场合成而不是烘成文件:只需要 0.55s 的正弦叠加,还免掉一个 wav 进 APK。
+    合成是纯 Python 三重循环(~1.3 万帧),必须缓存 —— 否则每次流尽都在 UI 线程
+    上现算,正好叠在完成闪烁那一帧上。
+    """
+    cached = _CHIME_CACHE.get(rate)
+    if cached is not None:
+        return cached
+    notes = ((523.25, 0.0), (659.25, 0.10), (783.99, 0.20))
+    samples = []
+    for i in range(int(rate * 0.55)):
+        t = i / rate
+        value = 0.0
+        for frequency, start in notes:
+            age = t - start
+            if age >= 0:
+                envelope = min(1.0, age / 0.012) * math.exp(-age * 12)
+                value += math.sin(math.tau * frequency * age) * envelope * 0.075
+        samples.append(round(value * min(1.0, (0.55 - t) / 0.05) * 32767))
+    pcm = struct.pack(f"<{len(samples)}h", *samples) + b"\0\0" * round(rate * 0.12)
+    _CHIME_CACHE[rate] = pcm
+    return pcm
+
+
+class _VoiceBank:
+    """预录词块 -> 完成播报 PCM 拼接。
+
+    完成语随周期变化("两小时三十分零五秒的沙漏计时完成"),无法预录成一条。这里把
+    可能出现的每个词烘成一个小 wav,播报时按需拼成**一段** PCM 再交给 AudioTrack ——
+    一次播放、无接缝、不占第二个通道(winsound 单通道,分段播会被下段掐掉)。
+
+    词块缺失或采样率不一致 -> ok=False,调用方回退到预录的整句 completion.wav。
+    """
+
+    def __init__(self, root):
+        self.rate = 0
+        self.clips = {}
+        self.ok = False
+        path = os.path.join(root, "sounds", "voice")
+        if not os.path.isdir(path):
+            print("Voice tokens missing: sounds/voice/")
+            return
+        try:
+            for name in sorted(os.listdir(path)):
+                if not name.endswith(".wav"):
+                    continue
+                pcm, rate, channels = _read_wav_pcm(os.path.join(path, name))
+                if channels != 1:
+                    raise ValueError(f"{name}: expected mono, got {channels}")
+                if self.rate and rate != self.rate:
+                    raise ValueError(f"{name}: rate {rate} != {self.rate}")
+                self.rate = rate
+                self.clips[name[:-4]] = pcm
+        except Exception as exc:
+            print(f"Voice token load failed: {exc}")
+            self.clips, self.rate = {}, 0
+            return
+        missing = [k for k in ("n0", "n1", "n60", "d1", "ten", "hundred",
+                               "hour", "min", "sec", "tail") if k not in self.clips]
+        if missing:
+            print(f"Voice tokens incomplete, missing: {', '.join(missing)}")
+            self.clips, self.rate = {}, 0
+            return
+        self.ok = True
+        print(f"voice bank: {len(self.clips)} tokens @ {self.rate}Hz")
+
+    def _hour_keys(self, hours):
+        """1..100 小时:1-60 用整词,61-99 拆成 六十/一,100 = 一百。"""
+        if hours <= 60:
+            return [f"n{hours}"]
+        if hours == 100:
+            return ["d1", "hundred"]
+        tens, ones = divmod(hours, 10)
+        keys = [f"d{tens}", "ten"]
+        if ones:
+            keys.append(f"d{ones}")
+        return keys
+
+    def sentence_keys(self, seconds):
+        """拼出"X小时Y分Z秒的沙漏计时完成"的词块序列(零分量省略,中间夹"零")。"""
+        total = max(0, int(round(seconds)))
+        hours, rest = divmod(total, 3600)
+        minutes, secs = divmod(rest, 60)
+        keys = []
+        if hours:
+            keys += self._hour_keys(hours) + ["hour"]
+        if minutes:
+            keys += [f"n{minutes}", "min"]
+        elif hours and secs:
+            keys.append("n0")               # "一小时零三十秒"
+        if secs:
+            keys += [f"n{secs}", "sec"]
+        if not keys:
+            keys += ["n0"]
+        return keys + ["tail"]
+
+    def build_pcm(self, seconds):
+        return b"".join(self.clips[k] for k in self.sentence_keys(seconds))
+
+
 class _SandBgPopup(Popup):
     """浅色背景 Popup,覆盖 Kivy 默认深灰风格(双层兜底)"""
     def __init__(self, bg_hex=POPUP_BG, **kwargs):
@@ -772,6 +921,10 @@ class HourglassWidget(Widget):
         self._sound = self._make_sound_proxy(self.sound_name)
         self.completion_enabled = True
         self._completion_sound = self._make_completion_sound()
+        self._voice_bank = _VoiceBank(resource_path(""))
+        self._completion_spoken = None      # 动态拼出的播报(每条周期重建一次)
+        if self._voice_bank.ok:
+            _completion_chime(self._voice_bank.rate)   # 预热,别让首播卡在完成那一帧
 
         self.bind(size=self._on_size, pos=self._on_size)
         Clock.schedule_once(self._on_size, 0)
@@ -1085,11 +1238,52 @@ class HourglassWidget(Widget):
     def _stop_completion_sound(self):
         if self._completion_sound is not None:
             self._completion_sound.stop()
+        if self._completion_spoken is not None:
+            self._completion_spoken.stop()
 
-    def _play_completion_sound(self):
-        if self.completion_enabled and self._completion_sound is not None:
+    def _play_completion_sound(self, duration=0.0):
+        """播报"X小时Y分Z秒的沙漏计时完成"。词库缺失时回退预录整句。"""
+        if not self.completion_enabled:
+            return
+        if self._voice_bank.ok and self._play_completion_announcement(duration):
+            return
+        if self._completion_sound is not None:
             self._completion_sound.stop()
             self._completion_sound.play()
+
+    def _play_completion_announcement(self, duration):
+        """把词块拼成一段 PCM 写盘 -> 交给 _SoundProxy 一次播完(无接缝)。
+
+        必须走文件:_SoundProxy 的三个后端里有两条按路径播放(winsound 的
+        SND_FILENAME、Kivy SoundLoader),只传裸 PCM 会漏掉它们。
+        """
+        try:
+            bank = self._voice_bank
+            pcm = _completion_chime(bank.rate) + bank.build_pcm(duration)
+            path = os.path.join(os.path.dirname(config_path()),
+                                "completion_announcement.wav")
+            with wave.open(path, "wb") as stream:
+                stream.setnchannels(1)
+                stream.setsampwidth(2)
+                stream.setframerate(bank.rate)
+                stream.writeframes(pcm)
+        except Exception as exc:
+            print(f"completion announcement failed: {exc}")
+            return False
+        if self._completion_spoken is not None:
+            self._completion_spoken.stop()
+            self._completion_spoken.close()
+            self._completion_spoken = None
+        try:
+            proxy = _SoundProxy(path, loop=False)
+        except Exception as exc:
+            print(f"completion announcement audio init failed: {exc}")
+            return False
+        if proxy.backend == "none":
+            return False
+        self._completion_spoken = proxy
+        proxy.play()
+        return True
 
     def _set_sound(self, name):
         """切换音效(五步序):①先新建 proxy(失败→旧态原样,绝不静音)②停旧
@@ -1176,7 +1370,10 @@ class HourglassWidget(Widget):
                 if not self._completion_triggered:
                     self._spawn_dust()
                     self._completion_triggered = True
-                    self._play_completion_sound()
+                    self._play_completion_sound(self.duration)
+                    app = App.get_running_app()
+                    if app is not None:
+                        app.on_completed(self.duration)
                 app = App.get_running_app()
                 if app is not None:
                     app.on_run_state_changed()
@@ -1451,6 +1648,7 @@ class HourglassWidget(Widget):
         lower_center = self._lower_y_c
         sand_half_w = self._sand_half_w
         tube_lim = max(1.0, neck_w - ow)
+        jet_top = 2.0 * self._neck_y - self._taper["y_bot"]   # 直筒下端(= redraw 的 outlet)
         new_list = []
         append_particle = new_list.append
         append_flare = self.flares.append
@@ -1474,6 +1672,9 @@ class HourglassWidget(Widget):
                     "gen_y": gen_y, "lower_cut": lower_cut,
                     "lower_top": lower_top, "lower_center": lower_center,
                     "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
+                    "jet_top": jet_top,
+                    "jet_vena": JET_VENA, "jet_diffuse": JET_DIFFUSE,
+                    "jet_spread": JET_SPREAD,
                     "source_speed": source_speed,
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
@@ -1543,7 +1744,7 @@ class HourglassWidget(Widget):
                 x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
                     * wobble_amp * (1 - shrink * 0.4)
 
-                # 横向 clamp: 管内壁 / 进下球随球内壁平滑过渡
+                # 横向 clamp: 管内壁 / 出口以下的射流包络 / 进下球随球内壁过渡
                 if y >= lower_top:
                     lim = tube_lim
                 else:
@@ -1555,6 +1756,15 @@ class HourglassWidget(Widget):
                     if t > 1.0:
                         t = 1.0
                     lim = tube_lim + (raw_ball - tube_lim) * t
+                if y < jet_top:
+                    # 出口先收(vena contracta)再随下落扩散; 与球壁斜坡取 min,
+                    # 保证任何时候都不越内壁。
+                    u = (jet_top - y) / JET_SPREAD
+                    if u > 1.0:
+                        u = 1.0
+                    env = tube_lim * (JET_VENA + (JET_DIFFUSE - JET_VENA) * u)
+                    if env < lim:
+                        lim = env
                 half_stroke = size if size > 1 else 0.5
                 lim = lim - half_stroke
                 if lim <= 0.0:
@@ -2168,6 +2378,7 @@ class HourglassApp(App):
     def build(self):
         self._sound_popup = None
         self._sound_diag_label = None
+        self._completion_popup = None
         self._last_win_size = None
         if platform != "android":
             try:
@@ -2804,6 +3015,61 @@ class HourglassApp(App):
     def update_time(self, remaining_sec, duration):
         self.time_label.text = _fmt_countdown_pair(remaining_sec, duration)
 
+    def on_completed(self, duration):
+        """沙漏流尽:弹窗报时长。auto_dismiss=False —— 不点不关(用户明确要求)。"""
+        if self._benchmark_active():
+            return                       # 基准测试不显示结果弹窗(沿用既有约定)
+        if self._completion_popup is not None:
+            return
+        content = BoxLayout(orientation="vertical", spacing=dp(14),
+                            padding=[dp(18), dp(10), dp(18), dp(18)],
+                            size_hint=(1, None))
+        content.bind(minimum_height=content.setter("height"))
+
+        caption = Label(text="沙漏已流尽", font_size=sp(15),
+                        color=POPUP_TEXT_SUB, size_hint=(1, None), height=dp(24))
+        content.add_widget(caption)
+
+        big = Label(text=_fmt_duration_cn(duration), font_size=sp(28), bold=True,
+                    color=POPUP_GOLD_SEL, size_hint=(1, None), height=dp(52),
+                    halign="center", valign="middle")
+        big.bind(width=lambda inst, w: setattr(inst, "text_size", (w, None)))
+        content.add_widget(big)
+
+        rule = Widget(size_hint=(1, None), height=dp(2))
+        with rule.canvas:
+            Color(*POPUP_GOLD_SEL[:3], 0.35)
+            rule_rect = Rectangle(pos=rule.pos, size=rule.size)
+        rule.bind(pos=lambda inst, v: setattr(rule_rect, "pos", v),
+                  size=lambda inst, v: setattr(rule_rect, "size", v))
+        content.add_widget(rule)
+
+        content.add_widget(Widget(size_hint=(1, None), height=dp(4)))
+
+        close_btn = Button(text="好", font_size=sp(16), bold=True,
+                           background_normal="",
+                           background_color=POPUP_CONFIRM,
+                           color=POPUP_TEXT_WHITE,
+                           size_hint=(1, None), height=dp(52))
+        content.add_widget(close_btn)
+
+        popup = _SandBgPopup(title="计时完成", content=content,
+                             size_hint=(0.86, None), height=dp(300),
+                             auto_dismiss=False)
+        popup.title_align = "center"
+        popup.title_size = sp(19)
+        popup.separator_color = (*POPUP_GOLD_SEL[:3], 0.25)
+        popup.title_color = (1, 1, 1, 1)
+        content.bind(minimum_height=lambda inst, val:
+                     setattr(popup, "height", val + dp(85)))
+        close_btn.bind(on_press=lambda inst, p=popup: self._close_completion(p))
+        self._completion_popup = popup
+        popup.open()
+
+    def _close_completion(self, popup):
+        self._completion_popup = None
+        popup.dismiss()
+
     def on_pause(self):
         if self._benchmark_active():
             self._benchmark_runner.cancel()
@@ -2815,6 +3081,9 @@ class HourglassApp(App):
         if self._benchmark_active():
             self._benchmark_runner.cancel()
         self.hourglass._stop_completion_sound()
+        if self.hourglass._completion_spoken is not None:
+            self.hourglass._completion_spoken.close()
+            self.hourglass._completion_spoken = None
         if self.hourglass._completion_sound is not None:
             self.hourglass._completion_sound.close()
         self.hourglass._stop_sound()
@@ -2822,6 +3091,9 @@ class HourglassApp(App):
     def on_resume(self):
         if platform == "android":
             self.hourglass._stop_completion_sound()
+            if self.hourglass._completion_spoken is not None:
+                self.hourglass._completion_spoken.close()
+                self.hourglass._completion_spoken = None
             if self.hourglass._completion_sound is not None:
                 self.hourglass._completion_sound.close()
             self.hourglass._completion_sound = self.hourglass._make_completion_sound()

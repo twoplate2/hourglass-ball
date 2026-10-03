@@ -41,6 +41,10 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
     lower_bot = c["lower_bot"]
     gen_y = c["gen_y"]
     peak_offset = c["peak_offset"]
+    jet_top = c["jet_top"]
+    jet_vena = c["jet_vena"]
+    jet_diffuse = c["jet_diffuse"]
+    jet_spread = c["jet_spread"]
 
     out = {k: [] for k in ("x", "y", "vy", "xo", "wp", "wa", "sz")}
     hit_idx = []
@@ -100,6 +104,13 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
             if t > 1.0:
                 t = 1.0
             lim = tube_lim + (raw_ball - tube_lim) * t
+        if y < jet_top:
+            u = (jet_top - y) / jet_spread
+            if u > 1.0:
+                u = 1.0
+            env = tube_lim * (jet_vena + (jet_diffuse - jet_vena) * u)
+            if env < lim:
+                lim = env
         half_stroke = size if size > 1 else 0.5
         lim = lim - half_stroke
         if lim <= 0.0:
@@ -148,6 +159,8 @@ def main():
         "tube_lim": 6.0,
         "lower_bot": lower_bot,
         "peak_offset": 0.0,
+        # 射流包络(与 main.py 的 JET_* 同值; 两处实现必须一起改)
+        "jet_top": 300.0, "jet_vena": 0.68, "jet_diffuse": 2.60, "jet_spread": 110.0,
     }
     N = 4000
     px = [c["cx"] + random.uniform(-6, 6) for _ in range(N)]
