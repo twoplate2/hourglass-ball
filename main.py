@@ -1914,6 +1914,36 @@ class HourglassWidget(Widget):
         light_row = by_key[n_colors]
         last = n_colors - 1
         pv = self._pv
+        if _np is not None and pv.n:
+            # 向量化: 选(y 未越过 outlet) -> 算色调档 -> 拼成 0..(2*(n_colors+1)-1) 的
+            # 桶码 -> 稳定排序按桶分段。桶内下标升序, 与原 append 次序逐字相同。
+            np = _np
+            n = pv.n
+            y_all = self.py[:n]
+            # 用 ~(y >= outlet) 而不是 y < outlet: 标量版是 `if y >= outlet: continue`,
+            # NaN 时两者都为 False 故**不跳过** —— 取反才逐字对齐(NaN 实际不会出现)。
+            sel = np.flatnonzero(~(y_all >= outlet))
+            if sel.size:
+                yy = y_all[sel]
+                w = (self.pwp[:n][sel] * tone_scale).astype(np.int64)
+                np.minimum(w, 4, out=w)
+                idx = ((self._neck_y - yy) / div).astype(np.int64) + w - 2
+                np.clip(idx, 0, last, out=idx)
+                key = np.where(self.pli[:n][sel] != 0.0, n_colors, idx)
+                slot = np.where(self.psz[:n][sel] == 1.0, 0, 1)
+                code = key * 2 + slot
+                order = np.argsort(code, kind="stable")
+                counts = np.bincount(code, minlength=(n_colors + 1) * 2)
+                pos = 0
+                for k in range(counts.shape[0]):
+                    c = int(counts[k])
+                    if not c:
+                        continue
+                    key_idx = k >> 1
+                    row = light_row if key_idx == n_colors else by_key[key_idx]
+                    row[k & 1].extend(sel[order[pos:pos + c]].tolist())
+                    pos += c
+            return buckets
         ys = pv.y
         phases = pv.wp
         sizes = pv.sz
