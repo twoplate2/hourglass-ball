@@ -114,7 +114,9 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         # 逐位等价已实测: astype('<f4') 与 struct.pack('<f') 对 30 万样本(含 0/-0/inf/
         # denormal/float32 极值)完全相同, 整段公式的字节输出也完全相同
         # —— 见 tools/test_pack_equiv.py。
-        use_np = np is not None and total > 0
+        # 阈值由 _FlowView.use_np 统一决定(见 main.py:_NUMPY_MIN): 粒子少时
+        # numpy 的逐桶固定开销盖过收益。
+        use_np = np is not None and total > 0 and view.use_np
         if use_np:
             nidx = np.array(indices, dtype=np.intp)
         else:

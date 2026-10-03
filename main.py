@@ -23,6 +23,10 @@ import json
 # 沙流粒子的并行数组字段(见 NUMPY_PLAN.md)。numpy 缺失时整条向量化路径关闭,
 # 自动退回 update_particles 里的原标量循环 —— 不给沙漏制造风险。
 _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt")
+# 向量化的固定开销(每个桶一次 np.array/argsort/bincount, 每次 numpy 调用 ~5-20µs)
+# 在粒子少时会盖过 O(pn) 循环省下的时间。设备实测: 1 秒档(约 278 颗)打包+分组
+# 反而慢 0.92ms, 5 秒档(约 1695 颗)才转正。阈值取两者之间, 低于它走原标量路径。
+_NUMPY_MIN = 800
 
 
 class _FlowView:
@@ -34,13 +38,14 @@ class _FlowView:
     """
 
     __slots__ = ("n", "x", "y", "vy", "tl", "sz", "light", "wp",
-                 "nx", "ny", "nvy", "ntl")
+                 "nx", "ny", "nvy", "ntl", "use_np")
 
     def __init__(self):
         self.n = 0
         self.x = self.y = self.vy = self.tl = self.sz = self.light = self.wp = []
         # numpy 零拷贝切片, 只给向量化打包用(见 tools/flow_texture_experiment.py)。
         self.nx = self.ny = self.nvy = self.ntl = None
+        self.use_np = False
 
 
 _TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
@@ -1232,6 +1237,7 @@ class HourglassWidget(Widget):
         pv = self._pv
         n = self.pn
         pv.n = n
+        pv.use_np = _np is not None and n >= _NUMPY_MIN
         if _np is None:
             pv.nx = pv.ny = pv.nvy = pv.ntl = None
             # 兜底后端本身就是 Python list, 切片即得原生 float。
@@ -1458,7 +1464,7 @@ class HourglassWidget(Widget):
         sin = math.sin
         sqrt = math.sqrt
         mound_top_plus_1 = mound_top + 1
-        if _flow_numpy is not None:
+        if _flow_numpy is not None and self.pn >= _NUMPY_MIN:
             # numpy 路线: 纯算术向量化(逐位等价由 tools/test_physics_equiv.py 验收),
             # 随机数仍留在 Python, 命中事件按下标升序回放。
             pn = self.pn
@@ -1914,7 +1920,7 @@ class HourglassWidget(Widget):
         light_row = by_key[n_colors]
         last = n_colors - 1
         pv = self._pv
-        if _np is not None and pv.n:
+        if pv.use_np:
             # 向量化: 选(y 未越过 outlet) -> 算色调档 -> 拼成 0..(2*(n_colors+1)-1) 的
             # 桶码 -> 稳定排序按桶分段。桶内下标升序, 与原 append 次序逐字相同。
             np = _np
