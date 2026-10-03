@@ -1062,7 +1062,12 @@ class HourglassWidget(Widget):
         self._build_dynamic_canvas()
 
     def _raw_height_ratio(self, vol_ratio):
-        """体积比 → 高度比 raw=v⁻¹(vol)。球对称 ⟹ 上沙(1-raw)+下沙(raw)=1 守恒。"""
+        """体积比 → 高度比 raw=v⁻¹(vol)。
+
+        ⚠️ 球对称曾经给出"上沙(1-raw)+下沙(raw)=1 严格守恒", 那条**已被 2026-10-03 作废**:
+        上沙现在只按恒定流速走(`_upper_sand_height_px`), 下沙堆另有一条飞行延迟,
+        两者之差是**在途的沙**(`_fall_delay/duration`), 不该再当成误差去消。
+        """
         if vol_ratio <= 0:
             return 0.0
         if vol_ratio >= 1:
@@ -1129,6 +1134,23 @@ class HourglassWidget(Widget):
         appear_window = max(0.01, min(MOUND_APPEAR, self.duration - delay))
         appear = min(1.0, (self.elapsed - delay) / appear_window)
         return appear * target
+
+    def _upper_sand_height_px(self):
+        """上球沙体高度 —— **只由恒定流速决定**, 不跟下沙堆挂钩。
+
+        唯一假设: 体积流速恒定 ⇒ 上球剩余体积比 = 1 − elapsed/duration, 再由 raw 反查高度。
+        下沙堆走的是**另一条时钟**(要等粒子真的飞到底, `_fall_delay`), 两者之差 = **还在空中的沙**。
+
+        ⚠️ 旧实现写成 `upper = 满 − 下沙堆`, 于是下沙堆为 0 的那些帧上沙恒为满 ——
+        5s 档头 1.35 秒(占整个计时的 27%)上球一动不动
+        (逐像素实测: 0.50s→1.01s 上半球只有粒子串那 159 个像素在变, 沙面零变化)。
+        ⚠️ 差额 = `_fall_delay / duration`(5s 档 27%, 1s 档 45%), 它是真实存在的在途沙;
+        想让它更小, 只能压缩粒子飞行时间(见 `_particle_motion_scale`), 那是另一个决定。
+        """
+        if self.duration <= 0:
+            return 0.0
+        t = max(0.0, min(1.0, self.elapsed / self.duration))
+        return self._raw_height_ratio(1.0 - t) * 2 * self._R_inner
 
     def _neck_sand_side(self):
         """颈部沙柱的右半侧轮廓 [(半宽, y), ...] = 上喇叭口曲线 + 直筒(Kivy y 向上)。
@@ -2060,7 +2082,7 @@ class HourglassWidget(Widget):
             self._render_colors = colors
 
         h_mound = self._mound_height_px()
-        upper_height = max(0, 2 * self._R_inner - h_mound)
+        upper_height = self._upper_sand_height_px()
         self._sand_chords[0][1].size = (2 * self._R_inner, upper_height)
         self._sand_chords[1][1].size = (2 * self._R_inner, h_mound)
         side = self._neck_sand_side() if upper_height > 0 else []
