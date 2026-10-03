@@ -2266,6 +2266,11 @@ class HourglassWidget(Widget):
             _d = outlet - pv.ny[:pv.n]
             _keep = ~((_d < 0) | (_d > length + 1e-6))
             _keep &= ~(pv.nvy[:pv.n] ** 2 - twice_gravity * _d > source_limit_squared)
+            # 第二趟原先是 `for i in range(pv.n)` 的纯 Python 裸扫描, 重复做上面同一组判定。
+            # 这里把候选下标取出来给它复用: O(n) -> O(候选数)。
+            # flatnonzero 恒升序 ⇒ 与 range(n) 同序 ⇒ count/池下标的分配顺序不变,
+            # 且循环体内无 random 调用 ⇒ random.seed(23) 闸门不受影响。
+            _cand = _np.flatnonzero(_keep).tolist() if _keep.any() else []
             if _keep.any():
                 _mx = float(_d[_keep].max())
                 if _mx > depth:
@@ -2280,6 +2285,7 @@ class HourglassWidget(Widget):
                     continue
                 if distance > depth:
                     depth = distance
+            _cand = None
         ys = [y for _x, y in side]
         xs = [x for x, _y in side]
 
@@ -2306,7 +2312,8 @@ class HourglassWidget(Widget):
         lights_p = pv.light
         xs_p = pv.x
         count = 0
-        for i in range(pv.n):
+        # use_np 时只遍历候选(第一趟已算好); 标量兜底路径保持原样。
+        for i in (_cand if _cand is not None else range(pv.n)):
             distance = outlet - ys_p[i]
             if distance < 0 or distance > length + 1e-6:
                 continue
