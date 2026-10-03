@@ -85,9 +85,14 @@ python main.py
 ```
 u   = min((outlet - y) / JET_SPREAD, 1)
 env = tube_lim * (JET_VENA + (JET_DIFFUSE - JET_VENA) * u)
-env += (sin(d*0.50)*0.72 + sin(d*0.19+1.7)*0.28) * tube_lim * JET_EDGE   # 沿深度相干
+env += sin((outlet - y) * JET_WAVE_K) * tube_lim * JET_EDGE   # 沿深度相干, 波长 ~15px
 lim = min(env, 球壁斜坡)      # 仅 y < outlet
 ```
+
+⚠️ **摆动只保留一次 `np.sin`**。早先用两项合成(`sin(d*0.5)*0.72 + sin(d*0.19+1.7)*0.28`),
+在真实规模(n=2900)上直接量: **36.2µs = `flow_numpy.step()` 的 6.4%**, 折到设备物理预算
+(1.5–1.9ms/帧)约 **4–5%, 超过项目 3% 阈值**。砍成一次 `np.sin` 后 **16.5µs / 2.9%,
+折合 0.9–1.1%** ✅, 而边缘粗糙度不降反升(0.99→1.09 逻辑px)。
 
 - **改在物理层**(`update_particles`)是刻意的:纹理渲染器整体替换 `_draw_stream` 且读
   `pv.nx`(物理数组零拷贝视图),在渲染层改 x 会「桌面变真机不变」。

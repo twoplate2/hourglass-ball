@@ -106,8 +106,7 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     u = np.minimum((c["jet_top"] - y) / c["jet_spread"], 1.0)
     env = c["tube_lim"] * (c["jet_vena"] + (c["jet_diffuse"] - c["jet_vena"]) * u)
     _d = c["jet_top"] - y
-    _wave = np.sin(_d * 0.50) * 0.72 + np.sin(_d * 0.19 + 1.7) * 0.28
-    env = env + _wave * c["tube_lim"] * c["jet_edge"]
+    env = env + np.sin(_d * c["jet_wave_k"]) * c["tube_lim"] * c["jet_edge"]
     lim = np.where(y < c["jet_top"], np.minimum(env, lim), lim)
     lim = lim - np.where(psz[sl] > 1, psz[sl], 0.5)     # half_stroke
     lim = np.maximum(lim, 0.0)

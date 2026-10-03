@@ -46,6 +46,7 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
     jet_diffuse = c["jet_diffuse"]
     jet_spread = c["jet_spread"]
     jet_edge = c["jet_edge"]
+    jet_wave_k = c["jet_wave_k"]
 
     out = {k: [] for k in ("x", "y", "vy", "xo", "wp", "wa", "sz")}
     hit_idx = []
@@ -111,8 +112,7 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
                 u = 1.0
             env = tube_lim * (jet_vena + (jet_diffuse - jet_vena) * u)
             _d = jet_top - y
-            env += (math.sin(_d * 0.50) * 0.72 + math.sin(_d * 0.19 + 1.7) * 0.28) \
-                * tube_lim * jet_edge
+            env += math.sin(_d * jet_wave_k) * tube_lim * jet_edge
             if env < lim:
                 lim = env
         half_stroke = size if size > 1 else 0.5
@@ -164,7 +164,7 @@ def main():
         "lower_bot": lower_bot,
         "peak_offset": 0.0,
         # 射流包络(与 main.py 的 JET_* 同值; 两处实现必须一起改)
-        "jet_top": 300.0, "jet_vena": 0.68, "jet_diffuse": 1.00, "jet_spread": 110.0, "jet_edge": 0.30,
+        "jet_top": 300.0, "jet_vena": 0.68, "jet_diffuse": 1.00, "jet_spread": 110.0, "jet_edge": 0.30, "jet_wave_k": 0.42,
     }
     N = 4000
     px = [c["cx"] + random.uniform(-6, 6) for _ in range(N)]

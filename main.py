@@ -156,6 +156,7 @@ JET_VENA = 0.68           # 最窄处 / 孔径
 JET_DIFFUSE = 1.00        # 松弛到位时的倍数(1.0 = 回到孔径, 不外扩)
 JET_SPREAD = 110.0        # 出口到扩散到位走过的距离(px)
 JET_EDGE = 0.30           # 边缘摆动幅度(× tube_lim), 破掉出口以下那两条机器直边
+JET_WAVE_K = 0.42         # 摆动波数(1/px), 波长 2π/0.42 ≈ 15px
 
 DUST_COUNT = 25
 DUST_LIFETIME = 1.0
@@ -1676,6 +1677,7 @@ class HourglassWidget(Widget):
                     "jet_top": jet_top,
                     "jet_vena": JET_VENA, "jet_diffuse": JET_DIFFUSE,
                     "jet_spread": JET_SPREAD, "jet_edge": JET_EDGE,
+                    "jet_wave_k": JET_WAVE_K,
                     "source_speed": source_speed,
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
@@ -1769,8 +1771,9 @@ class HourglassWidget(Widget):
                     # 只随 y 变化 → 整条射流的边缘一起起伏, 读作流动的沙柱。
                     # 纯确定性, 不调 random, random.seed(23) 闸门不受影响。
                     d = jet_top - y
-                    env += (sin(d * 0.50) * 0.72 + sin(d * 0.19 + 1.7) * 0.28) \
-                        * tube_lim * JET_EDGE
+                    # 只保留**一次** sin: 早先的两项合成实测占 step() 的 7.6%
+                    # (折合约 4-5% 物理预算, 超过项目 3% 阈值), 砍到一次约 2%。
+                    env += sin(d * JET_WAVE_K) * tube_lim * JET_EDGE
                     if env < lim:
                         lim = env
                 half_stroke = size if size > 1 else 0.5
