@@ -16,6 +16,7 @@ import math
 import os
 import random
 import struct
+from array import array
 import sys
 import time
 import wave
@@ -149,14 +150,12 @@ MOUND_FLOOR_MIN = 2.5     # 前期极小可见保底(dp),仅防薄层消失,不�
 MOUND_FLOOR_MAX = 3.5
 MOUND_FLOOR_EFF = 0.02
 
-# 出口以下射流的横向包络。原来出口下方沿用 tube_lim(管内壁半宽)恒宽, 而玻璃在那里
-# 是向外张开的 —— 于是看到"一根等宽方柱悬在漏斗里"。真实沙漏在孔口有 vena contracta
-# (流束收缩), 自由落体段再缓慢扩散, 所以边缘不是两条平行直线。
-JET_VENA = 0.68           # 最窄处 / 孔径
-JET_DIFFUSE = 1.00        # 松弛到位时的倍数(1.0 = 回到孔径, 不外扩)
-JET_SPREAD = 110.0        # 出口到扩散到位走过的距离(px)
-JET_EDGE = 0.30           # 边缘摆动幅度(× tube_lim), 破掉出口以下那两条机器直边
-JET_WAVE_K = 0.42         # 摆动波数(1/px), 波长 2π/0.42 ≈ 15px
+# (1.39 回滚) 这里曾有 JET_VENA / JET_DIFFUSE / JET_SPREAD / JET_EDGE / JET_WAVE_K ——
+# 出口以下的"vena contracta 收腰 + 沿深度相干摆动"。它把颈部射流做成了一根**静止的
+# 波纹管**: 摆动只随 y 变化(空间函数, 不是时间函数), 同一根 zigzag 每帧钉在同一批行上,
+# 读起来像被模具挤出来的绳结, 不像会流动的沙。而且它从未进过任何一轮对抗审查, 验收用的
+# "去趋势残差"对"加抖动"单调递增 —— 缺陷和指标是同一个东西(事故报告: NECK_REDESIGN §八)。
+# 出口以下已恢复恒宽 tube_lim。
 
 DUST_COUNT = 25
 DUST_LIFETIME = 1.0
@@ -1653,7 +1652,6 @@ class HourglassWidget(Widget):
         lower_center = self._lower_y_c
         sand_half_w = self._sand_half_w
         tube_lim = max(1.0, neck_w - ow)
-        jet_top = 2.0 * self._neck_y - self._taper["y_bot"]   # 直筒下端(= redraw 的 outlet)
         new_list = []
         append_particle = new_list.append
         append_flare = self.flares.append
@@ -1677,10 +1675,6 @@ class HourglassWidget(Widget):
                     "gen_y": gen_y, "lower_cut": lower_cut,
                     "lower_top": lower_top, "lower_center": lower_center,
                     "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
-                    "jet_top": jet_top,
-                    "jet_vena": JET_VENA, "jet_diffuse": JET_DIFFUSE,
-                    "jet_spread": JET_SPREAD, "jet_edge": JET_EDGE,
-                    "jet_wave_k": JET_WAVE_K,
                     "source_speed": source_speed,
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
@@ -1750,7 +1744,7 @@ class HourglassWidget(Widget):
                 x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
                     * wobble_amp * (1 - shrink * 0.4)
 
-                # 横向 clamp: 管内壁 / 出口以下的射流包络 / 进下球随球内壁过渡
+                # 横向 clamp: 管内壁 / 进下球随球内壁过渡
                 if y >= lower_top:
                     lim = tube_lim
                 else:
@@ -1762,23 +1756,6 @@ class HourglassWidget(Widget):
                     if t > 1.0:
                         t = 1.0
                     lim = tube_lim + (raw_ball - tube_lim) * t
-                if y < jet_top:
-                    # 出口先收(vena contracta)再随下落扩散; 与球壁斜坡取 min,
-                    # 保证任何时候都不越内壁。
-                    u = (jet_top - y) / JET_SPREAD
-                    if u > 1.0:
-                        u = 1.0
-                    env = tube_lim * (JET_VENA + (JET_DIFFUSE - JET_VENA) * u)
-                    # 沿深度相干的摆动。**逐颗粒**抖动是无效的: 每行有约 6 颗粒压着,
-                    # 边缘取的是它们的最大值, 随机抖动被抹平(实测去趋势残差仅 0.29px)。
-                    # 只随 y 变化 → 整条射流的边缘一起起伏, 读作流动的沙柱。
-                    # 纯确定性, 不调 random, random.seed(23) 闸门不受影响。
-                    d = jet_top - y
-                    # 只保留**一次** sin: 早先的两项合成实测占 step() 的 7.6%
-                    # (折合约 4-5% 物理预算, 超过项目 3% 阈值), 砍到一次约 2%。
-                    env += sin(d * JET_WAVE_K) * tube_lim * JET_EDGE
-                    if env < lim:
-                        lim = env
                 half_stroke = size if size > 1 else 0.5
                 lim = lim - half_stroke
                 if lim <= 0.0:

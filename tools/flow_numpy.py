@@ -94,20 +94,13 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     x = (cx + pxo[sl] * shrink
          + np.sin(fallen_dist * 0.07 + pwp[sl]) * pwa[sl] * (1 - shrink * 0.4))
 
-    # 横向 clamp: 管内壁 / 出口以下的射流包络 / 进下球随球内壁过渡
+    # 横向 clamp: 管内壁 / 进下球随球内壁过渡
     dy = y - c["lower_center"]
     r = c["Ri2"] - dy * dy
     raw_ball = np.where(r > 0.0, np.sqrt(np.maximum(r, 0.0)), 0.0)
     t = np.minimum((c["lower_top"] - y) / 30.0, 1.0)
     lim_ball = c["tube_lim"] + (raw_ball - c["tube_lim"]) * t
     lim = np.where(y >= c["lower_top"], c["tube_lim"], lim_ball)
-    # 出口以下: 先收(vena contracta)再随下落扩散, 与球壁斜坡取 min —— 与标量路径同式,
-    # 逐位等价由 tools/test_physics_equiv.py 验收(两份实现必须同时改)。
-    u = np.minimum((c["jet_top"] - y) / c["jet_spread"], 1.0)
-    env = c["tube_lim"] * (c["jet_vena"] + (c["jet_diffuse"] - c["jet_vena"]) * u)
-    _d = c["jet_top"] - y
-    env = env + np.sin(_d * c["jet_wave_k"]) * c["tube_lim"] * c["jet_edge"]
-    lim = np.where(y < c["jet_top"], np.minimum(env, lim), lim)
     lim = lim - np.where(psz[sl] > 1, psz[sl], 0.5)     # half_stroke
     lim = np.maximum(lim, 0.0)
     x = cx + np.clip(x - cx, -lim, lim)
