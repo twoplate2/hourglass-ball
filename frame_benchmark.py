@@ -24,6 +24,9 @@ from kivy.utils import platform as runtime_platform
 PERIODS = (1, 5, 15)
 REPORT_REVISION = 2
 TAIL_MIN_FRAMES = 5     # "1% low" 至少平均这么多帧 —— 见 frame_statistics 里的说明
+# FPS 图 Y 轴的可选上限(全是 4 的倍数, 好让 4 条刻度落在整数上)。
+# 老代码把上限**写死 90** 且把曲线 `min(90, …)` 夹住 ⇒ 120fps+ 的机器上绿线平贴在顶部。
+FPS_AXIS_LADDER = (40, 60, 80, 120, 160, 200, 240, 320, 400, 480, 640, 800, 1200)
 
 
 def benchmark_environment(widget):
@@ -294,26 +297,36 @@ class BenchmarkFrameChart(Widget):
         left, bottom = self.x + dp(32), self.y + dp(20)
         width, height = max(1, self.width - dp(44)), max(1, self.height - dp(34))
         period = self.result["period"]
+        trace = self.result.get("frame_trace", [])
+        # ⚠️ Y 轴原先是写死的 0/30/60/90, 而且把 FPS **夹在 90**(`min(90, 1000/frame_ms)`)。
+        # 现在 app 常态 120~260fps ⇒ 整条绿线平贴在顶部, 一点信息都没有(2026-10-03 发现)。
+        # 改成按本帧数据自动定上限, 取 4 的整数倍好让 4 条刻度落在整数上。
+        fps_top = FPS_AXIS_LADDER[0]
+        for frame in trace:
+            ms = frame.get("frame_ms") or 0
+            if ms > 0:
+                fps_top = max(fps_top, 1000.0 / ms)
+        fps_top = next((step for step in FPS_AXIS_LADDER if step >= fps_top),
+                       FPS_AXIS_LADDER[-1])
         with self.canvas:
-            for fps in (0, 30, 60, 90):
-                y = bottom + height * fps / 90
+            for i in range(5):
+                y = bottom + height * i / 4
                 Color(0.75, 0.74, 0.70, 1)
                 Line(points=[left, y, left + width, y], width=1)
                 Color(1, 1, 1, 1)
-                self._label(str(fps), left - dp(5), y - dp(6), right=True)
+                self._label(f"{fps_top * i / 4:g}", left - dp(5), y - dp(6), right=True)
             self._label("FPS", left, self.top - dp(13))
             self._label("0 s", left, self.y)
             self._label(f"{period} s", left + width, self.y, right=True)
             points = []
-            for frame in self.result.get("frame_trace", []):
+            for frame in trace:
                 points.extend((
                     left + width * min(1, frame["elapsed_s"] / period),
-                    bottom + height * min(90, 1000 / frame["frame_ms"]) / 90))
+                    bottom + height * min(fps_top, 1000 / frame["frame_ms"]) / fps_top))
             if len(points) >= 4:
                 Color(0.18, 0.45, 0.36, 1)
                 Line(points=points, width=1)
             # 第二条序列:在途粒子数(按本图峰值归一化)—— 一眼看出"低帧是不是跟着负载走"。
-            trace = self.result.get("frame_trace", [])
             peak = max((frame.get("particles", 0) for frame in trace), default=0)
             if peak > 0:
                 load_points = []
