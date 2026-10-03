@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, master, numpy-flow ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
