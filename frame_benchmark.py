@@ -24,9 +24,40 @@ from kivy.utils import platform as runtime_platform
 PERIODS = (1, 5, 15)
 REPORT_REVISION = 2
 TAIL_MIN_FRAMES = 5     # "1% low" 至少平均这么多帧 —— 见 frame_statistics 里的说明
-# FPS 图 Y 轴的可选上限(全是 4 的倍数, 好让 4 条刻度落在整数上)。
-# 老代码把上限**写死 90** 且把曲线 `min(90, …)` 夹住 ⇒ 120fps+ 的机器上绿线平贴在顶部。
-FPS_AXIS_LADDER = (40, 60, 80, 120, 160, 200, 240, 320, 400, 480, 640, 800, 1200)
+
+
+def tukey_upper_adjacent(values):
+    """Tukey 上栅栏(`Q3 + 1.5*IQR`)以内的**最大值**(EDA 里的"相邻值")。
+
+    离群点判定用箱线图的标准栅栏; 而 EDA 的作图规矩是: 非箱线图的坐标轴范围取
+    **相邻值**、不取极值 —— 否则单个尖峰就把整张图压成一条草。
+    (Grafana 的"Y 轴按百分位自动缩放"就是为同一件事做的。)
+    """
+    data = sorted(values)
+    if not data:
+        return 0.0
+
+    def quantile(p):
+        return data[min(len(data) - 1, int(round(p * (len(data) - 1))))]
+
+    fence = quantile(0.75) + 1.5 * (quantile(0.75) - quantile(0.25))
+    inside = [value for value in data if value <= fence]
+    return max(inside) if inside else data[-1]
+
+
+def nice_axis_ceiling(value, ticks=4):
+    """Heckbert 的 nice numbers(Graphics Gems): 返回 (上界, 步长)。
+
+    步长 = `value/ticks` 的 1/2/5/10 × 10^k 邻值(分数按 1.5 / 3 / 7 三档吸附),
+    上界再抬到步长的整数倍。刻度因此总是好读的数, 条数在 3~8 之间浮动。
+    """
+    if value <= 0:
+        return 1.0, 1.0
+    raw = value / ticks
+    exponent = math.floor(math.log10(raw))
+    norm = raw / 10.0 ** exponent
+    step = (1 if norm < 1.5 else 2 if norm < 3 else 5 if norm < 7 else 10) * 10.0 ** exponent
+    return math.ceil(value / step) * step, step
 
 
 def benchmark_environment(widget):
@@ -298,23 +329,25 @@ class BenchmarkFrameChart(Widget):
         width, height = max(1, self.width - dp(44)), max(1, self.height - dp(34))
         period = self.result["period"]
         trace = self.result.get("frame_trace", [])
-        # ⚠️ Y 轴原先是写死的 0/30/60/90, 而且把 FPS **夹在 90**(`min(90, 1000/frame_ms)`)。
-        # 现在 app 常态 120~260fps ⇒ 整条绿线平贴在顶部, 一点信息都没有(2026-10-03 发现)。
-        # 改成按本帧数据自动定上限, 取 4 的整数倍好让 4 条刻度落在整数上。
-        fps_top = FPS_AXIS_LADDER[0]
-        for frame in trace:
-            ms = frame.get("frame_ms") or 0
-            if ms > 0:
-                fps_top = max(fps_top, 1000.0 / ms)
-        fps_top = next((step for step in FPS_AXIS_LADDER if step >= fps_top),
-                       FPS_AXIS_LADDER[-1])
+        # ⚠️ Y 轴原先是写死的 0/30/60/90, 而且把 FPS **夹在 90**(`min(90, 1000/frame_ms)`)
+        # ⇒ 120fps+ 的机器上整条绿线平贴顶部, 零信息(2026-10-03 发现)。
+        # ⚠️ 改用 `max` 也不行: **量到的最高帧远高于常态**(实测平均 122fps 而尖峰 260)
+        # ⇒ 上限被拉到 320, 曲线挤在下方 1/3, 上半张图全空。
+        # 现在按标准做法两步: ① 上界取 **Tukey 上栅栏内的最大值**(相邻值, 剔掉尖峰);
+        # ② 再用 **Heckbert nice numbers** 把上界与步长吸附到好读的数。
+        # 代价: 极少数尖峰帧会被夹在顶线上(曲线本来就带 `min(fps_top, …)`)。
+        rates = [1000.0 / frame["frame_ms"] for frame in trace
+                 if (frame.get("frame_ms") or 0) > 0]
+        fps_top, fps_step = (nice_axis_ceiling(tukey_upper_adjacent(rates))
+                             if rates else (60.0, 15.0))
+        fps_ticks = max(1, int(round(fps_top / fps_step)))
         with self.canvas:
-            for i in range(5):
-                y = bottom + height * i / 4
+            for i in range(fps_ticks + 1):
+                y = bottom + height * i / fps_ticks
                 Color(0.75, 0.74, 0.70, 1)
                 Line(points=[left, y, left + width, y], width=1)
                 Color(1, 1, 1, 1)
-                self._label(f"{fps_top * i / 4:g}", left - dp(5), y - dp(6), right=True)
+                self._label(f"{fps_step * i:g}", left - dp(5), y - dp(6), right=True)
             self._label("FPS", left, self.top - dp(13))
             self._label("0 s", left, self.y)
             self._label(f"{period} s", left + width, self.y, right=True)
