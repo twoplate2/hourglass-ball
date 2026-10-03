@@ -33,7 +33,12 @@ CHUNK = flow_batch_experiment.FlowBatch.CHUNK
 # **改一次索引 = 整块顶点重新走一遍并标脏上传**, 不是"只改个数字"。
 # (源码: vertex_instructions.pyx:485/460, instructions.pyx:429, vbo.pyx:170, Kivy 2.3.0)
 # 这里只统计**触发条件**(赋值次数 × 顶点表字节), 不等于实测 GL 上传流量。
-STATS = {"index_assigns": 0, "vertex_bytes": 0, "chunk_clears": 0, "chunks": 0, "buckets": 0}
+STATS = {"index_assigns": 0, "vertex_bytes": 0, "chunk_clears": 0, "chunks": 0,
+         "buckets": 0, "neutralized": 0}
+
+# 中性化用的端点: x 推到画面外, 该槽位的线整条被裁掉(出不了像素)。
+# shader: position = vec2(x, mix(bottom, top, vTexCoords0.y)) + vPosition
+PAD_ENDPOINT = FLOAT3.pack(-1e5, 0.0, 0.0)
 
 
 def stats_reset():
@@ -177,15 +182,28 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                         top = top_limit
                     pack(data, offset, xs[i], bottom, top)
                     offset += 12
-            texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
-            STATS["chunks"] += 1
-            if previous != count:
+            # ⚠️ 顺序要紧: 先把纹理内容(含下面的"中性化")写完, 再上传。
+            if count > previous:
+                # **只在这里赋值** —— 每块的索引只增不减, 暖机之后基本不再发生。
+                # 旧写法是 `previous != count` 就赋值 ⇒ 粒子数一变, 整块 160 KiB 顶点
+                # 就走一遍 clear_data+add_vertex_data 并把整个 VBO 标脏。
+                # 实测(5s 档, 1529 颗): 24 块全变 ⇒ 24 次赋值 / 2112 KiB / 帧。
                 mesh.indices = _indices[:count * len(self.indices)]
                 part[4] = count
                 STATS["index_assigns"] += 1
-                STATS["vertex_bytes"] += len(_vertices) * 4     # 被重新提交的顶点表
+                STATS["vertex_bytes"] += len(_vertices) * 4
+            elif count < previous:
+                # 缩了: **不动 indices**(动了又触发整块重建), 改把用不到的槽位在端点
+                # 纹理里推到画面外 —— shader 里 x 直接决定横向位置, -1e5 时整条线被裁掉。
+                # 代价是每帧多处理"历史最大 − 当前"那几个顶点, 换来不重走顶点表。
+                data[count * 12:previous * 12] = PAD_ENDPOINT * (previous - count)
+                STATS["neutralized"] += previous - count
+            texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
+            STATS["chunks"] += 1
         for part in self.parts[chunks:]:
             if part[4]:
+                # 整块不用了: 这里仍清空索引 —— icount==0 时 build() 直接 clear_data(),
+                # **不会**重走顶点表, 而且实测只有 0~4 次/帧。
                 part[0].indices = array("H")
                 part[4] = 0
                 STATS["chunk_clears"] += 1
