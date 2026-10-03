@@ -248,11 +248,6 @@ def main():
                     if hasattr(widget, "_flow_batches"):
                         return [id(part[0]) for batch in widget._flow_batches.values()
                                 for part in batch.parts]
-                    merged = getattr(widget, "_flow_merged", None)
-                    if merged is not None:
-                        # 合并纹理方案: 可绘制对象是每桶/每线宽一块的静态 Mesh
-                        return [(id(mesh), id(mesh.vertices), id(mesh.indices))
-                                for mesh in merged.meshes]
                     return [id(line) for _group, _color, pool in widget._stream_pools.values()
                             for line in pool]
                 lines = drawable_ids()
@@ -394,17 +389,9 @@ def main():
                 widget._p_refresh_view()
                 widget.redraw()
                 if not hasattr(widget, "_flow_batches"):
-                    merged = getattr(widget, "_flow_merged", None)
-                    if merged is not None:
-                        # 合并纹理方案: 端点写在纹理里, 读回来验证拖尾越过孔口不出现横向截断
-                        top = max((triple[2] for triple in merged.packed_endpoints((-1, 2), 8)),
-                                  default=0)
-                        check(outlet < top <= widget._taper["y_bot"],
-                              "real grain trails cross the outlet without a horizontal cut")
-                    else:
-                        stream = widget._stream_pools[-1, 2][2][0]
-                        check(outlet < stream.points[3] <= widget._taper["y_bot"],
-                              "real grain trails cross the outlet without a horizontal cut")
+                    stream = widget._stream_pools[-1, 2][2][0]
+                    check(outlet < stream.points[3] <= widget._taper["y_bot"],
+                          "real grain trails cross the outlet without a horizontal cut")
                 widget.reset()
                 widget.redraw()
                 check(widget._neck_grain_count == 0 and not line.points,
@@ -501,46 +488,6 @@ def main():
                 widget = self.hourglass
                 if getattr(widget, "flow_renderer", "") not in (
                         "mesh_gpu_reserved", "mesh_endpoint_texture"):
-                    return
-                merged = getattr(widget, "_flow_merged", None)
-                if merged is not None:
-                    # 合并纹理方案: 顶点/索引缓冲是**静态**的(每帧只改纹理 + 激活标记),
-                    # 所以这里守的是"缓冲不重建 / 超预留要扩容不丢粒 / 重置后全部熄灯"。
-                    buffers = [(id(mesh), id(mesh.vertices), id(mesh.indices))
-                               for mesh in merged.meshes]
-                    widget.redraw()
-                    widget.redraw()
-                    check(buffers == [(id(mesh), id(mesh.vertices), id(mesh.indices))
-                                      for mesh in merged.meshes],
-                          "merged flow keeps static vertex and index buffers")
-                    outlet = 2 * widget._neck_y - widget._taper["y_bot"]
-                    capacity = sum(merged.capacity(key) for key in merged.slots)
-                    widget.reset()
-                    count = capacity + 1
-                    widget._p_grow(count)
-                    for i in range(count):
-                        widget.px[i] = widget._cx + (i % 7) - 3
-                        widget.py[i] = outlet - 5
-                        widget.pvy[i] = -60
-                        widget.ptl[i] = 0.02
-                        widget.psz[i] = 2.0
-                        widget.pli[i] = 1.0
-                        widget.pwp[i] = 0.0
-                        widget.pwa[i] = 0.0
-                        widget.pxo[i] = 0.0
-                        widget.pdt[i] = 1 / 60
-                    widget.pn = count
-                    widget._p_refresh_view()
-                    widget.redraw()
-                    check(sum(merged.active_counts().values()) == count,
-                          "merged reserve grows instead of dropping grains")
-                    check(sum(merged.capacity(key) for key in merged.slots) >= count,
-                          "merged reserve reallocates buffers after growth")
-                    widget.reset()
-                    widget.redraw()
-                    check(all(not slot.count for rows in merged.slots.values() for slot in rows),
-                          "merged reserve hides every slot after reset")
-                    widget.reset()
                     return
                 batch = max(
                     (batch for batch in widget._flow_batches.values()
