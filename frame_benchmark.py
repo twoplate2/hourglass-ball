@@ -248,14 +248,16 @@ def save_benchmark_log(directory, results, cancelled=False):
         lines.append("Slowest frames:")
         for frame in result.get("slowest_frame_details", []):
             lines.append(", ".join(f"{key}={value:.3f}" for key, value in frame.items()))
-        lines.append("Frame trace: time_s,frame_ms,FPS,physics_ms,update_draw_ms,canvas_ms,previous_swap_ms,particles,splashes,gc_ms,gc_generation,mound_px")
+        lines.append("Frame trace: time_s,frame_ms,FPS,physics_ms,update_draw_ms,canvas_ms,previous_swap_ms,particles,splashes,gc_ms,gc_generation,mound_px,gap_between_frames_ms,gap_tick_tail_ms,gap_draw_to_flip_ms")
         for frame in result.get("frame_trace", []):
             lines.append(",".join(f"{value:.3f}" for value in (
                 frame["elapsed_s"], frame["frame_ms"], 1000 / frame["frame_ms"],
                 frame.get("physics_ms", 0), frame.get("update_draw_ms", 0),
                 frame.get("canvas_ms", 0), frame.get("previous_swap_ms", 0),
                 frame["particles"], frame["splashes"], frame.get("gc_ms", 0),
-                frame.get("gc_generation", -1), frame.get("mound_px", 0))))
+                frame.get("gc_generation", -1), frame.get("mound_px", 0),
+                frame.get("gap_between_frames_ms", 0), frame.get("gap_tick_tail_ms", 0),
+                frame.get("gap_draw_to_flip_ms", 0))))
     with open(path, "w", encoding="utf-8") as stream:
         stream.write("\n".join(lines) + "\n")
     return path
@@ -393,6 +395,7 @@ class BenchmarkRunner:
         self._sampling = False
         self._event = None
         self._stages = {}
+        self._stamps = {}
         self._gc_ms = 0
         self._gc_generation = -1
         self._gc_start = time.perf_counter()
@@ -438,6 +441,7 @@ class BenchmarkRunner:
         self.widget.toggle()
         self._case_start = time.perf_counter()
         self._last_flip = None
+        self._prev_swap_exit = None
         self._gc_ms = 0
         self._gc_generation = -1
         self._sampling = True
@@ -459,6 +463,7 @@ class BenchmarkRunner:
             "frame_ms": interval * 1000,
             "elapsed_s": self.widget.elapsed,
             **self._stages,
+            **self._probe_gaps(),
             # 粒子的真值是并行数组, pn 就是存活数 —— 不要读 `widget.particles`
             # (那是按需构建的 dict 列表视图, 每帧读会把兼容层开销算进基准)。
             "particles": self.widget.pn,
@@ -506,6 +511,24 @@ class BenchmarkRunner:
         if self.active:
             self._finish(True)
 
+    def _probe_gaps(self):
+        """把 flip->flip 的帧时间拆成: 帧间等待 / tick 内探针外 / 绘制到交换。"""
+        st = self._stamps
+        if not all(k in st for k in ("physics_ms", "update_draw_ms",
+                                     "canvas_ms", "previous_swap_ms")):
+            return {}
+        p0, _ = st["physics_ms"]
+        _, r1 = st["update_draw_ms"]
+        c0, c1 = st["canvas_ms"]
+        s0, s1 = st["previous_swap_ms"]
+        out = {"gap_tick_tail_ms": (c0 - r1) * 1000,
+               "gap_draw_to_flip_ms": (s0 - c1) * 1000}
+        prev = getattr(self, "_prev_swap_exit", None)
+        if prev is not None:
+            out["gap_between_frames_ms"] = (p0 - prev) * 1000
+        self._prev_swap_exit = s1
+        return out
+
     def _install_probes(self):
         self._probe_methods = []
         gc.callbacks.append(self._gc_probe)
@@ -521,7 +544,10 @@ class BenchmarkRunner:
                 try:
                     return _original(*args, **kwargs)
                 finally:
-                    self._stages[_stage] = (time.perf_counter() - before) * 1000
+                    after = time.perf_counter()
+                    self._stages[_stage] = (after - before) * 1000
+                    # 额外记时间戳: 把 flip->flip 里四探针之外的部分拆开
+                    self._stamps[_stage] = (before, after)
 
             self._probe_methods.append((target, name, original))
             setattr(target, name, measured)
