@@ -4,6 +4,11 @@ from array import array
 import math
 from struct import Struct
 
+try:
+    import numpy as np
+except ImportError:                          # 兜底: 退回逐颗粒 pack_into
+    np = None
+
 from kivy.graphics import BindTexture, Mesh, RenderContext
 from kivy.graphics.opengl import glGetIntegerv, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS
 from kivy.graphics.texture import Texture
@@ -99,13 +104,21 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
 
         按下标读原生 float, 不再逐颗粒取 numpy 标量。
         """
-        pack = FLOAT3.pack_into
         ys = view.y
         vys = view.vy
         trails = view.tl
         xs = view.x
         total = len(indices)
         chunks = -(-total // self.CHUNK)
+        # 向量化: 本桶所有颗粒的 (x, 底端, 顶端) 一次算完, 再 astype('<f4') 出字节。
+        # 逐位等价已实测: astype('<f4') 与 struct.pack('<f') 对 30 万样本(含 0/-0/inf/
+        # denormal/float32 极值)完全相同, 整段公式的字节输出也完全相同
+        # —— 见 tools/test_pack_equiv.py。
+        use_np = np is not None and total > 0
+        if use_np:
+            nidx = np.array(indices, dtype=np.intp)
+        else:
+            pack = FLOAT3.pack_into
         for chunk in range(chunks):
             start = chunk * self.CHUNK
             count = total - start
@@ -113,22 +126,39 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 count = self.CHUNK
             part = self._ensure_part(chunk, count)
             mesh, _vertices, _indices, _capacity, previous, texture, data, _binding = part
-            # 每颗粒只做 1 次 pack_into(x, bottom, top 连续); 数值与逐字相同。
-            offset = 0
-            for k in range(start, start + count):
-                i = indices[k]
-                bottom = ys[i]
-                vy = vys[i]
-                if vy < 0:
-                    vy = -vy
-                trail = vy * trails[i] / motion_scale
-                if trail < 2:
-                    trail = 2
+            if use_np:
+                idx = nidx[start:start + count]
+                bottom = view.ny[idx]
+                # 算式与逐字相同: (-vy) / (vy*tl)/ms / 下限 2 / 上限 top_limit
+                vy = np.abs(view.nvy[idx])
+                trail = vy * view.ntl[idx] / motion_scale
+                np.maximum(trail, 2.0, out=trail)
                 top = bottom + trail
-                if top > top_limit:
-                    top = top_limit
-                pack(data, offset, xs[i], bottom, top)
-                offset += 12
+                np.minimum(top, top_limit, out=top)
+                blk = np.empty((count, 3), dtype=np.float64)
+                blk[:, 0] = view.nx[idx]
+                blk[:, 1] = bottom
+                blk[:, 2] = top
+                # 尾部(count*12 之后)保持上一帧的陈旧字节, 与逐颗粒写法一致:
+                # 那部分不渲染(mesh.indices 已按 count 截断)。
+                data[:count * 12] = blk.astype("<f4").tobytes()
+            else:
+                # 每颗粒只做 1 次 pack_into(x, bottom, top 连续); 数值与逐字相同。
+                offset = 0
+                for k in range(start, start + count):
+                    i = indices[k]
+                    bottom = ys[i]
+                    vy = vys[i]
+                    if vy < 0:
+                        vy = -vy
+                    trail = vy * trails[i] / motion_scale
+                    if trail < 2:
+                        trail = 2
+                    top = bottom + trail
+                    if top > top_limit:
+                        top = top_limit
+                    pack(data, offset, xs[i], bottom, top)
+                    offset += 12
             texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
             if previous != count:
                 mesh.indices = _indices[:count * len(self.indices)]

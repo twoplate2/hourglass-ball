@@ -33,11 +33,14 @@ class _FlowView:
     合计约 0.08ms), 循环里读到的就是普通 float。字段对应见 `_p_refresh_view`。
     """
 
-    __slots__ = ("n", "x", "y", "vy", "tl", "sz", "light", "wp")
+    __slots__ = ("n", "x", "y", "vy", "tl", "sz", "light", "wp",
+                 "nx", "ny", "nvy", "ntl")
 
     def __init__(self):
         self.n = 0
         self.x = self.y = self.vy = self.tl = self.sz = self.light = self.wp = []
+        # numpy 零拷贝切片, 只给向量化打包用(见 tools/flow_texture_experiment.py)。
+        self.nx = self.ny = self.nvy = self.ntl = None
 
 
 _TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
@@ -1230,6 +1233,7 @@ class HourglassWidget(Widget):
         n = self.pn
         pv.n = n
         if _np is None:
+            pv.nx = pv.ny = pv.nvy = pv.ntl = None
             # 兜底后端本身就是 Python list, 切片即得原生 float。
             pv.x = self.px[:n]
             pv.y = self.py[:n]
@@ -1239,6 +1243,12 @@ class HourglassWidget(Widget):
             pv.light = self.pli[:n]
             pv.wp = self.pwp[:n]
         else:
+            # 零拷贝切片(数组视图, 不分配): 供纹理渲染器向量化打包。
+            # 逐颗粒循环仍用下面的 list 快照 —— 两种读法各有各的便宜处。
+            pv.nx = self.px[:n]
+            pv.ny = self.py[:n]
+            pv.nvy = self.pvy[:n]
+            pv.ntl = self.ptl[:n]
             pv.x = self.px[:n].tolist()
             pv.y = self.py[:n].tolist()
             pv.vy = self.pvy[:n].tolist()
