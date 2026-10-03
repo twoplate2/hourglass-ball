@@ -3278,7 +3278,10 @@ class HourglassApp(App):
 # 表现为"一整段周期帧率都上不去"。
 # 批处理把同色同线宽的粒子并进一个 Mesh, 端点走顶点纹理;几何(含圆头帽)与
 # 逐 Line 版一致, 实测画面逐像素同一。同机同配置: 15s 47.9→65.4fps, Canvas 8.46→3.06ms。
-FLOW_RENDERER = "texture"      # line | batch | gpu | texture
+FLOW_RENDERER = os.environ.get("HG_FLOW_RENDERER") or "texture"   # line | batch | gpu | texture
+# ⚠️ HG_FLOW_RENDERER 只给**诊断**用: 桌面平时不装这套渲染器(PC 的 GL 余量大, 测不出
+# 它的代价), 但"每帧触发多少次索引重建"这个**计数**是设备无关的, 桌面量得准。
+# 不设这个变量时行为与以前完全一致。
 
 
 def _install_flow_renderer(widget_class):
@@ -3309,7 +3312,7 @@ def _install_flow_renderer(widget_class):
     importlib.import_module(target).install(widget_class)
 
 
-if platform == "android":
+if platform == "android" or os.environ.get("HG_FLOW_RENDERER"):
     try:
         _install_flow_renderer(HourglassWidget)
     except Exception as exc:

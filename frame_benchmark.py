@@ -248,7 +248,7 @@ def benchmark_log_text(results, cancelled=False):
         lines.append("Slowest frames:")
         for frame in result.get("slowest_frame_details", []):
             lines.append(", ".join(f"{key}={value:.3f}" for key, value in frame.items()))
-        lines.append("Frame trace: time_s,frame_ms,FPS,physics_ms,update_draw_ms,canvas_ms,previous_swap_ms,particles,splashes,gc_ms,gc_generation,mound_px,gap_between_frames_ms,gap_tick_tail_ms,gap_draw_to_flip_ms")
+        lines.append("Frame trace: time_s,frame_ms,FPS,physics_ms,update_draw_ms,canvas_ms,previous_swap_ms,particles,splashes,gc_ms,gc_generation,mound_px,gap_between_frames_ms,gap_tick_tail_ms,gap_draw_to_flip_ms,index_assigns,chunk_clears,flow_chunks,vertex_rebuild_kib")
         for frame in result.get("frame_trace", []):
             lines.append(",".join(f"{value:.3f}" for value in (
                 frame["elapsed_s"], frame["frame_ms"], 1000 / frame["frame_ms"],
@@ -257,7 +257,9 @@ def benchmark_log_text(results, cancelled=False):
                 frame["particles"], frame["splashes"], frame.get("gc_ms", 0),
                 frame.get("gc_generation", -1), frame.get("mound_px", 0),
                 frame.get("gap_between_frames_ms", 0), frame.get("gap_tick_tail_ms", 0),
-                frame.get("gap_draw_to_flip_ms", 0))))
+                frame.get("gap_draw_to_flip_ms", 0), frame.get("index_assigns", 0),
+                frame.get("chunk_clears", 0), frame.get("flow_chunks", 0),
+                frame.get("vertex_rebuild_kib", 0))))
     return "\n".join(lines) + "\n"
 
 
@@ -479,6 +481,7 @@ class BenchmarkRunner:
             "neck_filling": int(self.widget.elapsed < self.widget._neck_fill_time),
             "gc_ms": self._gc_ms,
             "gc_generation": self._gc_generation,
+            **self._flow_rebuild_stats(),
         }
         self._gc_ms = 0
         self._gc_generation = -1
@@ -571,6 +574,28 @@ class BenchmarkRunner:
         else:
             self._gc_ms += (time.perf_counter() - self._gc_start) * 1000
             self._gc_generation = max(self._gc_generation, info["generation"])
+
+    def _flow_rebuild_stats(self):
+        """把沙流渲染器的**索引重建触发计数**读进这一帧, 读完清零。
+
+        为什么要它: `mesh.indices = ...` 的 setter → 打上 GI_NEEDS_UPDATE →
+        下一帧 `VertexInstruction.apply()` 就 `build()` → `Mesh.build()` 拿**整个
+        512 槽顶点数组**去 `VertexBatch.set_data()`, `clear_data + add_vertex_data`
+        之后 `flags |= V_NEEDUPLOAD`。**改一次索引整块顶点重走一遍并标脏上传。**
+        (源码 Kivy 2.3.0: vertex_instructions.pyx:485/460, instructions.pyx:429, vbo.pyx:170)
+
+        ⚠️ 这是**触发条件**的计数, 不是实测 GL 上传流量: 真上传多少由驱动决定。
+        渲染器没装载(桌面默认走 line 池)时返回空, 不硬凑 0。
+        """
+        module = sys.modules.get("flow_texture_experiment")
+        if module is None:
+            return {}
+        stats = dict(module.STATS)
+        module.stats_reset()
+        return {"index_assigns": stats.get("index_assigns", 0),
+                "chunk_clears": stats.get("chunk_clears", 0),
+                "flow_chunks": stats.get("chunks", 0),
+                "vertex_rebuild_kib": round(stats.get("vertex_bytes", 0) / 1024.0, 1)}
 
     def _finish(self, cancelled):
         self._sampling = False

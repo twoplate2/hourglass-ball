@@ -154,7 +154,13 @@ def main():
                     if widget.flares and self.first_hit is None:
                         self.first_hit = widget.elapsed
                 widget.redraw = self.real_draw
+                # 量这一帧的"索引重建"触发情况 —— 只统计触发条件, 不是实测 GL 流量。
+                import sys as _sys
+                _flow = _sys.modules.get("flow_texture_experiment")
+                if _flow is not None:
+                    _flow.stats_reset()
                 widget.redraw()
+                flow_stats = dict(_flow.STATS) if _flow is not None else {}
                 self.duration_btn.text = module._fmt_duration(period)
                 self.on_run_state_changed()
                 records.append({
@@ -165,6 +171,7 @@ def main():
                                       (widget._lower_sand_bot + widget._mound_height_px()),
                     "first_hit_s": self.first_hit,
                     "particles": len(widget.particles), "splashes": len(widget.splashes),
+                    "flow_stats": flow_stats,
                     "neck_grains": widget._neck_grain_count,
                     "neck_outlet_y": 2 * widget._neck_y - widget._taper["y_bot"],
                     "neck_inlet_y": widget._taper["y_bot"],

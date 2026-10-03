@@ -24,6 +24,21 @@ FLOAT3 = Struct("<3f")
 TEXELS_PER_PARTICLE = 3
 TEXEL_STEP_UNIFORM = "texel_step"
 CHUNK = flow_batch_experiment.FlowBatch.CHUNK
+
+# ---- 诊断计数(每帧由 update() 清零) -------------------------------------------
+# 为什么需要: `mesh.indices = ...` 的 setter 会 `flag_data_update()` →
+# `VertexInstruction.apply()`(每帧) 看到 GI_NEEDS_UPDATE 就 `build()` →
+# `Mesh.build()` 拿**整个 512 槽顶点数组**去 `VertexBatch.set_data()` →
+# `clear_data()` + `add_vertex_data(全部顶点)` + `flags |= V_NEEDUPLOAD`。
+# **改一次索引 = 整块顶点重新走一遍并标脏上传**, 不是"只改个数字"。
+# (源码: vertex_instructions.pyx:485/460, instructions.pyx:429, vbo.pyx:170, Kivy 2.3.0)
+# 这里只统计**触发条件**(赋值次数 × 顶点表字节), 不等于实测 GL 上传流量。
+STATS = {"index_assigns": 0, "vertex_bytes": 0, "chunk_clears": 0, "chunks": 0, "buckets": 0}
+
+
+def stats_reset():
+    for key in STATS:
+        STATS[key] = 0
 TEXEL_STEP = 1.0 / (CHUNK * TEXELS_PER_PARTICLE)
 
 
@@ -104,6 +119,7 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
 
         按下标读原生 float, 不再逐颗粒取 numpy 标量。
         """
+        STATS["buckets"] += 1
         ys = view.y
         vys = view.vy
         trails = view.tl
@@ -162,13 +178,17 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     pack(data, offset, xs[i], bottom, top)
                     offset += 12
             texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
+            STATS["chunks"] += 1
             if previous != count:
                 mesh.indices = _indices[:count * len(self.indices)]
                 part[4] = count
+                STATS["index_assigns"] += 1
+                STATS["vertex_bytes"] += len(_vertices) * 4     # 被重新提交的顶点表
         for part in self.parts[chunks:]:
             if part[4]:
                 part[0].indices = array("H")
                 part[4] = 0
+                STATS["chunk_clears"] += 1
 
 
 def install(widget_class):
