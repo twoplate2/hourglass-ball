@@ -153,8 +153,9 @@ MOUND_FLOOR_EFF = 0.02
 # 是向外张开的 —— 于是看到"一根等宽方柱悬在漏斗里"。真实沙漏在孔口有 vena contracta
 # (流束收缩), 自由落体段再缓慢扩散, 所以边缘不是两条平行直线。
 JET_VENA = 0.68           # 最窄处 / 孔径
-JET_DIFFUSE = 2.60        # 扩散到位时的倍数
+JET_DIFFUSE = 1.00        # 松弛到位时的倍数(1.0 = 回到孔径, 不外扩)
 JET_SPREAD = 110.0        # 出口到扩散到位走过的距离(px)
+JET_EDGE = 0.30           # 边缘摆动幅度(× tube_lim), 破掉出口以下那两条机器直边
 
 DUST_COUNT = 25
 DUST_LIFETIME = 1.0
@@ -1674,7 +1675,7 @@ class HourglassWidget(Widget):
                     "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
                     "jet_top": jet_top,
                     "jet_vena": JET_VENA, "jet_diffuse": JET_DIFFUSE,
-                    "jet_spread": JET_SPREAD,
+                    "jet_spread": JET_SPREAD, "jet_edge": JET_EDGE,
                     "source_speed": source_speed,
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
@@ -1763,6 +1764,13 @@ class HourglassWidget(Widget):
                     if u > 1.0:
                         u = 1.0
                     env = tube_lim * (JET_VENA + (JET_DIFFUSE - JET_VENA) * u)
+                    # 沿深度相干的摆动。**逐颗粒**抖动是无效的: 每行有约 6 颗粒压着,
+                    # 边缘取的是它们的最大值, 随机抖动被抹平(实测去趋势残差仅 0.29px)。
+                    # 只随 y 变化 → 整条射流的边缘一起起伏, 读作流动的沙柱。
+                    # 纯确定性, 不调 random, random.seed(23) 闸门不受影响。
+                    d = jet_top - y
+                    env += (sin(d * 0.50) * 0.72 + sin(d * 0.19 + 1.7) * 0.28) \
+                        * tube_lim * JET_EDGE
                     if env < lim:
                         lim = env
                 half_stroke = size if size > 1 else 0.5
