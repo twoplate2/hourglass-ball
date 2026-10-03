@@ -76,6 +76,34 @@ python main.py
 - 粒子用 `Line`(主流) + `Rectangle`(splash/flares/dust)，按颜色排序减少 draw call。
 - **流量守恒**(移植自 PC v4)：粒子加速下落时按 A·v=常数横向收缩 `shrink = max(0.50, (60/v_at_y)^0.5)`；颈部 6px 入口区不缩；40px 平滑过渡区从 1.0 渐变到目标值；触底 30px 喇叭口微扩。wobble 随 shrink 同比例衰减(`wobble × (1-shrink×0.4)`)。
 
+### 出口以下的射流包络(2026-10-03,详见 `NECK_REDESIGN.md`)
+
+用户反馈"颈部有明显的矩形区域"。逐行游程量出来的真凶:**出口以下 21px 带里玻璃从 20px
+张到 83px, 而沙流恒 20px**(单侧最多露 31px 的 `GLASS_FILL` 楔形)。修法是给出口以下的
+横向 clamp 一个**物理包络**(`JET_VENA/DIFFUSE/SPREAD/EDGE`, `main.py` 顶部常量):
+
+```
+u   = min((outlet - y) / JET_SPREAD, 1)
+env = tube_lim * (JET_VENA + (JET_DIFFUSE - JET_VENA) * u)
+env += (sin(d*0.50)*0.72 + sin(d*0.19+1.7)*0.28) * tube_lim * JET_EDGE   # 沿深度相干
+lim = min(env, 球壁斜坡)      # 仅 y < outlet
+```
+
+- **改在物理层**(`update_particles`)是刻意的:纹理渲染器整体替换 `_draw_stream` 且读
+  `pv.nx`(物理数组零拷贝视图),在渲染层改 x 会「桌面变真机不变」。
+- ⚠️ **clamp 有两份实现**:`main.py` 的标量循环 **和** `tools/flow_numpy.py` 的向量化版,
+  `tools/test_physics_equiv.py` 要求逐位等价 —— **改一处必须改两处**,常量还要同步进
+  `consts` 字典(漏一个就 `KeyError: 'jet_edge'`)。测试文件里也有一份标量参考实现,共**三处**。
+- **逐颗粒抖包络是无效的**:每图像行压着约 6 颗粒,边缘取最大值,随机被抹平
+  (实测残差仅 0.29px)。**只随 y 变化**才有效(0.99px)。且前提是 `env` 要**比粒子的自然
+  展宽更窄**,否则 clamp 根本不 binding —— 出口 18px 之外射流宽度由粒子自身决定。
+- **不要再试"填满喇叭口"整族**(贴壁沙霜/沙雾/颗粒域扩到镜像颈):`_draw_neck_grains` 画的是
+  1–2px `Line`,盖不满 86×22px 的面;而且真实沙漏出口以下本就该是空的。
+- **不要再试"缩窄喇叭口"**:`w_out = min(R*0.45, max(t_out+2, TAPER_K*nw, shoulder*1.06))`,
+  实测恒由 `shoulder*1.06` 主导(47.95 vs R*0.45=74.32、TAPER_K*nw=37.40),而 shoulder 只由
+  球半径 R 与描边宽 ow 决定 ⇒ **喇叭口宽度被钉死**,缩小会让"扁平肩台+硬折角"重现。
+- 残余不可约项:3600s 档(管 7.4px)在 GLES2 无 AA/无 MSAA 下只能是一根诚实的细圆柱。
+
 ### 渲染分层(`redraw()` 中的 draw 顺序)
 1. 上沙弓形(Stencil 裁切)
 2. 下沙堆弓形
@@ -193,12 +221,44 @@ Android 方案的核心细节：
 - 切换 `_set_sound(name)`：**①新建 `_SoundProxy`（失败→旧态原样保留）②stop 旧 ③`close()` 旧（AudioTrack `release()`）④挂新 ⑤running 则 play**；同名幂等。**不要给旧实例加 reload 复用**——AudioTrack MODE_STATIC 缓冲长度构造时锁死，换 wav 必须重建 track。`_SoundProxy.close()` 释放后端资源。
 - 音效弹窗 `on_sound_picker` 复用 `_SandBgPopup`，遍历 `SOUND_OPTIONS`（= `SOUND_EFFECTS` + `(SILENT_NAME, None)`，现 5 项两行 3+2）+ 底部**「确定」按钮**（唯一出口），当前项金色高亮，高度自适应（复用周期弹窗 `minimum_height` 三行链路）；按钮 label/btns 的 lambda 必须默认参数绑定（闭包延迟绑定坑）。`_on_sound_picked(label, btns)`：点击即 `_set_sound`，**不 dismiss**，只刷新 `btns` 高亮；「确定」→ `_close_sound_picker(popup)`（`_sound_popup=None` + dismiss）。选「无声音」→ `_set_sound` 静音分支：stop+close 旧 proxy、`_sound=None`（不建 proxy，`_play_sound/_stop_sound` 对 None 空操作）。`_update_sound_btn()` 把主按钮文字设为当前音效名（静音暖灰、有声金色）。
 
-### 完成播报(2026-10-01)
+### 完成播报(2026-10-01;2026-10-03 改为动态拼接)
 
-- `sounds/completion.wav`：短柔和提示音 + 微软 `zh-CN-XiaoxiaoNeural` 整句「沙漏计时完成」，一次播放、不弹窗。
-  生成脚本 `tools/generate_completion_voice.py` 复用 PC 预录管线，不在手机上安装 TTS 或联网合成。
-- `_SoundProxy(loop=False)` 用于完成播报；默认 `loop=True` 保留背景音的全部行为。
+**播报语随周期变化**(「X小时Y分Z秒的沙漏计时完成」),无法预录成一条 ⇒ 改为**词块拼接**:
+
+- `sounds/voice/*.wav` 76 个词块 = 0–60 整词(`n0`..`n60`,覆盖分/秒全域与小时 1–60)
+  + 数字 `d1`..`d9` + `ten`/`hundred`(小时 61–99 与 100 拆着读) + `hour`/`min`/`sec` + `tail`。
+  24kHz 单声道、逐块 RMS 归一化(否则拼出来忽大忽小)。生成:`tools/generate_voice_tokens.py`。
+- `_VoiceBank` 启动时读进内存;`sentence_keys(sec)` 出词序(零分量省略,`hour` 与 `sec`
+  之间夹「零」),`build_pcm()` 拼成**一段** PCM,`_completion_chime(rate)` 现场合成钟声
+  (**带缓存** —— 纯 Python 三重循环 1.3 万帧,不缓存会卡在完成那一帧上;启动时预热)。
+- **必须走文件**:拼好的 PCM 写进 `config_path()` 同目录的 `completion_announcement.wav`,
+  再交给 `_SoundProxy(path, loop=False)`。因为三个后端里有两条**按路径**播放
+  (winsound `SND_FILENAME`、Kivy `SoundLoader`),只传裸 PCM 会漏掉它们。
+  一次播放、无接缝、不占第二个通道(winsound 单通道,分段播会被下段掐掉)。
+- **词库缺失/采样率不一致/声道不对 → `ok=False`,静默回退**到预录的整句 `sounds/completion.wav`
+  (由 `tools/generate_completion_voice.py` 生成,仍是兜底,不要删)。
+- ⚠️ **新增 wav 必须进 `buildozer.spec` 的 `source.include_patterns`**,现在是
+  `sand_loop.wav,fonts/*.otf,sounds/*.wav,sounds/voice/*.wav,ui/*.png` ——
+  `sounds/*.wav` **不匹配** `sounds/voice/` 的嵌套。漏了的表现是**桌面有声、装机无声**。
+- 改 `SAND_PRESETS` / `SOUND_OPTIONS` 顺序**不影响**本播报(词块按周期而非沙色/音效索引)。
+- 已知质量点(用户 2026-10-03 反馈「数字部分可能不是很自然,但可接受」):词块两端各留
+  25ms padding ⇒ 连读略顿,可改交叉淡入;小时 61–99 是两次 TTS 拼的,可补录整词。
+
+### 完成弹窗(2026-10-03)
+
+- `HourglassApp.on_completed(duration)`:`auto_dismiss=False`(**不点不关**,用户明确要求),
+  暖白底 + 金色大字时长(`_fmt_duration_cn`)+ 暗红「好」。Benchmark 期间不弹。
+- ⚠️ **`tools/*.py` 必须桩掉 `HourglassApp.on_completed`**(和桩音效同理):
+  `inspect_flow.py` / `profile_frames.py` 无条件桩;`verify_hourglass.py` 只在
+  `--completion-demo` 时保留。**不桩的后果**:用例跑过第 1 秒档 → 弹窗弹出并**永不关闭** →
+  盖住其后**所有**裁图,取证工具静默失效(踩过一次,104 张裁图全是弹窗)。
+
+### `_SoundProxy` 生命周期补充
+
+- `_SoundProxy(loop=False)` 用于完成播报;默认 `loop=True` 保留背景音的全部行为。
   Windows 无 SND_LOOP，AudioTrack 的 loopCount=0，SoundLoader.loop=False；重置/新周期必须停止旧播报。
+- 动态拼出的那份是 `_completion_spoken`(独立于兜底的 `_completion_sound`),
+  `on_stop` / `on_resume` 都要 `close()` 并置 `None`(AudioTrack 句柄会泄漏)。
 - `_completion_triggered` 保证每轮只播一次；`completion_enabled` 在 Benchmark 中临时关闭并恢复。
   「无声音」只控制背景循环音，完成提示独立。Android 恢复前台时重建单次播放后端，退出时停止并释放。
 
