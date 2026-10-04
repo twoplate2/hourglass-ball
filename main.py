@@ -181,6 +181,10 @@ GLASS_HL_SEC_A = 0.07                       # 次反光透明度
 # 是一条**灰绿硬带**(在浅蓝腔体上降 19 级、沙面上降 18 级), 读成"第二条描边"而不是玻璃
 # 厚度 —— 外描边本身才 139 级, 所以 0.055 × 30° 才是"略"。宽度也一并收窄。
 GLASS_HL_RIM_A = 0.055                      # 内缘压暗透明度(弱于 6px 的外描边)
+# 新生颗粒("高光组", 刚出孔口那批)的亮度上限 = lerp(sand_base, sand_light, 这个系数)。
+# 1.0 = 原样用 sand_light —— 它比出口正上方的颈部沙柱(材质色)亮 15 级, 见
+# `_rebuild_color_table` 的注释。0.32 = 与材质自身的亮端上限对齐。
+FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
 GLASS_HL_MAIN_DEG = ((118.0, 136.0), (146.0, 164.0))   # 左上, 两段 ⇒ 中间留断口
 GLASS_HL_SEC_DEG = ((-52.0, -34.0),)                   # 右下, 单段比主反光短一半
 GLASS_HL_RIM_DEG = ((205.0, 235.0), (305.0, 335.0))    # 左下/右下各一小段, 避开正下方落点
@@ -1463,6 +1467,16 @@ class HourglassWidget(Widget):
     def _rebuild_color_table(self):
         self._color_table = [lerp_rgb(self.sand_base, self.sand_light, i / 10.0)
                              for i in range(11)]
+        # 「高光组」= 刚出孔口的新生颗粒(trail_time 短)。它原来直接用 sand_light,
+        # 而**出口正上方就是颈部沙柱**, 那里是材质色(≈base, tone 中位 -0.04)。
+        # 于是出口处出现一道**15 级的亮度阶跃**(实测 215 → 230 @ 屏幕 y=426 = outlet),
+        # 读起来像"另一种材料接着", 就是用户 2026-10-04 报的
+        # "颈部附近的沙子和上下半球的沙子过渡不太自然"。
+        # 材质自身的亮端上限是 tone≈+0.32 ⇒ 高光组收到同量级, 阶跃从 15 级降到 ~6 级。
+        # ⚠️ 削弱"新生颗粒反光"是**观感**取舍, 所以留成可调值 + 开关出并排图。
+        self._hilite_color = (self.sand_light if FLOW_HILITE_T >= 1.0
+                              else lerp_rgb(self.sand_base, self.sand_light,
+                                            FLOW_HILITE_T))
 
     def _make_sound_proxy(self, name):
         """按音效名新建 _SoundProxy(构造失败返回 None,不抛)。"""
@@ -2283,7 +2297,8 @@ class HourglassWidget(Widget):
         for index in list(range(len(self._color_table))) + [-1]:
             for size in (1, 2):
                 group = InstructionGroup()
-                color = Color(*(self.sand_light if index < 0 else self._color_table[index]))
+                color = Color(*(self._hilite_color if index < 0
+                                else self._color_table[index]))
                 group.add(color)
                 self.canvas.add(group)
                 self._stream_pools[index, size] = (group, color, [])
@@ -2405,7 +2420,8 @@ class HourglassWidget(Widget):
             for band_color, _rect in self._sand_bands:
                 band_color.rgb = self.sand_light
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
-                color.rgb = self.sand_light if index < 0 else self._color_table[index]
+                color.rgb = (self._hilite_color if index < 0
+                             else self._color_table[index])
             self._splash_color.rgb = self._dust_color.rgb = self.sand_light
             self._render_colors = colors
 
