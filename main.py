@@ -177,12 +177,6 @@ SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 # ⚠️ 评审看的是**单帧裁图**, 而这个问题只有**跨时间**才看得出来 —— 同模型 panel 的共享
 #    盲区, 也是"知觉判断只能由用户裁"的又一个实例。
 # ⚠️ 下球的靠壁裙边(见下)保留: 它只在靠壁抬起、且不加粗糙度。
-# 起流瞬间的流头羽化(2026-10-04 对抗评审 CP#8): 每周期起流那 1.35 秒, 流是一根挂在
-# 半空的杆, 最下面几颗粒子的 trail 顶端被平切 ⇒ 看着像断线/渲染错误。
-# 做法是给最靠近流头的粒子按距离递减 trail —— y 数组本来就在手边, 一次归约即可,
-# 不新增遍历、不新增图元、不动物理。沙堆形成后流头埋进沙里, 眼睛看不到, 所以无害。
-FLOW_FEATHER_PX = 14.0      # 流头往上多少像素内开始收
-FLOW_FEATHER_MIN = 0.25     # 流头处 trail 缩到原来的 25%
 # 下球沙堆的"靠壁裙边"(2026-10-04 对抗评审推荐): 下沙顶边是水平弦、与球壁在锐角直接
 # 切断, 读起来像"碗里的水位"。
 # ⚠️ **中间 60% 严格钉在 `get_mound_top_y()` 上、不加任何粗糙度** —— 那个函数同时是
@@ -2404,7 +2398,13 @@ class HourglassWidget(Widget):
         cx, Ri = self._cx, self._R_inner
         base = self.get_mound_top_y()
         chord = math.sqrt(max(1.0, Ri * Ri - (base - self._lower_y_c) ** 2))
-        lift = 2.0 * Ri * SURFACE_LIP_FRAC      # 乘**内径**(2R), 不是半径 —— 规格是"占内径百分比"
+        # ⚠️ **轮廓幅度**必须受沙堆高度约束: 原来写死常数 4.4px, 沙堆刚出现时(h=3.6px)
+        # 边缘被抬到 7.6px ⇒ **边缘是中心的 2.1 倍**, 读成"浅碟"(堆应该中间最高)。
+        # 评审 2026-10-04 实测 t=1.400: mound=3.6px 而靠壁 7.6px。0→满 软起, h=8px 到满幅。
+        lift = min(2.0 * Ri * SURFACE_LIP_FRAC, h_mound * 0.6)
+        # ⚠️ **carve 的上沿必须用未钳的 LIFT_MAX** —— 沙体矩形是抬到 LIFT_MAX 的(见 redraw),
+        #    只抠到 `lift` 会在轮廓之上留一条浮空的平沙(矩形盖着、没人抠)。
+        LIFT_MAX = 2.0 * Ri * SURFACE_LIP_FRAC
         width = min(SAND_SURFACE_BAND, h_mound)
         self._mound_band_color.a = SAND_SURFACE_ALPHA * min(
             1.0, max(0.0, h_mound / SAND_SURFACE_FADE))
@@ -2419,7 +2419,7 @@ class HourglassWidget(Widget):
         for i in range(SURFACE_SEGS):
             x0, y0 = prof[i]
             x1, y1 = prof[i + 1]
-            carve[i].points = [x0, y0, x1, y1, x1, base + lift, x0, base + lift]
+            carve[i].points = [x0, y0, x1, y1, x1, base + LIFT_MAX, x0, base + LIFT_MAX]
             band[i].points = [x0, y0, x1, y1, x1, y1 - width, x0, y0 - width]
 
     def _build_dynamic_canvas(self):
@@ -2799,21 +2799,12 @@ class HourglassWidget(Widget):
         ys = pv.y
         vys = pv.vy
         trails = pv.tl
-        n = pv.n
-        if n and _np is not None:
-            y_floor = float(_np.min(self.py[:n]))     # 一次归约, 不新增遍历
-        else:
-            y_floor = min(ys[:n]) if n else 0.0
         for key, indices in buckets.items():
             group, _color, pool = self._stream_pools[key]
             for i, index in enumerate(indices):
                 y = ys[index]
                 x = xs[index]
                 trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale)
-                feather = y - y_floor
-                if feather < FLOW_FEATHER_PX:
-                    trail *= FLOW_FEATHER_MIN + (1.0 - FLOW_FEATHER_MIN) * (
-                        feather / FLOW_FEATHER_PX)
                 top = min(top_limit, y + trail)
                 coords = (x, y, x, top)
                 if i == len(pool):
