@@ -151,10 +151,28 @@ NECK_UV_ANCHOR = 0.0
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。
 # ⚠️ 档位名**不能是相对词**("当前""默认"这种在菜单里毫无意义 —— 用户 2026-10-04 指出),
 # 直接用视觉密度命名; "标准"标的是出厂默认那一档。
-SAND_STYLE_OPTIONS = (("平色（原版）", "flat", 0.0),
+SAND_STYLE_OPTIONS = (("平色", "flat", 0.0),
                       ("淡", "grain", 0.15),
                       ("标准", "grain", 0.35),
                       ("浓", "grain", 0.70))
+DEFAULT_SAND_STYLE = 2          # 出厂默认 = 第 3 档「标准」(用户 2026-10-04 定)
+
+
+def apply_sand_style(mode, grain):
+    """设置沙体材质档位。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
+
+    配置存的是 `(mode, grain)` 而**不是档位序号**: 以后改名、调顺序、插档都不会串。
+    最后一步会**吸到最近的档位** —— 否则手改过的配置(比如 grain=0.5)会让隐藏菜单
+    里一项都不高亮。
+    """
+    global SAND_MATERIAL, SAND_MATERIAL_GRAIN
+    SAND_MATERIAL = mode if mode in ("flat", "grain") else "grain"
+    try:
+        value = min(1.0, max(0.0, float(grain)))
+    except (TypeError, ValueError):
+        value = SAND_STYLE_OPTIONS[DEFAULT_SAND_STYLE][2]
+    grains = [g for _name, m, g in SAND_STYLE_OPTIONS if m == SAND_MATERIAL]
+    SAND_MATERIAL_GRAIN = min(grains, key=lambda g: abs(g - value)) if grains else value
 # ⚠️ 这个缓存**永不淘汰**, 有两层原因, 别随手加 LRU/上限:
 # ① 材质对象被 GC ⇒ `Texture.add_reload_observer` 存的 **WeakMethod** 失效 ⇒
 #    图形上下文丢失后纹理再也传不回去(沙体会退回默认纹理, 且不报错)。
@@ -1510,7 +1528,11 @@ class HourglassWidget(Widget):
         try:
             with open(config_path(), 'w', encoding='utf-8') as f:
                 json.dump({'duration': self.duration, 'color_name': color_name,
-                           'sound_name': self.sound_name}, f, ensure_ascii=False)
+                           'sound_name': self.sound_name,
+                           # 沙体材质档位(隐藏菜单里选的)。存 mode+grain 而不是序号 ——
+                           # 以后改档位名/调顺序/插档都不会让旧配置串到别的档。
+                           'sand_mode': SAND_MATERIAL,
+                           'sand_grain': SAND_MATERIAL_GRAIN}, f, ensure_ascii=False)
         except Exception:
             pass
 
@@ -2707,6 +2729,14 @@ class HourglassApp(App):
             if name == color_name:
                 self.hourglass.set_sand_color(base, dark, light)
                 break
+        # 沙体材质档位: **必须在建材质之前**改全局(材质在 _build_dynamic_canvas 里按配色缓存)。
+        # 缺这一项就退回出厂默认(第 3 档「标准」)。
+        # ⚠️ **环境变量优先于配置**: `HG_SAND_MATERIAL`/`HG_SAND_GRAIN` 是取图与 A/B 的开关,
+        # 一旦被本地配置盖掉, 所有测量都会**悄悄用错档位**(A/B 两臂还会变成同一版)。
+        if os.environ.get("HG_SAND_MATERIAL") is None and os.environ.get("HG_SAND_GRAIN") is None:
+            apply_sand_style(cfg.get('sand_mode', 'grain'),
+                             cfg.get('sand_grain',
+                                     SAND_STYLE_OPTIONS[DEFAULT_SAND_STYLE][2]))
 
         root = BoxLayout(orientation="vertical", spacing=dp(3),
                          padding=[dp(8), dp(6), dp(8), dp(6)])
@@ -3100,6 +3130,8 @@ class HourglassApp(App):
 
         def choose(mode, grain):
             self.hourglass.set_sand_style(mode, grain)
+            # 落盘: 下次启动读回来(存 mode+grain, 见 save_config)
+            self.hourglass.save_config(self._selected_color_name())
             refresh()
 
         for mode, grain, btn in buttons:
