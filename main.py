@@ -1225,6 +1225,15 @@ class HourglassWidget(Widget):
         # 非 None 时它**优先于** _sand_material, 松手/换色即清空。
         self._preview_material = None
         self._gen_surface_seed()            # 沙面静态粗糙度(见 _surface_profile)
+        # 球腔内缘压暗贴图(见 _build_glass_shell)。加载失败留 None ⇒ 上面直接不画,
+        # **绝不能让它退化成 texture=None** —— 那会渲染成纯白方块盖住整个球腔。
+        try:
+            from kivy.core.image import Image as _CoreImage
+            self._glass_vignette = _CoreImage(
+                resource_path("ui/glass_vignette.png")).texture
+        except Exception as exc:
+            print(f"glass vignette unavailable: {exc}")
+            self._glass_vignette = None
 
         self.sound_name = "沙沙声"
         self._sound = self._make_sound_proxy(self.sound_name)
@@ -2230,6 +2239,15 @@ class HourglassWidget(Widget):
                 Color(*glass_fill)
                 Ellipse(pos=(cx - R + ow, yc - R + ow),
                         size=(2 * (R - ow), 2 * (R - ow)))
+                # 球腔的内缘压暗(对抗评审 A3): 一张径向渐变贴图, 中心全透明、最外
+                # ~18% 起坡到 alpha 0.42 的冷深灰。Quad 半宽取 **Ri**(内腔半径) ⇒
+                # 贴图的 q=1 正好落在内腔边缘。
+                # ⚠️ 放在 canvas.before ⇒ **沙体(画在 canvas 里)会盖住它** ⇒ 这段压暗
+                #    天然只出现在空的地方, 不需要 stencil、不需要判断沙面位置。
+                if self._glass_vignette is not None:
+                    Color(1, 1, 1, 1)
+                    Rectangle(pos=(cx - Ri, yc - Ri), size=(2 * Ri, 2 * Ri),
+                              texture=self._glass_vignette)
             # 颈部: 挖掉球极冠肩台 → 直筒 → 上下曲线过渡(几何见 _rebuild_height_table)
             tp = self._taper
             t_out, t_in = tp['t_out'], tp['t_in']
