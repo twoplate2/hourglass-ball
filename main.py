@@ -148,14 +148,15 @@ SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
 # 颈部沙柱采样材质时的 v 锚点: 沙体底部那一带(v≈0.1 处被压暗过)。
 # ⚠️ 不能取 0.5 —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。
 NECK_UV_ANCHOR = 0.0
-# 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。
-# ⚠️ 档位名**不能是相对词**("当前""默认"这种在菜单里毫无意义 —— 用户 2026-10-04 指出),
-# 直接用视觉密度命名; "标准"标的是出厂默认那一档。
-SAND_STYLE_OPTIONS = (("平色", "flat", 0.0),
-                      ("淡", "grain", 0.15),
-                      ("标准", "grain", 0.35),
-                      ("浓", "grain", 0.70))
-DEFAULT_SAND_STYLE = 2          # 出厂默认 = 第 3 档「标准」(用户 2026-10-04 定)
+# 沙子浓度滑块(2026-10-04 用户要求: 原来是「平色/淡/标准/浓」四档离散, 改成连续)。
+# 0.0 = 只有宏观明暗、没有颗粒; 「完全平色」仍由 `HG_SAND_MATERIAL=flat` 保留(工具/A-B 在用)。
+SAND_GRAIN_MAX = 0.70
+SAND_GRAIN_DEFAULT = 0.35
+# 拖动滑块时的预览分辨率。实测生成耗时: 128²=4.2ms / 256²=3.9ms / 512²=17.6ms
+# —— 512² 每帧重建会卡在拖动上, 所以拖动只烘 128², 松手(或 0.35s 无操作)才烘正式的。
+SAND_PREVIEW_SIZE = 128
+# 玻璃反光滑块的上限(按 × 倍数)。出厂默认 1.0 落在滑块的 40% 处。
+GLASS_HL_MAX = 2.5
 
 # 沙面窄过渡(外部评审 meishu2.md §4.3): 紧贴沙面**内部**一条很窄的亮过渡。
 # 他的规格: 厚度 1–3 逻辑像素 / 只向亮色端点轻推 / **不做整条白线、不加黑描边** /
@@ -196,20 +197,19 @@ GLASS_HL_ENABLE = os.environ.get("HG_GLASS_HL", "1") != "0"
 
 
 def apply_sand_style(mode, grain):
-    """设置沙体材质档位。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
+    """设置全局沙体材质。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
 
-    配置存的是 `(mode, grain)` 而**不是档位序号**: 以后改名、调顺序、插档都不会串。
-    最后一步会**吸到最近的档位** —— 否则手改过的配置(比如 grain=0.5)会让隐藏菜单
-    里一项都不高亮。
+    配置存的是 `(mode, grain)` 而**不是档位序号**: 滑块改成连续之后, 旧配置里那些
+    档位值(0.00/0.15/0.35/0.70)仍然是合法 grain, 不需要迁移。
+    ⚠️ 不再"吸到最近的档位" —— 档位已不存在, 吸了反而会让滑块跳。
     """
     global SAND_MATERIAL, SAND_MATERIAL_GRAIN
     SAND_MATERIAL = mode if mode in ("flat", "grain") else "grain"
     try:
-        value = min(1.0, max(0.0, float(grain)))
+        value = float(grain)
     except (TypeError, ValueError):
-        value = SAND_STYLE_OPTIONS[DEFAULT_SAND_STYLE][2]
-    grains = [g for _name, m, g in SAND_STYLE_OPTIONS if m == SAND_MATERIAL]
-    SAND_MATERIAL_GRAIN = min(grains, key=lambda g: abs(g - value)) if grains else value
+        value = SAND_GRAIN_DEFAULT
+    SAND_MATERIAL_GRAIN = min(SAND_GRAIN_MAX, max(0.0, value))
 # ⚠️ 这个缓存**永不淘汰**, 有两层原因, 别随手加 LRU/上限:
 # ① 材质对象被 GC ⇒ `Texture.add_reload_observer` 存的 **WeakMethod** 失效 ⇒
 #    图形上下文丢失后纹理再也传不回去(沙体会退回默认纹理, 且不报错)。
@@ -288,6 +288,37 @@ def sand_material(base, dark, light, size=None, grain=None, shade=None):
             return None
         _SAND_MATERIAL_CACHE[key] = material
     return material
+
+
+def set_glass_hl(mul):
+    """设置玻璃反光强度倍数(隐藏菜单滑块用)。与 `apply_sand_style` 一样只改全局。"""
+    global GLASS_HL_MUL
+    try:
+        GLASS_HL_MUL = min(GLASS_HL_MAX, max(0.0, float(mul)))
+    except (TypeError, ValueError):
+        GLASS_HL_MUL = 1.0
+    return GLASS_HL_MUL
+
+
+def preview_sand_material(base, dark, light, grain, size=None):
+    """拖动滑块用的**低分辨率**材质。**故意不进缓存**。
+
+    ⚠️ `_SAND_MATERIAL_CACHE` 是**永不淘汰**的(它被 Texture 的 reload observer 以
+    WeakMethod 持有, GC 掉就再也传不回纹理)。拖动一次会产生几十个中间 grain 值 ⇒
+    512² 一张 1 MiB, 几十张就是几十 MB 常驻。预览对象由调用方持有、被换掉即 GC ——
+    那时它的纹理已经没有任何 rect 引用了, 丢掉 reload 途径无害。
+    """
+    if SAND_MATERIAL == "flat":
+        return None
+    size = SAND_PREVIEW_SIZE if size is None else size
+    try:
+        rgba = _sand_material_rgba(size, base, dark, light, grain=grain)
+        if rgba is None:
+            return None
+        return _SandMaterial(size, rgba)
+    except Exception as exc:
+        print(f"sand preview unavailable: {exc}")
+        return None
 
 
 def crop_tex_coords(full, fraction):
@@ -1147,6 +1178,9 @@ class HourglassWidget(Widget):
         self._completion_triggered = False
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
         self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
+        # 拖动「沙子浓度」滑块时的低分辨率材质槽(见 preview_sand_material)。
+        # 非 None 时它**优先于** _sand_material, 松手/换色即清空。
+        self._preview_material = None
 
         self.sound_name = "沙沙声"
         self._sound = self._make_sound_proxy(self.sound_name)
@@ -1462,6 +1496,8 @@ class HourglassWidget(Widget):
         self.sand_base = hex_rgb(base)
         self.sand_dark = hex_rgb(dark)
         self.sand_light = hex_rgb(light)
+        # 换色 ⇒ 作废滑块留下的低分预览, 否则新配色会顶着旧预览走一帧
+        self._preview_material = None
         self._rebuild_color_table()
 
     def _rebuild_color_table(self):
@@ -1611,10 +1647,12 @@ class HourglassWidget(Widget):
             with open(config_path(), 'w', encoding='utf-8') as f:
                 json.dump({'duration': self.duration, 'color_name': color_name,
                            'sound_name': self.sound_name,
-                           # 沙体材质档位(隐藏菜单里选的)。存 mode+grain 而不是序号 ——
-                           # 以后改档位名/调顺序/插档都不会让旧配置串到别的档。
+                           # 沙体材质(隐藏菜单的浓度滑块)。存 mode+grain 而不是序号 ——
+                           # 以后改名/换量程都不会让旧配置串到别的档。
                            'sand_mode': SAND_MATERIAL,
-                           'sand_grain': SAND_MATERIAL_GRAIN}, f, ensure_ascii=False)
+                           'sand_grain': SAND_MATERIAL_GRAIN,
+                           # 玻璃反光强度倍数(滑块)。缺省 1.0。
+                           'glass_hl': GLASS_HL_MUL}, f, ensure_ascii=False)
         except Exception:
             pass
 
@@ -2229,11 +2267,79 @@ class HourglassWidget(Widget):
 
     # ---------- 渲染 ----------
 
+    def _current_material(self):
+        """当前该用的沙体材质: **预览槽优先**(拖动中的低分辨率版), 否则按配色走缓存。"""
+        if self._preview_material is not None:
+            return self._preview_material
+        return sand_material(self.sand_base, self.sand_dark, self.sand_light)
+
+    def rebind_sand_material(self, material):
+        """把一份材质绑到**已有的**沙体 rect / 颈部 quad 上。
+
+        ⚠️ **绝不能走 `_build_dynamic_canvas()`** —— 那个会 `canvas.clear()` 并重建
+        2500 条粒子线的图元池; 拖动滑块每帧调一次必卡。这里只改 texture 属性
+        (这正是 `set_sand_style` 当年重的原因, 拖动场景必须避开)。
+        """
+        self._sand_material = material
+        white = material is not None
+        tex = None if material is None else material.texture
+        for color, rect in self._sand_chords:
+            rect.texture = tex
+            color.rgb = (1, 1, 1) if white else self.sand_base
+        for quad in self._neck_quads:
+            quad.texture = tex
+        self._neck_solid_rect.texture = self._neck_fade_rect.texture = tex
+        if white:
+            # 材质烘的就是 albedo ⇒ 前面必须保持白色, 再染一层沙色会明显发暗
+            self._neck_color.rgb = (1, 1, 1)
+            self._neck_solid_color.rgb = self._neck_fade_color.rgb = (1, 1, 1)
+        else:
+            self._neck_color.rgb = self.sand_base
+            self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
+        # 绑定已经是当前配色了 ⇒ 别让 redraw 的换色分支再拿缓存材质覆盖掉预览
+        self._render_colors = (self.sand_base, self.sand_dark, self.sand_light)
+        self.redraw()
+
+    def set_sand_grain(self, grain, preview=False):
+        """沙子浓度(隐藏菜单滑块)。
+
+        `preview=True` 烘 128² 低分材质放在预览槽(`SAND_PREVIEW_SIZE`), 供拖动中调用;
+        `preview=False` 烘正式分辨率并写回全局, 供松手/确认时调用。
+        返回是否真的换上了(材质生成失败时返回 False, 调用方据此保留旧值)。
+        """
+        global SAND_MATERIAL, SAND_MATERIAL_GRAIN
+        try:
+            grain = min(SAND_GRAIN_MAX, max(0.0, float(grain)))
+        except (TypeError, ValueError):
+            return False
+        if preview:
+            material = preview_sand_material(self.sand_base, self.sand_dark,
+                                             self.sand_light, grain)
+            if material is None:
+                return False
+            self._preview_material = material
+            self.rebind_sand_material(material)
+            return True
+        SAND_MATERIAL = "grain"
+        SAND_MATERIAL_GRAIN = grain
+        self._preview_material = None
+        material = sand_material(self.sand_base, self.sand_dark, self.sand_light,
+                                 grain=grain)
+        if material is None:
+            return False
+        self.rebind_sand_material(material)
+        return True
+
     def set_sand_style(self, mode, grain):
-        """隐藏菜单切换沙体材质档位。重建材质并立刻重绘(只做一次, 不在每帧路径上)。"""
+        """（兼容入口）直接设定材质模式+浓度。
+
+        滑块走 `set_sand_grain`; 这个留给 `flat ↔ grain` 切换 —— 那个要改 Color 的
+        染色方式, 必须重建画布指令, 不能用 `rebind_sand_material` 糊过去。
+        """
         global SAND_MATERIAL, SAND_MATERIAL_GRAIN
         SAND_MATERIAL = mode
         SAND_MATERIAL_GRAIN = float(grain)
+        self._preview_material = None
         self._render_colors = None          # 逼 redraw 走一次"换材质"分支
         self._build_dynamic_canvas()
         self.redraw()
@@ -2245,7 +2351,7 @@ class HourglassWidget(Widget):
         cx, Ri = self._cx, self._R_inner
         self._sand_chords = []
         self._sand_bands = []
-        material = sand_material(self.sand_base, self.sand_dark, self.sand_light)
+        material = self._current_material()
         self._sand_material = material
         with self.canvas:
             for yc in (self._upper_y_c, self._lower_y_c):
@@ -2402,7 +2508,9 @@ class HourglassWidget(Widget):
             else:
                 # 材质烘的就是 albedo ⇒ 前面保持白色, 换色只能**换纹理** ——
                 # 再染一层 sand_base 会让画面明显发暗(旧逻辑就是这么写的)。
-                material = sand_material(self.sand_base, self.sand_dark, self.sand_light)
+                # ⚠️ 走 `_current_material()` 而不是直接 sand_material(): 拖动滑块留下的
+                # 预览槽优先(换色时 set_sand_color 已把它清掉, 所以这里通常拿到缓存材质)。
+                material = self._current_material()
                 if material is not None:
                     self._sand_material = material
                     for _color, rect in self._sand_chords:
@@ -2879,14 +2987,16 @@ class HourglassApp(App):
             if name == color_name:
                 self.hourglass.set_sand_color(base, dark, light)
                 break
-        # 沙体材质档位: **必须在建材质之前**改全局(材质在 _build_dynamic_canvas 里按配色缓存)。
-        # 缺这一项就退回出厂默认(第 3 档「标准」)。
-        # ⚠️ **环境变量优先于配置**: `HG_SAND_MATERIAL`/`HG_SAND_GRAIN` 是取图与 A/B 的开关,
+        # 沙体材质 + 玻璃反光: **必须在建材质之前**改全局(材质在 _build_dynamic_canvas 里按配色缓存)。
+        # 缺项就退回出厂默认(浓度 0.35 / 反光 ×1.0)。
+        # ⚠️ **环境变量优先于配置**: `HG_SAND_*` / `HG_GLASS_HL*` 是取图与 A/B 的开关,
         # 一旦被本地配置盖掉, 所有测量都会**悄悄用错档位**(A/B 两臂还会变成同一版)。
         if os.environ.get("HG_SAND_MATERIAL") is None and os.environ.get("HG_SAND_GRAIN") is None:
             apply_sand_style(cfg.get('sand_mode', 'grain'),
-                             cfg.get('sand_grain',
-                                     SAND_STYLE_OPTIONS[DEFAULT_SAND_STYLE][2]))
+                             cfg.get('sand_grain', SAND_GRAIN_DEFAULT))
+        if (os.environ.get("HG_GLASS_HL") is None
+                and os.environ.get("HG_GLASS_HL_MUL") is None):
+            set_glass_hl(cfg.get('glass_hl', 1.0))
 
         root = BoxLayout(orientation="vertical", spacing=dp(3),
                          padding=[dp(8), dp(6), dp(8), dp(6)])
@@ -3252,41 +3362,97 @@ class HourglassApp(App):
             self._dev_popup.dismiss()
 
     def _open_dev_menu(self, *_):
-        """长按**版本号**进的隐藏菜单: 沙子材质档位 + 性能测试。
+        """长按**版本号**进的隐藏菜单: 沙子浓度 / 玻璃反光两个滑块 + 性能测试。
 
-        长按区本来就是版本号那块(`BenchmarkHoldArea`), 原来直接开基准;
-        现在中间多一层菜单, 基准挪进菜单里 —— 这样"调材质"和"量性能"在同一个入口。
+        2026-10-04 用户要求: 原来沙子材质是「平色/淡/标准/浓」四档按钮, 改成连续滑块;
+        并加一个玻璃反光滑块。
+
+        ⚠️ 沙子浓度**不能每帧烘正式材质**: 实测 512² 生成 17.6ms + 上传 ⇒ 拖动必卡。
+        所以拖动中只烘 `SAND_PREVIEW_SIZE`(128², 4.2ms) 的低分预览, 停手 0.35s 才烘正式版。
+        玻璃反光没这个问题(只重建十几条静态 Line), 但**落盘**一样要等停手 —— 否则拖动
+        每帧写一次配置文件。
         """
         if self._dev_popup is not None or self._benchmark_active():
             return
-        content = BoxLayout(orientation="vertical", spacing=dp(10),
-                            padding=[dp(16), dp(10), dp(16), dp(14)],
+        hg = self.hourglass
+        content = BoxLayout(orientation="vertical", spacing=dp(6),
+                            padding=[dp(16), dp(8), dp(16), dp(12)],
                             size_hint=(1, None))
         content.bind(minimum_height=content.setter("height"))
-        content.add_widget(Label(text="沙子材质", font_size=sp(16), color=POPUP_TEXT,
-                                 size_hint=(1, None), height=dp(26)))
-        buttons = []
-        for name, mode, grain in SAND_STYLE_OPTIONS:
-            btn = Button(text=name, font_size=sp(16), background_normal="",
-                         color=POPUP_TEXT, size_hint=(1, None), height=dp(46))
-            buttons.append((mode, round(grain, 4), btn))
-            content.add_widget(btn)
 
-        def refresh():
-            current = (SAND_MATERIAL, round(SAND_MATERIAL_GRAIN, 4))
-            for mode, grain, btn in buttons:
-                btn.background_color = (POPUP_GOLD_SEL if (mode, grain) == current
-                                        else POPUP_UNSEL_BASE)
+        def make_row(text, value_text):
+            row = BoxLayout(orientation="horizontal", size_hint=(1, None),
+                            height=dp(24))
+            name = Label(text=text, font_size=sp(15), color=POPUP_TEXT,
+                         halign="left", valign="middle")
+            name.bind(size=lambda inst, s: setattr(inst, "text_size", s))
+            val = Label(text=value_text, font_size=sp(15), color=POPUP_TEXT,
+                        size_hint=(None, None), size=(dp(78), dp(24)),
+                        halign="right", valign="middle")
+            val.bind(size=lambda inst, s: setattr(inst, "text_size", s))
+            row.add_widget(name)
+            row.add_widget(val)
+            return row, val
 
-        def choose(mode, grain):
-            self.hourglass.set_sand_style(mode, grain)
-            # 落盘: 下次启动读回来(存 mode+grain, 见 save_config)
-            self.hourglass.save_config(self._selected_color_name())
-            refresh()
+        def make_slider(value):
+            return Slider(min=0.0, max=100.0, value=value,
+                          size_hint=(1, None), height=dp(40),
+                          value_track=True,
+                          value_track_color=(*POPUP_GOLD_SEL[:3], 0.9),
+                          background_horizontal=resource_path("ui/slider_track.png"),
+                          background_width='8dp', value_track_width='8dp')
 
-        for mode, grain, btn in buttons:
-            btn.bind(on_press=lambda _b, m=mode, g=grain: choose(m, g))
-        refresh()
+        # ---- 沙子浓度 ----
+        sand_row, sand_label = make_row(
+            "沙子浓度", "%.2f" % SAND_MATERIAL_GRAIN)
+        content.add_widget(sand_row)
+        sand_slider = make_slider(min(100.0, SAND_MATERIAL_GRAIN / SAND_GRAIN_MAX * 100.0))
+        content.add_widget(sand_slider)
+
+        # ---- 玻璃反光 ----
+        glass_row, glass_label = make_row(
+            "玻璃反光", "×%.2f" % GLASS_HL_MUL)
+        content.add_widget(glass_row)
+        glass_slider = make_slider(min(100.0, GLASS_HL_MUL / GLASS_HL_MAX * 100.0))
+        content.add_widget(glass_slider)
+
+        pending = {"grain": None, "token": 0}
+
+        def commit_sand(*_):
+            """停手后把预览换成正式分辨率, 并落盘。"""
+            Clock.unschedule(commit_sand)
+            grain = pending.pop("grain", None)
+            if grain is None:
+                return
+            if hg.set_sand_grain(grain):
+                hg.save_config(self._selected_color_name())
+
+        def commit_glass(*_):
+            Clock.unschedule(commit_glass)
+            hg.save_config(self._selected_color_name())
+
+        def on_sand(_slider, value):
+            grain = value / 100.0 * SAND_GRAIN_MAX
+            sand_label.text = "%.2f" % grain
+            now = time.perf_counter()
+            if now - pending.get("last", 0.0) >= 0.08:      # 预览节流 80ms
+                pending["last"] = now
+                hg.set_sand_grain(grain, preview=True)
+            pending["grain"] = grain
+            Clock.unschedule(commit_sand)
+            Clock.schedule_once(commit_sand, 0.35)
+
+        def on_glass(_slider, value):
+            mul = value / 100.0 * GLASS_HL_MAX
+            glass_label.text = "×%.2f" % mul
+            set_glass_hl(mul)
+            hg._rebuild_glass_highlights()
+            Clock.unschedule(commit_glass)
+            Clock.schedule_once(commit_glass, 0.35)
+
+        sand_slider.bind(value=on_sand)
+        glass_slider.bind(value=on_glass)
+        self._dev_sliders = (sand_slider, glass_slider)   # 供测试/自检取用
 
         content.add_widget(Widget(size_hint=(1, None), height=dp(6)))
         bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",
@@ -3294,10 +3460,19 @@ class HourglassApp(App):
                        size_hint=(1, None), height=dp(50))
         bench.bind(on_press=lambda *_: (self._close_dev_menu(), self.on_benchmark()))
         content.add_widget(bench)
+
+        def close_menu(*_):
+            # 拖动中直接点「确定」⇒ 先把没落定的预览烘成正式版, 再关
+            if pending.get("grain") is not None:
+                commit_sand()
+            Clock.unschedule(commit_glass)
+            hg.save_config(self._selected_color_name())
+            self._close_dev_menu()
+
         close = Button(text="确定", font_size=sp(16), background_normal="",
                        background_color=POPUP_CANCEL_BG, color=POPUP_TEXT,
                        size_hint=(1, None), height=dp(46))
-        close.bind(on_press=lambda *_: self._close_dev_menu())
+        close.bind(on_press=close_menu)
         content.add_widget(close)
 
         # 尺寸照**基准弹窗**那套(它已经跑过真机): 宽度 0.94, 高度取"内容需要"与
