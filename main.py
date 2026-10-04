@@ -569,7 +569,14 @@ COMPLETION_POPUP_MIN = 20.0    # 周期短于这个数就**不弹**完成提示(
 
 DUST_COUNT = 25
 DUST_LIFETIME = 1.0
-FLASH_DURATION = 0.35
+# ---- 完成闪烁: **已删除**(2026-10-04, 用户实拍裁决「这个很不合理, 这里不需要过度」) --------
+# 原来是"漏完瞬间全屏盖一层白 25%、350ms"(从 PC v4 的 stipple gray25 继承来的)。
+# 实测那一层把下球沙色从 (217,166,103) 冲成 (226,187,140) —— 饱和度掉一大截, 读成
+# "沙子上蒙了一层膜", 而且它是**全屏**的, 连玻璃和背景一起冲淡。
+# 删除依据(60fps 录屏逐帧扫完 14 秒, 840 帧): 整段只有这一处瞬态(Δ=+66, 340ms),
+# 漏完前后稳态逐像素无差异。完成那一刻仍有完成音; 周期 ≥20 秒还有完成弹窗。
+# 删掉的东西: 常量 FLASH_DURATION / `flash_end` / `_flash_color` / `_flash_rect`
+# 及其每帧的 alpha+size 更新。
 
 WAV_FILENAME = "sand_loop.wav"
 
@@ -1335,7 +1342,6 @@ class HourglassWidget(Widget):
         self._mound_profile = None           # 下球沙堆形状解(见 _MoundProfile), 几何重建时换新
         self._mound_plateau_half = 0.0
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
-        self.flash_end = 0.0
         self._completion_triggered = False
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
         self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
@@ -1683,7 +1689,6 @@ class HourglassWidget(Widget):
         # ⚠️ 只清**每帧缓存**, 不动 `_mound_profile`/`_geom_generation` —— 那两个是**几何**,
         #    由尺寸/周期变化重建; 重置一局不能把沙堆形状解删掉(删了沙堆就画不出来)。
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
-        self.flash_end = 0.0
         self._completion_triggered = False
         self._completion_token += 1          # 作废还没到点的完成提示
         # 旧场景的循环引用在重置时清理,避免留到流动中触发全量回收。
@@ -1881,7 +1886,6 @@ class HourglassWidget(Widget):
             if self.elapsed >= self.duration:
                 self.elapsed = self.duration
                 self.running = False
-                self.flash_end = now + FLASH_DURATION
                 self._stop_sound()
                 if not self._completion_triggered:
                     self._spawn_dust()
@@ -2726,8 +2730,6 @@ class HourglassWidget(Widget):
                 Line(points=[x, self._neck_y - 7, x, self._neck_y + 7], width=1)
             self._pause_color = Color(*hex_rgb(BG_COLOR), 0)
             self._pause_rect = Rectangle(pos=self.pos, size=(0, 0))
-            self._flash_color = Color(1, 1, 1, 0)
-            self._flash_rect = Rectangle(pos=self.pos, size=(0, 0))
         self._render_colors = None
 
     def _reserve_stream_lines(self):
@@ -2927,9 +2929,7 @@ class HourglassWidget(Widget):
         self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
         self._bore_color.a = 1 if remaining <= 0.001 else 0
         self._pause_color.a = 0.55 if not self.running and 0 < self.elapsed < self.duration else 0
-        self._flash_color.a = 0.25 if now < self.flash_end else 0
         self._pause_rect.size = self.size if self._pause_color.a else (0, 0)
-        self._flash_rect.size = self.size if self._flash_color.a else (0, 0)
 
     def _group_stream_particles(self):
         """按 (色调, 线宽) 分桶 —— 返回 `{key: [粒子下标, ...]}`, 不再是 dict 列表。
