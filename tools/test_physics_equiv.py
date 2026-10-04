@@ -41,7 +41,16 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
     lower_bot = c["lower_bot"]
     gen_y = c["gen_y"]
     peak_offset = c["peak_offset"]
+    # ⚠️ 2026-10-04: 命中面从"单一 y"改成按 x 查 H(x)(dingbu.md §7)。参考实现必须同步,
+    #    否则这个测试对**新分支**是非判别性的(它会拿旧公式比新公式, 或者根本走不到新分支)。
+    curve = c.get("curve")
+    if curve is not None and len(curve[0]) > 1:
+        _cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1 = curve
+        use_curve = True
+    else:
+        use_curve = False
 
+    stats = c.setdefault("_stats", {"curve_decided": 0})
     out = {k: [] for k in ("x", "y", "vy", "xo", "wp", "wa", "sz")}
     hit_idx = []
     hit_dt_list = []
@@ -58,16 +67,29 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
         y += vy * step_dt + 0.5 * g * step_dt * step_dt
         vy += g * step_dt
         hit = y <= mound_top
+        hy = mound_top
+        if hit and use_curve:
+            z = (px[i] - _c_x0) * _c_scale
+            if z <= 0.0:
+                hy = _cy_arr[0]
+            elif z >= _c_n1:
+                hy = _cy_arr[-1]
+            else:
+                _i = int(z)
+                hy = _cy_arr[_i] + (_cy_arr[_i + 1] - _cy_arr[_i]) * (z - _i)
+            hit = y <= hy
+            if hy != mound_top:
+                stats["curve_decided"] += 1
         hit_dt = 0.0
         if hit:
-            d = old_y - mound_top
+            d = old_y - hy
             distance = d if d > 0 else 0
             v = -old_vy
             speed = v if v > 0 else 0
             denom = speed + math.sqrt(speed * speed + 2 * g_abs * distance)
             hit_dt = 2 * distance / (denom if denom > 1e-6 else 1e-6)
             hit_dt = hit_dt if hit_dt < step_dt else step_dt
-            y = mound_top
+            y = hy
             vy = old_vy + g * hit_dt
         fd = gen_y - y
         fallen_dist = fd if fd > 0.0 else 0.0
@@ -148,6 +170,13 @@ def main():
         "tube_lim": 6.0,
         "lower_bot": lower_bot,
         "peak_offset": 0.0,
+        # 非平凡曲线: 以 cx 为峰、斜率 0.6 的锥面(与下球真实形状同族)。
+        # ⚠️ 必须**不是常数** —— 常数曲线会让新旧公式给出同一结果 ⇒ 测试变成非判别性的。
+        # 峰值对齐 mound_top(=70), 斜率 0.6, 覆盖 x∈[0,400] 而 cx=200 ⇒ 峰在正中。
+        # 这样 70px 高的粒子在 |x-200|>50 处就够不到沙面 ⇒ 命中数会与"平曲线"明显不同。
+        "curve": ([400.0 * i / 128.0 for i in range(129)],
+                  [70.0 - 0.6 * abs(400.0 * i / 128.0 - 200.0) for i in range(129)],
+                  0.0, 128.0 / 400.0, 128),
     }
     N = 4000
     px = [c["cx"] + random.uniform(-6, 6) for _ in range(N)]
@@ -242,11 +271,15 @@ def main():
         npdt = np.array(pdt, dtype=np.float64)
 
     print("跑了 %d 帧, 累计命中 %d 次, 存活 %d" % (frames, total_hits, len(py)))
+    dec = c.get("_stats", {}).get("curve_decided", 0)
+    print("判别性: 按 x 查 H(x) 真正改写了判定的命中 %d 次 (0 = 这个测试对新分支是废的)" % dec)
+    if dec == 0:
+        print("FAIL: 曲线分支没被走到")
     if bad == 0:
         print("PASS: 标量版与向量化版逐位一致")
     else:
         print("FAIL")
-    return 1 if bad else 0
+    return 1 if (bad or dec == 0) else 0
 
 
 if __name__ == "__main__":

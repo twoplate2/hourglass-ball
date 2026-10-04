@@ -41,6 +41,7 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     peak_offset : 更新后的沙堆中心 EMA 偏移
     """
     sl = slice(0, n)
+    pxv = px[sl]          # ⚠️ 参数名是 px(不是 x): 用于按 x 查接触高度曲线, 见下
     y = py[sl]
     vy = pvy[sl]
     dt = pdt[sl]
@@ -56,9 +57,28 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     y = y + (vy * dt + 0.5 * g * dt * dt)
     vy = vy + g * dt
 
-    hit = y <= mound_top
+    # 接触高度按**上一帧的 x** 查 H(x)(专家 dingbu.md §7: 取消平台后不再只认一个 y)。
+    # `y <= mound_top` 是必要非充分的免费预筛(锥顶是全堆最高点) ⇒ 只有落到堆附近的才查表。
+    # ⚠️ 查找公式必须与 main.py 标量路径**逐位一致**: z<0 → cy[0]; z>=n1 → cy[-1];
+    #    其余 i=int(z)(非负 ⇒ 截断), f=z-i, 线性插值。np.clip + minimum 复现同一规则。
+    curve = c.get("curve")
+    if curve is not None and len(curve[0]) > 1:
+        _cx, _cy, _x0, _scale, _n1 = curve
+        # 曲线由 main.py 以 Python list 传入(标量路径直接下标读) ⇒ 这里转一次 ndarray
+        # 才能做花式索引。129 个 float 的拷贝, 每帧一次, 可忽略。
+        _cy = np.asarray(_cy, dtype=np.float64)
+        z = np.clip((pxv - _x0) * _scale, 0.0, _n1)
+        idx = np.minimum(z.astype(np.intp), _n1 - 1)
+        hy = _cy[idx] + (_cy[idx + 1] - _cy[idx]) * (z - idx)
+        # ⚠️ 下面所有用到 mound_top 的**形状**项(近底喇叭口/落点判定)仍走标量参考高度 ——
+        #    它只管流束外形, 不再负责碰撞(专家 §7.1)。
+        hit = (y <= mound_top) & (y <= hy)
+        hy_eff = np.where(y <= mound_top, hy, mound_top)
+    else:
+        hit = y <= mound_top
+        hy_eff = mound_top
     if hit.any():
-        d = old_y - mound_top
+        d = old_y - hy_eff
         distance = np.maximum(d, 0.0)          # d if d > 0 else 0
         v = -old_vy
         speed = np.maximum(v, 0.0)             # v if v > 0 else 0
@@ -66,7 +86,7 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
         denom = np.where(denom > 1e-6, denom, 1e-6)
         hit_dt = 2 * distance / denom
         hit_dt = np.minimum(hit_dt, dt)        # hit_dt if hit_dt < step_dt else step_dt
-        y = np.where(hit, mound_top, y)
+        y = np.where(hit, hy_eff, y)
         vy = np.where(hit, old_vy + g * hit_dt, vy)
 
     fd = c["gen_y"] - y

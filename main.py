@@ -205,16 +205,26 @@ SAND_BAND_APEX_FADE = 6.0
 #    `get_mound_top_y()`(见 update_particles / flow_numpy 的 `mound_top`)。只要落点满足
 #       |x| ≤ b  且  B(x) ≤ a ≤ U(x)
 #    标量就与可见面严格重合。**第三条在接近满球时必然失效**(圆顶各点高度不同) ⇒
-#    专家 §5.2 摆了两条路, 我们走 **A**: 保留标量、平台钉住落束,
-#    ⇒ 末期是"经像素容差验证的近似", **不许声称全阶段严格贴面**。
-#    B(主流也按 H(x) 取接触高度)是**碰撞接口变更**(命中时刻求解/两条路径/命中特效都要改),
-#    留给独立一轮, 要用户点头才动。
+#    专家 §5.2 摆了两条路: A=保平台钉住落束(末期满球时是近似), B=主流也按 H(x) 取接触高度。
+#    **2026-10-04 起改走 B**(用户裁决平台不合理 + 专家 dingbu.md §7):
+#      只画尖顶而碰撞仍用 `y <= mound_top`, 会出现"颗粒在斜坡上方消失 / 钻进沙堆还可见"。
+#      A 是"用外观迁就旧接口", 现在接口跟着外观走。B 是碰撞接口变更 ⇒ 标量路径、
+#      numpy 路径、命中回放三处必须同公式(见 tools/test_physics_equiv.py)。
 MOUND_REPOSE_SLOPE = 0.60   # 休止角 tanθ ≈ 0.60 (≈31°); 专家: 只是当前风格的初值, 不是定律
-MOUND_PLATEAU_K = 1.8       # 平台半宽 = K × 管内壁半宽 t_in(≈落束出口宽度) ⇒ 随几何缩放
-MOUND_PLATEAU_MIN = 6.0     # 平台半宽下限(逻辑像素)
+# ---- 沙面形状: 取消平台, 改"微不对称尖堆 + 受限微粗糙"(外部专家 dingbu.md §3) ----------
+# 用户裁决:「下面的沙子顶部是一个平台 这个绝对不合理, 哪怕是一个不太规则的随机锥形都不比
+# 这个合理」。原先的平台半宽 = 1.8 × 管内壁半宽(≈120px @手机), 是为了让**标量碰撞面**
+# `get_mound_top_y()` 与可见面严格重合才引进的折中 —— 现在形状优先, 碰撞改成按 x 查 H(x)。
+MOUND_SLOPE_L = 0.58        # 左坡斜率(专家 §3.1 建议 0.58/0.62 —— 故意不对称, 破镜像)
+MOUND_SLOPE_R = 0.62
+MOUND_SHAPE_NODES = 65      # 表面轮廓控制点数(奇数 ⇒ 第 32 点正好在中心轴上, 画得出尖顶)
+MOUND_ROUGH_FRAC = 0.003    # 粗糙幅度上限 = 0.003 × 直径(专家 §3.2); 手机 D≈893 ⇒ ≈2.7px
+MOUND_ROUGH_SEED = 20261004 # **固定** seed: 整轮不重抽(逐帧重抽 = 1.60/1.61 的"原地闪现"教训)
+MOUND_ROUGH_SMOOTH = 0.25   # 相邻差上限 = 该系数 × 斜率 × Δx(保证主体仍向两侧下降)
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
-MOUND_AREA_SAMPLES = 129    # 面积表积分节点数(奇数; 含 ±b 与斜坡切圆的临界点)
-MOUND_DRAW_EXTRA = 48       # 绘制折线的角度采样数(另加 ±R/±b/0 与**逐帧的壁交点**这些真转折点)
+MOUND_AREA_SAMPLES = 129    # 面积表积分节点数(奇数)
+MOUND_CURVE_SAMPLES = 129   # 每帧接触高度曲线 H(x) 的均匀节点数(粒子侧 O(1) 定位)
+MOUND_DRAW_EXTRA = 48       # 绘制折线的角度采样数(另加 ±R/0 与**逐帧的壁交点**这些真转折点)
 #   ⚠️ 24 时实测最外一段弦高出真圆 ~4px ⇒ 沙堆与壁相接处留一条 2~5px 的沙楔; 48 → 误差 ÷4
 
 
@@ -266,59 +276,113 @@ class _MoundArea:
         return self.heights[i] + f * (self.heights[i + 1] - self.heights[i])
 
 
+def _surface_roughness(radius, amp_frac, seed, limit):
+    """受限的**固定**表面微粗糙数组(专家 dingbu.md §3.2)。
+
+    65 个等距控制点, 幅度上限 `amp_frac × 直径`, 相邻差不超过 `limit`。
+    ⚠️ **固定 seed, 整轮不重抽** —— 逐帧重抽会变成"颗粒原地闪现 + 整条轮廓颤动",
+       这正是 1.60/1.61 被用户判死("完全没有变化…还不如平面")的那条路。
+    ⚠️ 幅度**统一缩放**到满足相邻差限制, 不做逐点夹取(逐点夹会造出一片等高平台)。
+    ⚠️ 中心点强制为 0: 堆尖保持在入沙轴线上。
+    """
+    n = MOUND_SHAPE_NODES
+    rng = random.Random(seed)
+    raw = [rng.uniform(-1.0, 1.0) for _ in range(n)]
+    sm = [(raw[max(0, i - 1)] + 2.0 * raw[i] + raw[min(n - 1, i + 1)]) / 4.0
+          for i in range(n)]
+    peak = max(abs(v) for v in sm) or 1.0
+    vals = [v / peak * (amp_frac * 2.0 * radius) for v in sm]
+    dif = max(abs(vals[i + 1] - vals[i]) for i in range(n - 1)) or 1.0
+    if dif > limit:
+        k = limit / dif
+        vals = [v * k for v in vals]
+    vals[(n - 1) // 2] = 0.0
+    return vals
+
+
+def _mound_shape_array(radius):
+    """下球轮廓 `f(x)`(绝对值, 相对中心轴): `-m·|x| + r(x)`, 无平台。
+
+    左右斜率故意略不同(0.58 / 0.62) ⇒ 破掉完全镜像, 但**不需要让堆尖来回摆**。
+    相邻差限制保证"从中心向两侧主体始终在下降"(粗糙幅度 ≤ 斜率×Δx/4)。
+    """
+    n = MOUND_SHAPE_NODES
+    half = (n - 1) // 2
+    dx = radius / half
+    limit = MOUND_ROUGH_SMOOTH * min(MOUND_SLOPE_L, MOUND_SLOPE_R) * dx
+    rough = _surface_roughness(radius, MOUND_ROUGH_FRAC, MOUND_ROUGH_SEED, limit)
+    out = []
+    for i in range(n):
+        u = (i - half) * dx
+        m = MOUND_SLOPE_L if u < 0 else MOUND_SLOPE_R
+        out.append(-m * abs(u) + rough[i])
+    return out
+
+
 class _MoundProfile:
     """下球沙堆的形状解 —— 移植自外部专家 `xingzhuang2.md` §4.3 的参考实现。
 
-    只在**几何/参数变化时**重建(见 `HourglassWidget._rebuild_height_table`), 每帧只做一次
-    `apex_for_height()` 查表。单位: 构造时 `radius/plateau_half` 是绝对像素,
-    内部用归一化坐标(x∈[-1,1], 高度以 R 为单位)算面积表, 返回值是**绝对**虚拟锥顶高度。
+    轮廓 = `P(x) = apex + f(x)`, `f` 由**固定的** 65 点控制数组线性插值给出
+    (2026-10-04 起按 `dingbu.md` §3 取消平台, 改为微不对称尖堆 + 受限微粗糙)。
+    因为 `f` 与沙量无关, 两张面积表只在**几何变化时**重建一次, 每帧只做一次查表求逆。
 
-    ⚠️ `flat` 与 `heap` 两张表**共用同一套节点/权重**, 目标面积也走 `flat`(专家 §2.3):
-    解析圆弓面积与这套离散口径差 ~0.9%, 混用会让末期填不满。
+    单位: 构造时 `radius`/`shape` 是绝对像素, 内部用归一化坐标算面积表,
+    返回值 `apex` 是**中心轴处**的沙面高度(绝对, 离球内底) —— 原点处 f(0)=0, 所以它就是峰高。
     """
 
-    __slots__ = ("radius", "b", "slope", "xs", "flat", "heap")
+    __slots__ = ("radius", "shape", "xs", "flat", "heap", "slope_l", "slope_r")
 
-    def __init__(self, radius, plateau_half, slope=MOUND_REPOSE_SLOPE,
-                 samples=MOUND_AREA_SAMPLES):
-        if radius <= 0 or not 0.0 <= plateau_half <= radius or slope < 0:
-            raise ValueError("invalid mound geometry")
-        if samples < 5 or samples % 2 == 0:
-            raise ValueError("samples must be odd and >= 5")
+    def __init__(self, radius, shape, samples=MOUND_AREA_SAMPLES):
+        n = len(shape)
+        if radius <= 0 or n < 5 or n % 2 == 0:
+            raise ValueError("invalid mound shape")
         self.radius = float(radius)
-        self.b = plateau_half / self.radius
-        self.slope = float(slope)
-        # 积分节点: 均匀点 ∪ {±b} ∪ {斜坡与圆顶相切的临界点} —— 折线的真转折点必须进表
-        half_count = (samples - 1) // 2
-        positive = {i / half_count for i in range(half_count + 1)}
-        positive.add(self.b)
-        critical = self.slope / math.sqrt(1.0 + self.slope * self.slope)
-        if critical >= self.b:
-            positive.add(critical)
-        self.xs = sorted(positive | {-x for x in positive})
-        bottom = []
-        for x in self.xs:
-            bottom.append(1.0 - math.sqrt(max(0.0, 1.0 - x * x)))
-        top = [2.0 - y for y in bottom]
+        self.shape = tuple(float(v) for v in shape)
+        self.slope_l = abs(shape[0]) / radius
+        self.slope_r = abs(shape[-1]) / radius
+        # 积分节点 = 控制点 ∪ 相邻中点(专家 §6: 中间值就是两个控制高度的平均)
+        m = n - 1
+        xs, offs = [], []
+        for i in range(n):
+            x = -radius + 2.0 * radius * i / m
+            xs.append(x); offs.append(self.shape[i])
+            if i < m:
+                xs.append(x + radius / m)
+                offs.append(0.5 * (self.shape[i] + self.shape[i + 1]))
+        self.xs = xs
         weights = []
-        n = len(self.xs)
-        for i, x in enumerate(self.xs):
-            left = x - self.xs[i - 1] if i else 0.0
-            right = self.xs[i + 1] - x if i + 1 < n else 0.0
+        k = len(xs)
+        for i in range(k):
+            left = xs[i] - xs[i - 1] if i else 0.0
+            right = xs[i + 1] - xs[i] if i + 1 < k else 0.0
             weights.append(0.5 * (left + right))
-        offsets = [-self.slope * max(0.0, abs(x) - self.b) for x in self.xs]
-        self.flat = _MoundArea(bottom, top, weights, [0.0] * n)
-        self.heap = _MoundArea(bottom, top, weights, offsets)
+        bottom = [radius - math.sqrt(max(0.0, radius * radius - x * x)) for x in xs]
+        top = [2.0 * radius - y for y in bottom]
+        self.flat = _MoundArea(bottom, top, weights, [0.0] * k)
+        self.heap = _MoundArea(bottom, top, weights, offs)
+
+    def shape_at(self, dx):
+        """轮廓偏移 f(dx) —— 控制点之间线性插值(与面积表、绘制折线同一份定义)。"""
+        r = self.radius
+        n = len(self.shape)
+        z = (dx + r) / (2.0 * r) * (n - 1)
+        if z <= 0.0:
+            return self.shape[0]
+        if z >= n - 1:
+            return self.shape[-1]
+        i = int(z)
+        f = z - i
+        return self.shape[i] + (self.shape[i + 1] - self.shape[i]) * f
 
     def apex_for_height(self, height):
-        """体积反查出来的平顶高度 h → **虚拟**锥顶高度(绝对)。同口径换算, 不倒退。"""
+        """体积反查出来的平顶高度 h → **虚拟**峰高(绝对)。同口径换算, 不倒退。"""
         h = min(max(height / self.radius, 0.0), 2.0)
         fraction = self.flat.area_at(h) / self.flat.capacity
         return self.radius * self.heap.height_at(fraction * self.heap.capacity)
 
     def raw(self, dx, apex):
         """未裁剪堆面高度(绝对, 离球内底)。"""
-        return apex - self.slope * max(0.0, abs(dx) - self.b * self.radius)
+        return apex + self.shape_at(dx)
 
     def bounds(self, dx):
         """该列的球内底/球内顶高度(绝对) —— 理想圆公式, 实际接缝仍交给 Ellipse 裁剪。"""
@@ -342,6 +406,7 @@ class _MoundProfile:
         floor, roof = self.bounds(dx)
         p = self.raw(dx, apex)
         return floor < p < roof
+
 
 # ---- 玻璃反光: **已删除**(2026-10-04, 用户实拍裁决「有害无益, 全删了」) -------------
 # 1.57 按外部美术规格 meishu2.md §5.1/§5.2 加的"左上主反光(两段留断口) + 右下弱反光 +
@@ -1340,8 +1405,9 @@ class HourglassWidget(Widget):
         self.mound_peak_offset = 0.0
         self._geom_generation = 0            # 几何代: 尺寸/周期/窗口一变就 +1, 形状缓存跟着失效
         self._mound_profile = None           # 下球沙堆形状解(见 _MoundProfile), 几何重建时换新
-        self._mound_plateau_half = 0.0
+        self._mound_shape = ()               # 65 点轮廓(绝对值): 绘制节点/接触查表都用它
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
+        self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._completion_triggered = False
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
         self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
@@ -1476,16 +1542,16 @@ class HourglassWidget(Widget):
             'in_pts': _bezier2((w_in, y_in), (t_in, y_knee_i), (t_in, y_bot), TAPER_SEGS),
         }
         # 下球沙堆的形状解: **几何一变就重建**(专家 §2.2/§2.6)
-        #   平台半宽 = K × 管内壁半宽(≈落束出口宽度), 随尺度走 —— 不是写死的 20px;
-        #   它是几何量, 所以进"几何代"一起失效, 而不是只认 elapsed。
+        #   轮廓是 65 点固定数组(微不对称尖堆 + 受限微粗糙), **与沙量无关** ⇒
+        #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
-        plateau_half = min(Ri * 0.5, max(MOUND_PLATEAU_MIN, MOUND_PLATEAU_K * t_in))
         try:
-            self._mound_profile = _MoundProfile(Ri, plateau_half, MOUND_REPOSE_SLOPE)
-            self._mound_plateau_half = plateau_half
+            shape = _mound_shape_array(Ri)
+            self._mound_profile = _MoundProfile(Ri, shape)
+            self._mound_shape = tuple(shape)
         except ValueError:
             self._mound_profile = None
-            self._mound_plateau_half = 0.0
+            self._mound_shape = ()
         self._mound_shape_cache = None
         self._geom_ready = True
         self._build_glass_shell()
@@ -1627,6 +1693,39 @@ class HourglassWidget(Widget):
         self._mound_shape_cache = (key, apex)
         return apex
 
+    def _mound_contact_curve(self):
+        """本帧的**接触高度曲线** `H(x)`(绝对设备坐标, 均匀 129 节点)。
+
+        专家 dingbu.md §7: 取消平台后不能再只认一个 `y` —— 否则颗粒会在斜坡上方消失、
+        或钻进沙堆继续可见。这条曲线与 `_draw_mound_shape` 的折线**同一份 `contact()`**,
+        也与 splash/dust 的判定同源。
+        均匀网格 ⇒ 粒子侧可以 O(1) 定位, 不必二分。
+        缓存键 = (几何代, elapsed): 同一帧里物理与绘制都要用, 只算一次。
+        """
+        key = (self._geom_generation, self.elapsed)
+        cached = self._mound_curve_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        prof = self._mound_profile
+        if prof is None:
+            out = ([], [], 0.0, 0.0, 0.0)
+        else:
+            n = MOUND_CURVE_SAMPLES
+            r = self._R_inner
+            apex = self._mound_apex()
+            base = self._lower_sand_bot
+            cx = self._cx
+            contact = prof.contact
+            xs = [0.0] * n
+            ys = [0.0] * n
+            for i in range(n):
+                dx = -r + 2.0 * r * i / (n - 1)
+                xs[i] = cx + dx
+                ys[i] = base + contact(dx, apex)
+            out = (xs, ys, xs[0], (n - 1) / (xs[-1] - xs[0]), n - 1)
+        self._mound_curve_cache = (key, out)
+        return out
+
     def _mound_contact_h(self, dx):
         """给定横向偏移处的**接触高度**(离球内底, 绝对) —— 与绘制同一份定义。"""
         profile = self._mound_profile
@@ -1689,6 +1788,7 @@ class HourglassWidget(Widget):
         # ⚠️ 只清**每帧缓存**, 不动 `_mound_profile`/`_geom_generation` —— 那两个是**几何**,
         #    由尺寸/周期变化重建; 重置一局不能把沙堆形状解删掉(删了沙堆就画不出来)。
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
+        self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._completion_triggered = False
         self._completion_token += 1          # 作废还没到点的完成提示
         # 旧场景的循环引用在重置时清理,避免留到流动中触发全量回收。
@@ -2205,6 +2305,8 @@ class HourglassWidget(Widget):
         sin = math.sin
         sqrt = math.sqrt
         mound_top_plus_1 = mound_top + 1
+        _cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1 = self._mound_contact_curve()
+        _use_curve = len(_cx_arr) > 1
         if _flow_numpy is not None and self.pn >= _NUMPY_MIN:
             # numpy 路线: 纯算术向量化(逐位等价由 tools/test_physics_equiv.py 验收),
             # 随机数仍留在 Python, 命中事件按下标升序回放。
@@ -2218,6 +2320,7 @@ class HourglassWidget(Widget):
                     "source_speed": source_speed,
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
+                    "curve": (_cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1),
                 }
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
                     self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
@@ -2244,22 +2347,38 @@ class HourglassWidget(Widget):
                 vy = p["vy"]
                 old_y, old_vy = y, vy
                 x_offset = p["x_offset"]
+                p_x_prev = p["x"]
                 wobble_phase = p["wobble_phase"]
                 wobble_amp = p["wobble_amp"]
                 size = p["size"]
                 y += vy * step_dt + 0.5 * g * step_dt * step_dt
                 vy += g * step_dt
+                # 命中判定: 锥顶已是全堆最高点 ⇒ `y <= mound_top` 是**必要非充分**的免费预筛,
+                # 只有落到堆附近的少量颗粒才去查 H(x)(专家 dingbu.md §7)。
+                # ⚠️ 用**上一帧的 x**(p["x"]): 粒子一帧横向只动 1~2px ⇒ H 的误差 ≤1.2px(亚像素);
+                #    真正的 x 依赖 shrink, 而 shrink 又依赖本判定 ⇒ 不能用本帧的 x(会成环)。
                 hit = y <= mound_top
+                hy = mound_top
+                if hit and _use_curve:
+                    z = (p_x_prev - _c_x0) * _c_scale
+                    if z <= 0.0:
+                        hy = _cy_arr[0]
+                    elif z >= _c_n1:
+                        hy = _cy_arr[-1]
+                    else:
+                        _i = int(z)
+                        hy = _cy_arr[_i] + (_cy_arr[_i + 1] - _cy_arr[_i]) * (z - _i)
+                    hit = y <= hy
                 hit_dt = 0.0
                 if hit:
-                    d = old_y - mound_top
+                    d = old_y - hy
                     distance = d if d > 0 else 0
                     v = -old_vy
                     speed = v if v > 0 else 0
                     denom = speed + sqrt(speed * speed + 2 * g_abs * distance)
                     hit_dt = 2 * distance / (denom if denom > 1e-6 else 1e-6)
                     hit_dt = hit_dt if hit_dt < step_dt else step_dt
-                    y = mound_top
+                    y = hy
                     vy = old_vy + g * hit_dt
                 fd = gen_y - y
                 fallen_dist = fd if fd > 0.0 else 0.0
@@ -2545,11 +2664,16 @@ class HourglassWidget(Widget):
         左右球壁各留一条金边。按 θ 均匀 ⇒ Δx = R·cosθ·Δθ 在壁附近自动变细(最外一格 <1px)。
         """
         Ri = self._R_inner
-        b = self._mound_plateau_half
         xs = {0.0, Ri, -Ri}
-        if 0.0 < b < Ri:
-            xs.add(b)
-            xs.add(-b)
+        # 轮廓的**控制点本身**就是折线的折点(粗糙起伏在这些点上), 必须全进节点集,
+        # 否则 θ 均匀网格(中轴附近 ~29px 一格)会把微粗糙整段抹平。
+        if self._mound_shape:
+            half = (len(self._mound_shape) - 1) // 2
+            step = Ri / half
+            for i in range(len(self._mound_shape)):
+                v = (i - half) * step
+                if -Ri < v < Ri:
+                    xs.add(v)
         n = MOUND_DRAW_EXTRA
         for i in range(n + 1):
             xs.add(Ri * math.sin(-math.pi / 2.0 + math.pi * i / n))
@@ -2571,10 +2695,11 @@ class HourglassWidget(Widget):
         if prof is None or apex <= 0.0:
             return []
         Ri = self._R_inner
-        b = min(max(self._mound_plateau_half, 1e-6), Ri)
+        # 二分下界取轮廓的**峰值点**(中心轴): raw 从中心向壁单调下降 ⇒ 单根
+        lo0 = 1e-6          # 轮廓的峰值在中心轴上(raw 从中心向壁严格下降 ⇒ 单根)
         out = []
         for sign in (1.0, -1.0):
-            lo, hi = (b, Ri) if sign > 0 else (-Ri, -b)
+            lo, hi = (lo0, Ri) if sign > 0 else (-Ri, -lo0)
             gap_lo = prof.raw(lo, apex) - prof.bounds(lo)[0]
             gap_hi = prof.raw(hi, apex) - prof.bounds(hi)[0]
             if gap_lo <= 0.0:
