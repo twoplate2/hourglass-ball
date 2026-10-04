@@ -159,8 +159,6 @@ SAND_GRAIN_DEFAULT = 0.35
 # 拖动滑块时的预览分辨率。实测生成耗时: 128²=4.2ms / 256²=3.9ms / 512²=17.6ms
 # —— 512² 每帧重建会卡在拖动上, 所以拖动只烘 128², 松手(或 0.35s 无操作)才烘正式的。
 SAND_PREVIEW_SIZE = 128
-# 玻璃反光滑块的上限(按 × 倍数)。出厂默认 1.0 落在滑块的 40% 处。
-GLASS_HL_MAX = 2.5
 
 # 沙面窄过渡(外部评审 meishu2.md §4.3): 紧贴沙面**内部**一条很窄的亮过渡。
 # 他的规格: 厚度 1–3 逻辑像素 / 只向亮色端点轻推 / **不做整条白线、不加黑描边** /
@@ -192,34 +190,18 @@ SURFACE_LIP_START = 0.30    # 从 |q|>0.30 开始抬 —— 中间 60% 钉死在
 # 抠出一个可见的小缺口 —— 用户 2026-10-04 实拍发现("初始状态上面有个空隙")。
 SURFACE_FULL_MARGIN = 0.14
 
-# ---- 玻璃反光(外部评审 meishu2.md §5.1 / §5.2) ------------------------------------
-# §5.2 层级要求: 玻璃壳全在 `canvas.before`, **在那里加的高光会被后画的沙体盖住**;
-#   而整份玻璃复制到前景也不行(GLASS_FILL 是实色, 会遮住内容)。所以反光单独放一条
-#   InstructionGroup, 插在**沙体和粒子之后 / 暂停遮罩之前** —— 见 `_glass_hl_group`。
-# §5.1 规格(逐条): 左上主反光**留断口** / 另一侧只放很弱的**短**反光(刻意不等宽等亮等长) /
-#   局部内缘略压暗且**弱于外描边** / **两个球用同一组角度**(画面左上光源, 不各自翻转) /
-#   中央保持通透(只在圆周 ±1~2px) / 主 0.12–0.25、次 0.04–0.10。
-# 颜色取冷色系 —— §8 Q6: 玻璃该与沙体**材质读感不同**(更锐利、更冷), 不要染成沙色。
-GLASS_HL_TINT = (0.93, 0.97, 1.00)          # 反光(冷白)
-GLASS_HL_RIM_RGB = (0.16, 0.20, 0.22)       # 内缘压暗(冷深灰)
-GLASS_HL_MAIN_A = 0.20                      # 主反光透明度
-GLASS_HL_SEC_A = 0.07                       # 次反光透明度
-# 内缘压暗: 规格是"略压暗 / 弱于外描边 / 局部"。⚠️ 第一版取的 0.10×两段各 54° 在实拍里
-# 是一条**灰绿硬带**(在浅蓝腔体上降 19 级、沙面上降 18 级), 读成"第二条描边"而不是玻璃
-# 厚度 —— 外描边本身才 139 级, 所以 0.055 × 30° 才是"略"。宽度也一并收窄。
-GLASS_HL_RIM_A = 0.055                      # 内缘压暗透明度(弱于 6px 的外描边)
+# ---- 玻璃反光: **已删除**(2026-10-04, 用户实拍裁决「有害无益, 全删了」) -------------
+# 1.57 按外部美术规格 meishu2.md §5.1/§5.2 加的"左上主反光(两段留断口) + 右下弱反光 +
+# 局部内缘压暗"。它骑在玻璃内缘上(一半压在 6px 深色玻璃环里、一半压在沙体边缘), 末端是
+# 硬切的等 alpha 弧段 —— 在深色环上读成"贴在边框上的一块浅灰碎片", 放大后尤其像异物
+# (用户 9~11 点钟实拍点名)。我试过把它改成两端羽化, 用户裁决不要救、整块删。
+# 删掉的东西: GLASS_HL_* 全部常量 / `set_glass_hl` / `_rebuild_glass_highlights` /
+# `_glass_hl_group` / 存档键 `glass_hl` / 隐藏菜单里的"玻璃反光"滑块。
+# 保留: `FLOW_HILITE_T`(那是沙流新生颗粒的颜色, 与玻璃无关)。
 # 新生颗粒("高光组", 刚出孔口那批)的亮度上限 = lerp(sand_base, sand_light, 这个系数)。
 # 1.0 = 原样用 sand_light —— 它比出口正上方的颈部沙柱(材质色)亮 15 级, 见
 # `_rebuild_color_table` 的注释。0.32 = 与材质自身的亮端上限对齐。
 FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
-GLASS_HL_MAIN_DEG = ((118.0, 136.0), (146.0, 164.0))   # 左上, 两段 ⇒ 中间留断口
-GLASS_HL_SEC_DEG = ((-52.0, -34.0),)                   # 右下, 单段比主反光短一半
-GLASS_HL_RIM_DEG = ((205.0, 235.0), (305.0, 335.0))    # 左下/右下各一小段, 避开正下方落点
-# 整体强度倍数(出多档对照图用)。他的数值是"调参起点", 并写明"背景很亮时需要另调" ——
-# 我们的背景正是亮的(米白 #fdf6e3 + 浅蓝 #eaf3f8), 所以这个倍数是给他那条口子用的。
-GLASS_HL_MUL = float(os.environ.get("HG_GLASS_HL_MUL", "1.0"))
-# 开关(出并排对照图用): HG_GLASS_HL=0 关掉全部反光 = 改前
-GLASS_HL_ENABLE = os.environ.get("HG_GLASS_HL", "1") != "0"
 
 
 def apply_sand_style(mode, grain):
@@ -314,16 +296,6 @@ def sand_material(base, dark, light, size=None, grain=None, shade=None):
             return None
         _SAND_MATERIAL_CACHE[key] = material
     return material
-
-
-def set_glass_hl(mul):
-    """设置玻璃反光强度倍数(隐藏菜单滑块用)。与 `apply_sand_style` 一样只改全局。"""
-    global GLASS_HL_MUL
-    try:
-        GLASS_HL_MUL = min(GLASS_HL_MAX, max(0.0, float(mul)))
-    except (TypeError, ValueError):
-        GLASS_HL_MUL = 1.0
-    return GLASS_HL_MUL
 
 
 def preview_sand_material(base, dark, light, grain, size=None):
@@ -1682,9 +1654,7 @@ class HourglassWidget(Widget):
                            # 沙体材质(隐藏菜单的浓度滑块)。存 mode+grain 而不是序号 ——
                            # 以后改名/换量程都不会让旧配置串到别的档。
                            'sand_mode': SAND_MATERIAL,
-                           'sand_grain': SAND_MATERIAL_GRAIN,
-                           # 玻璃反光强度倍数(滑块)。缺省 1.0。
-                           'glass_hl': GLASS_HL_MUL}, f, ensure_ascii=False)
+                           'sand_grain': SAND_MATERIAL_GRAIN}, f, ensure_ascii=False)
         except Exception:
             pass
 
@@ -2259,49 +2229,6 @@ class HourglassWidget(Widget):
                 _band(_pts('out_pts', flip), glass_out)
                 _band(_pts('in_pts', flip), glass_fill)
 
-    def _rebuild_glass_highlights(self):
-        """玻璃反光 —— 画在**沙体和粒子之后**(meishu2.md §5.1/§5.2)。
-
-        ⚠️ **绝不能在 redraw() 里调**: Kivy 的 `Line` 在 width>1 时是**每条线自建三角
-        网格**, 重设 `.points` 就会重建。这里是静态几何, 只在几何/尺寸变化时重建一次,
-        每帧只是重绘 —— 与粒子那条"宽线逐条网格"的教训同源。
-        """
-        group = self._glass_hl_group
-        group.clear()
-        if not self._geom_ready or not GLASS_HL_ENABLE:
-            return
-        cx, Ri, ow = self._cx, self._R_inner, self._ow
-        # 主反光骑在**玻璃内缘**上: 一半在壁厚里、一半压过沙体边缘 —— 那一点点压在沙面上
-        # 正是"玻璃在沙之前"的读感来源; 再宽就变成遮住沙体了(§5.1 "中央区域保持通透")。
-        # ⚠️ 沙体 stencil 就是 Ellipse(Ri), 而玻璃壁占 [Ri, Ri+ow] ⇒ **两者严丝合缝,
-        # 边上零重叠**(当初为消灭"月牙缝"刻意如此)。所以"玻璃在沙之前"这个读感**只能**
-        # 靠反光**跨过 Ri** 来造: 一半落在壁厚里、一半压在沙体边缘(约 1px)。
-        # 若把反光整条关在环带内, 就只是"描边有一段变亮", 又变回图标画法。
-        r_main = Ri
-        r_rim = Ri - ow * 0.20
-        # 宽度按规格"约 1–2 个逻辑像素", 且随 DPI 缩放: 目标像素 = ow 的比例。
-        # ⚠️ 必须过 `_line_w` —— Line.width 是半宽, 直接写目标像素会实拍成两倍宽。
-        w_main = _line_w(ow * 0.30)     # 400px 窗口 → 2px
-        w_sec = _line_w(ow * 0.20)      # → 1px
-        w_rim = _line_w(ow * 0.24)      # → 2px
-        mul = GLASS_HL_MUL
-        for yc in (self._upper_y_c, self._lower_y_c):
-            # 角度表对**两个球完全相同** ⇒ 光源方向统一在画面左上, 不各自翻转。
-            # 顺序: 内缘压暗 → 次反光 → 主反光。右下两段在半径上是叠着的
-            # (压暗在 Ri-1.26, 反光跨 Ri), 反光必须**后**画才不会被压暗吃掉。
-            for degs, rgb, alpha, radius, width in (
-                    (GLASS_HL_RIM_DEG, GLASS_HL_RIM_RGB, GLASS_HL_RIM_A * mul, r_rim, w_rim),
-                    (GLASS_HL_SEC_DEG, GLASS_HL_TINT, GLASS_HL_SEC_A * mul, r_main, w_sec),
-                    (GLASS_HL_MAIN_DEG, GLASS_HL_TINT, GLASS_HL_MAIN_A * mul, r_main, w_main)):
-                for a0, a1 in degs:
-                    alpha = min(1.0, max(0.0, alpha))
-                    if alpha <= 0.0:
-                        continue
-                    segs = max(4, int(abs(a1 - a0) / 4.0))
-                    group.add(Color(*rgb, alpha))
-                    group.add(Line(points=_arc_pts(cx, yc, radius, a0, a1, segs),
-                                   width=width, cap='round'))
-
     # ---------- 渲染 ----------
 
     def _current_material(self):
@@ -2510,11 +2437,6 @@ class HourglassWidget(Widget):
         self._dust_group.add(self._dust_color)
         self.canvas.add(self._dust_group)
         self._dust_rects = []
-        # 玻璃反光: 必须在**沙体和粒子之后**(见 _rebuild_glass_highlights), 但要在
-        # 下面的暂停遮罩/完成闪烁**之前** —— 否则暂停时反光会浮在遮罩上面。
-        self._glass_hl_group = InstructionGroup()
-        self.canvas.add(self._glass_hl_group)
-        self._rebuild_glass_highlights()
         with self.canvas:
             self._bore_color = Color(0.8, 0.8, 0.8, 0)
             bore = self._taper['t_in']
@@ -3081,16 +3003,13 @@ class HourglassApp(App):
             if name == color_name:
                 self.hourglass.set_sand_color(base, dark, light)
                 break
-        # 沙体材质 + 玻璃反光: **必须在建材质之前**改全局(材质在 _build_dynamic_canvas 里按配色缓存)。
-        # 缺项就退回出厂默认(浓度 0.35 / 反光 ×1.0)。
-        # ⚠️ **环境变量优先于配置**: `HG_SAND_*` / `HG_GLASS_HL*` 是取图与 A/B 的开关,
-        # 一旦被本地配置盖掉, 所有测量都会**悄悄用错档位**(A/B 两臂还会变成同一版)。
+        # 沙体材质: **必须在建材质之前**改全局(材质在 _build_dynamic_canvas 里按配色缓存)。
+        # 缺项就退回出厂默认(浓度 0.35)。
+        # ⚠️ **环境变量优先于配置**: `HG_SAND_*` 是取图与 A/B 的开关, 一旦被本地配置盖掉,
+        # 所有测量都会**悄悄用错档位**(A/B 两臂还会变成同一版)。
         if os.environ.get("HG_SAND_MATERIAL") is None and os.environ.get("HG_SAND_GRAIN") is None:
             apply_sand_style(cfg.get('sand_mode', 'grain'),
                              cfg.get('sand_grain', SAND_GRAIN_DEFAULT))
-        if (os.environ.get("HG_GLASS_HL") is None
-                and os.environ.get("HG_GLASS_HL_MUL") is None):
-            set_glass_hl(cfg.get('glass_hl', 1.0))
 
         root = BoxLayout(orientation="vertical", spacing=dp(3),
                          padding=[dp(8), dp(6), dp(8), dp(6)])
@@ -3500,13 +3419,6 @@ class HourglassApp(App):
         sand_slider = make_slider(min(100.0, SAND_MATERIAL_GRAIN / SAND_GRAIN_MAX * 100.0))
         content.add_widget(sand_slider)
 
-        # ---- 玻璃反光 ----
-        glass_row, glass_label = make_row(
-            "玻璃反光", "×%.2f" % GLASS_HL_MUL)
-        content.add_widget(glass_row)
-        glass_slider = make_slider(min(100.0, GLASS_HL_MUL / GLASS_HL_MAX * 100.0))
-        content.add_widget(glass_slider)
-
         pending = {"grain": None, "token": 0}
 
         def commit_sand(*_):
@@ -3517,10 +3429,6 @@ class HourglassApp(App):
                 return
             if hg.set_sand_grain(grain):
                 hg.save_config(self._selected_color_name())
-
-        def commit_glass(*_):
-            Clock.unschedule(commit_glass)
-            hg.save_config(self._selected_color_name())
 
         def on_sand(_slider, value):
             grain = value / 100.0 * SAND_GRAIN_MAX
@@ -3533,17 +3441,8 @@ class HourglassApp(App):
             Clock.unschedule(commit_sand)
             Clock.schedule_once(commit_sand, 0.35)
 
-        def on_glass(_slider, value):
-            mul = value / 100.0 * GLASS_HL_MAX
-            glass_label.text = "×%.2f" % mul
-            set_glass_hl(mul)
-            hg._rebuild_glass_highlights()
-            Clock.unschedule(commit_glass)
-            Clock.schedule_once(commit_glass, 0.35)
-
         sand_slider.bind(value=on_sand)
-        glass_slider.bind(value=on_glass)
-        self._dev_sliders = (sand_slider, glass_slider)   # 供测试/自检取用
+        self._dev_sliders = (sand_slider,)   # 供测试/自检取用
 
         content.add_widget(Widget(size_hint=(1, None), height=dp(6)))
         bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",

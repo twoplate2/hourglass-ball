@@ -67,7 +67,7 @@ def main():
                     w.tick(1 / 120)
                 w.redraw = real
                 self.steps = ["all", "no_particles", "no_splash", "no_flares",
-                              "no_glass_hl", "everything_off"]
+                              "everything_off"]
                 self.saved = {}
                 self.next_step(0)
 
@@ -89,8 +89,6 @@ def main():
                 if step in ("no_flares", "everything_off"):
                     for _c, rect in w._flare_rects:
                         rect.size = (0, 0)
-                if step in ("no_glass_hl", "everything_off"):
-                    w._glass_hl_group.clear()
                 if step == "everything_off":
                     w._hide_neck_grains()
                     for q in w._neck_quads:

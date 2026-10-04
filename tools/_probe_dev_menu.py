@@ -6,7 +6,7 @@ Covers the things that actually break in this kind of change:
      NOT rebuild the canvas (that would recreate ~2500 particle lines per frame);
   3. after 0.35s of no input it bakes the real 512px material and persists it;
   4. changing sand colour drops a stale preview;
-  5. the glass slider drives GLASS_HL_MUL and rebuilds the highlight group, and
+  5. (glass highlight was deleted 2026-10-04) switching color drops a stale preview, and
      the value survives a save/load round trip.
 
 NOTE: deliberately does NOT stub module.time -- the preview throttle in on_sand
@@ -127,22 +127,11 @@ def main():
                     cfg = {}
                 check("配置已落盘 grain", abs(cfg.get("sand_grain", -1) - 0.63) < 0.005,
                       str(cfg.get("sand_grain")))
-                self.glass_slider.value = 100.0
                 Clock.schedule_once(self.check_glass, 0.6)
 
             def check_glass(self, _dt):
+                # 玻璃反光已于 2026-10-04 整块删除(用户裁决), 这里只留"切色丢弃陈旧预览"
                 w = self.hourglass
-                check("玻璃反光倍数已改", abs(module.GLASS_HL_MUL - module.GLASS_HL_MAX) < 1e-6,
-                      "%.2f" % module.GLASS_HL_MUL)
-                check("反光组已重建(非空)", len(w._glass_hl_group.children) > 0,
-                      "%d 条指令" % len(w._glass_hl_group.children))
-                try:
-                    cfg = json.load(open(module.config_path(), encoding="utf-8"))
-                except Exception:
-                    cfg = {}
-                check("配置已落盘 glass_hl",
-                      abs(cfg.get("glass_hl", -1) - module.GLASS_HL_MAX) < 1e-6,
-                      str(cfg.get("glass_hl")))
                 # 切色必须丢掉陈旧预览
                 w._preview_material = "STALE"
                 n, b, d, l = module.SAND_PRESETS[1]
