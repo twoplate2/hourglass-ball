@@ -187,12 +187,20 @@ SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 # ⚠️ 幅度一律按**内径百分比**给, 不写绝对 px: 几何随窗口缩放(400px 预览 → 1600px
 # 平板是 3.3x), 写死 px 在真机上会小 3.3 倍。评审原话: "照原样做必翻车"。
 SURFACE_SEGS = 16           # 轮廓采样段数(每段一个 Quad)
+# ⚠️ 试过 32 段(2026-10-04), **实测无效果已回退**: 沙面顶行"跨度 5px / 6 个不同值"
+# 与 16 段**完全相同**, 只是跳变次数 9→17(台阶更碎而非更平滑), 代价却是 +32 Quad/帧。
 SURFACE_ROUGH_FRAC = 0.0055   # 静态粗糙度幅度 = 内径的比例(273px 内径 → ±1.5px)
 FUNNEL_MAX_FRAC = 0.014       # 漏斗最大深度 = 内径的比例(273px → 3.8px)
 FUNNEL_RAMP = 0.18            # 漏斗涨到满深用掉周期的比例(之后维持)
 # 漏斗是**排水点的形状**, 不是"每秒都热闹": 真沙漏到休止角后深度饱和,
 # 之后锥面整体下移。所以它前载, 这是诚实的边界(评审 2 号指出)。
 SURFACE_SEED = 23           # 静态种子, 与粒子 RNG 完全隔离
+# 起流瞬间的流头羽化(2026-10-04 对抗评审 CP#8): 每周期起流那 1.35 秒, 流是一根挂在
+# 半空的杆, 最下面几颗粒子的 trail 顶端被平切 ⇒ 看着像断线/渲染错误。
+# 做法是给最靠近流头的粒子按距离递减 trail —— y 数组本来就在手边, 一次归约即可,
+# 不新增遍历、不新增图元、不动物理。沙堆形成后流头埋进沙里, 眼睛看不到, 所以无害。
+FLOW_FEATHER_PX = 14.0      # 流头往上多少像素内开始收
+FLOW_FEATHER_MIN = 0.25     # 流头处 trail 缩到原来的 25%
 # 下球沙堆的"靠壁裙边"(2026-10-04 对抗评审推荐): 下沙顶边是水平弦、与球壁在锐角直接
 # 切断, 读起来像"碗里的水位"。
 # ⚠️ **中间 60% 严格钉在 `get_mound_top_y()` 上、不加任何粗糙度** —— 那个函数同时是
@@ -1225,15 +1233,6 @@ class HourglassWidget(Widget):
         # 非 None 时它**优先于** _sand_material, 松手/换色即清空。
         self._preview_material = None
         self._gen_surface_seed()            # 沙面静态粗糙度(见 _surface_profile)
-        # 球腔内缘压暗贴图(见 _build_glass_shell)。加载失败留 None ⇒ 上面直接不画,
-        # **绝不能让它退化成 texture=None** —— 那会渲染成纯白方块盖住整个球腔。
-        try:
-            from kivy.core.image import Image as _CoreImage
-            self._glass_vignette = _CoreImage(
-                resource_path("ui/glass_vignette.png")).texture
-        except Exception as exc:
-            print(f"glass vignette unavailable: {exc}")
-            self._glass_vignette = None
 
         self.sound_name = "沙沙声"
         self._sound = self._make_sound_proxy(self.sound_name)
@@ -2244,10 +2243,6 @@ class HourglassWidget(Widget):
                 # 贴图的 q=1 正好落在内腔边缘。
                 # ⚠️ 放在 canvas.before ⇒ **沙体(画在 canvas 里)会盖住它** ⇒ 这段压暗
                 #    天然只出现在空的地方, 不需要 stencil、不需要判断沙面位置。
-                if self._glass_vignette is not None:
-                    Color(1, 1, 1, 1)
-                    Rectangle(pos=(cx - Ri, yc - Ri), size=(2 * Ri, 2 * Ri),
-                              texture=self._glass_vignette)
             # 颈部: 挖掉球极冠肩台 → 直筒 → 上下曲线过渡(几何见 _rebuild_height_table)
             tp = self._taper
             t_out, t_in = tp['t_out'], tp['t_in']
@@ -2906,12 +2901,21 @@ class HourglassWidget(Widget):
         ys = pv.y
         vys = pv.vy
         trails = pv.tl
+        n = pv.n
+        if n and _np is not None:
+            y_floor = float(_np.min(self.py[:n]))     # 一次归约, 不新增遍历
+        else:
+            y_floor = min(ys[:n]) if n else 0.0
         for key, indices in buckets.items():
             group, _color, pool = self._stream_pools[key]
             for i, index in enumerate(indices):
                 y = ys[index]
                 x = xs[index]
                 trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale)
+                feather = y - y_floor
+                if feather < FLOW_FEATHER_PX:
+                    trail *= FLOW_FEATHER_MIN + (1.0 - FLOW_FEATHER_MIN) * (
+                        feather / FLOW_FEATHER_PX)
                 top = min(top_limit, y + trail)
                 coords = (x, y, x, top)
                 if i == len(pool):
