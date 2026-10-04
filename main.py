@@ -168,6 +168,12 @@ SAND_PREVIEW_SIZE = 128
 SAND_SURFACE_BAND = 3.0     # 带宽(逻辑像素)
 SAND_SURFACE_ALPHA = 0.55   # 亮度上限(轻推, 不是白线; 0.32 时被颗粒噪声淹没)
 SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
+# ⚠️ **满球时没有自由表面** —— 亮带(横跨直径的一条 3px 矩形)会被球面 stencil 裁成一个
+#    贴着内壁顶点的**透镜形亮弧**(实测 57px 宽 × 3px 高), 眼睛读成"沙和玻璃顶之间有缺口"
+#    (2026-10-04 用户实拍: 未开始、10/10 时上球顶部那条偏亮的绿)。外部专家
+#    xingzhuang2.md §4.1 同一判据:「满球时没有这条自由表面」。离球顶这么窄以内按比例收掉。
+#    沙面一离开球顶就恢复: 高度跌 6px 只要 t≈0.0014(1s 档 1.4ms), 观感上是瞬间的。
+SAND_BAND_APEX_FADE = 6.0
 
 # ---- 沙面塑形: **已回退**(2026-10-04 用户裁决) ------------------------------------
 # 试过"静态粗糙度 + 排水漏斗"(1.60/1.61), 依据是对抗评审的"位移是相对量、沙面下落时
@@ -2840,15 +2846,20 @@ class HourglassWidget(Widget):
         # 沙面窄过渡(评审 meishu2.md §4.3): 紧贴沙面**内部**的一条窄亮带。
         # 下沙用 get_mound_top_y() —— 与**粒子碰撞面**同一个值, 保证"落点与可见表面一致"。
         # ⚠️ 沙体薄时按可见厚度按比例减弱, 否则会剩一条悬空的独立亮线。
-        # ⚠️ **上球那条已改由 `_draw_surface_shape` 沿起伏轮廓画**(直边矩形跟不上起伏,
-        #    会留下悬空亮台/缺口 —— 评审 1 号指出), 所以这里只留 `_sand_bands[1]`。
+        # ⚠️ 下球那条由 `_draw_mound_shape` 沿真实轮廓逐段画(直边矩形跟不上起伏,
+        #    会留下悬空亮台/缺口 —— 评审 1 号指出), 这里只画上球那条。
         self._sand_bands[1][1].size = (0, 0)      # 下球那条改由 _draw_mound_shape 画
         for (band_color, band_rect), top_y, height in (
                 (self._sand_bands[0], self._upper_sand_bot + upper_height, upper_height),):
             band = min(SAND_SURFACE_BAND, height)
             band_rect.pos = (self._cx - self._R_inner, top_y - band)
             band_rect.size = (diameter, band)
-            band_color.a = SAND_SURFACE_ALPHA * min(1.0, max(0.0, height / SAND_SURFACE_FADE))
+            # ① 沙体太薄(近空)按比例减弱 ② 沙面贴到球顶(满球)时收掉 —— 见 SAND_BAND_APEX_FADE
+            apex_fade = min(1.0, max(0.0, (height - (diameter - SAND_BAND_APEX_FADE))
+                                     / SAND_BAND_APEX_FADE))
+            band_color.a = (SAND_SURFACE_ALPHA
+                            * min(1.0, max(0.0, height / SAND_SURFACE_FADE))
+                            * (1.0 - apex_fade))
         self._draw_mound_shape(h_mound)
         side = self._neck_sand_side() if upper_height > 0 else []
         outlet = 2 * self._neck_y - self._taper["y_bot"]
