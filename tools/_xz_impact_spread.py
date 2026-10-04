@@ -100,20 +100,20 @@ def main():
                     results.append((wgt.width, wgt.height, period, len(hits),
                                     statistics.median(hits),
                                     hits[int(len(hits) * 0.95)],
-                                    hits[-1], wgt._mound_plateau_half))
+                                    hits[-1], len(getattr(wgt, '_mound_shape', ()))))
                 wgt.redraw = type(wgt).redraw
                 wgt.running = False
                 Clock.schedule_once(self.run_case, 0.1)
 
             def report(self):
                 print("%-11s %-8s %6s %8s %8s %8s %8s %9s"
-                      % ("窗口", "周期", "命中数", "中位", "p95", "最大", "平台半宽", "最大/平台"))
+                      % ("窗口", "周期", "命中数", "中位", "p95", "最大", "轮廓点数", "最大/平台"))
                 for w, h, p, n, med, p95, mx, b in results:
                     print("%4dx%-6d %6ss %8d %8.1f %8.1f %8.1f %9.2f %9s"
                           % (w, h, p, n, med, p95, mx, b,
                              "OK" if mx <= b else "**超出**"))
                 worst = max((r[6] / r[7] for r in results), default=0)
-                print("最大落点 / 平台半宽 = %.2f  (≤1 才说明平台盖得住落点)" % worst)
+                print("最大落点偏移(参考) = %.2f px" % worst)
 
         Probe().run()
 

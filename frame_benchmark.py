@@ -435,7 +435,7 @@ class BenchmarkHoldArea(Widget):
 class BenchmarkRunner:
     _STATE_FIELDS = (
         "duration", "elapsed", "running", "particle_acc", "particles", "splashes",
-        "flares", "dusts", "mound_peak_offset", "flash_end", "_completion_triggered",
+        "flares", "dusts", "mound_peak_offset", "_completion_triggered",
         "completion_enabled",
     )
 
@@ -656,8 +656,6 @@ class BenchmarkRunner:
         pause = time.perf_counter() - self._paused_at
         for effect in self.widget.flares + self.widget.dusts:
             effect["end"] += pause
-        if self.widget.flash_end:
-            self.widget.flash_end += pause
         self.widget.last_frame = time.perf_counter()
         self.widget.last_tick = self.widget.last_frame if self.widget.running else None
         self.widget._rebuild_height_table()

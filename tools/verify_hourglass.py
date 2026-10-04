@@ -295,7 +295,7 @@ def main():
                             obj.splashes = []
                             obj.flares = []
                             obj.dusts = []
-                            obj.flash_end = 0
+                            # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                         # Compare the renderer at identical geometry, independent of new timing.
                         old._mound_height_px = widget._mound_height_px
                         old._raw_height_ratio = lambda _volume: (
@@ -403,18 +403,18 @@ def main():
                       tuple(widget._neck_solid_rect.size) == (0, 0),
                       "reset hides the outlet transition")
                 check(tuple(widget._pause_rect.size) == (0, 0) and
-                      tuple(widget._flash_rect.size) == (0, 0),
+                      # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                       "inactive full-screen overlays have no geometry")
                 widget.elapsed = 1
                 widget.running = False
-                widget.flash_end = time.perf_counter() + 1
+                # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                 widget.redraw()
                 check(tuple(widget._pause_rect.size) == tuple(widget.size) and
-                      tuple(widget._flash_rect.size) == tuple(widget.size) and
+                      # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                       math.isclose(widget._pause_color.a, 0.55, abs_tol=1e-6) and
-                      math.isclose(widget._flash_color.a, 0.25, abs_tol=1e-6),
+                      # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                       "active pause and completion overlays retain their appearance")
-                widget.flash_end = 0
+                # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
 
                 spec = ConfigParser()
                 spec.read(ROOT / "buildozer.spec", encoding="utf-8")
@@ -757,7 +757,7 @@ def main():
                 offset = time.perf_counter() - frame["at"]
                 for effect in widget.flares + widget.dusts:
                     effect["end"] += offset
-                widget.flash_end += offset
+                # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                 widget._rebuild_height_table()
                 widget.redraw()
                 self.update_time(period - frame["state"]["elapsed"], period)

@@ -375,10 +375,18 @@ class _MoundProfile:
         return self.shape[i] + (self.shape[i + 1] - self.shape[i]) * f
 
     def apex_for_height(self, height):
-        """体积反查出来的平顶高度 h → **虚拟**峰高(绝对)。同口径换算, 不倒退。"""
-        h = min(max(height / self.radius, 0.0), 2.0)
+        """体积反查: 平顶等效高度 h → **虚拟**峰高(绝对, 离球内底)。
+
+        ⚠️ **全程绝对单位**。面积表的 bottom/top 是绝对高度(`R - √(R²-x²)`),
+        不是归一化的 0..2 —— 1.74 初版这里漏改(拿归一化的 h 去查绝对表、又把结果
+        乘 radius), 两次换算互相抵消 ⇒ 峰高无意义, 表现为**下球提前灌满、上球还剩大半**
+        (2026-10-04 用户实拍 37/50 抓到: 只漏了 26%, 下球却已经满了)。
+        ⚠️ 同一次漏改也让 `tools/_xz_geom_accept.py` 的"面积自洽"检查变成瞎的 ——
+        它两边用的是同一个错误口径, 误差自己抵消。已同时修测试并补判别性判据。
+        """
+        h = min(max(height, 0.0), 2.0 * self.radius)
         fraction = self.flat.area_at(h) / self.flat.capacity
-        return self.radius * self.heap.height_at(fraction * self.heap.capacity)
+        return self.heap.height_at(fraction * self.heap.capacity)
 
     def raw(self, dx, apex):
         """未裁剪堆面高度(绝对, 离球内底)。"""

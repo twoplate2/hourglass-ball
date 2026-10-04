@@ -25,11 +25,11 @@ def main():
         import main as m
 
         Ri = 136.701
-        b = min(Ri * 0.5, max(m.MOUND_PLATEAU_MIN, m.MOUND_PLATEAU_K * 10.94))
-        prof = m._MoundProfile(Ri, b, m.MOUND_REPOSE_SLOPE)
+        shape = m._mound_shape_array(Ri)
+        prof = m._MoundProfile(Ri, shape)
 
         def build():
-            m._MoundProfile(Ri, b, m.MOUND_REPOSE_SLOPE)
+            m._MoundProfile(Ri, shape)
 
         def solve():
             prof.apex_for_height(180.0)
@@ -43,7 +43,7 @@ def main():
 
         def crossings():
             apex = prof.apex_for_height(180.0)
-            lo, hi = b, Ri
+            lo, hi = 1e-6, Ri   # 二分下界 = 轮廓峰值(中心轴)
             for _ in range(18):                        # 二分 18 次 × 两侧
                 mid = 0.5 * (lo + hi)
                 if prof.raw(mid, apex) - prof.bounds(mid)[0] > 0.0:
