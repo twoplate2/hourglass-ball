@@ -193,6 +193,15 @@ FUNNEL_RAMP = 0.18            # 漏斗涨到满深用掉周期的比例(之后�
 # 漏斗是**排水点的形状**, 不是"每秒都热闹": 真沙漏到休止角后深度饱和,
 # 之后锥面整体下移。所以它前载, 这是诚实的边界(评审 2 号指出)。
 SURFACE_SEED = 23           # 静态种子, 与粒子 RNG 完全隔离
+# 下球沙堆的"靠壁裙边"(2026-10-04 对抗评审推荐): 下沙顶边是水平弦、与球壁在锐角直接
+# 切断, 读起来像"碗里的水位"。
+# ⚠️ **中间 60% 严格钉在 `get_mound_top_y()` 上、不加任何粗糙度** —— 那个函数同时是
+#    粒子的碰撞面, docstring 明写"碰撞面与实际绘制的水平沙面一致", 这是**有意的决定**。
+#    所以下球只做"两端抬裙边", 不复制上球的粗糙度。
+# ⚠️ 安全性已实测(评审 1 号): 落点 |x-cx| 中位 3px / p95 7px / **最大 9px**, 而弦半宽
+#    132.7px ⇒ 抬起的区域(|q|>0.30 ⇒ 离中心 >40px)离任何落点至少 31px。
+SURFACE_LIP_FRAC = 0.016    # 裙边抬多高 = 内径的比例(273px 内径 → 4.4px)
+SURFACE_LIP_START = 0.30    # 从 |q|>0.30 开始抬 —— 中间 60% 钉死在碰撞线上
 
 # ---- 玻璃反光(外部评审 meishu2.md §5.1 / §5.2) ------------------------------------
 # §5.2 层级要求: 玻璃壳全在 `canvas.before`, **在那里加的高光会被后画的沙体盖住**;
@@ -2457,6 +2466,40 @@ class HourglassWidget(Widget):
             carve[i].points = [x0, y0, x1, y1, x1, top, x0, top]
             band[i].points = [x0, y0, x1, y1, x1, y1 - width, x0, y0 - width]
 
+    def _draw_mound_shape(self, h_mound):
+        """下球沙堆的靠壁裙边 —— 用与上球同一套 carve/band 机制。
+
+        ⚠️ 中间 |q|<=SURFACE_LIP_START 的一段 **y 严格等于 base_y**（不加粗糙度）:
+        base_y 就是 get_mound_top_y()= 粒子碰撞面, 一字不改。只有靠壁两侧抬起来,
+        把"水平弦切圆壁"的锐角变成圆角。
+        ⚠️ 横向归一化按**可见弦宽**, 不是球的全宽（1.61 那条教训）。
+        """
+        carve, band = self._mound_carve, self._mound_band
+        if h_mound <= 0:
+            for q in carve + band:
+                q.points = [0] * 8
+            return
+        cx, Ri = self._cx, self._R_inner
+        base = self.get_mound_top_y()
+        chord = math.sqrt(max(1.0, Ri * Ri - (base - self._lower_y_c) ** 2))
+        lift = 2.0 * Ri * SURFACE_LIP_FRAC      # 乘**内径**(2R), 不是半径 —— 规格是"占内径百分比"
+        width = min(SAND_SURFACE_BAND, h_mound)
+        self._mound_band_color.a = SAND_SURFACE_ALPHA * min(
+            1.0, max(0.0, h_mound / SAND_SURFACE_FADE))
+        span = max(1e-6, 0.5 - SURFACE_LIP_START)
+        prof = []
+        for i in range(SURFACE_SEGS + 1):
+            tt = i / SURFACE_SEGS
+            x = cx - Ri + 2.0 * Ri * tt
+            q = abs((x - cx) / chord)
+            e = 0.0 if q <= SURFACE_LIP_START else min(1.0, (q - SURFACE_LIP_START) / span)
+            prof.append((x, base + lift * e))
+        for i in range(SURFACE_SEGS):
+            x0, y0 = prof[i]
+            x1, y1 = prof[i + 1]
+            carve[i].points = [x0, y0, x1, y1, x1, base + lift, x0, base + lift]
+            band[i].points = [x0, y0, x1, y1, x1, y1 - width, x0, y0 - width]
+
     def _build_dynamic_canvas(self):
         """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
         self.canvas.clear()
@@ -2489,6 +2532,14 @@ class HourglassWidget(Widget):
                     self._surface_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
                     self._surface_band = [Quad(points=[0] * 8)
                                           for _ in range(SURFACE_SEGS)]
+                elif yc == self._lower_y_c:
+                    # 下球: 只做"靠壁裙边"(中间 60% 严格钉在碰撞线上, 见常量区)
+                    Color(*hex_rgb(GLASS_FILL), 1)
+                    self._mound_carve = [Quad(points=[0] * 8)
+                                         for _ in range(SURFACE_SEGS)]
+                    self._mound_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
+                    self._mound_band = [Quad(points=[0] * 8)
+                                        for _ in range(SURFACE_SEGS)]
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
@@ -2650,6 +2701,7 @@ class HourglassWidget(Widget):
             for band_color, _rect in self._sand_bands:
                 band_color.rgb = self.sand_light
             self._surface_band_color.rgb = self.sand_light
+            self._mound_band_color.rgb = self.sand_light
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
                 color.rgb = (self._hilite_color if index < 0
                              else self._color_table[index])
@@ -2667,7 +2719,11 @@ class HourglassWidget(Widget):
         amp = self._R_inner * SURFACE_ROUGH_FRAC
         peak = amp
         up_draw = upper_height + peak if upper_height > 0 else 0.0
-        for (_color, rect), height in zip(self._sand_chords, (up_draw, h_mound)):
+        # ⚠️ 下球也要抬到 base+lift: 裙边在矩形顶**之上**, 而 carve 只能"减"不能"加" ——
+        #    不抬高矩形, 抠的就是矩形之上的空气(第一版就是这么失效的)。
+        lift = 2.0 * self._R_inner * SURFACE_LIP_FRAC
+        mound_draw = h_mound + (lift if h_mound > 0 else 0.0)
+        for (_color, rect), height in zip(self._sand_chords, (up_draw, mound_draw)):
             rect.size = (diameter, height)
             if full_uv is not None:
                 rect.tex_coords = crop_tex_coords(full_uv, height / diameter)
@@ -2678,12 +2734,8 @@ class HourglassWidget(Widget):
         # ⚠️ **上球那条已改由 `_draw_surface_shape` 沿起伏轮廓画**(直边矩形跟不上起伏,
         #    会留下悬空亮台/缺口 —— 评审 1 号指出), 所以这里只留 `_sand_bands[1]`。
         self._sand_bands[0][1].size = (0, 0)
-        for (band_color, band_rect), top_y, height in (
-                (self._sand_bands[1], self.get_mound_top_y(), h_mound),):
-            band = min(SAND_SURFACE_BAND, height)
-            band_rect.pos = (self._cx - self._R_inner, top_y - band)
-            band_rect.size = (diameter, band)
-            band_color.a = SAND_SURFACE_ALPHA * min(1.0, max(0.0, height / SAND_SURFACE_FADE))
+        self._sand_bands[1][1].size = (0, 0)
+        self._draw_mound_shape(h_mound)
         side = self._neck_sand_side() if upper_height > 0 else []
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
