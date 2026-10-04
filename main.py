@@ -166,6 +166,30 @@ SAND_SURFACE_BAND = 3.0     # 带宽(逻辑像素)
 SAND_SURFACE_ALPHA = 0.55   # 亮度上限(轻推, 不是白线; 0.32 时被颗粒噪声淹没)
 SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 
+# ---- 沙面塑形: 静态粗糙度 + 排水漏斗(2026-10-04, 对抗性评审推荐) -------------------
+# 用户报"沙子顶面也太平静了"; 实测上球沙面逐帧 Δ 恒为 +14px 的**严格直线**,
+# 且上球沙体 92% 的像素整段周期不动。
+#
+# ⚠️ 实现方式的依据(评审结论, 比原案省): **不需要**用沙色多边形拼一条起伏带 ——
+# 那才有"两种材料接缝"的风险。沙面以上的球内腔是**纯平色 GLASS_FILL**
+# (实测: 下球内腔 7 万像素里 55019 px 是同一个 #eaf3f8), 所以在**同一个 stencil 内**
+# 用 GLASS_FILL 色的 Quad 往下**抠**即可, 逐像素无缝、零 UV 风险、椭圆 stencil 自动裁边。
+# 做法: 沙体矩形顶边抬到波峰, 再抠掉轮廓以上。
+#
+# ⚠️ 只做**上球**: 上球沙面**没有碰撞面**(粒子在颈部出口生成, 上球无粒子落地),
+# 塑形零物理耦合。下球沙堆的顶面**就是碰撞面**(`get_mound_top_y`), 动它必须同时把
+# 碰撞改成 x 相关, 否则粒子会死在起伏线上方/下方 —— 那是另一个决定, 不混在这里。
+#
+# ⚠️ 幅度一律按**内径百分比**给, 不写绝对 px: 几何随窗口缩放(400px 预览 → 1600px
+# 平板是 3.3x), 写死 px 在真机上会小 3.3 倍。评审原话: "照原样做必翻车"。
+SURFACE_SEGS = 16           # 轮廓采样段数(每段一个 Quad)
+SURFACE_ROUGH_FRAC = 0.0055   # 静态粗糙度幅度 = 内径的比例(273px 内径 → ±1.5px)
+FUNNEL_MAX_FRAC = 0.014       # 漏斗最大深度 = 内径的比例(273px → 3.8px)
+FUNNEL_RAMP = 0.18            # 漏斗涨到满深用掉周期的比例(之后维持)
+# 漏斗是**排水点的形状**, 不是"每秒都热闹": 真沙漏到休止角后深度饱和,
+# 之后锥面整体下移。所以它前载, 这是诚实的边界(评审 2 号指出)。
+SURFACE_SEED = 23           # 静态种子, 与粒子 RNG 完全隔离
+
 # ---- 玻璃反光(外部评审 meishu2.md §5.1 / §5.2) ------------------------------------
 # §5.2 层级要求: 玻璃壳全在 `canvas.before`, **在那里加的高光会被后画的沙体盖住**;
 #   而整份玻璃复制到前景也不行(GLASS_FILL 是实色, 会遮住内容)。所以反光单独放一条
@@ -1181,6 +1205,7 @@ class HourglassWidget(Widget):
         # 拖动「沙子浓度」滑块时的低分辨率材质槽(见 preview_sand_material)。
         # 非 None 时它**优先于** _sand_material, 松手/换色即清空。
         self._preview_material = None
+        self._gen_surface_seed()            # 沙面静态粗糙度(见 _surface_profile)
 
         self.sound_name = "沙沙声"
         self._sound = self._make_sound_proxy(self.sound_name)
@@ -2345,6 +2370,74 @@ class HourglassWidget(Widget):
         self.redraw()
         return True
 
+    def _gen_surface_seed(self):
+        """静态沙面粗糙度 —— 一次性生成，之后每帧按当前沙面参数化映射。
+
+        ⚠️ 独立 `Random(SURFACE_SEED)`：绝不碰 `random` 的全局序列，否则粒子流会变
+        （项目所有逐像素对照都建立在 `random.seed(23)` 上）。
+        ⚠️ 位移是**相对**量、不随沙面高度变 ⇒ 沙面下落时每个凹凸跟着一起走，
+        是**可被追踪的特征**。评审 1 号：正是这一点让它读成"沙"而不是"涟漪" ——
+        横向行波会抢走这个信号，所以行波被否掉、只留静态粗糙度。
+        """
+        rng = random.Random(SURFACE_SEED)
+        # ⚠️ 范围 [-1, 1] 而不是 [-0.5, 0.5]: `amp` 是**半幅**, 全幅 = 2×amp。
+        # 第一版写成 ±0.5 ⇒ 实测起伏只有 2px, 比规格小一半(见常量区的比例说明)。
+        self._surface_rough = [rng.uniform(-1.0, 1.0) for _ in range(SURFACE_SEGS + 1)]
+
+    def _surface_profile(self, base_y, dip):
+        """沙面轮廓（右半 + 左半的 y 序列，按 tt 从 0 到 1）。
+
+        `base_y` = 未塑形的沙面高度（矩形顶边），`dip` = 中央漏斗深度。
+        返回 `[(tt, y), ...]` 共 SURFACE_SEGS+1 个点；y 用 Kivy 坐标（大 = 高）。
+        """
+        amp = self._R_inner * SURFACE_ROUGH_FRAC
+        rough = self._surface_rough
+        out = []
+        for i in range(SURFACE_SEGS + 1):
+            tt = i / SURFACE_SEGS
+            local = 1.0 - 4.0 * (tt - 0.5) ** 2      # 中央 1、两端 0 的抛物包络
+            out.append((tt, base_y + amp * rough[i] - dip * max(0.0, local)))
+        return out
+
+    def _funnel_depth(self):
+        """排水漏斗深度 —— 前载（真沙漏到休止角后饱和，之后锥面整体下移）。
+
+        评审 2 号指出原案写"深度=已流体积的饱和函数"时把饱和当成了 bug；
+        真漏斗确实会饱和，这里显式写成 min()，不假装它一直在加深。
+        """
+        frac = min(1.0, max(0.0, self.elapsed / max(1e-6, self.duration * FUNNEL_RAMP)))
+        return 2.0 * self._R_inner * FUNNEL_MAX_FRAC * frac
+
+    def _draw_surface_shape(self, upper_height, peak):
+        """上球沙面塑形：GLASS_FILL 色抠掉轮廓以上 + 沿同一条轮廓画亮带。
+
+        ⚠️ 全程在**沙体那一块 stencil 之内** ⇒ 椭圆边界仍由 stencil 保证，抠出来的
+        形状不可能越出球壁（这正是不需要新 stencil push 的原因）。
+        ⚠️ 亮带必须跟着轮廓走：直边矩形跟不上起伏，会在波谷处露出悬空亮台、在波峰处
+        被抠掉一截（评审 1 号指出的失效模式）。
+        """
+        carve, band = self._surface_carve, self._surface_band
+        if upper_height <= 0:
+            for quad in carve:
+                quad.points = [0] * 8
+            for quad in band:
+                quad.points = [0] * 8
+            return
+        cx, half = self._cx, self._R_inner
+        base = self._upper_sand_bot + upper_height
+        prof = self._surface_profile(base, self._funnel_depth())
+        top = base + peak
+        width = min(SAND_SURFACE_BAND, upper_height)
+        self._surface_band_color.a = SAND_SURFACE_ALPHA * min(
+            1.0, max(0.0, upper_height / SAND_SURFACE_FADE))
+        for i in range(SURFACE_SEGS):
+            t0, y0 = prof[i]
+            t1, y1 = prof[i + 1]
+            x0 = cx - half + 2.0 * half * t0
+            x1 = cx - half + 2.0 * half * t1
+            carve[i].points = [x0, y0, x1, y1, x1, top, x0, top]
+            band[i].points = [x0, y0, x1, y1, x1, y1 - width, x0, y0 - width]
+
     def _build_dynamic_canvas(self):
         """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
         self.canvas.clear()
@@ -2367,6 +2460,16 @@ class HourglassWidget(Widget):
                 band_color = Color(*(tuple(self.sand_light) + (0.0,)))
                 band_rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
                 self._sand_bands.append((band_color, band_rect))
+                if yc == self._upper_y_c:
+                    # 沙面塑形(**只做上球**): GLASS_FILL 色向下抠出起伏轮廓 + 沿同一条
+                    # 轮廓的亮带。上球沙面没有碰撞面(粒子在颈部出口生成), 塑形零物理耦合;
+                    # 下球沙堆顶面就是碰撞面, 动它必须连带把碰撞改成 x 相关 —— 另一个决定。
+                    Color(*hex_rgb(GLASS_FILL), 1)
+                    self._surface_carve = [Quad(points=[0] * 8)
+                                           for _ in range(SURFACE_SEGS)]
+                    self._surface_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
+                    self._surface_band = [Quad(points=[0] * 8)
+                                          for _ in range(SURFACE_SEGS)]
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
@@ -2527,6 +2630,7 @@ class HourglassWidget(Widget):
             # 沙面窄过渡那条带永远用亮端(与材质与否无关)
             for band_color, _rect in self._sand_bands:
                 band_color.rgb = self.sand_light
+            self._surface_band_color.rgb = self.sand_light
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
                 color.rgb = (self._hilite_color if index < 0
                              else self._color_table[index])
@@ -2539,16 +2643,24 @@ class HourglassWidget(Widget):
         # 只按 h/直径 截取 —— 否则沙越少纹理越扁, 读起来像橡皮(见 crop_tex_coords)。
         diameter = 2 * self._R_inner
         full_uv = None if self._sand_material is None else self._sand_material.tex_coords
-        for (_color, rect), height in zip(self._sand_chords, (upper_height, h_mound)):
+        # 上球沙面被塑形(粗糙度 + 漏斗) ⇒ 矩形要**抬高到波峰**, 多出来的部分随后用
+        # GLASS_FILL 色的 Quad 抠掉。抬高量 = 粗糙度正峰(rough 上界 0.5 × amp)。
+        amp = self._R_inner * SURFACE_ROUGH_FRAC
+        peak = amp
+        up_draw = upper_height + peak if upper_height > 0 else 0.0
+        for (_color, rect), height in zip(self._sand_chords, (up_draw, h_mound)):
             rect.size = (diameter, height)
             if full_uv is not None:
                 rect.tex_coords = crop_tex_coords(full_uv, height / diameter)
+        self._draw_surface_shape(upper_height, peak)
         # 沙面窄过渡(评审 meishu2.md §4.3): 紧贴沙面**内部**的一条窄亮带。
         # 下沙用 get_mound_top_y() —— 与**粒子碰撞面**同一个值, 保证"落点与可见表面一致"。
         # ⚠️ 沙体薄时按可见厚度按比例减弱, 否则会剩一条悬空的独立亮线。
+        # ⚠️ **上球那条已改由 `_draw_surface_shape` 沿起伏轮廓画**(直边矩形跟不上起伏,
+        #    会留下悬空亮台/缺口 —— 评审 1 号指出), 所以这里只留 `_sand_bands[1]`。
+        self._sand_bands[0][1].size = (0, 0)
         for (band_color, band_rect), top_y, height in (
-                (self._sand_bands[0], self._upper_sand_bot + upper_height, upper_height),
-                (self._sand_bands[1], self.get_mound_top_y(), h_mound)):
+                (self._sand_bands[1], self.get_mound_top_y(), h_mound),):
             band = min(SAND_SURFACE_BAND, height)
             band_rect.pos = (self._cx - self._R_inner, top_y - band)
             band_rect.size = (diameter, band)
