@@ -145,9 +145,13 @@ SAND_MATERIAL_SIZE = 512        # 512² ⇒ 球内径 800px 时约 1.56 px/纹�
 SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒强度
 SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
-# 颈部沙柱采样材质时的 v 锚点: 沙体底部那一带(v≈0.1 处被压暗过)。
-# ⚠️ 不能取 0.5 —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。
-NECK_UV_ANCHOR = 0.0
+# 颈部沙柱采样材质时的 v 锚点。两个值都被实测钉过，别随手改：
+# ⚠️ **不能取 0.5** —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。
+# ⚠️ **也不能取 0.0**（2026-10-04 对抗评审实测查出）: 沙柱顶比球底极点还高 5.3px, 取 0 会让
+#    柱顶那 5 行的 v **全是负数**, 而材质 `wrap=clamp_to_edge` ⇒ 它们全采到纹理**第 0 行**,
+#    一行 texel 被横向拉成 ~87px 宽的竖条纹带（就是"漏斗顶那道梳齿"）。
+#    0.021 让柱顶 v≥0（0.0193 是最小值, 留一点余量）。
+NECK_UV_ANCHOR = 0.021
 # 沙子浓度滑块(2026-10-04 用户要求: 原来是「平色/淡/标准/浓」四档离散, 改成连续)。
 # 0.0 = 只有宏观明暗、没有颗粒; 「完全平色」仍由 `HG_SAND_MATERIAL=flat` 保留(工具/A-B 在用)。
 SAND_GRAIN_MAX = 0.70
@@ -471,8 +475,14 @@ def lerp_rgb(c1, c2, t):
 
 
 def fg_for(hex_color):
+    """亮底用黑字、暗底用白字。
+
+    ⚠️ 阈值 0.50 而不是 0.59（2026-10-04 对抗评审实测算出的）：0.59 时**绿沙**(2.80:1)
+    与金沙都仍是白字，六格里有四格低于 WCAG 3:1；0.50 时最差项是紫沙 4.23:1，六格全部 ≥4.2。
+    ⚠️ 这个函数此前**全工程零调用** —— 色块按钮写死白字，是移植时漏接的。
+    """
     r, g, b = hex_rgb(hex_color)
-    return (0, 0, 0, 1) if (r * 0.299 + g * 0.587 + b * 0.114) > 0.59 else (1, 1, 1, 1)
+    return (0, 0, 0, 1) if (r * 0.299 + g * 0.587 + b * 0.114) > 0.50 else (1, 1, 1, 1)
 
 
 def resource_path(name):
@@ -3128,7 +3138,7 @@ class HourglassApp(App):
         self.color_btns = []
         for name, base, dark, light in SAND_PRESETS:
             btn = Button(text=name, font_size=sp(15), background_normal="",
-                         background_color=(*hex_rgb(base), 1), color=(1, 1, 1, 1))
+                         background_color=(*hex_rgb(base), 1), color=fg_for(base))
             btn.bind(on_press=lambda inst, b=base, d=dark, l=light, n=name:
                      self.on_color(b, d, l, n))
             top_colors.add_widget(btn)
@@ -3259,11 +3269,6 @@ class HourglassApp(App):
                 return n
         return "金沙"
 
-    def _sel_fg_for(self, rgb):
-        """选中态按钮文字色:亮色背景用黑字,暗色用白字(保证对比度)"""
-        r, g, b = rgb
-        return (0, 0, 0, 1) if (r * 0.299 + g * 0.587 + b * 0.114) > 0.59 else (1, 1, 1, 1)
-
     def _closest_base_and_mult(self, sec):
         best_base, best_mult = 60, 1
         best_diff = float('inf')
@@ -3355,6 +3360,7 @@ class HourglassApp(App):
                         value_track=True,
                         value_track_color=(*POPUP_GOLD_SEL[:3], 0.9),
                         background_horizontal=resource_path("ui/slider_track.png"),
+                        cursor_image=resource_path("ui/slider_cursor.png"),
                         background_width='8dp',                 # 细线化:未滑段=浅蓝细线,不再 36sp 灰槽
                         value_track_width='8dp')                # 金色线同宽,盖住蓝线左段(已滑=纯金无反边)
         mult_label = Label(text=f"×{init_mult}", size_hint=(None, None),
@@ -3521,6 +3527,7 @@ class HourglassApp(App):
                           value_track=True,
                           value_track_color=(*POPUP_GOLD_SEL[:3], 0.9),
                           background_horizontal=resource_path("ui/slider_track.png"),
+                        cursor_image=resource_path("ui/slider_cursor.png"),
                           background_width='8dp', value_track_width='8dp')
 
         # ---- 沙子浓度 ----
