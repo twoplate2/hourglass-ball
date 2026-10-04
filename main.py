@@ -88,6 +88,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.text import LabelBase, Label as CoreLabel
 from kivy.core.window import Window
+from kivy.graphics.texture import Texture           # 沙体材质要用(见 _SandMaterial)
 from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
                            StencilPush, StencilUse, StencilUnUse, StencilPop,
                            PushMatrix, PopMatrix, Rotate, InstructionGroup)
@@ -131,6 +132,111 @@ SAND_PRESETS = [
 BG_COLOR = "#fdf6e3"
 GLASS_FILL = "#eaf3f8"
 GLASS_OUTLINE = "#5f6b70"
+
+# ---- 沙体材质(路线 A: 预生成的 RGBA 彩色纹理) ----------------------------------
+# 依据: meishu.md §7 + 外部评审 meishu2.md §3。三条被评审纠正过的前提, 记在这里免得重犯:
+# ① **不能**用"灰度 × 沙色": 灰度相乘只能**压暗**, 做不出比 sand_base 更亮的颗粒,
+#    黑沙尤其需要独立亮色端点 ⇒ 三端点插值后直接烘成 albedo, 前面用**白色** Color
+#    (否则彩色纹理会被**再染一次**而明显发暗)。
+# ② **不能**用 32×32: 球内径 800px 时一个纹素盖 25px, 存得下柔和渐变、存不下细颗粒。
+# ③ 生成是 O(n²) 的纯 Python/numpy 计算, **绝不能在 redraw 里调**; 按配色缓存。
+SAND_MATERIAL = os.environ.get("HG_SAND_MATERIAL", "grain")   # grain | flat(退回旧平色)
+SAND_MATERIAL_SIZE = 512        # 512² ⇒ 球内径 800px 时约 1.56 px/纹素
+SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒强度
+SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
+# 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
+SAND_STYLE_OPTIONS = (("平色（原版）", "flat", 0.0),
+                      ("克制", "grain", 0.15),
+                      ("当前", "grain", 0.35),
+                      ("明显", "grain", 0.70))
+# ⚠️ 这个缓存**永不淘汰**, 有两层原因, 别随手加 LRU/上限:
+# ① 材质对象被 GC ⇒ `Texture.add_reload_observer` 存的 **WeakMethod** 失效 ⇒
+#    图形上下文丢失后纹理再也传不回去(沙体会退回默认纹理, 且不报错)。
+#    实测(Kivy 2.3.0 `texture.pyx:677` 是 WeakMethod, `:1123` 遍历调用)。
+# ② 缓存命中是换色的**唯一**免卡途径: 冷启动生成一张 512² 约 16ms + 上传 ≈ 单帧 20ms。
+_SAND_MATERIAL_CACHE = {}
+
+
+def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0):
+    """生成 size×size 的 RGBA 材质字节。**numpy 缺失时返回 None**(退回原来的平色填充)。
+
+    UV 约定: 第 0 行 = **球底**(沙体底), 最后一行 = 球顶 —— 与"Rectangle 从球底往上长"一致。
+    随机数用**独立生成器**: 不碰 `random`, 否则会打乱粒子序列、破坏同 seed 的逐像素对照。
+    """
+    try:
+        import numpy as np
+    except Exception:
+        return None
+    axis = (np.arange(size, dtype=np.float32) + 0.5) / size
+    qx = (axis * 2.0 - 1.0)[None, :]
+    qy = (axis * 2.0 - 1.0)[:, None]
+    w = np.clip((qx * qx + qy * qy - 0.64) / 0.36, 0.0, 1.0)
+    edge = w * w * (3.0 - 2.0 * w)                       # 靠壁压暗
+    broad = 0.10 * (axis[:, None] - 0.5) - 0.07 * qx - 0.16 * edge
+    noise = np.random.default_rng(seed).random((size, size), dtype=np.float32)
+    tone = np.clip(shade * broad + grain * (2.0 * noise - 1.0), -1.0, 1.0)
+    pal = [np.asarray(c, dtype=np.float32) for c in (base, dark, light)]
+    target = np.where(tone[..., None] >= 0.0, pal[2], pal[1])
+    rgb = pal[0] + np.abs(tone)[..., None] * (target - pal[0])
+    out = np.empty((size, size, 4), dtype=np.uint8)
+    out[..., :3] = np.clip(rgb * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    out[..., 3] = 255
+    return out.tobytes()
+
+
+class _SandMaterial:
+    """一张预生成的沙体材质 + 它的**完整** UV(每帧截取时以它为基准)。"""
+
+    def __init__(self, size, rgba):
+        self.rgba = rgba
+        self.texture = Texture.create(size=(size, size), colorfmt="rgba")
+        self.texture.wrap = "clamp_to_edge"
+        self.texture.min_filter = "linear"
+        self.texture.mag_filter = "linear"
+        # 上下文丢失后靠 reload observer 重传(留着字节就是为了这一步)
+        self.texture.add_reload_observer(self._upload)
+        self._upload(self.texture)
+        self.tex_coords = tuple(self.texture.tex_coords)
+
+    def _upload(self, texture):
+        texture.blit_buffer(self.rgba, colorfmt="rgba", bufferfmt="ubyte")
+
+
+def sand_material(base, dark, light, size=None, grain=None, shade=None):
+    """按配色取/建材质(带缓存)。任何一步失败返回 None ⇒ 上层退回平色填充。"""
+    if SAND_MATERIAL == "flat":
+        return None
+    size = SAND_MATERIAL_SIZE if size is None else size
+    grain = SAND_MATERIAL_GRAIN if grain is None else grain
+    shade = SAND_MATERIAL_SHADE if shade is None else shade
+    key = (size, tuple(base), tuple(dark), tuple(light), round(grain, 4), round(shade, 4))
+    material = _SAND_MATERIAL_CACHE.get(key)
+    if material is None:
+        try:
+            rgba = _sand_material_rgba(size, base, dark, light, grain=grain, shade=shade)
+            if rgba is None:
+                return None
+            material = _SandMaterial(size, rgba)
+        except Exception as exc:
+            print(f"sand material unavailable: {exc}")
+            return None
+        _SAND_MATERIAL_CACHE[key] = material
+    return material
+
+
+def crop_tex_coords(full, fraction):
+    """把"完整纹理"的四角坐标裁成"只显示底部 fraction 高"的一套。
+
+    ⚠️ 沙体矩形**每帧高度都在变**。若永远给完整的 0..1 纹理, 沙越少纹理就被压得越扁、
+    越多就被拉得越长 —— 读起来像橡皮。基准必须始终是**完整纹理**的四角,
+    不能在上一次已经裁短过的坐标上继续乘比例。
+    """
+    u0, v0, u1, v1, u2, v2, u3, v3 = full
+    f = 0.0 if fraction < 0.0 else (1.0 if fraction > 1.0 else fraction)
+    return (u0, v0,
+            u1, v1,
+            u1 + (u2 - u1) * f, v1 + (v2 - v1) * f,
+            u0 + (u3 - u0) * f, v0 + (v3 - v0) * f)
 
 # ---- 周期弹窗独立配色(暖金/沙色系) ----
 POPUP_BG = "#faf5eb"                              # 弹窗底色,暖白
@@ -939,6 +1045,7 @@ class HourglassWidget(Widget):
         self.flash_end = 0.0
         self._completion_triggered = False
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
+        self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
 
         self.sound_name = "沙沙声"
         self._sound = self._make_sound_proxy(self.sound_name)
@@ -1964,19 +2071,33 @@ class HourglassWidget(Widget):
 
     # ---------- 渲染 ----------
 
+    def set_sand_style(self, mode, grain):
+        """隐藏菜单切换沙体材质档位。重建材质并立刻重绘(只做一次, 不在每帧路径上)。"""
+        global SAND_MATERIAL, SAND_MATERIAL_GRAIN
+        SAND_MATERIAL = mode
+        SAND_MATERIAL_GRAIN = float(grain)
+        self._render_colors = None          # 逼 redraw 走一次"换材质"分支
+        self._build_dynamic_canvas()
+        self.redraw()
+        return True
+
     def _build_dynamic_canvas(self):
         """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
         self.canvas.clear()
         cx, Ri = self._cx, self._R_inner
         self._sand_chords = []
+        material = sand_material(self.sand_base, self.sand_dark, self.sand_light)
+        self._sand_material = material
         with self.canvas:
             for yc in (self._upper_y_c, self._lower_y_c):
                 bottom = yc - Ri
                 StencilPush()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilUse()
-                color = Color(*self.sand_base)
-                rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
+                # 材质烘的就是 albedo ⇒ 前面必须是**白色**; 退回平色时才染 sand_base
+                color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
+                rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
+                                 texture=None if material is None else material.texture)
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
@@ -2101,10 +2222,21 @@ class HourglassWidget(Widget):
             return
         remaining = self.get_remaining()
         now = time.perf_counter()
-        colors = (self.sand_base, self.sand_light)
+        # ⚠️ 这里必须含 sand_dark: 材质缓存键含三色, 而**只改 dark 的调用方**会拿到陈旧材质 ⇒ 串色。
+        # 今天不可达(set_sand_color 三者同改), 但两个独立评审都点了这条。
+        colors = (self.sand_base, self.sand_dark, self.sand_light)
         if colors != self._render_colors:
-            for color, _rect in self._sand_chords:
-                color.rgb = self.sand_base
+            if self._sand_material is None:
+                for color, _rect in self._sand_chords:
+                    color.rgb = self.sand_base
+            else:
+                # 材质烘的就是 albedo ⇒ 前面保持白色, 换色只能**换纹理** ——
+                # 再染一层 sand_base 会让画面明显发暗(旧逻辑就是这么写的)。
+                material = sand_material(self.sand_base, self.sand_dark, self.sand_light)
+                if material is not None:
+                    self._sand_material = material
+                    for _color, rect in self._sand_chords:
+                        rect.texture = material.texture
             self._neck_color.rgb = self.sand_base
             self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
@@ -2114,8 +2246,14 @@ class HourglassWidget(Widget):
 
         h_mound = self._mound_height_px()
         upper_height = self._upper_sand_height_px()
-        self._sand_chords[0][1].size = (2 * self._R_inner, upper_height)
-        self._sand_chords[1][1].size = (2 * self._R_inner, h_mound)
+        # ⚠️ 高度每帧在变, **UV 不能跟着归一化**: 基准永远是完整纹理的四角,
+        # 只按 h/直径 截取 —— 否则沙越少纹理越扁, 读起来像橡皮(见 crop_tex_coords)。
+        diameter = 2 * self._R_inner
+        full_uv = None if self._sand_material is None else self._sand_material.tex_coords
+        for (_color, rect), height in zip(self._sand_chords, (upper_height, h_mound)):
+            rect.size = (diameter, height)
+            if full_uv is not None:
+                rect.tex_coords = crop_tex_coords(full_uv, height / diameter)
         side = self._neck_sand_side() if upper_height > 0 else []
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
@@ -2431,6 +2569,26 @@ class HourglassApp(App):
             self._apply_max_refresh_rate()
             # SDL 把窗口挂稳之后可能再刷一次窗口属性, 补一发(幂等)
             Clock.schedule_once(lambda _dt: self._apply_max_refresh_rate(), 1.5)
+        # 六种配色的沙体材质**分批**烘好(每张约 16ms), 摊掉"第一次点某个颜色卡一下"。
+        # 流沙时让路, 不让它跟帧抢时间; 见 _warm_sand_materials。
+        self._sand_warm_queue = list(SAND_PRESETS)
+        Clock.schedule_interval(self._warm_sand_materials, 0.05)
+
+    def _warm_sand_materials(self, _dt):
+        """每帧最多烘**一种**配色的材质。流沙时跳过(返回 True 继续等), 烘完自动停。"""
+        if self.hourglass.running:
+            return True
+        if not self._sand_warm_queue:
+            return False
+        _name, base, dark, light = self._sand_warm_queue.pop(0)
+        try:
+            # ⚠️ SAND_PRESETS 存的是 **'#rrggbb' 字符串**, 不是浮点三元组 ——
+            # 直接喂给生成器会 ValueError, 然后被这里的 except 吞掉 ⇒ 预热**静默失效**。
+            # (2026-10-04 烟测抓到: 四条 "could not convert string to float" 日志。)
+            sand_material(hex_rgb(base), hex_rgb(dark), hex_rgb(light))
+        except Exception as exc:
+            print(f"sand material warm failed: {exc}")
+        return bool(self._sand_warm_queue)
 
     def _apply_max_refresh_rate(self):
         """向系统**显式要**当前屏幕的最高刷新率。
@@ -2480,6 +2638,7 @@ class HourglassApp(App):
 
     def build(self):
         self._sound_popup = None
+        self._dev_popup = None
         self._sound_diag_label = None
         self._completion_popup = None
         self._last_win_size = None
@@ -2556,7 +2715,7 @@ class HourglassApp(App):
         self._benchmark_results = []
         self._benchmark_cancelled = False
         self._benchmark_popup = None
-        self._benchmark_area = BenchmarkHoldArea(self.on_benchmark)
+        self._benchmark_area = BenchmarkHoldArea(self._open_dev_menu)
         # 长按处印出版本号: 隐藏入口总得让人找得到该按哪儿。
         # BenchmarkHoldArea 是裸 Widget、不做子控件布局, 得手动跟着它铺满。
         hold_label = Label(text=f"v{APP_VERSION}", font_size=sp(11),
@@ -2866,6 +3025,66 @@ class HourglassApp(App):
 
     def _benchmark_active(self):
         return self._benchmark_runner is not None and self._benchmark_runner.active
+
+    def _close_dev_menu(self):
+        if self._dev_popup is not None:
+            self._dev_popup.dismiss()
+
+    def _open_dev_menu(self, *_):
+        """长按**版本号**进的隐藏菜单: 沙子材质档位 + 性能测试。
+
+        长按区本来就是版本号那块(`BenchmarkHoldArea`), 原来直接开基准;
+        现在中间多一层菜单, 基准挪进菜单里 —— 这样"调材质"和"量性能"在同一个入口。
+        """
+        if self._dev_popup is not None or self._benchmark_active():
+            return
+        content = BoxLayout(orientation="vertical", spacing=dp(6),
+                            padding=[dp(14), dp(8), dp(14), dp(12)],
+                            size_hint=(1, None))
+        content.bind(minimum_height=content.setter("height"))
+        content.add_widget(Label(text="沙子材质", font_size=sp(15), color=POPUP_TEXT,
+                                 size_hint=(1, None), height=dp(22)))
+        buttons = []
+        for name, mode, grain in SAND_STYLE_OPTIONS:
+            btn = Button(text=name, font_size=sp(15), background_normal="",
+                         color=POPUP_TEXT, size_hint=(1, None), height=dp(40))
+            buttons.append((mode, round(grain, 4), btn))
+            content.add_widget(btn)
+
+        def refresh():
+            current = (SAND_MATERIAL, round(SAND_MATERIAL_GRAIN, 4))
+            for mode, grain, btn in buttons:
+                btn.background_color = (POPUP_GOLD_SEL if (mode, grain) == current
+                                        else POPUP_UNSEL_BASE)
+
+        def choose(mode, grain):
+            self.hourglass.set_sand_style(mode, grain)
+            refresh()
+
+        for mode, grain, btn in buttons:
+            btn.bind(on_press=lambda _b, m=mode, g=grain: choose(m, g))
+        refresh()
+
+        content.add_widget(Widget(size_hint=(1, None), height=dp(4)))
+        bench = Button(text="性能测试", font_size=sp(15), bold=True, background_normal="",
+                       background_color=POPUP_CONFIRM, color=POPUP_TEXT_WHITE,
+                       size_hint=(1, None), height=dp(44))
+        bench.bind(on_press=lambda *_: (self._close_dev_menu(), self.on_benchmark()))
+        content.add_widget(bench)
+        close = Button(text="关闭", font_size=sp(15), background_normal="",
+                       background_color=POPUP_CANCEL_BG, color=POPUP_TEXT,
+                       size_hint=(1, None), height=dp(40))
+        close.bind(on_press=lambda *_: self._close_dev_menu())
+        content.add_widget(close)
+
+        popup = _SandBgPopup(title=f"v{APP_VERSION}", content=content,
+                             size_hint=(0.8, None), height=dp(360),
+                             auto_dismiss=False)
+        popup.title_align = "center"
+        popup.title_size = sp(17)
+        self._dev_popup = popup
+        popup.bind(on_dismiss=lambda *_: setattr(self, "_dev_popup", None))
+        popup.open()
 
     def on_benchmark(self, *_):
         if self._benchmark_active() or self._benchmark_popup is not None:
