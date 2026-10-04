@@ -157,6 +157,14 @@ SAND_STYLE_OPTIONS = (("平色", "flat", 0.0),
                       ("浓", "grain", 0.70))
 DEFAULT_SAND_STYLE = 2          # 出厂默认 = 第 3 档「标准」(用户 2026-10-04 定)
 
+# 沙面窄过渡(外部评审 meishu2.md §4.3): 紧贴沙面**内部**一条很窄的亮过渡。
+# 他的规格: 厚度 1–3 逻辑像素 / 只向亮色端点轻推 / **不做整条白线、不加黑描边** /
+#           近空时随可见厚度减弱(避免剩一条独立亮线) / 落点与碰撞高度保持一致。
+# 代价: 每个沙体**新增一次局部绘制**(面积≈可见弦长×带宽), 不是零成本 —— 要单独计费。
+SAND_SURFACE_BAND = 3.0     # 带宽(逻辑像素)
+SAND_SURFACE_ALPHA = 0.55   # 亮度上限(轻推, 不是白线; 0.32 时被颗粒噪声淹没)
+SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
+
 
 def apply_sand_style(mode, grain):
     """设置沙体材质档位。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
@@ -281,7 +289,10 @@ POPUP_TEXT_WHITE = (1, 1, 1, 1)
 # 球↔管的曲线收窄过渡(纯渲染,不参与体积/守恒计算;移植自 pc v4)
 TAPER_K = 2.2        # 过渡段上端半宽 = K × neck_w, 该点落在球壁上
 TAPER_FILL = 0.62    # 过渡段吃掉"球截口→颈中心"竖直空间的比例, 其余留作直筒
-TAPER_SEGS = 10      # 过渡曲线采样段数
+TAPER_SEGS = 24      # 过渡曲线采样段数
+# ⚠️ 原来 10 段不够: 这条贝塞尔从**近乎水平**(起点切线偏离竖直约 73.5°)转到竖直,
+# 10 段意味着每段折 7.4° ⇒ 放大看是一圈可见的多边形棱面(被报成"84° 硬折角")。
+# 24 段把每段折角压到 ~3°。只在几何重建时算一次, 不在每帧路径上。
 NECK_FILL = 0.25     # 颈部沙柱注满耗时(秒), 避免起跑瞬间"啪"地从空变满
 
 
@@ -2119,6 +2130,7 @@ class HourglassWidget(Widget):
         self.canvas.clear()
         cx, Ri = self._cx, self._R_inner
         self._sand_chords = []
+        self._sand_bands = []
         material = sand_material(self.sand_base, self.sand_dark, self.sand_light)
         self._sand_material = material
         with self.canvas:
@@ -2131,6 +2143,10 @@ class HourglassWidget(Widget):
                 color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
                 rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
                                  texture=None if material is None else material.texture)
+                # 沙面窄过渡: 与沙体**同一个 stencil**, 只在沙面内部多铺一条很窄的亮带
+                band_color = Color(*(tuple(self.sand_light) + (0.0,)))
+                band_rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
+                self._sand_bands.append((band_color, band_rect))
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
@@ -2280,6 +2296,9 @@ class HourglassWidget(Widget):
                 # 退回平色时颈部才跟着染沙色; 有材质时前面必须保持白色(否则双重着色变暗)
                 self._neck_color.rgb = self.sand_base
                 self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
+            # 沙面窄过渡那条带永远用亮端(与材质与否无关)
+            for band_color, _rect in self._sand_bands:
+                band_color.rgb = self.sand_light
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
                 color.rgb = self.sand_light if index < 0 else self._color_table[index]
             self._splash_color.rgb = self._dust_color.rgb = self.sand_light
@@ -2295,6 +2314,16 @@ class HourglassWidget(Widget):
             rect.size = (diameter, height)
             if full_uv is not None:
                 rect.tex_coords = crop_tex_coords(full_uv, height / diameter)
+        # 沙面窄过渡(评审 meishu2.md §4.3): 紧贴沙面**内部**的一条窄亮带。
+        # 下沙用 get_mound_top_y() —— 与**粒子碰撞面**同一个值, 保证"落点与可见表面一致"。
+        # ⚠️ 沙体薄时按可见厚度按比例减弱, 否则会剩一条悬空的独立亮线。
+        for (band_color, band_rect), top_y, height in (
+                (self._sand_bands[0], self._upper_sand_bot + upper_height, upper_height),
+                (self._sand_bands[1], self.get_mound_top_y(), h_mound)):
+            band = min(SAND_SURFACE_BAND, height)
+            band_rect.pos = (self._cx - self._R_inner, top_y - band)
+            band_rect.size = (diameter, band)
+            band_color.a = SAND_SURFACE_ALPHA * min(1.0, max(0.0, height / SAND_SURFACE_FADE))
         side = self._neck_sand_side() if upper_height > 0 else []
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
