@@ -165,6 +165,31 @@ SAND_SURFACE_BAND = 3.0     # 带宽(逻辑像素)
 SAND_SURFACE_ALPHA = 0.55   # 亮度上限(轻推, 不是白线; 0.32 时被颗粒噪声淹没)
 SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 
+# ---- 玻璃反光(外部评审 meishu2.md §5.1 / §5.2) ------------------------------------
+# §5.2 层级要求: 玻璃壳全在 `canvas.before`, **在那里加的高光会被后画的沙体盖住**;
+#   而整份玻璃复制到前景也不行(GLASS_FILL 是实色, 会遮住内容)。所以反光单独放一条
+#   InstructionGroup, 插在**沙体和粒子之后 / 暂停遮罩之前** —— 见 `_glass_hl_group`。
+# §5.1 规格(逐条): 左上主反光**留断口** / 另一侧只放很弱的**短**反光(刻意不等宽等亮等长) /
+#   局部内缘略压暗且**弱于外描边** / **两个球用同一组角度**(画面左上光源, 不各自翻转) /
+#   中央保持通透(只在圆周 ±1~2px) / 主 0.12–0.25、次 0.04–0.10。
+# 颜色取冷色系 —— §8 Q6: 玻璃该与沙体**材质读感不同**(更锐利、更冷), 不要染成沙色。
+GLASS_HL_TINT = (0.93, 0.97, 1.00)          # 反光(冷白)
+GLASS_HL_RIM_RGB = (0.16, 0.20, 0.22)       # 内缘压暗(冷深灰)
+GLASS_HL_MAIN_A = 0.20                      # 主反光透明度
+GLASS_HL_SEC_A = 0.07                       # 次反光透明度
+# 内缘压暗: 规格是"略压暗 / 弱于外描边 / 局部"。⚠️ 第一版取的 0.10×两段各 54° 在实拍里
+# 是一条**灰绿硬带**(在浅蓝腔体上降 19 级、沙面上降 18 级), 读成"第二条描边"而不是玻璃
+# 厚度 —— 外描边本身才 139 级, 所以 0.055 × 30° 才是"略"。宽度也一并收窄。
+GLASS_HL_RIM_A = 0.055                      # 内缘压暗透明度(弱于 6px 的外描边)
+GLASS_HL_MAIN_DEG = ((118.0, 136.0), (146.0, 164.0))   # 左上, 两段 ⇒ 中间留断口
+GLASS_HL_SEC_DEG = ((-52.0, -34.0),)                   # 右下, 单段比主反光短一半
+GLASS_HL_RIM_DEG = ((205.0, 235.0), (305.0, 335.0))    # 左下/右下各一小段, 避开正下方落点
+# 整体强度倍数(出多档对照图用)。他的数值是"调参起点", 并写明"背景很亮时需要另调" ——
+# 我们的背景正是亮的(米白 #fdf6e3 + 浅蓝 #eaf3f8), 所以这个倍数是给他那条口子用的。
+GLASS_HL_MUL = float(os.environ.get("HG_GLASS_HL_MUL", "1.0"))
+# 开关(出并排对照图用): HG_GLASS_HL=0 关掉全部反光 = 改前
+GLASS_HL_ENABLE = os.environ.get("HG_GLASS_HL", "1") != "0"
+
 
 def apply_sand_style(mode, grain):
     """设置沙体材质档位。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
@@ -306,6 +331,38 @@ def _bezier2(p0, p1, p2, n):
         pts.append((u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0],
                     u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1]))
     return pts
+
+
+# ⚠️ Kivy `Line.width` 是**半宽**, 不是总宽 —— 2026-10-04 用 tools/_probe_linew*.py 实测:
+#      width  0.5 / 1.0 → 1px (≤1 被夹成 GL_LINES)
+#             1.05–1.4 → 2px      1.5 → 3px      1.6–2.2 → 4px      4.0 → 8px   8.0 → 16px
+#   即 width>1 走 mesh 路径时 实际像素 ≈ 2×width。**本工程以前不知道这件事** ——
+#   玻璃反光第一版按"1.9px"写 width=1.9, 实拍成 4px(+圆头 5px), 是"描边有一段变亮"
+#   而不是一条独立反光的真因。
+#   (顺带: 粒子 `width=p['size']` 里的 2 实际画的是 4px —— 那是既有视觉, **不要动**。)
+_LINE_W_FOR_PX = {1: 1.0, 2: 1.2, 3: 1.5, 4: 1.7}
+
+
+def _line_w(px):
+    """想要"实际 N 像素宽" → 该传给 `Line(width=...)` 的值。"""
+    px = max(1, int(round(px)))
+    return _LINE_W_FOR_PX.get(px, px / 2.0)
+
+
+def _arc_pts(cx, cy, r, deg0, deg1, segs):
+    """圆周弧段采样 → Kivy `Line` 要的平坦坐标表。
+
+    角度按**数学**习惯: 逆时针为正、0° = +x。Kivy 的 y 轴向上, 所以"画面左上"是
+    第二象限(90°–180°), 与直觉一致, 不需要为坐标翻转另开一套角度。
+    """
+    out = []
+    span = math.radians(deg1 - deg0)
+    a0 = math.radians(deg0)
+    for i in range(segs + 1):
+        a = a0 + span * i / segs
+        out.append(cx + r * math.cos(a))
+        out.append(cy + r * math.sin(a))
+    return out
 
 
 FALL_DELAY = 1.0          # 沙子飞到底的延迟(秒),下沙堆出现与粒子到底同步
@@ -2113,6 +2170,49 @@ class HourglassWidget(Widget):
                 _band(_pts('out_pts', flip), glass_out)
                 _band(_pts('in_pts', flip), glass_fill)
 
+    def _rebuild_glass_highlights(self):
+        """玻璃反光 —— 画在**沙体和粒子之后**(meishu2.md §5.1/§5.2)。
+
+        ⚠️ **绝不能在 redraw() 里调**: Kivy 的 `Line` 在 width>1 时是**每条线自建三角
+        网格**, 重设 `.points` 就会重建。这里是静态几何, 只在几何/尺寸变化时重建一次,
+        每帧只是重绘 —— 与粒子那条"宽线逐条网格"的教训同源。
+        """
+        group = self._glass_hl_group
+        group.clear()
+        if not self._geom_ready or not GLASS_HL_ENABLE:
+            return
+        cx, Ri, ow = self._cx, self._R_inner, self._ow
+        # 主反光骑在**玻璃内缘**上: 一半在壁厚里、一半压过沙体边缘 —— 那一点点压在沙面上
+        # 正是"玻璃在沙之前"的读感来源; 再宽就变成遮住沙体了(§5.1 "中央区域保持通透")。
+        # ⚠️ 沙体 stencil 就是 Ellipse(Ri), 而玻璃壁占 [Ri, Ri+ow] ⇒ **两者严丝合缝,
+        # 边上零重叠**(当初为消灭"月牙缝"刻意如此)。所以"玻璃在沙之前"这个读感**只能**
+        # 靠反光**跨过 Ri** 来造: 一半落在壁厚里、一半压在沙体边缘(约 1px)。
+        # 若把反光整条关在环带内, 就只是"描边有一段变亮", 又变回图标画法。
+        r_main = Ri
+        r_rim = Ri - ow * 0.20
+        # 宽度按规格"约 1–2 个逻辑像素", 且随 DPI 缩放: 目标像素 = ow 的比例。
+        # ⚠️ 必须过 `_line_w` —— Line.width 是半宽, 直接写目标像素会实拍成两倍宽。
+        w_main = _line_w(ow * 0.30)     # 400px 窗口 → 2px
+        w_sec = _line_w(ow * 0.20)      # → 1px
+        w_rim = _line_w(ow * 0.24)      # → 2px
+        mul = GLASS_HL_MUL
+        for yc in (self._upper_y_c, self._lower_y_c):
+            # 角度表对**两个球完全相同** ⇒ 光源方向统一在画面左上, 不各自翻转。
+            # 顺序: 内缘压暗 → 次反光 → 主反光。右下两段在半径上是叠着的
+            # (压暗在 Ri-1.26, 反光跨 Ri), 反光必须**后**画才不会被压暗吃掉。
+            for degs, rgb, alpha, radius, width in (
+                    (GLASS_HL_RIM_DEG, GLASS_HL_RIM_RGB, GLASS_HL_RIM_A * mul, r_rim, w_rim),
+                    (GLASS_HL_SEC_DEG, GLASS_HL_TINT, GLASS_HL_SEC_A * mul, r_main, w_sec),
+                    (GLASS_HL_MAIN_DEG, GLASS_HL_TINT, GLASS_HL_MAIN_A * mul, r_main, w_main)):
+                for a0, a1 in degs:
+                    alpha = min(1.0, max(0.0, alpha))
+                    if alpha <= 0.0:
+                        continue
+                    segs = max(4, int(abs(a1 - a0) / 4.0))
+                    group.add(Color(*rgb, alpha))
+                    group.add(Line(points=_arc_pts(cx, yc, radius, a0, a1, segs),
+                                   width=width, cap='round'))
+
     # ---------- 渲染 ----------
 
     def set_sand_style(self, mode, grain):
@@ -2204,6 +2304,11 @@ class HourglassWidget(Widget):
         self._dust_group.add(self._dust_color)
         self.canvas.add(self._dust_group)
         self._dust_rects = []
+        # 玻璃反光: 必须在**沙体和粒子之后**(见 _rebuild_glass_highlights), 但要在
+        # 下面的暂停遮罩/完成闪烁**之前** —— 否则暂停时反光会浮在遮罩上面。
+        self._glass_hl_group = InstructionGroup()
+        self.canvas.add(self._glass_hl_group)
+        self._rebuild_glass_highlights()
         with self.canvas:
             self._bore_color = Color(0.8, 0.8, 0.8, 0)
             bore = self._taper['t_in']
