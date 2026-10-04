@@ -148,10 +148,13 @@ SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
 # 颈部沙柱采样材质时的 v 锚点: 沙体底部那一带(v≈0.1 处被压暗过)。
 # ⚠️ 不能取 0.5 —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。
 NECK_UV_ANCHOR = 0.0
+# 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。
+# ⚠️ 档位名**不能是相对词**("当前""默认"这种在菜单里毫无意义 —— 用户 2026-10-04 指出),
+# 直接用视觉密度命名; "标准"标的是出厂默认那一档。
 SAND_STYLE_OPTIONS = (("平色（原版）", "flat", 0.0),
-                      ("克制", "grain", 0.15),
-                      ("当前", "grain", 0.35),
-                      ("明显", "grain", 0.70))
+                      ("淡", "grain", 0.15),
+                      ("标准", "grain", 0.35),
+                      ("浓", "grain", 0.70))
 # ⚠️ 这个缓存**永不淘汰**, 有两层原因, 别随手加 LRU/上限:
 # ① 材质对象被 GC ⇒ `Texture.add_reload_observer` 存的 **WeakMethod** 失效 ⇒
 #    图形上下文丢失后纹理再也传不回去(沙体会退回默认纹理, 且不报错)。
@@ -3109,7 +3112,7 @@ class HourglassApp(App):
                        size_hint=(1, None), height=dp(50))
         bench.bind(on_press=lambda *_: (self._close_dev_menu(), self.on_benchmark()))
         content.add_widget(bench)
-        close = Button(text="关闭", font_size=sp(16), background_normal="",
+        close = Button(text="确定", font_size=sp(16), background_normal="",
                        background_color=POPUP_CANCEL_BG, color=POPUP_TEXT,
                        size_hint=(1, None), height=dp(46))
         close.bind(on_press=lambda *_: self._close_dev_menu())
