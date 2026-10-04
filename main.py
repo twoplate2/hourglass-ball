@@ -145,6 +145,9 @@ SAND_MATERIAL_SIZE = 512        # 512² ⇒ 球内径 800px 时约 1.56 px/纹�
 SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒强度
 SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
+# 颈部沙柱采样材质时的 v 锚点: 沙体底部那一带(v≈0.1 处被压暗过)。
+# ⚠️ 不能取 0.5 —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。
+NECK_UV_ANCHOR = 0.0
 SAND_STYLE_OPTIONS = (("平色（原版）", "flat", 0.0),
                       ("克制", "grain", 0.15),
                       ("当前", "grain", 0.35),
@@ -170,8 +173,13 @@ def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0
     axis = (np.arange(size, dtype=np.float32) + 0.5) / size
     qx = (axis * 2.0 - 1.0)[None, :]
     qy = (axis * 2.0 - 1.0)[:, None]
-    w = np.clip((qx * qx + qy * qy - 0.64) / 0.36, 0.0, 1.0)
-    edge = w * w * (3.0 - 2.0 * w)                       # 靠壁压暗
+    # 「靠壁压暗」只看**水平**距离: 玻璃壁在左右两侧, 而竖直方向的上下两端
+    # 分别是沙面(上)与**颈口**(下), 都不是壁。
+    # ⚠️ 原来用径向 r²=qx²+qy², 会把球底那个极点也当成"靠壁"压暗 ——
+    # 而颈部采样不到那一段, 于是颈部比球体亮一个档, 被读成两种材料
+    # (2026-10-04 用户报"上面的部分和颈部的沙子构成完全不同")。
+    w = np.clip((qx * qx - 0.64) / 0.36, 0.0, 1.0)
+    edge = w * w * (3.0 - 2.0 * w)
     broad = 0.10 * (axis[:, None] - 0.5) - 0.07 * qx - 0.16 * edge
     noise = np.random.default_rng(seed).random((size, size), dtype=np.float32)
     tone = np.clip(shade * broad + grain * (2.0 * noise - 1.0), -1.0, 1.0)
@@ -2102,18 +2110,19 @@ class HourglassWidget(Widget):
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
                 self._sand_chords.append((color, rect))
-            self._neck_color = Color(*self.sand_base)
+            neck_tex = None if material is None else material.texture
+            self._neck_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_quads = [
-                Quad(points=[0] * 8) for _ in range(TAPER_SEGS + 1)]
-            self._neck_solid_color = Color(*self.sand_base)
-            self._neck_solid_rect = Rectangle(size=(0, 0))
+                Quad(points=[0] * 8, texture=neck_tex) for _ in range(TAPER_SEGS + 1)]
+            self._neck_solid_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
+            self._neck_solid_rect = Rectangle(size=(0, 0), texture=neck_tex)
             # 沙柱下段(孔口往上 transition 那段): 直接画不透明的沙色矩形。
             # 原来这里用 1×64 渐变纹理做 alpha 0.7→1.0 的"出口柔化", 但这条矩形
             # 只有几个像素高, **任何 alpha 变化都等于硬边** —— 实测在管内留下一条
             # 半透明横线(关掉颗粒层后单行跳变 dB=10.9;改成不透明后降到 5.3,
             # 剩下的是"沙柱→敞开喇叭口"的自然边界)。
-            self._neck_fade_color = Color(*self.sand_base)
-            self._neck_fade_rect = Rectangle(size=(0, 0))
+            self._neck_fade_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
+            self._neck_fade_rect = Rectangle(size=(0, 0), texture=neck_tex)
 
         self._neck_grain_group = InstructionGroup()
         self.canvas.add(self._neck_grain_group)
@@ -2237,8 +2246,15 @@ class HourglassWidget(Widget):
                     self._sand_material = material
                     for _color, rect in self._sand_chords:
                         rect.texture = material.texture
-            self._neck_color.rgb = self.sand_base
-            self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
+                    # 颈部沙柱/出口段用**同一张材质**, 否则沙体有颗粒而颈部是平色, 读成两种材料
+                    for quad in self._neck_quads:
+                        quad.texture = material.texture
+                    self._neck_solid_rect.texture = material.texture
+                    self._neck_fade_rect.texture = material.texture
+            if self._sand_material is None:
+                # 退回平色时颈部才跟着染沙色; 有材质时前面必须保持白色(否则双重着色变暗)
+                self._neck_color.rgb = self.sand_base
+                self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
                 color.rgb = self.sand_light if index < 0 else self._color_table[index]
             self._splash_color.rgb = self._dust_color.rgb = self.sand_light
@@ -2260,6 +2276,7 @@ class HourglassWidget(Widget):
         transition = min(inlet - outlet, max(8, self._taper["t_in"] * 0.7))
         connected = bool(side and side[-1][1] <= outlet + 1e-6)
         fade_top = outlet + transition
+        neck_uv_scale = None if self._sand_material is None else 1.0 / diameter
         for i, quad in enumerate(self._neck_quads):
             if i < len(side) - 1:
                 (x0, y0), (x1, y1) = side[i], side[i + 1]
@@ -2267,6 +2284,16 @@ class HourglassWidget(Widget):
                     y1 = fade_top
                 quad.points = [self._cx - x0, y0, self._cx + x0, y0,
                                self._cx + x1, y1, self._cx - x1, y1]
+                if neck_uv_scale is not None:
+                    # 与沙体**同一张材质、同一颗粒尺度**: u 按**实际半宽/直径**取,
+                    # v 从球底那一段起、沿颈部向下递增走进纹理内部。
+                    # ⚠️ u 绝不能写 0..1 —— 颈部只有二十来像素宽, 铺满整张纹理会被横向
+                    # 压十几倍, 变成一条竖向亮带、两边还取到材质的暗边(2026-10-04 实拍)。
+                    su = neck_uv_scale
+                    vb = NECK_UV_ANCHOR + (self._upper_sand_bot - y0) * su
+                    vt = NECK_UV_ANCHOR + (self._upper_sand_bot - y1) * su
+                    quad.tex_coords = (0.5 - x0 * su, vb, 0.5 + x0 * su, vb,
+                                       0.5 + x1 * su, vt, 0.5 - x1 * su, vt)
             else:
                 quad.points = [0] * 8
         if connected:
@@ -2274,6 +2301,14 @@ class HourglassWidget(Widget):
             size = (2 * self._taper["t_in"], transition)
             self._neck_solid_rect.pos = self._neck_fade_rect.pos = pos
             self._neck_solid_rect.size = self._neck_fade_rect.size = size
+            if neck_uv_scale is not None:
+                su = neck_uv_scale
+                half = self._taper["t_in"] * su
+                vb = NECK_UV_ANCHOR + (self._upper_sand_bot - outlet) * su
+                vt = NECK_UV_ANCHOR + (self._upper_sand_bot - outlet - transition) * su
+                uvs = (0.5 - half, vb, 0.5 + half, vb, 0.5 + half, vt, 0.5 - half, vt)
+                self._neck_solid_rect.tex_coords = uvs
+                self._neck_fade_rect.tex_coords = uvs
             strength = min(1, max(0, (self.elapsed - self._neck_fill_time) / 0.1))
             self._neck_solid_color.a = 1 - strength
         else:
@@ -2519,7 +2554,10 @@ class HourglassWidget(Widget):
             elif spread < -limit:
                 spread = -limit
             x = cx + spread
-            tone_t = 0.28 + 0.72 * t
+            # ⚠️ 亮端必须与**沙体材质**的量级对齐(2026-10-04 用户: "上面的部分和颈部的沙子
+            # 构成完全不同")。材质在 base ± 0.35 之间, 而这里原来最高走到 base→light 的 0.85,
+            # 比球体整整高一个档 ⇒ 颈部读成另一种材料。压暗会变脏斑(项目试过), 所以只收窄亮端。
+            tone_t = 0.06 + 0.20 * t
             if lights_p[i]:
                 tr, tg, tb = light_r, light_g, light_b
             else:
@@ -2527,7 +2565,7 @@ class HourglassWidget(Widget):
                 if variation > 4:
                     variation = 4
                 variation -= 2
-                mix = tone_t + variation * 0.09
+                mix = tone_t + variation * 0.04
                 if mix < 0.0:
                     mix = 0.0
                 elif mix > 1.0:
@@ -3038,16 +3076,16 @@ class HourglassApp(App):
         """
         if self._dev_popup is not None or self._benchmark_active():
             return
-        content = BoxLayout(orientation="vertical", spacing=dp(6),
-                            padding=[dp(14), dp(8), dp(14), dp(12)],
+        content = BoxLayout(orientation="vertical", spacing=dp(10),
+                            padding=[dp(16), dp(10), dp(16), dp(14)],
                             size_hint=(1, None))
         content.bind(minimum_height=content.setter("height"))
-        content.add_widget(Label(text="沙子材质", font_size=sp(15), color=POPUP_TEXT,
-                                 size_hint=(1, None), height=dp(22)))
+        content.add_widget(Label(text="沙子材质", font_size=sp(16), color=POPUP_TEXT,
+                                 size_hint=(1, None), height=dp(26)))
         buttons = []
         for name, mode, grain in SAND_STYLE_OPTIONS:
-            btn = Button(text=name, font_size=sp(15), background_normal="",
-                         color=POPUP_TEXT, size_hint=(1, None), height=dp(40))
+            btn = Button(text=name, font_size=sp(16), background_normal="",
+                         color=POPUP_TEXT, size_hint=(1, None), height=dp(46))
             buttons.append((mode, round(grain, 4), btn))
             content.add_widget(btn)
 
@@ -3065,20 +3103,24 @@ class HourglassApp(App):
             btn.bind(on_press=lambda _b, m=mode, g=grain: choose(m, g))
         refresh()
 
-        content.add_widget(Widget(size_hint=(1, None), height=dp(4)))
-        bench = Button(text="性能测试", font_size=sp(15), bold=True, background_normal="",
+        content.add_widget(Widget(size_hint=(1, None), height=dp(6)))
+        bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",
                        background_color=POPUP_CONFIRM, color=POPUP_TEXT_WHITE,
-                       size_hint=(1, None), height=dp(44))
+                       size_hint=(1, None), height=dp(50))
         bench.bind(on_press=lambda *_: (self._close_dev_menu(), self.on_benchmark()))
         content.add_widget(bench)
-        close = Button(text="关闭", font_size=sp(15), background_normal="",
+        close = Button(text="关闭", font_size=sp(16), background_normal="",
                        background_color=POPUP_CANCEL_BG, color=POPUP_TEXT,
-                       size_hint=(1, None), height=dp(40))
+                       size_hint=(1, None), height=dp(46))
         close.bind(on_press=lambda *_: self._close_dev_menu())
         content.add_widget(close)
 
+        # 尺寸照**基准弹窗**那套(它已经跑过真机): 宽度 0.94, 高度取"内容需要"与
+        # "窗口 85%"的较小值 —— 不再写死一个数, 否则字体缩放一变就被裁掉。
+        # (2026-10-04 用户反馈"太拥挤、很多地方显示不全": 原来写的 0.8 宽 + dp(360) 高。)
+        popup_height = min(dp(440), max(Window.width, Window.height) * 0.85)
         popup = _SandBgPopup(title=f"v{APP_VERSION}", content=content,
-                             size_hint=(0.8, None), height=dp(360),
+                             size_hint=(0.94, None), height=popup_height,
                              auto_dismiss=False)
         popup.title_align = "center"
         popup.title_size = sp(17)
