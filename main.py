@@ -17,6 +17,7 @@ import os
 import random
 import struct
 from array import array
+from bisect import bisect_right     # 下球沙堆面积表求逆(_MoundArea)
 import sys
 import time
 import wave
@@ -175,20 +176,166 @@ SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 # ⚠️ 评审看的是**单帧裁图**, 而这个问题只有**跨时间**才看得出来 —— 同模型 panel 的共享
 #    盲区, 也是"知觉判断只能由用户裁"的又一个实例。
 # ⚠️ 下球的靠壁裙边(见下)保留: 它只在靠壁抬起、且不加粗糙度。
-# 下球沙堆的"靠壁裙边"(2026-10-04 对抗评审推荐): 下沙顶边是水平弦、与球壁在锐角直接
-# 切断, 读起来像"碗里的水位"。
-# ⚠️ **中间 60% 严格钉在 `get_mound_top_y()` 上、不加任何粗糙度** —— 那个函数同时是
-#    粒子的碰撞面, docstring 明写"碰撞面与实际绘制的水平沙面一致", 这是**有意的决定**。
-#    所以下球只做"两端抬裙边", 不复制上球的粗糙度。
-# ⚠️ 安全性已实测(评审 1 号): 落点 |x-cx| 中位 3px / p95 7px / **最大 9px**, 而弦半宽
-#    132.7px ⇒ 抬起的区域(|q|>0.30 ⇒ 离中心 >40px)离任何落点至少 31px。
-SURFACE_SEGS = 16           # 下球裙边的轮廓采样段数(每段一个 Quad)
-SURFACE_LIP_FRAC = 0.016    # 裙边抬多高 = 内径的比例(273px 内径 → 4.4px)
-SURFACE_LIP_START = 0.30    # 从 |q|>0.30 开始抬 —— 中间 60% 钉死在碰撞线上
-# 沙面离球顶多近时把塑形收掉(占内径的比例)。满沙时沙面就在球顶那个 w=0 的尖点上,
-# 那里没有"表面"可言; 而静态粗糙度取负值时轮廓会落到球顶**以下**, carve 于是
-# 抠出一个可见的小缺口 —— 用户 2026-10-04 实拍发现("初始状态上面有个空隙")。
-SURFACE_FULL_MARGIN = 0.14
+# 下球沙堆的形状: **休止角锥面(堆)**, 不是平顶的"水位线" —— 2026-10-04 用户实拍
+# 「下面的这个沙子的形状完全不符合物理学吧」「简化版本的也不符合」。
+#
+# 球内局部坐标(x=0 中轴, y=0 球内底, R=内半径, D=2R):
+#     B(x) = R - sqrt(R²-x²)                  圆内底
+#     U(x) = R + sqrt(R²-x²)                  圆内顶
+#     P(x) = a - m·max(0, |x| - b)            未裁剪堆面(**a 是虚拟锥顶高度**)
+#     H(x) = clamp(P(x), B(x), U(x))          该列**接触高度**(粒子/尘埃判定用)
+#
+# ⚠️ 下面这六个坑是第一版实现踩的, 由外部专家 2026-10-04 逐条定位(`xingzhuang2.md` §2):
+#   ① a 是**虚拟**高度, 可以高于球顶(可见部分由球裁剪) ⇒ 二分上界不能写 2R;
+#   ② 平台半宽 b **不许**跟着"旧平顶弓形在该高度的弦宽"收缩 —— 那会在末期缩到 0.5px,
+#      沙堆反而变尖、结束时会"倒退缩水"; b 由**落束覆盖范围**定, 随几何一起重建;
+#   ③ 目标面积与候选面积必须**同一套离散口径**(解析圆弓 vs 25 列采样差 ~0.9%,
+#      最后一小条永远填不上) ⇒ 都用同一张面积表算;
+#   ④ 绘制折线必须**经过 ±b 转折点**, 且与碰撞/装饰共用同一份定义(不许三处各写一遍);
+#   ⑤ 放开 a>D 之后 UV 不能按高度截取, 否则颗粒被纵向拉伸 ⇒ 下球改成固定 D×D 全 UV + carve;
+#   ⑥ 形状缓存不能只认 elapsed(暂停时改尺寸/换周期 → 几何变了而时间没变)。
+#
+# ⚠️ **平台是碰撞接口的约束, 不是审美**: 粒子主流用的碰撞面是**一个标量**
+#    `get_mound_top_y()`(见 update_particles / flow_numpy 的 `mound_top`)。只要落点满足
+#       |x| ≤ b  且  B(x) ≤ a ≤ U(x)
+#    标量就与可见面严格重合。**第三条在接近满球时必然失效**(圆顶各点高度不同) ⇒
+#    专家 §5.2 摆了两条路, 我们走 **A**: 保留标量、平台钉住落束,
+#    ⇒ 末期是"经像素容差验证的近似", **不许声称全阶段严格贴面**。
+#    B(主流也按 H(x) 取接触高度)是**碰撞接口变更**(命中时刻求解/两条路径/命中特效都要改),
+#    留给独立一轮, 要用户点头才动。
+MOUND_REPOSE_SLOPE = 0.60   # 休止角 tanθ ≈ 0.60 (≈31°); 专家: 只是当前风格的初值, 不是定律
+MOUND_PLATEAU_K = 1.8       # 平台半宽 = K × 管内壁半宽 t_in(≈落束出口宽度) ⇒ 随几何缩放
+MOUND_PLATEAU_MIN = 6.0     # 平台半宽下限(逻辑像素)
+MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
+MOUND_AREA_SAMPLES = 129    # 面积表积分节点数(奇数; 含 ±b 与斜坡切圆的临界点)
+MOUND_DRAW_EXTRA = 48       # 绘制折线的角度采样数(另加 ±R/±b/0 与**逐帧的壁交点**这些真转折点)
+#   ⚠️ 24 时实测最外一段弦高出真圆 ~4px ⇒ 沙堆与壁相接处留一条 2~5px 的沙楔; 48 → 误差 ÷4
+
+
+class _MoundArea:
+    """一维面积表: A(a) = Σ w·clamp(a + offset - bottom, 0, top-bottom) —— 折线求逆。
+
+    移植自外部专家 `xingzhuang2.md` §4.3 的参考实现。每一列的"面积"都是
+    "先为零 → 线性增长 → 填满后不变", 把各列的起止高度合并事件后, 总面积正好是一条折线,
+    所以查表 + 线性插值就是**精确求逆**, 不必每帧二分。
+    """
+
+    __slots__ = ("heights", "areas", "capacity")
+
+    def __init__(self, bottom, top, weights, offsets):
+        events = {}
+        for lo, hi, w, off in zip(bottom, top, weights, offsets):
+            if hi <= lo:
+                continue
+            start, end = lo - off, hi - off
+            events[start] = events.get(start, 0.0) + w
+            events[end] = events.get(end, 0.0) - w
+        self.heights = sorted(events)
+        self.areas = []
+        area = slope = 0.0
+        prev = self.heights[0]
+        for height in self.heights:
+            area += max(0.0, slope) * (height - prev)
+            self.areas.append(area)
+            slope += events[height]
+            prev = height
+        self.capacity = self.areas[-1]
+
+    def area_at(self, height):
+        if height <= self.heights[0]:
+            return 0.0
+        if height >= self.heights[-1]:
+            return self.capacity
+        i = bisect_right(self.heights, height) - 1
+        f = (height - self.heights[i]) / (self.heights[i + 1] - self.heights[i])
+        return self.areas[i] + f * (self.areas[i + 1] - self.areas[i])
+
+    def height_at(self, area):
+        if area <= 0.0:
+            return self.heights[0]
+        if area >= self.capacity:
+            return self.heights[-1]
+        i = bisect_right(self.areas, area) - 1
+        f = (area - self.areas[i]) / (self.areas[i + 1] - self.areas[i])
+        return self.heights[i] + f * (self.heights[i + 1] - self.heights[i])
+
+
+class _MoundProfile:
+    """下球沙堆的形状解 —— 移植自外部专家 `xingzhuang2.md` §4.3 的参考实现。
+
+    只在**几何/参数变化时**重建(见 `HourglassWidget._rebuild_height_table`), 每帧只做一次
+    `apex_for_height()` 查表。单位: 构造时 `radius/plateau_half` 是绝对像素,
+    内部用归一化坐标(x∈[-1,1], 高度以 R 为单位)算面积表, 返回值是**绝对**虚拟锥顶高度。
+
+    ⚠️ `flat` 与 `heap` 两张表**共用同一套节点/权重**, 目标面积也走 `flat`(专家 §2.3):
+    解析圆弓面积与这套离散口径差 ~0.9%, 混用会让末期填不满。
+    """
+
+    __slots__ = ("radius", "b", "slope", "xs", "flat", "heap")
+
+    def __init__(self, radius, plateau_half, slope=MOUND_REPOSE_SLOPE,
+                 samples=MOUND_AREA_SAMPLES):
+        if radius <= 0 or not 0.0 <= plateau_half <= radius or slope < 0:
+            raise ValueError("invalid mound geometry")
+        if samples < 5 or samples % 2 == 0:
+            raise ValueError("samples must be odd and >= 5")
+        self.radius = float(radius)
+        self.b = plateau_half / self.radius
+        self.slope = float(slope)
+        # 积分节点: 均匀点 ∪ {±b} ∪ {斜坡与圆顶相切的临界点} —— 折线的真转折点必须进表
+        half_count = (samples - 1) // 2
+        positive = {i / half_count for i in range(half_count + 1)}
+        positive.add(self.b)
+        critical = self.slope / math.sqrt(1.0 + self.slope * self.slope)
+        if critical >= self.b:
+            positive.add(critical)
+        self.xs = sorted(positive | {-x for x in positive})
+        bottom = []
+        for x in self.xs:
+            bottom.append(1.0 - math.sqrt(max(0.0, 1.0 - x * x)))
+        top = [2.0 - y for y in bottom]
+        weights = []
+        n = len(self.xs)
+        for i, x in enumerate(self.xs):
+            left = x - self.xs[i - 1] if i else 0.0
+            right = self.xs[i + 1] - x if i + 1 < n else 0.0
+            weights.append(0.5 * (left + right))
+        offsets = [-self.slope * max(0.0, abs(x) - self.b) for x in self.xs]
+        self.flat = _MoundArea(bottom, top, weights, [0.0] * n)
+        self.heap = _MoundArea(bottom, top, weights, offsets)
+
+    def apex_for_height(self, height):
+        """体积反查出来的平顶高度 h → **虚拟**锥顶高度(绝对)。同口径换算, 不倒退。"""
+        h = min(max(height / self.radius, 0.0), 2.0)
+        fraction = self.flat.area_at(h) / self.flat.capacity
+        return self.radius * self.heap.height_at(fraction * self.heap.capacity)
+
+    def raw(self, dx, apex):
+        """未裁剪堆面高度(绝对, 离球内底)。"""
+        return apex - self.slope * max(0.0, abs(dx) - self.b * self.radius)
+
+    def bounds(self, dx):
+        """该列的球内底/球内顶高度(绝对) —— 理想圆公式, 实际接缝仍交给 Ellipse 裁剪。"""
+        r = self.radius
+        x = min(max(dx, -r), r)
+        half = math.sqrt(max(0.0, r * r - x * x))
+        return r - half, r + half
+
+    def contact(self, dx, apex):
+        """该列的**接触高度**(绝对) —— 粒子/尘埃的判定面, 与绘制同一份定义。"""
+        floor, roof = self.bounds(dx)
+        return min(max(self.raw(dx, apex), floor), roof)
+
+    def has_sand(self, dx, apex):
+        """该列有没有沙(自由表面/填满都算有; P ≤ B 才是裸露球底)。"""
+        floor, _roof = self.bounds(dx)
+        return self.raw(dx, apex) > floor
+
+    def free_surface(self, dx, apex):
+        """该列是不是**真正的自由表面**(沙与空气之间) —— 亮带只画在这里。"""
+        floor, roof = self.bounds(dx)
+        p = self.raw(dx, apex)
+        return floor < p < roof
 
 # ---- 玻璃反光: **已删除**(2026-10-04, 用户实拍裁决「有害无益, 全删了」) -------------
 # 1.57 按外部美术规格 meishu2.md §5.1/§5.2 加的"左上主反光(两段留断口) + 右下弱反光 +
@@ -1178,6 +1325,10 @@ class HourglassWidget(Widget):
         self.flares = []
         self.dusts = []
         self.mound_peak_offset = 0.0
+        self._geom_generation = 0            # 几何代: 尺寸/周期/窗口一变就 +1, 形状缓存跟着失效
+        self._mound_profile = None           # 下球沙堆形状解(见 _MoundProfile), 几何重建时换新
+        self._mound_plateau_half = 0.0
+        self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self.flash_end = 0.0
         self._completion_triggered = False
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
@@ -1312,6 +1463,18 @@ class HourglassWidget(Widget):
             'out_pts': _bezier2((w_out, y_out), (t_out, y_knee_o), (t_out, y_bot), TAPER_SEGS),
             'in_pts': _bezier2((w_in, y_in), (t_in, y_knee_i), (t_in, y_bot), TAPER_SEGS),
         }
+        # 下球沙堆的形状解: **几何一变就重建**(专家 §2.2/§2.6)
+        #   平台半宽 = K × 管内壁半宽(≈落束出口宽度), 随尺度走 —— 不是写死的 20px;
+        #   它是几何量, 所以进"几何代"一起失效, 而不是只认 elapsed。
+        self._geom_generation += 1
+        plateau_half = min(Ri * 0.5, max(MOUND_PLATEAU_MIN, MOUND_PLATEAU_K * t_in))
+        try:
+            self._mound_profile = _MoundProfile(Ri, plateau_half, MOUND_REPOSE_SLOPE)
+            self._mound_plateau_half = plateau_half
+        except ValueError:
+            self._mound_profile = None
+            self._mound_plateau_half = 0.0
+        self._mound_shape_cache = None
         self._geom_ready = True
         self._build_glass_shell()
         self._build_dynamic_canvas()
@@ -1434,9 +1597,45 @@ class HourglassWidget(Widget):
         side.append((w, fill_y))
         return side
 
+    def _mound_apex(self):
+        """本帧的**虚拟**锥顶高度(绝对, 离球内底) —— 每帧只解一次。
+
+        解由 `_MoundProfile.apex_for_height(h)` 给出(面积表求逆, 不是每帧二分):
+        h = 体积反查出来的"等面积平顶弓形高度"(时间映射一个字没改)。
+        ⚠️ 缓存键 = **(几何代, elapsed)** —— 只认 elapsed 的话, 暂停时改尺寸/换周期
+        (几何变了、时间没变)会拿到上一套球半径的结果(专家 §2.6)。
+        """
+        key = (self._geom_generation, self.elapsed)
+        cached = self._mound_shape_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        profile = self._mound_profile
+        h = self._mound_height_px()
+        apex = 0.0 if (profile is None or h <= 0.0) else profile.apex_for_height(h)
+        self._mound_shape_cache = (key, apex)
+        return apex
+
+    def _mound_contact_h(self, dx):
+        """给定横向偏移处的**接触高度**(离球内底, 绝对) —— 与绘制同一份定义。"""
+        profile = self._mound_profile
+        apex = self._mound_apex()
+        if profile is None or apex <= 0.0:
+            return 0.0
+        return profile.contact(dx, apex)
+
+    def _mound_top_at(self, x):
+        """绝对 y 版的接触高度 —— splash / 尘埃用(它们会跑到平台之外)。"""
+        return self._lower_sand_bot + self._mound_contact_h(x - self._cx)
+
     def get_mound_top_y(self):
-        """碰撞面与实际绘制的水平沙面一致,不使用未绘制的堆尖。"""
-        return self._lower_sand_bot + self._mound_height_px()
+        """粒子主流的碰撞面(**一个标量**, 见常量区"路线 A")。
+
+        = 中轴处的接触高度 = clamp(虚拟锥顶, 球内底, 球内顶) —— **必须裁剪**:
+        专家 §5.1 指出, 放开 a>D 之后原样返回未裁剪的 a 会制造更明显的悬空碰撞。
+        ⚠️ 接近满球时圆顶各点高度不同 ⇒ 标量与可见面**不可能全阶段严格重合**,
+        这是路线 A 的已知近似(末期误差另有验收, 见 xingzhuang2.md §5.2)。
+        """
+        return self._lower_sand_bot + self._mound_contact_h(0.0)
 
     def _sand_half_w(self, y, yc):
         Ri = self._R_inner
@@ -1475,6 +1674,9 @@ class HourglassWidget(Widget):
         self.flares = []
         self.dusts = []
         self.mound_peak_offset = 0.0
+        # ⚠️ 只清**每帧缓存**, 不动 `_mound_profile`/`_geom_generation` —— 那两个是**几何**,
+        #    由尺寸/周期变化重建; 重置一局不能把沙堆形状解删掉(删了沙堆就画不出来)。
+        self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self.flash_end = 0.0
         self._completion_triggered = False
         self._completion_token += 1          # 作废还没到点的完成提示
@@ -2123,6 +2325,11 @@ class HourglassWidget(Widget):
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
         self._p_refresh_view()
 
+        # 平台之外只有 splash/尘埃会落 ⇒ 它们按**接触高度 H(x)** 判定(与绘制同一份定义,
+        # 专家 §2.4); 主流落在平台上, 继续用标量 mound_top, 热循环一个字不改(路线 A)。
+        _mound_bot = self._lower_sand_bot
+        _profile = self._mound_profile
+        _apex = self._mound_apex()
         new_splashes = []
         append_splash_keep = new_splashes.append
         for s in self.splashes:
@@ -2139,7 +2346,11 @@ class HourglassWidget(Widget):
             sx = x - cx
             if (sx if sx > 0 else -sx) > half - 1:
                 continue
-            if vy < 0 and y <= mound_top:
+            if _profile is None or _apex <= 0.0:
+                _mt = _mound_bot
+            else:
+                _mt = _mound_bot + _profile.contact(sx, _apex)
+            if vy < 0 and y <= _mt:
                 continue
             if y < lower_bot or y > lower_top - 5:
                 continue
@@ -2153,7 +2364,12 @@ class HourglassWidget(Widget):
             d["y"] += d["vy"] * dt - 225 * dt * dt
             d["vy"] -= 450 * dt
             d["x"] += d["vx"] * dt
-            if now > d["end"] or d["y"] < mound_top - 1:
+            _dd = d["x"] - cx
+            if _profile is None or _apex <= 0.0:
+                _mt = _mound_bot
+            else:
+                _mt = _mound_bot + _profile.contact(_dd, _apex)
+            if now > d["end"] or d["y"] < _mt - 1:
                 continue
             new_dusts.append(d)
         self.dusts = new_dusts
@@ -2309,45 +2525,108 @@ class HourglassWidget(Widget):
         self.redraw()
         return True
 
-    def _draw_mound_shape(self, h_mound):
-        """下球沙堆的靠壁裙边 —— 用与上球同一套 carve/band 机制。
+    def _mound_knots(self, apex=None):
+        """绘制折线的横向节点(相对中轴的偏移) —— **必须含所有的真转折点**。
 
-        ⚠️ 中间 |q|<=SURFACE_LIP_START 的一段 **y 严格等于 base_y**（不加粗糙度）:
-        base_y 就是 get_mound_top_y()= 粒子碰撞面, 一字不改。只有靠壁两侧抬起来,
-        把"水平弦切圆壁"的锐角变成圆角。
-        ⚠️ 横向归一化按**可见弦宽**, 不是球的全宽（1.61 那条教训）。
+        转折点有三类:
+          ① 平台的肩 ±b(专家 §2.4: 转角若落在两节点之间, 画出来是跨过转角的斜线,
+             而碰撞算的仍是平台);
+          ② **锥面与球内底的交点**(自由表面的真实端点, 逐帧求根, 见 `_mound_wall_cross`);
+          ③ 最外的 ±R。
+        ⚠️ 节点按**角度**均匀取, 不是按 x 均匀(实测踩过): 球壁附近 B(x)=R-√(R²-x²) 的
+        切线近乎竖直, 按 x 均匀时最外一段的弦会比真圆**高出约 10px** ⇒ carve 抠不到那一块,
+        左右球壁各留一条金边。按 θ 均匀 ⇒ Δx = R·cosθ·Δθ 在壁附近自动变细(最外一格 <1px)。
+        """
+        Ri = self._R_inner
+        b = self._mound_plateau_half
+        xs = {0.0, Ri, -Ri}
+        if 0.0 < b < Ri:
+            xs.add(b)
+            xs.add(-b)
+        n = MOUND_DRAW_EXTRA
+        for i in range(n + 1):
+            xs.add(Ri * math.sin(-math.pi / 2.0 + math.pi * i / n))
+        if apex is not None:
+            for dx in self._mound_wall_cross(apex):
+                if -Ri < dx < Ri:
+                    xs.add(dx)
+        return sorted(xs)
+
+    def _mound_wall_cross(self, apex):
+        """锥面 `P(x)` 与球内底 `B(x)` 的交点(左右各一个, 没有就跳过)。
+
+        这就是**自由表面的端点**: `contact = clamp(P, B, U)` 在这里有一个折角,
+        不把它放进绘制节点, carve 的弦就会跨过折角、在壁边留下 ~3px 的沙条
+        (实测 t=1.96 时 dx≈±102 处 +3.3px)。
+        `P - B` 在 [b, R] 上严格单调递减(raw 斜率 -m, B 单调增) ⇒ 至多一根, 二分即可。
+        """
+        prof = self._mound_profile
+        if prof is None or apex <= 0.0:
+            return []
+        Ri = self._R_inner
+        b = min(max(self._mound_plateau_half, 1e-6), Ri)
+        out = []
+        for sign in (1.0, -1.0):
+            lo, hi = (b, Ri) if sign > 0 else (-Ri, -b)
+            gap_lo = prof.raw(lo, apex) - prof.bounds(lo)[0]
+            gap_hi = prof.raw(hi, apex) - prof.bounds(hi)[0]
+            if gap_lo <= 0.0:
+                continue                      # 连平台下沿都在球底以下 ⇒ 这一侧没有沙
+            if gap_hi > 0.0:
+                continue                      # 一直到壁都还有沙(近满球) ⇒ 没有交点
+            for _ in range(18):
+                mid = 0.5 * (lo + hi)
+                if prof.raw(mid, apex) - prof.bounds(mid)[0] > 0.0:
+                    lo = mid
+                else:
+                    hi = mid
+            out.append(0.5 * (lo + hi))
+        return out
+
+    def _draw_mound_shape(self, h_mound):
+        """下球沙堆的**锥面**轮廓 —— carve 抠掉轮廓以上的沙, band 只画在真正的自由表面上。
+
+        轮廓 H(x) = clamp(P(x), B(x), U(x))(见 `_MoundProfile`), 与碰撞/尘埃**共用同一份
+        定义**(不再三处各写一遍, 专家 §2.4)。
+        ⚠️ carve 上沿 = 球内顶 + 余量: H 被 U 裁剪过 ⇒ 上沿永远 ≥ H, 不会出上下颠倒的 Quad。
+           (也不再需要"矩形画到峰顶之上"那种把 UV 拉长的做法 —— 专家 §2.5)
+        ⚠️ band 只在 `B < P < U` 的真自由表面上画; 填满的列和裸露球底都不画,
+           否则满球时会在球顶内侧留一条悬空的亮线(专家 §4.1)。
         """
         carve, band = self._mound_carve, self._mound_band
-        if h_mound <= 0:
+        profile = self._mound_profile
+        if h_mound <= 0 or profile is None:
             for q in carve + band:
                 q.points = [0] * 8
             return
-        cx, Ri = self._cx, self._R_inner
-        base = self.get_mound_top_y()
-        chord = math.sqrt(max(1.0, Ri * Ri - (base - self._lower_y_c) ** 2))
-        # ⚠️ **轮廓幅度**必须受沙堆高度约束: 原来写死常数 4.4px, 沙堆刚出现时(h=3.6px)
-        # 边缘被抬到 7.6px ⇒ **边缘是中心的 2.1 倍**, 读成"浅碟"(堆应该中间最高)。
-        # 评审 2026-10-04 实测 t=1.400: mound=3.6px 而靠壁 7.6px。0→满 软起, h=8px 到满幅。
-        lift = min(2.0 * Ri * SURFACE_LIP_FRAC, h_mound * 0.6)
-        # ⚠️ **carve 的上沿必须用未钳的 LIFT_MAX** —— 沙体矩形是抬到 LIFT_MAX 的(见 redraw),
-        #    只抠到 `lift` 会在轮廓之上留一条浮空的平沙(矩形盖着、没人抠)。
-        LIFT_MAX = 2.0 * Ri * SURFACE_LIP_FRAC
-        width = min(SAND_SURFACE_BAND, h_mound)
+        cx = self._cx
+        bottom = self._lower_sand_bot
+        top = bottom + 2.0 * self._R_inner + MOUND_CREST_MARGIN   # == redraw 里矩形的顶
+        apex = self._mound_apex()
         self._mound_band_color.a = SAND_SURFACE_ALPHA * min(
             1.0, max(0.0, h_mound / SAND_SURFACE_FADE))
-        span = max(1e-6, 0.5 - SURFACE_LIP_START)
-        prof = []
-        for i in range(SURFACE_SEGS + 1):
-            tt = i / SURFACE_SEGS
-            x = cx - Ri + 2.0 * Ri * tt
-            q = abs((x - cx) / chord)
-            e = 0.0 if q <= SURFACE_LIP_START else min(1.0, (q - SURFACE_LIP_START) / span)
-            prof.append((x, base + lift * e))
-        for i in range(SURFACE_SEGS):
-            x0, y0 = prof[i]
-            x1, y1 = prof[i + 1]
-            carve[i].points = [x0, y0, x1, y1, x1, base + LIFT_MAX, x0, base + LIFT_MAX]
-            band[i].points = [x0, y0, x1, y1, x1, y1 - width, x0, y0 - width]
+        knots = self._mound_knots(apex)
+        cols = []
+        for dx in knots:
+            floor, _roof = profile.bounds(dx)
+            y = profile.contact(dx, apex)
+            cols.append((cx + dx, bottom + y, profile.free_surface(dx, apex), y - floor))
+        for i in range(len(carve)):
+            if i + 1 >= len(cols):
+                carve[i].points = [0] * 8
+                if i < len(band):
+                    band[i].points = [0] * 8
+                continue
+            x0, y0, free0, th0 = cols[i]
+            x1, y1, free1, th1 = cols[i + 1]
+            carve[i].points = [x0, y0, x1, y1, x1, top, x0, top]
+            if i >= len(band):
+                continue
+            if free0 and free1:
+                w = min(SAND_SURFACE_BAND, th0, th1)
+                band[i].points = [x0, y0, x1, y1, x1, y1 - w, x0, y0 - w]
+            else:
+                band[i].points = [0] * 8
 
     def _build_dynamic_canvas(self):
         """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
@@ -2372,13 +2651,13 @@ class HourglassWidget(Widget):
                 band_rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
                 self._sand_bands.append((band_color, band_rect))
                 if yc == self._lower_y_c:
-                    # 下球: 只做"靠壁裙边"(中间 60% 严格钉在碰撞线上, 见常量区)
+                    # 下球: carve 按**真转折点**折线抠掉轮廓以上的沙(见 _draw_mound_shape)。
+                    # 段数 = 节点数-1(含 ±R/±b/0), 在几何重建时定下来。
+                    n_seg = max(1, len(self._mound_knots()) - 1 + 4)   # +4: 逐帧的壁交点
                     Color(*hex_rgb(GLASS_FILL), 1)
-                    self._mound_carve = [Quad(points=[0] * 8)
-                                         for _ in range(SURFACE_SEGS)]
+                    self._mound_carve = [Quad(points=[0] * 8) for _ in range(n_seg)]
                     self._mound_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
-                    self._mound_band = [Quad(points=[0] * 8)
-                                        for _ in range(SURFACE_SEGS)]
+                    self._mound_band = [Quad(points=[0] * 8) for _ in range(n_seg)]
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
@@ -2548,14 +2827,19 @@ class HourglassWidget(Widget):
         diameter = 2 * self._R_inner
         full_uv = None if self._sand_material is None else self._sand_material.tex_coords
         up_draw = upper_height
-        # ⚠️ 下球也要抬到 base+lift: 裙边在矩形顶**之上**, 而 carve 只能"减"不能"加" ——
-        #    不抬高矩形, 抠的就是矩形之上的空气(第一版就是这么失效的)。
-        lift = 2.0 * self._R_inner * SURFACE_LIP_FRAC
-        mound_draw = h_mound + (lift if h_mound > 0 else 0.0)
-        for (_color, rect), height in zip(self._sand_chords, (up_draw, mound_draw)):
+        # 下球矩形**固定画满整个内球**(D + 余量), 不再跟着虚拟峰顶走 —— 专家 §2.5:
+        #   ① 放开"虚拟锥顶高于球顶"之后, 再按高度截 UV 会把颗粒**纵向拉伸**;
+        #   ② 轮廓以上的沙由 carve 抠掉, 所以矩形只管"铺满", 上沿永远取球内顶 + 余量。
+        #   ⇒ 与 `_draw_mound_shape` 里 carve 的上沿是**同一个值**。
+        mound_draw = (2.0 * self._R_inner + MOUND_CREST_MARGIN) if h_mound > 0 else 0.0
+        for index, ((_color, rect), height) in enumerate(
+                zip(self._sand_chords, (up_draw, mound_draw))):
             rect.size = (diameter, height)
             if full_uv is not None:
-                rect.tex_coords = crop_tex_coords(full_uv, height / diameter)
+                # 上球: 高度会变 ⇒ 按高度截 UV(颗粒尺度恒定)
+                # 下球: 固定 D×D ⇒ 整张 UV(专家 §2.5 的"固定完整 UV")
+                rect.tex_coords = (full_uv if index == 1
+                                   else crop_tex_coords(full_uv, height / diameter))
         # 沙面窄过渡(评审 meishu2.md §4.3): 紧贴沙面**内部**的一条窄亮带。
         # 下沙用 get_mound_top_y() —— 与**粒子碰撞面**同一个值, 保证"落点与可见表面一致"。
         # ⚠️ 沙体薄时按可见厚度按比例减弱, 否则会剩一条悬空的独立亮线。
