@@ -2385,28 +2385,40 @@ class HourglassWidget(Widget):
         self._surface_rough = [rng.uniform(-1.0, 1.0) for _ in range(SURFACE_SEGS + 1)]
 
     def _surface_profile(self, base_y, dip):
-        """沙面轮廓（右半 + 左半的 y 序列，按 tt 从 0 到 1）。
+        """沙面轮廓 —— 返回 `[(x, y), ...]`（世界坐标，x 从球左缘到右缘）。
 
-        `base_y` = 未塑形的沙面高度（矩形顶边），`dip` = 中央漏斗深度。
-        返回 `[(tt, y), ...]` 共 SURFACE_SEGS+1 个点；y 用 Kivy 坐标（大 = 高）。
+        ⚠️ 包络按**可见弦宽**算，不是球的全宽。沙少时沙面落在球底附近，可见弦只有
+        几十像素；若仍按全宽 `2·R_inner` 算，可见的那一小段会**全部落在包络顶部**
+        ⇒ 整条可见沙面被**均匀下压**，读成"沙面整体下沉"而不是"中央漏斗"。
+        实测过：第一版就是这个症状。
         """
-        amp = self._R_inner * SURFACE_ROUGH_FRAC
+        cx, Ri = self._cx, self._R_inner
+        chord = math.sqrt(max(1.0, Ri * Ri - (base_y - self._upper_y_c) ** 2))
+        amp = Ri * SURFACE_ROUGH_FRAC
         rough = self._surface_rough
         out = []
         for i in range(SURFACE_SEGS + 1):
             tt = i / SURFACE_SEGS
-            local = 1.0 - 4.0 * (tt - 0.5) ** 2      # 中央 1、两端 0 的抛物包络
-            out.append((tt, base_y + amp * rough[i] - dip * max(0.0, local)))
+            x = cx - Ri + 2.0 * Ri * tt
+            q = (x - cx) / chord          # 相对**可见弦**的归一化横向位置
+            local = (1.0 - 4.0 * q * q) if abs(q) < 0.5 else 0.0
+            out.append((x, base_y + amp * rough[i] - dip * local))
         return out
 
     def _funnel_depth(self):
-        """排水漏斗深度 —— 前载（真沙漏到休止角后饱和，之后锥面整体下移）。
+        """排水漏斗深度 —— 与锥形版同式：`min(cap, span × 0.3)`。
 
-        评审 2 号指出原案写"深度=已流体积的饱和函数"时把饱和当成了 bug；
-        真漏斗确实会饱和，这里显式写成 min()，不假装它一直在加深。
+        自变量是**沙面到颈口的距离** `span`，不是时间：
+        沙多 ⇒ 沙面离颈口远 ⇒ 坑深（撞上限）；沙面接近颈口 ⇒ 坑**收拢到 0**。
+
+        ⚠️ 第一版写成"前 18% 涨满后恒定"是错的 —— 那会让沙快流完时（沙面已经贴
+        着颈口）中央还留着一个坑，是个不该有的凹陷。先例 `hourglass.py:452`
+        原式 `min(28.0, (neck_y - sand_top_y) * 0.3)` 才是对的形状。
         """
-        frac = min(1.0, max(0.0, self.elapsed / max(1e-6, self.duration * FUNNEL_RAMP)))
-        return 2.0 * self._R_inner * FUNNEL_MAX_FRAC * frac
+        span = (self._upper_sand_bot + self._upper_sand_height_px()
+                - self._taper["y_bot"])
+        cap = 2.0 * self._R_inner * FUNNEL_MAX_FRAC
+        return max(0.0, min(cap, span * 0.3))
 
     def _draw_surface_shape(self, upper_height, peak):
         """上球沙面塑形：GLASS_FILL 色抠掉轮廓以上 + 沿同一条轮廓画亮带。
@@ -2423,7 +2435,6 @@ class HourglassWidget(Widget):
             for quad in band:
                 quad.points = [0] * 8
             return
-        cx, half = self._cx, self._R_inner
         base = self._upper_sand_bot + upper_height
         prof = self._surface_profile(base, self._funnel_depth())
         top = base + peak
@@ -2431,10 +2442,8 @@ class HourglassWidget(Widget):
         self._surface_band_color.a = SAND_SURFACE_ALPHA * min(
             1.0, max(0.0, upper_height / SAND_SURFACE_FADE))
         for i in range(SURFACE_SEGS):
-            t0, y0 = prof[i]
-            t1, y1 = prof[i + 1]
-            x0 = cx - half + 2.0 * half * t0
-            x1 = cx - half + 2.0 * half * t1
+            x0, y0 = prof[i]
+            x1, y1 = prof[i + 1]
             carve[i].points = [x0, y0, x1, y1, x1, top, x0, top]
             band[i].points = [x0, y0, x1, y1, x1, y1 - width, x0, y0 - width]
 
