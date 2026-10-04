@@ -3455,7 +3455,6 @@ class HourglassApp(App):
             # 拖动中直接点「确定」⇒ 先把没落定的预览烘成正式版, 再关
             if pending.get("grain") is not None:
                 commit_sand()
-            Clock.unschedule(commit_glass)
             hg.save_config(self._selected_color_name())
             self._close_dev_menu()
 
