@@ -3062,7 +3062,15 @@ class HourglassWidget(Widget):
                 dx = x0 + (x1 - x0) * frac
                 if abs(dx) >= half_chord:
                     continue
-                y = level - self._upper_surface_drop(dx, d, b)
+                # ⚠️ 必须与 `_draw_upper_shape` **同一个面**: 那边画的是
+                #    `level − drop + rough(i)`, 而亮带是沿**那个**面画的。
+                #    原来这里少了 `+ rough(i)` ⇒ 标记到**画出来的**沙面深度 = INSET + rough(dx),
+                #    rough ∈ [−1.25, +0.95] ⇒ 沙量多时最小深度 **2.99px**, 插进 3px 亮带。
+                #    (2026-10-05 r13-1号 在设备上量出 2/118 与 1/116 个端点深度读数 = 2.0;
+                #     下球因为用的是 `prof.contact`(含粗糙)所以一直是好的, min=4.0 两轮复现。)
+                _ri = int(round((dx + Ri) / (2.0 * Ri / (MOUND_SHAPE_NODES - 1))))
+                y = (level - self._upper_surface_drop(dx, d, b)
+                     + self._upper_rough_at(_ri, upper_height))
                 _h = 1.5     # 数值微分步长(px); 上球沙面是 level 减去下陷量
                 _sl = (self._upper_surface_drop(dx - _h, d, b)
                        - self._upper_surface_drop(dx + _h, d, b)) / (2.0 * _h)
