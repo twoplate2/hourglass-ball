@@ -9,3 +9,15 @@ mp3/
 MP3/
 benchmark_logs/
 _review/
+
+# ⚠️ 2026-10-06: 这些是**工作草稿 / 取证截图**, 不该进仓库。
+#    它们被 1.111 的 `git add -A` 误扫进来过 —— 后果不是"仓库大一点", 是
+#    **CI 从那一刻起四连败**: `buildozer.spec` 是 `source.dir = .` +
+#    `source.include_exts = py,png,...`, 于是 buildozer 会把整个仓库树里
+#    **所有 .py/.png** 拷进 app 目录再打进 APK —— 112 MB 截图全在里面。
+#    (1.110 及之前它们是未跟踪的, CI 检出时**根本不存在**, 所以一直没事。)
+_shot/
+_r1_rev/
+_cr_v165.py
+_rev_nofeather.py
+_rev_nolip.py
