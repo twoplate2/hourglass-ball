@@ -379,16 +379,26 @@ UPPER_FUNNEL_MAXB = 1.00    # 下陷半宽上限(0.80 -> 1.00: 用户要的 100%
 # 相邻帧相关系数 r=0.98(完全没动)。**但绝不能逐帧重抽** —— 那是 1.60/1.61 被用户
 # 判死("颗粒原地闪现 + 整条轮廓颤动")的路。这里做的是**平滑演化**: 预烘 64 帧、
 # 相邻帧之间在时间上做过环形平滑, 每帧只做 65 次线性插值。
-UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "8.0"))
-UPPER_ROUGH_FRAMES = 64
+# ⚠️ r18-1号 2026-10-05 查出: 原来是"**8 秒一轮回**"（`ph=(t/8)%1`）—— 53 秒档会看 6 圈同样的花纹。
+#    "循环"和"演化"是两回事。改法: **周期拉长到 48 秒, 同时把谐波次数按比例提高**
+#    ⇒ 肉眼看到的运动快慢**不变**（最快的分量周期仍是 ~3.7 秒）, 但一轮回变成 48 秒
+#    （53 秒档只看 1.1 圈）。帧数跟着提到 128: 最高谐波 13 ⇒ 每周期至少 8 帧采样。
+UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "48.0"))
+UPPER_ROUGH_FRAMES = 128
+UPPER_ROUGH_HARMONICS = (5, 8, 13)   # 谐波次数(整数 ⇒ 整轮严格闭合, 插值不会跳)
 
 # 上球沙面**图案演化周期**(秒) —— 2026-10-05 用户: "所谓沙面起伏, 目前是沙面粘合剂
 # (完全没有起伏, 是静止不动的)"。实测确认: 图案按固定节点号取值 ⇒ 钉死在固定 x 上,
 # 相邻帧相关系数 r=0.98(完全没动)。**但绝不能逐帧重抽** —— 那是 1.60/1.61 被用户
 # 判死("颗粒原地闪现 + 整条轮廓颤动")的路。这里做的是**平滑演化**: 预烘 64 帧、
 # 相邻帧之间在时间上做过环形平滑, 每帧只做 65 次线性插值。
-UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "8.0"))
-UPPER_ROUGH_FRAMES = 64
+# ⚠️ r18-1号 2026-10-05 查出: 原来是"**8 秒一轮回**"（`ph=(t/8)%1`）—— 53 秒档会看 6 圈同样的花纹。
+#    "循环"和"演化"是两回事。改法: **周期拉长到 48 秒, 同时把谐波次数按比例提高**
+#    ⇒ 肉眼看到的运动快慢**不变**（最快的分量周期仍是 ~3.7 秒）, 但一轮回变成 48 秒
+#    （53 秒档只看 1.1 圈）。帧数跟着提到 128: 最高谐波 13 ⇒ 每周期至少 8 帧采样。
+UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "48.0"))
+UPPER_ROUGH_FRAMES = 128
+UPPER_ROUGH_HARMONICS = (5, 8, 13)   # 谐波次数(整数 ⇒ 整轮严格闭合, 插值不会跳)
 
 UPPER_ROUGH_FRAC = _rough_level(
     os.environ.get("HG_SURFACE_LEVEL", SURFACE_ROUGH_LEVEL_DEFAULT))
@@ -507,7 +517,8 @@ def _surface_roughness(radius, amp_frac, seed, limit):
     return vals
 
 
-def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES, harmonics=3):
+def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES,
+                        harmonics=UPPER_ROUGH_HARMONICS):
     """预烘 `frames` 张粗糙数组, **随时间平滑演化**(供上球沙面用)。
 
     ⚠️ **为什么不用"独立的随机帧 + 时间上环形平滑"**（第一版就是那么写的, 实测被否）:
@@ -522,9 +533,10 @@ def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES, harmo
     import numpy as np
     n = MOUND_SHAPE_NODES
     rng = np.random.default_rng((seed or 721) + 991)
+    hz = tuple(harmonics) if hasattr(harmonics, "__len__") else tuple(range(1, harmonics + 1))
     amps = [rng.uniform(0.6, 1.0, size=n) if j == 0 else rng.uniform(0.15, 0.5, size=n)
-            for j in range(harmonics)]
-    psis = [rng.uniform(0.0, 2.0 * np.pi, size=n) for _ in range(harmonics)]
+            for j in range(len(hz))]
+    psis = [rng.uniform(0.0, 2.0 * np.pi, size=n) for _ in hz]
     # 目标 RMS: 与静态版同源(用同一套空间平滑口径算一遍参考值)
     ref = np.asarray(_surface_roughness(radius, amp_frac, seed, amp_frac * 2.0 * radius))
     target_rms = float(np.sqrt((ref ** 2).mean())) or 1.0
@@ -532,8 +544,8 @@ def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES, harmo
     for k in range(frames):
         ph = k / float(frames)
         v = np.zeros(n)
-        for j in range(harmonics):
-            v += amps[j] * np.sin(2.0 * np.pi * (j + 1) * ph + psis[j])
+        for j, m in enumerate(hz):
+            v += amps[j] * np.sin(2.0 * np.pi * m * ph + psis[j])
         rms = float(np.sqrt((v ** 2).mean()))
         v = v * (target_rms / rms) if rms > 1e-9 else v
         out.append(v.tolist())
