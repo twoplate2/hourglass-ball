@@ -99,8 +99,10 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
             below_tube = lower_cut - y
             v_at_y = (source_speed_squared + 2 * g_abs * below_tube) ** 0.5
             target = (source_speed / v_at_y) ** 0.5
-            if target <= 0.70:
-                target = 0.70
+            # ⚠️ 下限也从 `c` 读 —— 与 `flow_numpy` 同一个键, 否则两边会各写各的
+            #    (生产值见 main.py 的 `FLOW_SHRINK_MIN`, 默认 0.70)
+            if target <= c["shrink_min"]:
+                target = c["shrink_min"]
             if below_tube < 40.0:
                 shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
             else:
@@ -161,6 +163,7 @@ def main():
         "mound_top": 70.0,
         "g": -450.0,
         "g_abs": 450.0,
+        "shrink_min": 0.70,
         "source_speed": 60.0,
         "source_speed_squared": 3600.0,
         "lower_cut": 300.0,

@@ -356,6 +356,17 @@ SPLASH_BG_POW = 0.9         # 横向密度衰减指数(用户 2026-10-05: "中�
 # ⚠️ 倍率乘在 `rand_uniform(...)` **之后** —— 这样随机数流的调用次数与顺序一字不动,
 #    三档之间只有初速不同(否则同 seed 逐像素基线会作废, 也就没法并排比了)。
 SPLASH_BG_VY = float(os.environ.get("HG_SPLASH_VY", "1.0"))
+
+# 流量守恒的**收缩下限** —— 粒子加速下落时横向按 A·v=常数收缩, 这是它的地板。
+# ⚠️ **本移植与 PC v4 不一致, 而且这一条压在"铁律: PC v4 是唯一真理, 参数不变"上**:
+#      pc/hourglass_v4.py:1090     `max(0.5, ...)`
+#      本文件(标量路径)             硬钳位 0.70
+#      tools/flow_numpy.py:103      硬钳位 0.70      ← 两条路径**互相一致**, 一起偏离 v4
+#    文档(《CLAUDE.md》两处)记着这件事, 写着"有意/无意地偏离了参数不变, **要改这个数得两边一起决定**",
+#    但**没有记原因** —— 从没人问过用户。
+#    ⇒ 做成开关(默认 0.70 = **零行为改动**), 好让"0.70 vs 0.50 看起来差多少"变成可判的。
+#    ⚠️ 值通过 `consts` 传给 numpy 路径, 两条路径**不可能**再各写各的。
+FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.70"))
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -2807,6 +2818,7 @@ class HourglassWidget(Widget):
                     "lower_top": lower_top, "lower_center": lower_center,
                     "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
                     "source_speed": source_speed,
+                    "shrink_min": FLOW_SHRINK_MIN,
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
                     "curve": (_cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1),
@@ -2879,8 +2891,8 @@ class HourglassWidget(Widget):
                     below_tube = lower_cut - y
                     v_at_y = (source_speed_squared + 2 * g_abs * below_tube) ** 0.5
                     target = (source_speed / v_at_y) ** 0.5
-                    if target <= 0.70:
-                        target = 0.70
+                    if target <= FLOW_SHRINK_MIN:
+                        target = FLOW_SHRINK_MIN
                     # 平滑过渡区长度(px)
                     if below_tube < 40.0:
                         shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)

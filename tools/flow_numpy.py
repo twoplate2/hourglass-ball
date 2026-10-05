@@ -100,7 +100,9 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     below_tube = c["lower_cut"] - y
     v_at_y = np.power(np.maximum(c["source_speed_squared"] + 2 * g_abs * below_tube, 1.0), 0.5)
     target = np.power(c["source_speed"] / v_at_y, 0.5)
-    target = np.where(target <= 0.70, 0.70, target)
+    # ⚠️ 下限从 `consts` 读(由 main.py 的 `FLOW_SHRINK_MIN` 传入) —— 两条路径**不可能**再各写各的
+    _smin = c["shrink_min"]
+    target = np.where(target <= _smin, _smin, target)
     shrink_body = np.where(below_tube < 40.0,
                            1.0 + (target - 1.0) * (below_tube / 40.0),
                            target)
