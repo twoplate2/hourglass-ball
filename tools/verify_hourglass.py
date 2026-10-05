@@ -382,8 +382,33 @@ def main():
                       and widget._neck_fade_color.a == 1,
                       "outlet material is opaque and covers the conduit bottom")
                 color, line = widget._neck_grain_pool[1]
-                check(outlet < line.points[1] < widget._taper["y_bot"],
-                      "neck texture stays inside the straight conduit")
+                # ⚠️ 2026-10-05 重写。旧断言是 `outlet < line.points[1] < y_bot` ——
+                #    **它守的不是它标题说的东西**:
+                #    ① `_draw_neck_grains` 的设计就是把颗粒铺满**整条**颈部轮廓
+                #       (喇叭口 + 直筒, 见它的 docstring), 所以颗粒**本来就允许**落在
+                #       直筒以上的喇叭口里, 拿 `y_bot` 当上界从设计上就不对;
+                #    ② 实测余量是**亚像素**的 —— 同一份代码、同一个场景, 只换 widget 尺寸
+                #       (tools/_bisect_rough.py 第二步, 8 个尺度):
+                #         400×800 +0.58 / 480×800 +0.24 / 760×1460 +0.10 / 320×560 +0.54  PASS
+                #         **1096×2214 −0.09 / 800×480 −1.68**                          FAIL
+                #       ⇒ 它守的是"某个尺度下 top_y 恰好落在哪"的巧合, 不是不变量。
+                #    ⇒ 1.108 曾据它判「1.107 的三行调参引入回归」并回退。**那个归因是错的**:
+                #       同一探针证明那三个参数**逐位不改变** `_neck_sand_side()`(重建已自证生效)。
+                #    真不变量(且**比旧版更强** —— 旧版只看 pool[1] 一颗, 这里看全部已画的):
+                #       画出来的每一颗颗粒都必须落在**沙柱** `side` 里(含笔画半宽)。
+                side_now = widget._neck_sand_side()
+                lo_y, hi_y = side_now[-1][1], side_now[0][1]
+                out = []
+                for _c, _ln in widget._neck_grain_pool[:widget._neck_grain_count]:
+                    if not _ln.points:
+                        continue
+                    _half = _ln.width * 0.5
+                    _bot, _top = _ln.points[1], _ln.points[3]
+                    if _bot < lo_y - _half - 1e-6 or _top > hi_y + _half + 1e-6:
+                        out.append((round(_bot, 2), round(_top, 2)))
+                check(not out,
+                      "neck grain texture stays inside the sand column "
+                      "(out=%s, column=[%.2f, %.2f])" % (out[:3], lo_y, hi_y))
                 # 真正要守的: 颗粒色是不透明的预混色(不走半透明描边),且落在
                 # 底色↔亮色之间 —— 不再写死旧公式的"中点位"常数。
                 check(color.a == 1 and all(

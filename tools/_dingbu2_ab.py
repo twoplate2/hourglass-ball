@@ -85,15 +85,21 @@ def main():
                     del w.__dict__["_upper_funnel_params"]
                 w.redraw()
                 d0, b0 = w._upper_funnel_params(p, w._upper_sand_height_px())
+                # ⚠️ **必须分帧抓图**: 同一 Clock 回调里连做两次 glReadPixels 读到的是
+                #    **同一张已呈现帧** ⇒ 对照图两臂逐像素相同(2026-10-05 被审计员的
+                #    对照实验抓到: 即使把提案臂换成老公式、参数确实变了, 两半仍 maxdiff=0)。
+                self.d0b0 = (d0, b0)
                 self.grab("cur")
-                # 提案
                 import types
                 w._upper_funnel_params = types.MethodType(proposed_params, w)
                 w._mound_shape_cache = None
                 w.redraw()
-                d1, b1 = w._upper_funnel_params(p, w._upper_sand_height_px())
+                self.d1b1 = w._upper_funnel_params(p, w._upper_sand_height_px())
+                Clock.schedule_once(lambda dt: self.grab_new(p), 0.35)
+
+            def grab_new(self, p):
                 self.grab("new")
-                self.report(p, d0, b0, d1, b1)
+                self.report(p, self.d0b0[0], self.d0b0[1], self.d1b1[0], self.d1b1[1])
                 self.i += 1
                 Clock.schedule_once(self.step, 0.35)
 
@@ -117,6 +123,11 @@ def main():
                 c.paste(a, (0, 0))
                 c.paste(b, (0, a.height + 8))
                 c.save(OUT / ("funnel_p%02d.png" % int(p * 100)))
+                # ⚠️ **自检**: 两半若逐像素相同, 这张"对照图"就是假的 —— 必须喊出来
+                from PIL import ImageChops
+                diff = ImageChops.difference(a, b).convert("L")
+                mx = max(diff.getdata()) if diff.size else 0
+                print("     [自检] 两半 maxdiff=%d %s" % (mx, "OK" if mx > 0 else "**假对照图! 两臂同一帧**"))
 
             def finish(self):
                 if "_upper_funnel_params" in self.w.__dict__:
