@@ -2873,7 +2873,12 @@ class HourglassWidget(Widget):
         """
         pool = self._surface_marker_pool
         n_used = 0
-        if not self.running or self._mound_profile is None:
+        # ⚠️ **只在几何缺失时清池, 不要加 `not self.running`** —— 相位取自 `self.elapsed`,
+        #    暂停时它本来就不动 ⇒ 标记**天然冻结**; 多这道闸门的效果是"隐藏"而非"冻结",
+        #    与 docstring 自相矛盾, 且把用户点名要的"流沙感"在暂停(最高频交互)时整个关掉。
+        #    (r7-3号 实测 5/5 次暂停复现; 本地复现: 标记 20→0, 恢复后位置逐点相同 ⇒ 闸门纯多余)
+        #    空/满态靠几何自然隐藏: 满球 half_chord=0、漏完 free_surface 全假 —— 不需要它兜。
+        if self._mound_profile is None:
             for _c, ln in pool:
                 if ln.points:
                     ln.points = []
@@ -2902,16 +2907,22 @@ class HourglassWidget(Widget):
         if upper_height > 0.0 and SURFACE_MARKERS_UP > 0:
             p = 0.0 if self.duration <= 0 else min(1.0, t / self.duration)
             d, b = self._upper_funnel_params(p, upper_height)
-            level = self._upper_sand_bot + self._upper_level_for(upper_height)
-            half_chord = math.sqrt(max(0.0, Ri * Ri - (Ri - upper_height) ** 2))
+            lvl = self._upper_level_for(upper_height)
+            level = self._upper_sand_bot + lvl
+            # ⚠️ 半弦宽必须按**实际沙面高度 lvl** 算, 不是平顶等效高度 upper_height ——
+            #    满球时 lvl = 2R ⇒ 半弦 = 0 ⇒ 标记路径缩成一点。而判据原先是
+            #    `abs(dx) > half_chord`(0 > 0 为假) ⇒ **8 颗不跳过, 全叠在中心轴上**
+            #    画成一根 1.6px 竖线(实测: 初始/重置/刚起步三态都是"上=8")。
+            #    现在: 窄于 4px 整段不画 —— 那已不是"沿表面滑动", 只是一根柱。
+            half_chord = math.sqrt(max(0.0, Ri * Ri - (Ri - min(2.0 * Ri, lvl)) ** 2))
             per_side = SURFACE_MARKERS_UP // 2
-            for k in range(SURFACE_MARKERS_UP):
+            for k in range(SURFACE_MARKERS_UP if half_chord >= 4.0 else 0):
                 side = -1.0 if k < per_side else 1.0
                 frac = ((t / life) + (k % per_side) / max(1.0, per_side)) % 1.0
                 x0 = side * half_chord * SURFACE_MARKER_UP_START
                 x1 = side * half_chord * 0.06            # 终点靠近中心轴
                 dx = x0 + (x1 - x0) * frac
-                if abs(dx) > half_chord:
+                if abs(dx) >= half_chord:
                     continue
                 y = level - self._upper_surface_drop(dx, d, b)
                 emit(self._cx + dx, y, frac, (k % 2) == 0)
