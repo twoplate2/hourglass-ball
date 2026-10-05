@@ -2943,8 +2943,20 @@ class HourglassWidget(Widget):
         #       (`_mound_band_color` = sand_light @ 0.55) —— 金沙: 亮带 181 级、sand_light 190 级
         #       ⇒ 只差 **+8 级**, 低于材质噪声(±10) ⇒ 1号(上球)/2号(下球) 独立实测都报"看不见"。
         #    现在两档都取暗侧、且彼此可辨: sand_dark(−44 级) / mid(sand_dark, sand_base)(−27 级)。
-        color_base = self.sand_dark
-        color_light = tuple(0.5 * self.sand_dark[i] + 0.5 * self.sand_base[i] for i in range(3))
+        # 明暗差按 dingbu2.md §5 的 **8%~15%** 定档。⚠️ **不能写固定配比** ——
+        # 六种沙色的 base↔dark 亮度跨度差很大(黑沙 base 仅 70, 金砂 172), 同一个 0.5 配比
+        # 在金砂上是 −12%, 在黑沙上是 −29% ⇒ 固定配比必然有一半沙色出界。
+        # 正确做法: **按目标亮度百分比反解** —— 在 base→dark 这条线上找 α 使 luma 命中 frac×luma(base)。
+        # (实测口径 = 与**沙体本色**之比: 内侧偏移 2.6px 后标记的背景是沙体本色, 不再是亮带。)
+        def _tier(frac):
+            b, d = self.sand_base, self.sand_dark
+            lb = 0.299 * b[0] + 0.587 * b[1] + 0.114 * b[2]
+            ld = 0.299 * d[0] + 0.587 * d[1] + 0.114 * d[2]
+            alpha = 0.0 if abs(ld - lb) < 1e-6 else (frac * lb - lb) / (ld - lb)
+            alpha = max(0.0, min(1.0, alpha))
+            return tuple(b[i] + (d[i] - b[i]) * alpha for i in range(3))
+        color_base = _tier(0.85)    # −15% (规格上界)
+        color_light = _tier(0.90)   # −10% (规格中段)
 
         def emit(x, y, frac, light, big):
             nonlocal n_used
