@@ -3004,7 +3004,7 @@ class HourglassWidget(Widget):
         color_base = _tier(0.85)    # −15% (规格上界)
         color_light = _tier(0.90)   # −10% (规格中段)
 
-        def emit(x, y, frac, light, big, slope):
+        def emit(x, y, frac, light, big, slope, weight=1.0):
             """slope = 该点当地沙面的 dy/dx(Kivy y 向上) —— 标记要**顺着坡面**画。
 
             ⚠️ dingbu2.md §5 明确要求"下球短划线沿当地坡面方向分布, 上球沿向中央汇拢的
@@ -3017,7 +3017,7 @@ class HourglassWidget(Widget):
             col, ln = pool[n_used]
             fade = min(1.0, 4.0 * frac) * min(1.0, 4.0 * (1.0 - frac))   # 两端淡入淡出
             col.rgba = (*(color_light if light else color_base),
-                        SURFACE_MARKER_ALPHA * fade)
+                        SURFACE_MARKER_ALPHA * fade * weight)
             # 往下(沙体内侧)偏移 —— 离开 3px 亮带, 见 SURFACE_MARKER_INSET 的说明
             size = SURFACE_MARKER_SIZE_BIG if big else SURFACE_MARKER_SIZE
             half = size * 0.5
@@ -3077,13 +3077,21 @@ class HourglassWidget(Widget):
                         hi = mid
                 foot = 0.5 * (lo + hi)
                 start = min(foot, max(6.0, 0.12 * Ri))
-                dx = side * (start + (foot - start) * frac)
+                # ⚠️ **由强到弱**: 评审 dingbu.md §5 那张表对下球写的是
+                #    "先**集中**在堆顶周围的短坡段" —— 不是把 12 颗均匀铺满整条坡。
+                #    原实现 `start + (foot-start)*frac` 是线性等距 ⇒ 密度是平的。
+                #    现在: 位置用 frac**1.8 映射(越往后越挤向坡脚? 不 —— 见下) + 远端衰减。
+                #    用户原话: "至少附近他要有嘛, 有强到弱嘛, 正态分布啥的"。
+                _t = frac ** 1.8                    # 0→0 1→1, 前段慢后段快 ⇒ 前半程更密
+                dx = side * (start + (foot - start) * _t)
                 y = base + prof.contact(dx, apex)
                 if not prof.free_surface(dx, apex):
                     continue
                 _h = 1.5
                 _sl = (prof.contact(dx + _h, apex) - prof.contact(dx - _h, apex)) / (2.0 * _h)
-                emit(self._cx + dx, y, frac, (k % 2) == 1, (k % 4) >= 2, _sl)
+                # 远端(坡脚)只保留 25% 不透明度 ⇒ 落点附近密而亮、越往外越稀越淡
+                _w = 1.0 - 0.75 * frac
+                emit(self._cx + dx, y, frac, (k % 2) == 1, (k % 4) >= 2, _sl, _w)
         for _c, ln in pool[n_used:]:
             if ln.points:
                 ln.points = []
