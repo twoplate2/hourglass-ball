@@ -273,10 +273,11 @@ SURFACE_MARKER_LIFE = 0.9   # 单颗寿命(秒); 逐颗错开相位
 # ⚠️ 单位陷阱: widget 单位在**真机上就是物理像素**(geometry 从 widget size 派生)。
 #    1.6 单位 = 1.6 物理像素 = **0.914 dp**(density 280) —— 桌面预览把它放大了 3.26 倍
 #    (相对球径: 桌面 0.585%D vs 设备 0.180%D)。"桌面上看着清楚"不能作数。
-# 大小分级(dingbu2.md §5: "不要全部一样大"): 交替 1.5 / 2.4 物理像素,
+# 大小分级(dingbu2.md §5: "不要全部一样大"): 交替 2.2 / 3.4 物理像素,
+# ⚠️ 原 1.5/2.4 被两位独立审计量出**每颗只有 2~5 个像素**、同一时刻只有 3~5 颗可见 ⇒ 太小。
 # 大的那批读作"颗粒簇"。
-SURFACE_MARKER_SIZE = 1.5
-SURFACE_MARKER_SIZE_BIG = 2.4
+SURFACE_MARKER_SIZE = 2.2
+SURFACE_MARKER_SIZE_BIG = 3.4
 SURFACE_MARKER_ALPHA = 1.00
 SURFACE_MARKER_UP_START = 0.30   # 上球起点 = 弦半宽的 30% 处 → 滑向中心
 # ⚠️ 内侧偏移(dingbu2.md §5): 必须**离开沙面自带的那条 3px 亮带**。
@@ -2943,7 +2944,11 @@ class HourglassWidget(Widget):
         if b <= 1e-6 or d <= 0.0:
             return 0.0
         u = 1.0 - (dx / b) ** 2
-        return d * (u * u) if u > 0.0 else 0.0
+        # ⚠️ 指数从 2 降到 1(四次方 → 抛物线), 2026-10-05 由两位独立审计量出:
+        #    四次方掉得太快 ⇒ 按"下陷>1px 才算看得见"的口径, **可见坑半宽只有 0.82~0.87×半弦宽**,
+        #    p=0.95 时掉到 0.69 —— 用户要的是 90~100%。抛物线下可见半宽 ≈ sqrt(1-1/d)·b ≈ 0.97b。
+        #    |x|=b 处值 0 且斜率非 0(不再 C1), 但 b 已到或超过可见半弦, 那一点在沙体外或被球壁裁掉。
+        return d * u if u > 0.0 else 0.0
 
     def _draw_surface_markers(self, upper_height, h_mound):
         """§5 表层滑动标记 —— 让**静态**轮廓读起来像在流沙(专家 dingbu.md §5)。
