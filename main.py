@@ -243,8 +243,11 @@ MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carv
 #    外部评审判为"两段长平肩之间压出一个集中凹口", 不是用户要的"斜率很小的宽浅坑";
 #    他**主动认领这是自己上一稿把造型范围设窄了**。实测原参数坡度 18.3°~23.8°,
 #    新参数 2.5°~2.7°(与他的 0.045 rad ≈ 2.6° 自洽)。
-UPPER_FUNNEL_DEPTH = 0.010  # 中段最大下陷 = 0.010 × 直径(原 0.03 ⇒ 1/3)
-UPPER_FUNNEL_WIDTH = 0.35   # 下陷**半宽** = 0.35 × 可见全宽 C(原按直径算, 实际只有 0.112~0.149C)
+UPPER_FUNNEL_DEPTH = 0.018  # 中段最大下陷 = 0.018 × 直径
+#   ⚠️ 0.010 是 dingbu2.md §3 给的"美术起点"(他明说"不是物理定律、待视觉确认")。
+#   用户实测后说"坑还是太小" ⇒ 加深到 0.018。**宽度已顶到护栏**(见下), 只能靠深度。
+UPPER_FUNNEL_WIDTH = 0.40   # 下陷**半宽** = 0.40 × 可见全宽 C ⇒ = 0.80×半弦宽,
+#   **正好顶到 UPPER_FUNNEL_MAXB 的护栏**(0.35 时还有余量, 但用户要更大的坑)。
 UPPER_FUNNEL_MAXH = 0.25    # 下陷深度上限 = 0.25 × 当前沙层厚度
 UPPER_FUNNEL_MAXB = 0.80    # 下陷半宽上限 = 0.80 × 该高度的半弦宽
 # ---- §5 表层滑动标记: 让静态轮廓读起来像在流沙(专家 dingbu.md §5, 用户点名的那条) ----
@@ -2958,7 +2961,13 @@ class HourglassWidget(Widget):
         color_base = _tier(0.85)    # −15% (规格上界)
         color_light = _tier(0.90)   # −10% (规格中段)
 
-        def emit(x, y, frac, light, big):
+        def emit(x, y, frac, light, big, slope):
+            """slope = 该点当地沙面的 dy/dx(Kivy y 向上) —— 标记要**顺着坡面**画。
+
+            ⚠️ dingbu2.md §5 明确要求"下球短划线沿当地坡面方向分布, 上球沿向中央汇拢的
+            表面分布"。原实现一律画**竖直**短线(审计实测 20/20 颗走向角恒 90°),
+            在 30° 的锥面上看着像插着一排钉子, 而不是沙面上的颗粒。
+            """
             nonlocal n_used
             if n_used >= len(pool):
                 return
@@ -2968,8 +2977,12 @@ class HourglassWidget(Widget):
                         SURFACE_MARKER_ALPHA * fade)
             # 往下(沙体内侧)偏移 —— 离开 3px 亮带, 见 SURFACE_MARKER_INSET 的说明
             size = SURFACE_MARKER_SIZE_BIG if big else SURFACE_MARKER_SIZE
-            ln.points = [x, y - SURFACE_MARKER_INSET,
-                         x, y - SURFACE_MARKER_INSET - size]
+            half = size * 0.5
+            norm = math.hypot(1.0, slope) or 1.0
+            ux, uy = 1.0 / norm, slope / norm          # 单位切向量
+            cx0, cy0 = x, y - SURFACE_MARKER_INSET - half * uy
+            ln.points = [cx0 - ux * half, cy0 - uy * half,
+                         cx0 + ux * half, cy0 + uy * half]
             n_used += 1
 
         # ---- 上球: 从两侧朝中心滑(漏斗内) ----
@@ -2997,7 +3010,10 @@ class HourglassWidget(Widget):
                 if abs(dx) >= half_chord:
                     continue
                 y = level - self._upper_surface_drop(dx, d, b)
-                emit(self._cx + dx, y, frac, (k % 2) == 0, (k % 4) < 2)
+                _h = 1.5     # 数值微分步长(px); 上球沙面是 level 减去下陷量
+                _sl = (self._upper_surface_drop(dx - _h, d, b)
+                       - self._upper_surface_drop(dx + _h, d, b)) / (2.0 * _h)
+                emit(self._cx + dx, y, frac, (k % 2) == 0, (k % 4) < 2, _sl)
         # ---- 下球: 从落点附近沿坡向外滑 ----
         if h_mound > 0.0 and SURFACE_MARKERS_LOW > 0:
             prof = self._mound_profile
@@ -3022,7 +3038,9 @@ class HourglassWidget(Widget):
                 y = base + prof.contact(dx, apex)
                 if not prof.free_surface(dx, apex):
                     continue
-                emit(self._cx + dx, y, frac, (k % 2) == 1, (k % 4) >= 2)
+                _h = 1.5
+                _sl = (prof.contact(dx + _h, apex) - prof.contact(dx - _h, apex)) / (2.0 * _h)
+                emit(self._cx + dx, y, frac, (k % 2) == 1, (k % 4) >= 2, _sl)
         for _c, ln in pool[n_used:]:
             if ln.points:
                 ln.points = []
