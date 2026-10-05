@@ -330,6 +330,16 @@ MOUND_SHAPE_NODES = 65      # 表面轮廓控制点数(奇数 ⇒ 第 32 点正�
 MOUND_ROUGH_FRAC = 0.004    # 粗糙幅度 = 0.004 × 直径
 MOUND_ROUGH_SEED = 20261004 # **固定** seed: 整轮不重抽(逐帧重抽 = 1.60/1.61 的"原地闪现"教训)
 MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则 FRAC 失效(见上)
+# 背景飞溅(用户 2026-10-05: "下面的沙子…飞溅效果现在还是没有…只有沙柱和沙堆尖头那一块")。
+# 实测: 在途飞溅 85~119 颗, 但 |dx| 中位只有 ±6px 而沙堆半宽 137px ⇒ **96% 挤在落点**。
+# 不是 splash 不工作, 是**它只在一个点上工作** —— 沙流落在一个点, 斜坡上没有生成源。
+# 这一层按"离落点越远越稀"补, 是**纯装饰**(不反向影响 elapsed)。
+# ⚠️ 会改变随机数调用序列 ⇒ 旧的"同 seed 逐像素对照"基线作废(有意的视觉改动)。
+SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "260"))   # 颗/秒(满速率)
+# ⚠️ 第一版用 `|u|^1.6 × (0.42·R)` —— **上限被钉在 42% 半宽处**, 实测 >50%R 恒 0%。
+#    改成"**铺满整个半宽, 密度往外衰减**": mag = 0.96·R·u^POW, POW 越大小越往中心堆。
+#    POW=2.4 时: 中位落在 ~0.18R, p90 落在 ~0.75R —— 正是"由强到弱"。
+SPLASH_BG_POW = 2.4         # 横向密度衰减: 越大越集中在落点
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -1704,6 +1714,7 @@ class HourglassWidget(Widget):
         self.particles = []
         self.particle_acc = 0.0
         self.splashes = []
+        self._bg_splash_acc = 0.0
         self.flares = []
         self.dusts = []
         self.mound_peak_offset = 0.0
@@ -2574,6 +2585,46 @@ class HourglassWidget(Widget):
                     "size": rand_choice([1, 1, 2]),
                     "_step_dt": step_left if step_left > 0 else 0,
                 })
+    def _spawn_bg_splashes(self, dt):
+        """沿沙面**由强到弱**铺开的背景飞溅 —— 补上"斜坡上根本没有生成源"这一块。
+
+        位置抽样: `|u|^FALLOFF` 把样本往中心收(指数越大越集中), 再乘 `SIGMA × R` 定尺度;
+        **纵向落在当地沙面上**, 初速比落点那些小(越远的越弱)。
+        用 `rand_uniform` 走本工程统一的随机数流(与粒子同源, 便于复现)。
+        """
+        Ri = self._R_inner
+        if Ri <= 0:
+            return
+        rand_uniform = random.uniform      # 与粒子同一条随机数流(工程惯例, 便于复现)
+        self._bg_splash_acc += dt * SPLASH_BG_RATE
+        k = int(self._bg_splash_acc)
+        if k <= 0:
+            return
+        if k > 24:                       # 一帧最多补这么多, 防卡顿后一次性炸开
+            k = 24
+        self._bg_splash_acc -= k
+        append = self.splashes.append
+        for _ in range(k):
+            u = rand_uniform(0.0, 1.0)
+            mag = (u ** SPLASH_BG_POW) * Ri * 0.96
+            if rand_uniform(0.0, 1.0) < 0.5:
+                mag = -mag
+            j = mag / Ri if Ri > 0 else 0.0
+            if abs(j) > 0.96:            # 不许越出沙堆范围
+                continue
+            h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
+            f = abs(j) / 0.96
+            append({
+                "x": self._cx + mag,
+                "y": self._lower_sand_bot + h + rand_uniform(0.0, 2.0),
+                # ⚠️ Kivy **y 向上** ⇒ "往上弹"是 **vy > 0**。第一版写成负值,
+                #    结果一出生就往下掉进沙里、下一帧被剔除(实测分布一动不动才发现)。
+                #    与现有 splash 同源: `vy = cos(angle) * bounce`(bounce > 0)。
+                "vx": rand_uniform(-1.0, 1.0) * 30.0 * (1.0 - 0.55 * f),
+                "vy": rand_uniform(26.0, 74.0) * (1.0 - 0.62 * f),
+                "size": 1 if rand_uniform(0.0, 1.0) < 0.7 else 2,
+            })
+
     def update_particles(self, dt):
         if not self._geom_ready:
             return
@@ -2837,6 +2888,8 @@ class HourglassWidget(Widget):
                 continue
             append_splash_keep(s)
         self.splashes = new_splashes
+        if self.running:
+            self._spawn_bg_splashes(dt)
 
         self.flares = [f for f in self.flares if f["end"] > now]
 
