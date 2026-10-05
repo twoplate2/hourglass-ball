@@ -226,8 +226,12 @@ MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carv
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
 # 而**同一帧里**下球沙堆是 30.1°/31.7° 的标准休止角 ⇒ 同一种沙两个角度, 实现内部不自洽。
 # 真沙漏的上球沙面必然以休止角朝颈口下凹成漏斗(靠壁一圈高于中心)。
-UPPER_FUNNEL_DEPTH = 0.03   # 中央下陷 = 0.03 × 直径(专家 §4.2 的参数起点)
-UPPER_FUNNEL_WIDTH = 0.10   # 下陷半宽下限 = 0.10 × 直径(中期涨到 0.14)
+# ⚠️ **宽深比按 dingbu2.md §3 重设**(2026-10-05)。原参数(0.03D 深 / 0.10~0.14D 半宽)被
+#    外部评审判为"两段长平肩之间压出一个集中凹口", 不是用户要的"斜率很小的宽浅坑";
+#    他**主动认领这是自己上一稿把造型范围设窄了**。实测原参数坡度 18.3°~23.8°,
+#    新参数 2.5°~2.7°(与他的 0.045 rad ≈ 2.6° 自洽)。
+UPPER_FUNNEL_DEPTH = 0.010  # 中段最大下陷 = 0.010 × 直径(原 0.03 ⇒ 1/3)
+UPPER_FUNNEL_WIDTH = 0.35   # 下陷**半宽** = 0.35 × 可见全宽 C(原按直径算, 实际只有 0.112~0.149C)
 UPPER_FUNNEL_MAXH = 0.25    # 下陷深度上限 = 0.25 × 当前沙层厚度
 UPPER_FUNNEL_MAXB = 0.80    # 下陷半宽上限 = 0.80 × 该高度的半弦宽
 # ---- §5 表层滑动标记: 让静态轮廓读起来像在流沙(专家 dingbu.md §5, 用户点名的那条) ----
@@ -2786,12 +2790,17 @@ class HourglassWidget(Widget):
         ⚠️ 两端 sstep 包络 ⇒ **满球和空球都自动收敛成平面**(那是正确的: 满球没有自由表面)。
         """
         D = 2.0 * self._R_inner
-        s1 = _smoothstep(0.0, 0.25, p)
-        s2 = 1.0 - _smoothstep(0.85, 1.0, p)
-        d = UPPER_FUNNEL_DEPTH * D * s1 * s2
-        b = D * (UPPER_FUNNEL_WIDTH + 0.04 * _smoothstep(0.10, 0.80, p))
+        # ⚠️ 半宽基准是 **C = 参考自由面可见全宽 = 2 × 半弦宽**, 不是直径。
+        #    dingbu2.md §3 明确: "b 是浅坑半宽; 完整作用宽度是 2b, 不是 b"。
+        #    旧式 `b = D × (0.10 + 0.04·sstep)` 量出来只有 0.112~0.149 C ⇒ 太窄。
         half_chord = math.sqrt(max(0.0, self._R_inner ** 2
                                    - (self._R_inner - height) ** 2))
+        s1 = _smoothstep(0.0, 0.25, p)
+        s2 = 1.0 - _smoothstep(0.85, 1.0, p)
+        # d 仍乘 s1/s2 包络(评审: "d 继续乘原有的随沙量出现、收敛的包络"), 满球/空球自动收敛成平面。
+        # b 不需要额外的 p 增长项 —— C 本身随沙量变化(半弦宽), 已含"慢慢出来"。
+        d = UPPER_FUNNEL_DEPTH * D * s1 * s2
+        b = UPPER_FUNNEL_WIDTH * (2.0 * half_chord)
         return min(d, UPPER_FUNNEL_MAXH * height), min(b, UPPER_FUNNEL_MAXB * half_chord)
 
     def _upper_area(self, level, d, b):
