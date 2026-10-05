@@ -572,6 +572,14 @@ def main():
                 widget = self.hourglass
                 clip = FakeClip()
                 widget._completion_sound = clip
+                # ⚠️ 2026-10-03 起 `_play_completion_sound()` 的顺序变成:
+                #    **词库可用 ⇒ 先走动态拼接**(`_play_completion_announcement`
+                #    另建一个 `_completion_spoken` 代理), `_completion_sound` 降级成
+                #    **词库缺失时的兜底**。本机词库可用 ⇒ 不关词库的话, 下面三条量的
+                #    是一个**永远不会被播放**的对象, plays 恒 0 永远红。
+                #    (测试写于 2026-10-01, 2026-10-03 改动态拼接后就一直没跟上。)
+                bank_ok = widget._voice_bank.ok
+                widget._voice_bank.ok = False
                 widget.completion_enabled = True
                 widget.set_duration(1)
                 widget.elapsed = 0.99
@@ -589,6 +597,22 @@ def main():
                 widget.last_tick = time.perf_counter() - 0.05
                 widget.tick(0.05)
                 check(clip.plays == 1, "benchmark completion is silent")
+                # ---- 词库可用时: 必须走**动态拼接**那条路(不碰兜底 clip) ----
+                # 这一条就是"测试跟不上实现"的哨兵: 它红了说明播报路径又变了。
+                widget.completion_enabled = True
+                widget.reset()          # ⚠️ 必须先清 `_completion_triggered`(每轮只播一次)
+                widget._voice_bank.ok = True
+                spoken = []
+                real_announce = widget._play_completion_announcement
+                widget._play_completion_announcement = lambda d: (spoken.append(d), True)[1]
+                widget.elapsed = 0.99
+                widget.running = True
+                widget.last_tick = time.perf_counter() - 0.05
+                widget.tick(0.05)
+                check(spoken == [1] and clip.plays == 1,
+                      "completion prefers the dynamic announcement when the bank is ready")
+                widget._play_completion_announcement = real_announce
+                widget._voice_bank.ok = bank_ok
                 widget._completion_sound = None
                 widget.completion_enabled = True
                 widget.set_duration(60)
