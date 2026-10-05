@@ -20,6 +20,9 @@
 # 拿到的"本轮"截图其实是对方那次运行产生的(A/B 脚本踩过, 见其护栏 1)。
 set -u
 export MSYS_NO_PATHCONV=1
+# ⚠️ 整机 offline(端口 16384 不再监听)时 `adb connect` / `kill-server` 都无效,
+#    r6-1号 实测只有 MuMuManager 能救回来:
+#      "/c/Program Files/Netease/MuMu/nx_main/MuMuManager.exe" adb -v 0 "devices"
 ADB="${ADB:-/c/Program Files/Netease/MuMu/nx_device/15.0/shell/adb.exe}"
 PKG=org.shalou.hourglass
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -65,7 +68,7 @@ until mkdir "$LOCKDIR" 2>/dev/null; do
   lt=$(stat -c %Y "$LOCKDIR" 2>/dev/null || echo "$now")
   if [ $((now - lt)) -ge "$LOCK_STALE" ]; then
     echo "!! 锁已闲置 $((now - lt))s (>${LOCK_STALE}), 判定为僵尸锁, 夺锁"
-    rmdir "$LOCKDIR" 2>/dev/null
+    rmdir "$LOCKDIR" 2>/dev/null || rm -f "$LOCKDIR" 2>/dev/null
     continue
   fi
   sleep 2; waited=$((waited+2))

@@ -230,6 +230,16 @@ UPPER_FUNNEL_DEPTH = 0.03   # 中央下陷 = 0.03 × 直径(专家 §4.2 的参�
 UPPER_FUNNEL_WIDTH = 0.10   # 下陷半宽下限 = 0.10 × 直径(中期涨到 0.14)
 UPPER_FUNNEL_MAXH = 0.25    # 下陷深度上限 = 0.25 × 当前沙层厚度
 UPPER_FUNNEL_MAXB = 0.80    # 下陷半宽上限 = 0.80 × 该高度的半弦宽
+# ---- §5 表层滑动标记: 让静态轮廓读起来像在流沙(专家 dingbu.md §5, 用户点名的那条) ----
+# 专家原话: 「只有凹陷和尖堆, 没有材料沿表面运动, 仍可能像一块正在变形的色纸」。
+# ⚠️ **不要画一整条随相位移动的亮线** —— 标记必须**离散、细小**, 集中薄表层;
+#    整块沙体纹理保持稳定(1.60/1.61 就是因为"整条轮廓平移"被判死的)。
+SURFACE_MARKERS_UP = 8      # 上球 8 颗(左右各 4), 向中心滑
+SURFACE_MARKERS_LOW = 12    # 下球 12 颗(左右各 6), 沿坡向外滑
+SURFACE_MARKER_LIFE = 0.9   # 单颗寿命(秒); 逐颗错开相位
+SURFACE_MARKER_SIZE = 1.6   # 短划线长度(逻辑像素, 专家建议 1~2)
+SURFACE_MARKER_ALPHA = 1.00
+SURFACE_MARKER_UP_START = 0.30   # 上球起点 = 弦半宽的 30% 处 → 滑向中心
 MOUND_AREA_SAMPLES = 129    # 面积表积分节点数(奇数)
 MOUND_CURVE_SAMPLES = 129   # 每帧接触高度曲线 H(x) 的均匀节点数(粒子侧 O(1) 定位)
 MOUND_DRAW_EXTRA = 48       # 绘制折线的角度采样数(另加 ±R/0 与**逐帧的壁交点**这些真转折点)
@@ -1431,6 +1441,8 @@ class HourglassWidget(Widget):
         self._upper_carve = []               # 上球漏斗 carve(§4)
         self._upper_band = []
         self._upper_band_color = None
+        self._surface_marker_pool = []
+        self._surface_marker_n = 0
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._completion_triggered = False
@@ -2849,6 +2861,89 @@ class HourglassWidget(Widget):
         u = 1.0 - (dx / b) ** 2
         return d * (u * u) if u > 0.0 else 0.0
 
+    def _draw_surface_markers(self, upper_height, h_mound):
+        """§5 表层滑动标记 —— 让**静态**轮廓读起来像在流沙(专家 dingbu.md §5)。
+
+        纯视觉: 不参与计时与沙量统计, **不减少原有下落颗粒**。
+        · 上球 8 颗(左右各 4)**向中心滑**(朝颈口汇入); 下球 12 颗(左右各 6)**沿坡向外滑**
+        · 每颗用**固定初相位**求 phase; 时间基准是 `self.elapsed` ⇒ **暂停时冻结、重置归零**
+        · `y` 每帧查**真实表面**(上球 `_upper_level_for` + 漏斗下陷; 下球 `profile.contact`)
+        · 末端淡出、起点淡入; 只有真自由表面才出现(无沙/被球顶截满/路径进壁 → 隐藏)
+        ⚠️ 必须**离散细小**, 不能画成一整条随相位移动的亮线(专家原话)。
+        """
+        pool = self._surface_marker_pool
+        n_used = 0
+        if not self.running or self._mound_profile is None:
+            for _c, ln in pool:
+                if ln.points:
+                    ln.points = []
+            self._surface_marker_n = 0
+            return
+        Ri = self._R_inner
+        life = SURFACE_MARKER_LIFE
+        t = self.elapsed
+        # ⚠️ 两档必须是**沙体底色之外**的两个色 —— 曾经用 (light, base): base 就是沙体
+        #    本身的颜色, 画上去像素完全不变 ⇒ 20 颗里 10 颗是隐形的(实测 delta=0)。
+        color_light = self.sand_light
+        color_base = self.sand_dark
+
+        def emit(x, y, frac, light):
+            nonlocal n_used
+            if n_used >= len(pool):
+                return
+            col, ln = pool[n_used]
+            fade = min(1.0, 4.0 * frac) * min(1.0, 4.0 * (1.0 - frac))   # 两端淡入淡出
+            col.rgba = (*(color_light if light else color_base),
+                        SURFACE_MARKER_ALPHA * fade)
+            ln.points = [x, y, x, y - SURFACE_MARKER_SIZE]
+            n_used += 1
+
+        # ---- 上球: 从两侧朝中心滑(漏斗内) ----
+        if upper_height > 0.0 and SURFACE_MARKERS_UP > 0:
+            p = 0.0 if self.duration <= 0 else min(1.0, t / self.duration)
+            d, b = self._upper_funnel_params(p, upper_height)
+            level = self._upper_sand_bot + self._upper_level_for(upper_height)
+            half_chord = math.sqrt(max(0.0, Ri * Ri - (Ri - upper_height) ** 2))
+            per_side = SURFACE_MARKERS_UP // 2
+            for k in range(SURFACE_MARKERS_UP):
+                side = -1.0 if k < per_side else 1.0
+                frac = ((t / life) + (k % per_side) / max(1.0, per_side)) % 1.0
+                x0 = side * half_chord * SURFACE_MARKER_UP_START
+                x1 = side * half_chord * 0.06            # 终点靠近中心轴
+                dx = x0 + (x1 - x0) * frac
+                if abs(dx) > half_chord:
+                    continue
+                y = level - self._upper_surface_drop(dx, d, b)
+                emit(self._cx + dx, y, frac, (k % 2) == 0)
+        # ---- 下球: 从落点附近沿坡向外滑 ----
+        if h_mound > 0.0 and SURFACE_MARKERS_LOW > 0:
+            prof = self._mound_profile
+            apex = self._mound_apex()
+            base = self._lower_sand_bot
+            per_side = SURFACE_MARKERS_LOW // 2
+            for k in range(SURFACE_MARKERS_LOW):
+                side = -1.0 if k < per_side else 1.0
+                frac = ((t / life) + (k % per_side) / max(1.0, per_side)) % 1.0
+                # 沿接触面从近顶滑向坡脚: 用"接触高度随 |dx| 下降到球底"定终点
+                lo, hi = 1.0, Ri
+                for _ in range(14):                       # 找接触面与球底相交处 = 坡脚
+                    mid = 0.5 * (lo + hi)
+                    if prof.raw(side * mid, apex) - prof.bounds(side * mid)[0] > 0.0:
+                        lo = mid
+                    else:
+                        hi = mid
+                foot = 0.5 * (lo + hi)
+                start = min(foot, max(6.0, 0.12 * Ri))
+                dx = side * (start + (foot - start) * frac)
+                y = base + prof.contact(dx, apex)
+                if not prof.free_surface(dx, apex):
+                    continue
+                emit(self._cx + dx, y, frac, (k % 2) == 1)
+        for _c, ln in pool[n_used:]:
+            if ln.points:
+                ln.points = []
+        self._surface_marker_n = n_used
+
     def _draw_upper_shape(self, upper_height):
         """上球沙面的 carve + 亮带 —— 专家 dingbu.md §4 的绘制部分。
 
@@ -2995,6 +3090,20 @@ class HourglassWidget(Widget):
             self._neck_fade_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_fade_rect = Rectangle(size=(0, 0), texture=neck_tex)
 
+        # §5 表层滑动标记(专家 dingbu.md §5): 固定图元池, 不新增物理粒子。
+        # ⚠️ **必须建在这里** —— 沙体之后。曾经建在上面那个 `with self.canvas:` 的 stencil 块里,
+        #    `canvas.add()` 在那里是**插在当前位**(不是追加到末尾) ⇒ 组落在 index 16,
+        #    被其后绘制的沙体整个盖住: 20 颗标记里只有 2 颗露头的能看见(A/B 差分实测)。
+        self._surface_marker_n = 0
+        self._surface_marker_pool = []
+        self._surface_marker_group = InstructionGroup()
+        self.canvas.add(self._surface_marker_group)
+        for _i in range(SURFACE_MARKERS_UP + SURFACE_MARKERS_LOW):
+            _c = Color(*(tuple(self.sand_base) + (0.0,)))
+            _l = Line(points=[], width=1)
+            self._surface_marker_group.add(_c)
+            self._surface_marker_group.add(_l)
+            self._surface_marker_pool.append((_c, _l))
         self._neck_grain_group = InstructionGroup()
         self.canvas.add(self._neck_grain_group)
         self._neck_grain_pool = []
@@ -3171,6 +3280,7 @@ class HourglassWidget(Widget):
         for _band_color, _band_rect in self._sand_bands:
             _band_rect.size = (0, 0)
             _band_color.a = 0.0
+        self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
         self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
         self._draw_mound_shape(h_mound)
         # ⚠️ 闸门含 `_done_at`: 漏完那一帧 upper_height 已是 0, 但沙柱还要排空 fill_t 秒

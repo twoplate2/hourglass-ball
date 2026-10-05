@@ -14,7 +14,7 @@ GAP = 10 * 60
 
 
 def main():
-    target = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
+    target = float(sys.argv[1]) if len(sys.argv) > 1 else 9.0   # 用户 2026-10-05: 6 -> 9
     files = []
     for pat in ("_review/**/*.png", "_review/**/*.mp4", "_review/**/*.txt"):
         files += glob.glob(pat, recursive=True)
