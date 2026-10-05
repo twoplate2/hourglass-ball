@@ -23,9 +23,19 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# ⚠️ **只喂"竖盒"(h >= w)** —— 这不是偷懒, 是应用的真实约束:
+#    `apply_orientation()` 里 `self._anchor.size = (h, w) if land else (w, h)`:
+#      · 瘦长机(aspect < 9/16) → 锁 SENSOR_PORTRAIT ⇒ 永远竖屏
+#      · 宽屏设备(平板, aspect >= 9/16) 横转时 → 锚盒取 **(h, w) = 等效竖屏盒**再整体旋转 90°
+#    ⇒ **`_rebuild_height_table` 永远看不到"宽而矮"的尺寸。**
+#    第一版喂了 2560x1600 / 2400x1080 / 2000x600 这类横向尺寸, 报出 3 条
+#    `w_out < 肩台半宽` —— **那些配置应用产生不出来, 是假警报**。
+#    (桌面不带 `--landscape` 时不走旋转, 宽窗口**会**喂进去 —— 但那是预览, 不是设备。)
 SIZES = [(320, 560), (384, 631), (400, 800), (720, 1280), (1080, 1920),
-         (1080, 2400), (1200, 2560), (1600, 2560), (2560, 1600), (2400, 1080),
-         (1080, 1080), (800, 1280), (1440, 3200), (600, 2000), (2000, 600)]
+         (1080, 2400), (1200, 2560), (1600, 2560), (1440, 3200), (600, 2000),
+         (1080, 1080), (800, 1280), (2560, 2560), (900, 1600)]
+# 横向尺寸**单独跑一遍**, 只为把"这个配置应用产生不出来"写进读数(不给结论):
+UNREACHABLE = [(2560, 1600), (2400, 1080), (2000, 600)]
 
 
 def main():
@@ -109,7 +119,17 @@ def main():
                     print("  %-12s %-7.1f %-7.1f | %s"
                           % ("%dx%d" % (W, H), R, ow, "; ".join(bad) if bad else "ok"))
                 print("")
-                print("  %d/%d 个尺寸有违反" % (nbad, len(SIZES)))
+                print("  %d/%d 个**竖盒**尺寸有违反" % (nbad, len(SIZES)))
+                print("")
+                print("  --- 下面这些是**横向**尺寸: 应用产生不出来(锚盒保持竖屏), 只作记录, 不给结论 ---")
+                for (W2, H2) in UNREACHABLE:
+                    w.size = (W2, H2)
+                    w._rebuild_height_table()
+                    sh = math.sqrt(max(0.0, w._R ** 2 - w._R_inner ** 2))
+                    wo = max(p[0] for p in w._taper["out_pts"])
+                    print("     %-11s R=%.1f 肩台=%.1f w_out=%.1f %s"
+                          % ("%dx%d" % (W2, H2), w._R, sh, wo,
+                             "(喇叭口比肩台窄 %.1f —— 但该尺寸不可达)" % (sh - wo) if wo < sh else ""))
                 Clock.schedule_once(lambda dt: self.stop(), 0.2)
 
         P().run()
