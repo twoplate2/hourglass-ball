@@ -30,6 +30,7 @@ print(max(nums) if nums else 0)
   exit 0
 fi
 BASE="${1:-0}"
+TARGET=$((BASE + 1))     # 只看这一个号: 它就是"我这一次"
 [ $# -ge 2 ] && MAXMIN="$2"
 INTERVAL="${HG_WATCH_INTERVAL:-300}"     # 默认 5 分钟一轮(用户定的)
 SHA="$(git rev-parse HEAD)"
@@ -42,13 +43,17 @@ api() { curl -fsS -A "Mozilla/5.0" "https://github.com/$REPO/$1" 2>/dev/null; }
 #    改抓 **actions 列表页的 HTML**: 每条的 aria-label 就写着结论, 且走 github.com 域。
 #       aria-label="completed successfully: Run 188 of Build APK. 1.115 ..."
 parse() {
+  # ⚠️ **只认 `目标号` 那一条**, 不是"比基线大的最新一条"。
+  #    第二版就是后者 —— 5 分钟轮询窗口里如果已经跑完了两次构建, 它会取**最新**那条,
+  #    把中间那条(可能是**红的**)整个跳过去。实测: 1.118 的监视报出了 1.119 的成功。
+  #    「比基线大的最新一条」不等于「我这一次的那条」。
   PYTHONIOENCODING=utf-8 python -c '
 import io, re, sys
 h = io.open(sys.argv[1], encoding="utf-8", errors="replace").read()
-# 只看 Build APK 的条目, 取**最新那条**(列表是倒序的)
+want = sys.argv[2]
 for m in re.finditer(r"aria-label=\"([^\"]*?Run (\d+) of ([^\"]*?))\"", h):
     label, num, title = m.group(1), m.group(2), m.group(3)
-    if "Build APK" not in title:
+    if "Build APK" not in title or num != want:
         continue
     if "completed successfully" in label:
         st, cc = "completed", "success"
@@ -64,7 +69,7 @@ for m in re.finditer(r"aria-label=\"([^\"]*?Run (\d+) of ([^\"]*?))\"", h):
     break
 else:
     print("\t\t\t")
-' "$1"
+' "$1" "$TARGET"
 }
 
 deadline=$(( $(date +%s) + MAXMIN * 60 ))
@@ -78,7 +83,7 @@ while :; do
     IFS=$'\t' read -r status concl num title <<EOF
 $(parse "$TMP")
 EOF
-    if [ "$status" = "completed" ] && [ "${num:-0}" -gt "$BASE" ]; then
+    if [ "$status" = "completed" ]; then
       if [ "$concl" = "success" ]; then
         echo "CI ✅ $SHORT (run #$num) 构建成功: $title"
       else
@@ -89,7 +94,7 @@ EOF
     # 还在跑 / 排队 / run 号还没超过基线: 不打字(避免刷屏), 继续等
   fi
   if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "CI ⏳ 等了 ${MAXMIN} 分钟仍未出结论(轮询 $tries 次) —— 需要人工看一眼"
+    echo "CI ⏳ run #$TARGET 等了 ${MAXMIN} 分钟仍未出结论(轮询 $tries 次) —— 需要人工看一眼"
     exit 1
   fi
   sleep "$INTERVAL"

@@ -17,7 +17,7 @@ DEV_APP=/data/data/$PKG/files/app
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 W=$(cd "$ROOT" && pwd -W)
 
-"$ADB" -s "$SER" shell id -u | tr -d '\r' | grep -qx 0 || { echo "!! 需要 adb root"; "$ADB" root; sleep 3; }
+"$ADB" -s "$SER" shell id -u | tr -d '\r' | grep -qx 0 || { echo "!! 需要 adb root"; "$ADB" -s "$SER" root; sleep 3; }
 APP_UID=$("$ADB" -s "$SER" shell stat -c %u "$DEV_APP" | tr -d '\r')
 case "$APP_UID" in ''|*[!0-9]*) echo "!! 取不到 uid, 先手动跑一次 app"; exit 1;; esac
 APP_USER="u0_a$((APP_UID - 10000))"
