@@ -2768,6 +2768,76 @@ class HourglassWidget(Widget):
                                    - (self._R_inner - height) ** 2))
         return min(d, UPPER_FUNNEL_MAXH * height), min(b, UPPER_FUNNEL_MAXB * half_chord)
 
+    def _upper_area(self, level, d, b):
+        """上球沙面在给定 level 下的**面积**(65 点采样)与该 level 处未被夹住的权重和。
+
+        二维视觉代理口径, 与下球 `_MoundArea` 同源(专家 §6)。
+        dArea/dLevel = 未被球底/球顶夹住的那些列的权重和 ⇒ 直接给牛顿法当导数用。
+        """
+        Ri = self._R_inner
+        n = MOUND_SHAPE_NODES - 1
+        w = 2.0 * Ri / n
+        area = deriv = 0.0
+        for i in range(n + 1):
+            dx = -Ri + w * i
+            floor = Ri - math.sqrt(max(0.0, Ri * Ri - dx * dx))
+            roof = 2.0 * Ri - floor
+            y = level - self._upper_surface_drop(dx, d, b)
+            if y <= floor:
+                continue
+            if y >= roof:
+                area += (roof - floor) * w
+            else:
+                area += (y - floor) * w
+                deriv += w
+        return area, deriv
+
+    def _upper_solve_level(self, target, d, b, lo, hi):
+        """求 level 使**漏斗版面积 == 平顶等效面积**(体积守恒) —— 专家 §6。
+
+        ⚠️ 这一条是用户 2026-10-05 点名要求的:「总的沙子的体积要保持」「不能够说最后漏完之后,
+           它说漏完了, 但实际上还有沙子」。没有它, 漏斗扣掉的那块沙会**凭空消失** ——
+           不是守恒, 只是"误差小到看不出来"。
+        牛顿 + 二分兜底(迭代次数有上限, 但没收敛时靠二分把区间夹死, 不返回没验证过的值)。
+        """
+        if d <= 0.0:                              # 无漏斗 ⇒ 调用方直接用平顶高度
+            return None
+        a = min(hi, max(lo, 0.5 * (lo + hi)))
+        for _ in range(4):
+            area, deriv = self._upper_area(a, d, b)
+            if abs(area - target) <= max(1e-6, target * 1e-6):
+                return a
+            if area < target:
+                lo = a
+            else:
+                hi = a
+            nxt = a + (target - area) / deriv if deriv > 0.0 else None
+            a = nxt if (nxt is not None and lo < nxt < hi) else 0.5 * (lo + hi)
+        for _ in range(16):
+            a = 0.5 * (lo + hi)
+            area, _d = self._upper_area(a, d, b)
+            if abs(area - target) <= max(1e-6, target * 1e-6):
+                return a
+            if area < target:
+                lo = a
+            else:
+                hi = a
+        return 0.5 * (lo + hi)
+
+    def _upper_level_for(self, upper_height):
+        """本帧上球沙面的 **level**(绝对, 离球内底) —— 含漏斗的体积补偿。
+
+        无漏斗时直接返回平顶高度(`_upper_sand_height_px` 的结果); 有漏斗时解一次面积方程,
+        把沙面抬到"漏斗扣掉多少就补回多少"。⇒ 上球与下球**共用同一个沙量真值**。
+        """
+        p = 0.0 if self.duration <= 0 else min(1.0, self.elapsed / self.duration)
+        d, b = self._upper_funnel_params(p, upper_height)
+        if d <= 0.0 or upper_height <= 0.0:
+            return upper_height
+        target, _ = self._upper_area(upper_height, 0.0, 0.0)     # 平顶等效面积
+        return self._upper_solve_level(target, d, b, 0.0,
+                                       upper_height + d + 1.0)
+
     def _upper_surface_drop(self, dx, d, b):
         """上球沙面在 dx 处的**下陷量**(≥0, px): `d · [max(0,1-(dx/b)²)]²`。
 
@@ -2795,7 +2865,8 @@ class HourglassWidget(Widget):
         d, b = self._upper_funnel_params(p, upper_height)
         cx = self._cx
         Ri = self._R_inner
-        level = self._upper_sand_bot + upper_height
+        # ⚠️ 不是 upper_height 而是**解出来的 level**: 漏斗扣掉的面积要抬回来(体积守恒)
+        level = self._upper_sand_bot + self._upper_level_for(upper_height)
         top = self._upper_sand_bot + 2.0 * Ri + MOUND_CREST_MARGIN
         n = MOUND_SHAPE_NODES - 1
         step = 2.0 * Ri / n
