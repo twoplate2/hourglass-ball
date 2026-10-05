@@ -165,9 +165,12 @@ SAND_GRAIN_LEVELS = (
     ("1", 0.10, 1), ("2", 0.10, 2), ("3", 0.10, 3),
     ("4", 0.10, 4), ("5", 0.10, 5), ("6", 0.10, 6),
 )
-# ⚠️ **档位表版本号**: 表的"含义"改过一次(2026-10-05 grad→只看粗细), 同号的档已经不是同一个东西。
-#    落盘同时存这个号; 对不上就**整组回落默认**, 免得用户存的"3"被静默换成另一种颗粒。
-SAND_LEVELS_REV = 2
+# ⚠️ **「沙体颗粒」表的版本号** —— 这张表的"含义"改过一次(2026-10-05 grad→只看粗细),
+#    同号的档已经不是同一个东西 ⇒ 对不上就回落默认, 免得用户存的"3"被静默换成另一种颗粒。
+# ⚠️⚠️ **只锁这一张表!** 第一版把它做成了"两把锁共用一把"(`levels_rev` 同时管 grain 与 rough),
+#    而 **rough 表的含义从来没变过** ⇒ **用户明确选过的 rough=4 被一起作废、静默降到 3(降 33%)**。
+#    这是 r18-1号 2026-10-05 在设备上查出来的 —— **静默改用户设置**, 比不改还糟。
+SAND_GRAIN_REV = 2
 SAND_GRAIN_LEVEL_DEFAULT = "1"      # 1 = 最细(≈1.7px 颗粒) —— **用户最后选的是"细颗粒"那一档**
 #   ⚠️ 档号变了: 用户 2026-10-05 说的 "C(=3)" 在原表里是"细颗粒", 新表里**细颗粒 = 1**。
 #      观感保持不变, 只是号码从 3 挪到 1 —— 已在给用户的汇报里写明。
@@ -182,7 +185,11 @@ SURFACE_ROUGH_LEVELS = (
     ("1", 0.0014), ("2", 0.0025), ("3", 0.0040),
     ("4", 0.0060), ("5", 0.0080), ("6", 0.0120),
 )
-SURFACE_ROUGH_LEVEL_DEFAULT = "3"
+# ⚠️ **默认 = 4**(设备 ≈5.35px) —— 这是**用户 2026-10-05 亲口选的那一档**。
+#    1.100 里被主持人在"改颗粒表"的同一次编辑中**顺手改成了 3**, 提交说明里没提,
+#    表头上方注释还写着"≈5.35px" —— 代码与注释互相矛盾, 而且静默改了用户的值。
+#    r18-1号 在设备上逐条比对 git 才查出来。**已改回 4。**
+SURFACE_ROUGH_LEVEL_DEFAULT = "4"
 
 
 def _grain_level(label):
@@ -2361,7 +2368,7 @@ class HourglassWidget(Widget):
                            # 同样存**标签**: 以后调数值不会让旧配置串到别的档。
                            'grain_level': current_grain_level(),
                            'rough_level': current_rough_level(),
-                           'levels_rev': SAND_LEVELS_REV},
+                           'grain_rev': SAND_GRAIN_REV},
                   f, ensure_ascii=False)
         except Exception:
             pass
@@ -4296,13 +4303,14 @@ class HourglassApp(App):
         # 两个六档: 环境变量给了就**不读配置**(取图/AB 的档位绝不能被本地配置盖掉)
         # ⚠️ 档位表改过版 ⇒ 旧配置里的档号**整组作废**(回落默认)。
         #    不加这一条, 用户存的"3"会被静默换成另一种颗粒(2026-10-05 重定表就是这个情形)。
-        _rev_ok = cfg.get('levels_rev') == SAND_LEVELS_REV
+        _grain_rev_ok = cfg.get('grain_rev') == SAND_GRAIN_REV
         if os.environ.get("HG_SAND_LEVEL") is None and os.environ.get("HG_SAND_GRAD") is None                 and os.environ.get("HG_SAND_COARSE") is None:
             apply_grain_level(cfg.get('grain_level', SAND_GRAIN_LEVEL_DEFAULT)
-                              if _rev_ok else SAND_GRAIN_LEVEL_DEFAULT)
+                              if _grain_rev_ok else SAND_GRAIN_LEVEL_DEFAULT)
+        # ⚠️ **`rough_level` 一律认, 不受版本号影响** —— 那张表的含义从没变过。
+        #    第一版跟着 grain 一起作废, 把用户明确选过的值静默降了 33%(r18-1号 查出)。
         if os.environ.get("HG_SURFACE_LEVEL") is None:
-            apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT)
-                              if _rev_ok else SURFACE_ROUGH_LEVEL_DEFAULT)
+            apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT))
 
         root = BoxLayout(orientation="vertical", spacing=dp(3),
                          padding=[dp(8), dp(6), dp(8), dp(6)])
@@ -4827,17 +4835,35 @@ class HourglassApp(App):
         close.bind(on_press=close_menu)
         content.add_widget(close)
 
-        # 尺寸照**基准弹窗**那套(它已经跑过真机): 宽度 0.94, 高度取"内容需要"与
-        # "窗口 85%"的较小值 —— 不再写死一个数, 否则字体缩放一变就被裁掉。
-        # (2026-10-04 用户反馈"太拥挤、很多地方显示不全": 原来写的 0.8 宽 + dp(360) 高。)
-        popup_height = min(dp(560), max(Window.width, Window.height) * 0.90)
-        popup = _SandBgPopup(title=f"v{APP_VERSION}", content=content,
+        # ⚠️ **高度改成"贴着内容 + 贴底"**（用户 2026-10-05: 「少一个预览功能?」）——
+        #    原来高度写死 dp(560), 内容没那么高 ⇒ 标题下面一大块空白;
+        #    而且弹窗居中 ⇒ **把沙漏整个盖住, 改完档位当场看不见效果 = 没有预览**。
+        #    现在: 高度 = 内容需要的高度 + 标题栏; 靠**贴着底边**摆 ⇒
+        #    上半屏的沙漏一直露着, 点一下档位**立刻能看到**, 这就是预览。
+        popup_height = dp(360)   # 先给个初值, open 前会被 content 的 minimum_height 覆盖
+        # ⚠️ 用户 2026-10-05: 「这个界面是不是没有标题?」—— 原来标题栏只写 `v1.105`,
+        #    第一次进来的人看不出这是什么界面。加界面名, 版本号留在后面(长按版本号是入口)。
+        popup = _SandBgPopup(title=f"沙漏设置   v{APP_VERSION}", content=content,
                              size_hint=(0.94, None), height=popup_height,
                              auto_dismiss=False)
         popup.title_align = "center"
         popup.title_size = sp(17)
         self._dev_popup = popup
         popup.bind(on_dismiss=lambda *_: setattr(self, "_dev_popup", None))
+        # 高度跟着内容长(同周期/音效弹窗那条已跑过真机的链路)
+        content.bind(minimum_height=lambda inst, val: setattr(popup, "height", val + dp(78)))
+        # **贴底**: 留出上半屏给沙漏当预览
+        popup.pos_hint = {"center_x": 0.5, "y": 0.015}
+        # ⚠️ **把模态遮罩调到几乎透明** —— 这个界面要当"预览"用, 而 Kivy ModalView 默认那层
+        #    暗底会把沙漏的**颜色和质感压失真**(r17-1号 实测过: 55% 遮罩下蓝沙量到
+        #    (173,198,211), 真实是 (75,140,192))。留 10% 只为跟卡片分层。
+        # ⚠️ **已知未解决（E3，不许当成修好了）**: 弹窗那层**整窗暗底**关不掉。
+        #    试过 `background_color=(0,0,0,0)` 与 `background=""` **两次, 都无效**
+        #    （实测: 顶栏金沙 (54,41,24) vs 正常 (217,163,96); 背景 (76,74,69) vs 奶油 (253,246,227)）。
+        #    而 Kivy 2.3 的文档说 `background_color` 只影响**控件自身**的背景。
+        #    ⇒ 沙漏虽然露在弹窗上方（结构上能当预览用）, 但**颜色是被压暗的, 不能用来判色/判质感** ——
+        #    这正是 r17-1号 警告过的那个陷阱（55% 遮罩下蓝沙量到 (173,198,211), 真实 (75,140,192)）。
+        #    下一步要么找到真正的暗底来源, 要么改成"弹窗里放一个小预览"。
         popup.open()
 
     def on_benchmark(self, *_):
