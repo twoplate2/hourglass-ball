@@ -1905,6 +1905,17 @@ class HourglassWidget(Widget):
             # 演化帧: 与静态版同幅度、同节点口径, 只是**随时间平滑地换形状**
             self._upper_rough_frames = _build_rough_frames(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED)
             self._upper_rough_cache = None
+            # ⚠️ **必须把时间戳一起清掉** —— 只清 `_upper_rough_cache` 是 1.124 之前的 bug
+            #    (r23-1号 在设备上抓到的): `_upper_rough_now()` 的命中判定是
+            #    `if _upper_rough_cache_t == elapsed: return _upper_rough_cache`
+            #    ⇒ 时间戳没清时它把刚置空的 **None 原样返回**, 下游 `_upper_rough_at`
+            #    见假值就全返 0 ⇒ **上球沙面画成光滑面**。
+            #    而 `set_rough_level` 正是走这条路, 且**用户是在"暂停着看预览"时改档的**
+            #    (暂停时 elapsed 不动 ⇒ 缓存永远命中 None) ⇒
+            #    现象是"在设置里一改沙面起伏, 沙面就变光滑, 六档全是同一个画面" ——
+            #    **恰好和真相相反**, 用户很容易读成"N 越大越平"。
+            #    (elapsed 一走缓存就失效, 所以只在暂停预览这一种状态下出现, 看起来像"一动又回来了"。)
+            self._upper_rough_cache_t = None
             self._mound_shape = tuple(shape)
             # ---- 下球轮廓的**演化帧**（用户 2026-10-05: "下球斜面也应该有起伏" + "要动"）----
             # ⚠️ 每帧扰动**减掉自己的均值** ⇒ 面积精确不变（用户原话"有高就有低"），
