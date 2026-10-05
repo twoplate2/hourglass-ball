@@ -90,6 +90,19 @@ python main.py
   - **沙柱在 `NECK_FILL=0.25s` 内从上往下注满**，不是 `elapsed>0` 一帧切换 —— 喇叭口面积大，
     瞬间从空变满非常刺眼；短周期按 `duration*0.15` 缩放
 - 沙体弓形：`StencilPush/StencilUse/StencilUnUse/StencilPop` 把内壁球 `Ellipse` 裁出"y ≤ 沙面"的真圆弓形。
+- 🔴 **容器/遮罩类图元的上沿，必须覆盖"绘制线用到的每一项"**（2026-10-06, 1.129）。
+  上球沙体那张 `Rectangle` 只是**容器**（轮廓由 carve 抠出来），它的顶 `up_draw` 原先写的是
+  `upper_height + lift` —— **漏了 `rough` 的正峰值**。于是凡 `rough(i) > drop(dx)` 的节点，
+  沙面线**连同它那条 3px 亮带**一起露到矩形外面，亮带合成到**玻璃**上 ⇒ 沙面上方浮出一排
+  淡色小帽（r27-1号 在设备档6 抓到；颜色实测 (232,211,173) == `sand_light` 与背景的 0.55 混合）。
+  `lift` 那一半 **2026-10-05 已经修过一次**，`rough` 是当时漏掉的**第二处**。
+  **一般形式：我抬高了 A，那么所有以 A 为下界的 B 都要跟着抬 —— 抬之前先数一遍有几项。**
+  镜像方向同样要查：矩形抬高后**不得捅穿 carve 的上沿**（`2Ri + MOUND_CREST_MARGIN`）。
+  两条都已进闸门（`upper sand rect covers the drawn surface` /
+  `upper sand rect stays under the carve limit`），**负对照都跑过**（分别 19/54 点翻红、每周期翻红）。
+  量具：`tools/_probe_rect_vs_surface.py`、`tools/_probe_rect_vs_limit.py`
+  （后者在 320×560 / 760×1460 / 1440×2760 三个尺寸上验过 —— `crest ∝ 2Ri` 而 `MOUND_CREST_MARGIN`
+  是死像素，**最贴近上沿的状态恰是 crest=0 的满球态**，故余量恒为 2.0px、与尺寸无关）。
 - **沙边和玻璃内壁都是 `Ellipse` 圆 → 同一种真圆技术、严格贴合**。这是复刻 pc"玻璃和沙必须同一种技术，否则边缘失配(月牙/缝)"的核心。**绝不用 `Mesh`/多边形拼弓形**(那是 android 旧版渲染 bug 的根源)。
 - 粒子用 `Line`(主流) + `Rectangle`(splash/flares/dust)，按颜色排序减少 draw call。
 - **流量守恒**(移植自 PC v4)：粒子加速下落时按 A·v=常数横向收缩 `shrink = max(0.70, (60/v_at_y)^0.5)`；颈部 6px 入口区不缩；40px 平滑过渡区从 1.0 渐变到目标值；触底 30px 喇叭口微扩。wobble 随 shrink 同比例衰减(`wobble × (1-shrink×0.4)`)。
