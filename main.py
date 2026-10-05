@@ -3027,7 +3027,13 @@ class HourglassWidget(Widget):
             half = size * 0.5
             norm = math.hypot(1.0, slope) or 1.0
             ux, uy = 1.0 / norm, slope / norm          # 单位切向量
-            cx0, cy0 = x, y - SURFACE_MARKER_INSET - half * uy
+            # ⚠️ 内移必须**沿表面法线**, 不能竖直(2026-10-05 r12-1号 查出):
+            #    原式 `y - INSET - half*uy` 的偏移是竖直的, 在下坡侧(uy<0)会把
+            #    **上坡那一端**抬到 `y - INSET + 2*half*|uy|` —— 30 度坡上浅 ~1.7px,
+            #    实测下球右坡 5/6 颗的顶端仍插在 3px 亮带里(深度 2.25~3.12)。
+            #    沿法线移 INSET 后, 两端到沙面的垂距都是 INSET(垂直深度 = INSET/cosθ, 只深不浅)。
+            nx, ny = uy, -ux                           # 指向沙体内侧的单位法线(Kivy y 向上)
+            cx0, cy0 = x + nx * SURFACE_MARKER_INSET, y + ny * SURFACE_MARKER_INSET
             ln.points = [cx0 - ux * half, cy0 - uy * half,
                          cx0 + ux * half, cy0 + uy * half]
             n_used += 1
