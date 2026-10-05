@@ -335,11 +335,11 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 # 不是 splash 不工作, 是**它只在一个点上工作** —— 沙流落在一个点, 斜坡上没有生成源。
 # 这一层按"离落点越远越稀"补, 是**纯装饰**(不反向影响 elapsed)。
 # ⚠️ 会改变随机数调用序列 ⇒ 旧的"同 seed 逐像素对照"基线作废(有意的视觉改动)。
-SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "260"))   # 颗/秒(满速率)
+SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "520"))   # 颗/秒(满速率)
 # ⚠️ 第一版用 `|u|^1.6 × (0.42·R)` —— **上限被钉在 42% 半宽处**, 实测 >50%R 恒 0%。
 #    改成"**铺满整个半宽, 密度往外衰减**": mag = 0.96·R·u^POW, POW 越大小越往中心堆。
 #    POW=2.4 时: 中位落在 ~0.18R, p90 落在 ~0.75R —— 正是"由强到弱"。
-SPLASH_BG_POW = 2.4         # 横向密度衰减: 越大越集中在落点
+SPLASH_BG_POW = 0.9         # 横向密度衰减指数(用户 2026-10-05: "中间再减少一些, 两边再多一些")
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -2576,7 +2576,7 @@ class HourglassWidget(Widget):
                 v = -vy
                 bounce = min(110 * motion_scale,
                              (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
-                angle = rand_uniform(-0.85, 0.85)
+                angle = rand_uniform(-1.15, 1.15)
                 step_left = step_dt - float(hit_dt[k])
                 append_splash({
                     "x": x, "y": hy + 0.5,
@@ -2839,7 +2839,7 @@ class HourglassWidget(Widget):
                         v = -vy
                         bounce = min(110 * motion_scale,
                                      (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
-                        angle = rand_uniform(-0.85, 0.85)
+                        angle = rand_uniform(-1.15, 1.15)
                         step_left = step_dt - hit_dt
                         append_splash({
                             "x": x, "y": hy + 0.5,
