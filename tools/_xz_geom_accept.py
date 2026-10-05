@@ -102,15 +102,26 @@ def main():
         check("h=2R → 每列都填满", thick_bad < 0.05, "最大差 %.3f px" % thick_bad)
 
         # ⑤ 面积口径自洽
+        # ⚠️ **绝对单位**(不是 a/Ri 与 h/Ri): 1.74 初版这两处都写成归一化, 两边同一个错口径
+        #    ⇒ 误差自己抵消 ⇒ 这个检查形同虚设, 漏掉了"下球提前灌满"那个真 bug。
         worst_frac = 0.0
         for i in range(0, 101):
             h = 2.0 * Ri * i / 100.0
             a = prof.apex_for_height(h)
-            got = prof.heap.area_at(a / Ri) / prof.heap.capacity
-            want = prof.flat.area_at(h / Ri) / prof.flat.capacity
+            got = prof.heap.area_at(a) / prof.heap.capacity
+            want = prof.flat.area_at(h) / prof.flat.capacity
             worst_frac = max(worst_frac, abs(got - want))
-        check("面积口径自洽(反查后填满比=目标)", worst_frac < 2e-3,
+        check("面积口径自洽(反查后填满比=目标, 绝对单位)", worst_frac < 2e-3,
               "最大差 %.5f (=%.2f 个百分点)" % (worst_frac, worst_frac * 100))
+
+        # 判别性判据(专门盯上面那个 bug 的形态): 锥堆要装下与平顶同样的沙, 峰高必须
+        # **高于**平顶高度、但中段绝不能已经顶到球顶(那正是"提前灌满"的样子)。
+        h_mid = 0.5 * Ri
+        a_mid2 = prof.apex_for_height(h_mid)
+        check("中段峰高 > 平顶等效高度(锥形装同样的沙必然更高)", a_mid2 > h_mid + 1.0,
+              "h=%.1f → apex=%.1f" % (h_mid, a_mid2))
+        check("中段峰高 < 球内高(没提前灌满)", a_mid2 < 2.0 * Ri - 1.0,
+              "apex=%.1f < 2R=%.1f" % (a_mid2, 2.0 * Ri))
 
         # ⑥ 虚拟峰高允许超过球顶
         print("INFO  h=2R 时虚拟峰高 apex=%.2f px (球内高 2R=%.2f)" % (apex_full, 2.0 * Ri))
