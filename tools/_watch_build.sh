@@ -8,13 +8,31 @@
 # 本地闸门(verify_hourglass)只验**桌面**逻辑, **它绿不代表 APK 能构建出来** ——
 # 这两条是完全独立的。所以「闸门绿了」不能当作"可以推送"的全部依据。
 #
-# 用法: tools/_watch_build.sh [sha] [最长分钟数]
-#   输出协议(给 Monitor 用): **只在有结论时打一行**, 然后退出。
+# 用法:
+#   bash tools/_watch_build.sh --baseline      # **推送前**记下当前最新 run 号
+#   bash tools/_watch_build.sh <基线run号> [最长分钟数]   # **推送后**等 > 基线 的那条出结论
+#
+# ⚠️ **必须给基线**。第一版只看"列表里最新一条已完成的", 于是刚推完就抓到
+#    **上一次 push 的结果**并退出 —— 实测它报了个"run #188 成功", 而那是 1.115,
+#    不是刚推的 1.116。**看着有结论, 其实答错了题**, 比不报还坏。
+#    (HTML 里没有 sha, 所以用 run 号单调递增来判断"这条是不是我这次的"。)
 set -u
 REPO=twoplate2/hourglass-ball
-SHA="${1:-$(git rev-parse HEAD)}"
-MAXMIN="${2:-45}"
+MAXMIN=45
+if [ "${1:-}" = "--baseline" ]; then
+  curl -fsS -A "Mozilla/5.0" "https://github.com/$REPO/actions" 2>/dev/null \
+    | PYTHONIOENCODING=utf-8 python -c '
+import io, re, sys
+h = sys.stdin.read()
+nums = [int(m.group(1)) for m in re.finditer(r"Run (\d+) of Build APK", h)]
+print(max(nums) if nums else 0)
+'
+  exit 0
+fi
+BASE="${1:-0}"
+[ $# -ge 2 ] && MAXMIN="$2"
 INTERVAL="${HG_WATCH_INTERVAL:-300}"     # 默认 5 分钟一轮(用户定的)
+SHA="$(git rev-parse HEAD)"
 SHORT="${SHA:0:7}"
 
 api() { curl -fsS -A "Mozilla/5.0" "https://github.com/$REPO/$1" 2>/dev/null; }
@@ -51,22 +69,24 @@ else:
 
 deadline=$(( $(date +%s) + MAXMIN * 60 ))
 tries=0
-TMP="${TMPDIR:-.}/_ci_watch.html"
+# ⚠️ 临时文件要落在**已被 gitignore 的目录**里 —— 落到 `.` 会把仓库根目录搞脏
+#    (实测留了个 `_ci_watch.html`, 刚好赶上"绝不再乱加文件"这条)。
+TMP="benchmark_logs/_ci_watch.html"
 while :; do
   tries=$((tries + 1))
   if api "actions" > "$TMP" 2>/dev/null && [ -s "$TMP" ]; then
     IFS=$'\t' read -r status concl num title <<EOF
 $(parse "$TMP")
 EOF
-    if [ "$status" = "completed" ]; then
+    if [ "$status" = "completed" ] && [ "${num:-0}" -gt "$BASE" ]; then
       if [ "$concl" = "success" ]; then
-        echo "CI ✅ (run #$num) 构建成功: $title"
+        echo "CI ✅ $SHORT (run #$num) 构建成功: $title"
       else
-        echo "CI ❌ (run #$num) 构建 **$concl**: $title —— https://github.com/$REPO/actions/runs/$num"
+        echo "CI ❌ $SHORT (run #$num) 构建 **$concl**: $title —— https://github.com/$REPO/actions/runs/$num"
       fi
       exit 0
     fi
-    # 还在跑/排队: 不打字(避免刷屏), 继续等
+    # 还在跑 / 排队 / run 号还没超过基线: 不打字(避免刷屏), 继续等
   fi
   if [ "$(date +%s)" -ge "$deadline" ]; then
     echo "CI ⏳ 等了 ${MAXMIN} 分钟仍未出结论(轮询 $tries 次) —— 需要人工看一眼"
