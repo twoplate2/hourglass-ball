@@ -4454,6 +4454,15 @@ class HourglassApp(App):
         if self._benchmark_active():
             self._benchmark_runner.cancel()
         self.hourglass._stop_completion_sound()
+        # ⚠️ **被系统挂到后台时必须停背景循环音**(r6-3号 实测, 2026-10-05):
+        #    暂停 / 重置 / 漏完 / on_stop 四条路径都停过这条音, **只有"挂后台"这一条没停**
+        #    ⇒ 用户按 HOME 去回微信, 沙沙声会跟着他走。
+        #    实测: 3000 秒档离开 334 秒全程在播; 10 秒档在 t=44.8s 仍在播(超计时终点 15 秒);
+        #    **熄屏同样不停**。证据是系统级的: `dumpsys media.audio_flinger` 里该轨的
+        #    Server FrmCnt 15.14 秒涨 735744 帧 ≈ 48600 帧/秒 = 该 wav 原生采样率
+        #    ⇒ **是在播, 不是空挂一个轨道**。对照组干净: 暂停=stopped / 漏完=轨道不存在 /
+        #    回前台=立刻 stopped, 说明这是漏了一条路径, 不是设计。
+        self.hourglass._stop_sound()
         return True
 
     def on_stop(self):
@@ -4477,6 +4486,9 @@ class HourglassApp(App):
             if self.hourglass._completion_sound is not None:
                 self.hourglass._completion_sound.close()
             self.hourglass._completion_sound = self.hourglass._make_completion_sound()
+            # 回前台把背景循环音接回去(与 on_pause 的停成对; 静音时 _sound 为 None, 空操作)
+            if self.hourglass.running:
+                self.hourglass._play_sound()
             # SDL 回前台会重报方向(可能把 fullSensor 覆盖回竖屏), 再抢一次话语权
             self._apply_orientation()
             # 同理: 回前台可能把窗口的刷新率档位刷回系统默认, 再要一次最高档
