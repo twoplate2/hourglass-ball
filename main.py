@@ -1876,9 +1876,30 @@ class HourglassWidget(Widget):
             self._upper_rough_frames = _build_rough_frames(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED)
             self._upper_rough_cache = None
             self._mound_shape = tuple(shape)
+            # ---- 下球轮廓的**演化帧**（用户 2026-10-05: "下球斜面也应该有起伏" + "要动"）----
+            # ⚠️ 每帧扰动**减掉自己的均值** ⇒ 面积精确不变（用户原话"有高就有低"），
+            #    但**只减一个常数平移** —— 空间上的高低起伏仍是**不规则的**，而且逐帧在变，
+            #    不会变"均衡"（用户 2026-10-05: "不均衡, 但是又随机变化"）。
+            # ⚠️ **预烘 64 个 `_MoundProfile`**（实测 0.25ms/个 ⇒ 共 16ms 一次性）:
+            #    物理热循环里只是**换一个指针**, 逐颗粒零成本; 而且面积表与画出来的轮廓
+            #    **天生一致** —— 这是"逐帧改轮廓"还能保守恒的关键。
+            _nm = MOUND_SHAPE_NODES
+            _hm = (_nm - 1) // 2
+            _dxm = Ri / _hm
+            _basem = [-(MOUND_SLOPE_L if (i - _hm) < 0 else MOUND_SLOPE_R)
+                      * abs((i - _hm) * _dxm) for i in range(_nm)]
+            _frames = []
+            for _fr in _build_rough_frames(Ri, UPPER_ROUGH_FRAC, MOUND_ROUGH_SEED):
+                _mu = sum(_fr) / len(_fr)
+                _shp = [_basem[i] + (_fr[i] - _mu) for i in range(_nm)]
+                _frames.append((tuple(_shp), _MoundProfile(Ri, _shp)))
+            self._mound_frames = _frames
+            self._mound_frame_k = None
         except ValueError:
             self._mound_profile = None
             self._mound_shape = ()
+            self._mound_frames = None
+            self._mound_frame_k = None
         self._mound_shape_cache = None
         self._geom_ready = True
         self._build_glass_shell()
@@ -1946,6 +1967,24 @@ class HourglassWidget(Widget):
             return dp(MOUND_FLOOR_MIN)
         t = min(1.0, (eff / MOUND_FLOOR_EFF) ** 0.5)
         return dp(MOUND_FLOOR_MIN + (MOUND_FLOOR_MAX - MOUND_FLOOR_MIN) * t)
+
+    def _sync_mound_frame(self):
+        """按 `elapsed` 把下球轮廓换成当前那一帧（**只换指针**, 逐颗粒零成本）。
+
+        面积表是**预烘在每个 `_MoundProfile` 里**的 ⇒ 画出来的轮廓与接触高度天然一致,
+        不存在"求解读 A、绘制读 B"的裂缝(1.93 那类问题的根源)。
+        """
+        frames = getattr(self, "_mound_frames", None)
+        if not frames:
+            return
+        nf = len(frames)
+        period = UPPER_ROUGH_PERIOD if UPPER_ROUGH_PERIOD > 0 else 1.0
+        k = int((self.elapsed / period) % 1.0 * nf) % nf
+        if getattr(self, "_mound_frame_k", None) == k:
+            return
+        self._mound_frame_k = k
+        self._mound_shape, self._mound_profile = frames[k]
+        self._mound_shape_cache = None
 
     def _mound_height_px(self):
         eff = self._effective_fallen()
@@ -2339,6 +2378,9 @@ class HourglassWidget(Widget):
             if self.last_tick is not None:
                 self.elapsed += now - self.last_tick   # 计时不限幅,不偏移
             self.last_tick = now
+            # ⚠️ 换帧必须在**物理之前** —— 否则同一帧里"粒子撞的轮廓"和"画出来的轮廓"
+            #    不是同一个(1.93 那类裂缝的根源)。
+            self._sync_mound_frame()
             if self.elapsed >= self.duration:
                 self.elapsed = self.duration
                 self.running = False
