@@ -154,11 +154,23 @@ SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒�
 #      "第一个没有任何意义吧, 因为我可以在设置中设置啊" —— 那句是把两者当成同一个了,
 #      实测滑杆到不了这里的任何一档 ⇒ 故单独做成档位。
 #   ⚠️ 标签用**数字 1-6**(用户 2026-10-05: "你的选择应该是用数字, 而不是 abcd")。
+#   ⚠️ **2026-10-05 重定**: 原表 1/2/3 只差"明暗落差(grad)" —— r17-1号 在设备上逐档整幅差分,
+#      查出「1 vs 2」「2 vs 3」在沙体区域 **0 个像素 > 15 级**, 「4 vs 6」整幅只有 1 个像素 > 8 级
+#      ⇒ **六档实际只有三种画面, 三个按钮是摆设, 标签还在骗人**。
+#      主持人事后用 `tools/verify_grain_levels.py` 复现并获得决定性结论:
+#      **grad 这条维度根本走不通** —— 加到 1.0/2.0/3.0(已饱和) 可见占比也只有 0.06%/0.84%/0.00%,
+#      因为沙色调色板 base→light 只有十几级, 再大的渐变也翻不出可见差。
+#      ⇒ 改成**只有"颗粒粗细"一条维度**的梯子(1 最细 → 6 最粗), 每个相邻对都实测可见。
 SAND_GRAIN_LEVELS = (
-    ("1", 0.10, 1), ("2", 0.35, 1), ("3", 0.70, 1),
-    ("4", 0.10, 2), ("5", 0.10, 3), ("6", 0.35, 2),
+    ("1", 0.10, 1), ("2", 0.10, 2), ("3", 0.10, 3),
+    ("4", 0.10, 4), ("5", 0.10, 5), ("6", 0.10, 6),
 )
-SAND_GRAIN_LEVEL_DEFAULT = "4"      # 1-3 是细颗粒递增强渐变; 4/5 是粗颗粒; 6 是粗+渐变
+# ⚠️ **档位表版本号**: 表的"含义"改过一次(2026-10-05 grad→只看粗细), 同号的档已经不是同一个东西。
+#    落盘同时存这个号; 对不上就**整组回落默认**, 免得用户存的"3"被静默换成另一种颗粒。
+SAND_LEVELS_REV = 2
+SAND_GRAIN_LEVEL_DEFAULT = "1"      # 1 = 最细(≈1.7px 颗粒) —— **用户最后选的是"细颗粒"那一档**
+#   ⚠️ 档号变了: 用户 2026-10-05 说的 "C(=3)" 在原表里是"细颗粒", 新表里**细颗粒 = 1**。
+#      观感保持不变, 只是号码从 3 挪到 1 —— 已在给用户的汇报里写明。
 
 # ---- 「沙面起伏」六档 (A-F) ----------------------------------------------
 # 值 = 起伏幅度 ÷ 直径。**同一张对照图里用户选定 D**(设备 ≈5.35px; 旧值是 A = 1.25px)。
@@ -170,7 +182,7 @@ SURFACE_ROUGH_LEVELS = (
     ("1", 0.0014), ("2", 0.0025), ("3", 0.0040),
     ("4", 0.0060), ("5", 0.0080), ("6", 0.0120),
 )
-SURFACE_ROUGH_LEVEL_DEFAULT = "4"
+SURFACE_ROUGH_LEVEL_DEFAULT = "3"
 
 
 def _grain_level(label):
@@ -345,6 +357,22 @@ UPPER_FUNNEL_MAXB = 1.00    # 下陷半宽上限(0.80 -> 1.00: 用户要的 100%
 #    但代码里上球沙面**从来没有粗糙项**(审计 2026-10-05 查出)。
 #    幅度按他给的上限折算成占直径比 = 0.0025(他那条 1.25/g 在 g=1 时是 1.25px,
 #    设备 D=891 时 0.0025D=2.23px 更大, 取小的那个 ⇒ 用 0.0014 更保守)。
+# 上球沙面**图案演化周期**(秒) —— 2026-10-05 用户: "所谓沙面起伏, 目前是沙面粘合剂
+# (完全没有起伏, 是静止不动的)"。实测确认: 图案按固定节点号取值 ⇒ 钉死在固定 x 上,
+# 相邻帧相关系数 r=0.98(完全没动)。**但绝不能逐帧重抽** —— 那是 1.60/1.61 被用户
+# 判死("颗粒原地闪现 + 整条轮廓颤动")的路。这里做的是**平滑演化**: 预烘 64 帧、
+# 相邻帧之间在时间上做过环形平滑, 每帧只做 65 次线性插值。
+UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "8.0"))
+UPPER_ROUGH_FRAMES = 64
+
+# 上球沙面**图案演化周期**(秒) —— 2026-10-05 用户: "所谓沙面起伏, 目前是沙面粘合剂
+# (完全没有起伏, 是静止不动的)"。实测确认: 图案按固定节点号取值 ⇒ 钉死在固定 x 上,
+# 相邻帧相关系数 r=0.98(完全没动)。**但绝不能逐帧重抽** —— 那是 1.60/1.61 被用户
+# 判死("颗粒原地闪现 + 整条轮廓颤动")的路。这里做的是**平滑演化**: 预烘 64 帧、
+# 相邻帧之间在时间上做过环形平滑, 每帧只做 65 次线性插值。
+UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "8.0"))
+UPPER_ROUGH_FRAMES = 64
+
 UPPER_ROUGH_FRAC = _rough_level(
     os.environ.get("HG_SURFACE_LEVEL", SURFACE_ROUGH_LEVEL_DEFAULT))
 # 出厂默认 = D 档(设备 ≈5.35px)。六档定义见 `SURFACE_ROUGH_LEVELS`(隐藏菜单可改)。
@@ -460,6 +488,33 @@ def _surface_roughness(radius, amp_frac, seed, limit):
         vals = [v * k for v in vals]
     vals[(n - 1) // 2] = 0.0
     return vals
+
+
+def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES, smooth=4):
+    """预烘 `frames` 张粗糙数组, **相邻帧在时间上做过环形平滑** ⇒ 连续演化、不闪。
+
+    ⚠️ 每帧的幅度都**重新归一化到同一个峰值** —— 否则相邻帧平均会把幅度压小,
+       看起来像"呼吸"(整体一鼓一瘪), 而用户要的是"一颗颗鼓包在原地长大缩小"。
+    ⚠️ 环形平滑(首尾也参与)保证 `t=周期` 时能无缝接回 `t=0`。
+    """
+    import numpy as np
+    n = MOUND_SHAPE_NODES
+    rng = np.random.default_rng(seed if seed is not None else 721)
+    raw = rng.uniform(-1.0, 1.0, size=(frames, n))
+    out = []
+    for k in range(frames):
+        idx = [(k + d) % frames for d in range(-smooth, smooth + 1)]
+        v = raw[idx].mean(axis=0)
+        # 与静态版同源的平滑(1,2,1), 再归一化到统一下的幅度
+        sm = np.empty(n)
+        sm[0] = (v[0] * 3 + v[1]) / 4.0
+        sm[-1] = (v[-1] * 3 + v[-2]) / 4.0
+        sm[1:-1] = (v[:-2] + 2.0 * v[1:-1] + v[2:]) / 4.0
+        pk = float(np.abs(sm).max()) or 1.0
+        out.append((sm / pk * (amp_frac * 2.0 * radius)).tolist())
+    for a in out:                      # 中心点强制 0: 堆尖保持在入沙轴线上
+        a[(n - 1) // 2] = 0.0
+    return out
 
 
 def _mound_shape_array(radius):
@@ -2236,7 +2291,8 @@ class HourglassWidget(Widget):
                            # 隐藏菜单的两个六档(2026-10-05 用户要求做成可调)。
                            # 同样存**标签**: 以后调数值不会让旧配置串到别的档。
                            'grain_level': current_grain_level(),
-                           'rough_level': current_rough_level()},
+                           'rough_level': current_rough_level(),
+                           'levels_rev': SAND_LEVELS_REV},
                   f, ensure_ascii=False)
         except Exception:
             pass
@@ -4097,10 +4153,15 @@ class HourglassApp(App):
             apply_sand_style(cfg.get('sand_mode', 'grain'),
                              cfg.get('sand_grain', SAND_GRAIN_DEFAULT))
         # 两个六档: 环境变量给了就**不读配置**(取图/AB 的档位绝不能被本地配置盖掉)
+        # ⚠️ 档位表改过版 ⇒ 旧配置里的档号**整组作废**(回落默认)。
+        #    不加这一条, 用户存的"3"会被静默换成另一种颗粒(2026-10-05 重定表就是这个情形)。
+        _rev_ok = cfg.get('levels_rev') == SAND_LEVELS_REV
         if os.environ.get("HG_SAND_LEVEL") is None and os.environ.get("HG_SAND_GRAD") is None                 and os.environ.get("HG_SAND_COARSE") is None:
-            apply_grain_level(cfg.get('grain_level', SAND_GRAIN_LEVEL_DEFAULT))
+            apply_grain_level(cfg.get('grain_level', SAND_GRAIN_LEVEL_DEFAULT)
+                              if _rev_ok else SAND_GRAIN_LEVEL_DEFAULT)
         if os.environ.get("HG_SURFACE_LEVEL") is None:
-            apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT))
+            apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT)
+                              if _rev_ok else SURFACE_ROUGH_LEVEL_DEFAULT)
 
         root = BoxLayout(orientation="vertical", spacing=dp(3),
                          padding=[dp(8), dp(6), dp(8), dp(6)])
@@ -4588,8 +4649,7 @@ class HourglassApp(App):
         grain_box, refresh_grain, grain_btns = make_levels(
             "沙体颗粒", [lb for lb, _g, _c in SAND_GRAIN_LEVELS],
             current_grain_level(), pick_grain,
-            fmt=lambda lb: "颗粒 %d 倍粗细 · 明暗 %.2f" % (_grain_level(lb)[1],
-                                                          _grain_level(lb)[0]))
+            fmt=lambda lb: "颗粒 %d 倍粗" % _grain_level(lb)[1])
         content.add_widget(grain_box)
 
         # ---- 沙面起伏 六档 (A-F, 出厂默认 D) ----

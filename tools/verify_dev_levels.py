@@ -67,11 +67,17 @@ def main():
         def run_all(self, _dt):
             hg = self.hourglass
             print("\n① 出厂默认 = 用户挑的那一档")
-            got = m._sand_material_rgba(512, base, dark, light, grain=0.35, coarse=2, grad=0.10)
-            want = ab.variant_rgba(512, base, dark, light, grain=0.35, grad=0.10, coarse=2)
-            chk(got == want, "沙体颗粒默认材质 与 对照图 D 档 逐字节相同")
-            chk(abs(m.UPPER_ROUGH_FRAC - 0.0060) < 1e-12,
-                "沙面起伏默认 FRAC=0.0060 (D 档)")
+            # ⚠️ 跟着**当前默认档**走, 不写死档号 —— 用户改默认值时不用改测试
+            dg, dc = m._grain_level(m.SAND_GRAIN_LEVEL_DEFAULT)
+            got = m._sand_material_rgba(512, base, dark, light, grain=0.35,
+                                        coarse=dc, grad=dg)
+            want = ab.variant_rgba(512, base, dark, light, grain=0.35, grad=dg, coarse=dc)
+            chk(got == want, "沙体颗粒默认(%s 档)材质 与 对照图 逐字节相同"
+                % m.SAND_GRAIN_LEVEL_DEFAULT)
+            chk(abs(m.UPPER_ROUGH_FRAC - m._rough_level(m.SURFACE_ROUGH_LEVEL_DEFAULT)) < 1e-12,
+                "沙面起伏默认(%s 档) FRAC=%.4f"
+                % (m.SURFACE_ROUGH_LEVEL_DEFAULT,
+                   m._rough_level(m.SURFACE_ROUGH_LEVEL_DEFAULT)))
 
             print("\n② 隐藏菜单里有这两行, 且高亮 = 当前档")
             self._open_dev_menu()
@@ -94,15 +100,18 @@ def main():
                     "  沙面起伏 %s 的高亮 = %s" % (lb, lb == m.current_rough_level()))
 
             print("\n③ 点 F / B ⇒ 全局真的变了")
-            before_g = hashlib.sha256(m._sand_material_rgba(
-                256, base, dark, light, grad=m.SAND_MATERIAL_GRAD)).hexdigest()[:10]
+            def mat_hash():
+                # ⚠️ **两个旋钮都要传全**: 粗度现在才是唯一维度, 漏掉它就是"永远没换"
+                return hashlib.sha256(m._sand_material_rgba(
+                    256, base, dark, light, grad=m.SAND_MATERIAL_GRAD,
+                    coarse=m.SAND_MATERIAL_COARSE)).hexdigest()[:10]
+            before_g = mat_hash()
             before_r = m.UPPER_ROUGH_FRAC
             gb["6"].dispatch("on_press")
             rb["2"].dispatch("on_press")
             chk(m.current_grain_level() == "6", "沙体颗粒 切到 6")
             chk(m.current_rough_level() == "2", "沙面起伏 切到 2")
-            after_g = hashlib.sha256(m._sand_material_rgba(
-                256, base, dark, light, grad=m.SAND_MATERIAL_GRAD)).hexdigest()[:10]
+            after_g = mat_hash()
             chk(after_g != before_g, "材质真的换了 (hash %s -> %s)" % (before_g, after_g))
             chk(abs(m.UPPER_ROUGH_FRAC - 0.0025) < 1e-12,
                 "UPPER_ROUGH_FRAC 真的换了 (%.4f -> %.4f)" % (before_r, m.UPPER_ROUGH_FRAC))
