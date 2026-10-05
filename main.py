@@ -383,9 +383,14 @@ UPPER_FUNNEL_MAXB = 1.00    # 下陷半宽上限(0.80 -> 1.00: 用户要的 100%
 #    "循环"和"演化"是两回事。改法: **周期拉长到 48 秒, 同时把谐波次数按比例提高**
 #    ⇒ 肉眼看到的运动快慢**不变**（最快的分量周期仍是 ~3.7 秒）, 但一轮回变成 48 秒
 #    （53 秒档只看 1.1 圈）。帧数跟着提到 128: 最高谐波 13 ⇒ 每周期至少 8 帧采样。
-UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "48.0"))
-UPPER_ROUGH_FRAMES = 128
-UPPER_ROUGH_HARMONICS = (5, 8, 13)   # 谐波次数(整数 ⇒ 整轮严格闭合, 插值不会跳)
+# ⚠️ **1.107 把这三行调成 (48.0 / 128 / (5,8,13)) 之后, 闸门出现一条稳定回归**:
+#    `neck texture stays inside the straight conduit` FAIL(连跑两次),
+#    而 1.106 的同一支闸门 PASS ⇒ **是这次调参引入的**。机制未查明。
+#    ⇒ **先回退到 1.106 的取值**(不带已知回归跑), 等有上下文时再做二分定位。
+#    要复现: 把 period 改 48.0 / FRAMES 改 128 / HARMONICS 改 (5,8,13), 跑 verify_hourglass.py。
+UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "8.0"))
+UPPER_ROUGH_FRAMES = 64
+UPPER_ROUGH_HARMONICS = (1, 2, 3)    # 谐波次数(整数 ⇒ 整轮严格闭合, 插值不会跳)
 
 # 上球沙面**图案演化周期**(秒) —— 2026-10-05 用户: "所谓沙面起伏, 目前是沙面粘合剂
 # (完全没有起伏, 是静止不动的)"。实测确认: 图案按固定节点号取值 ⇒ 钉死在固定 x 上,
@@ -396,9 +401,14 @@ UPPER_ROUGH_HARMONICS = (5, 8, 13)   # 谐波次数(整数 ⇒ 整轮严格闭�
 #    "循环"和"演化"是两回事。改法: **周期拉长到 48 秒, 同时把谐波次数按比例提高**
 #    ⇒ 肉眼看到的运动快慢**不变**（最快的分量周期仍是 ~3.7 秒）, 但一轮回变成 48 秒
 #    （53 秒档只看 1.1 圈）。帧数跟着提到 128: 最高谐波 13 ⇒ 每周期至少 8 帧采样。
-UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "48.0"))
-UPPER_ROUGH_FRAMES = 128
-UPPER_ROUGH_HARMONICS = (5, 8, 13)   # 谐波次数(整数 ⇒ 整轮严格闭合, 插值不会跳)
+# ⚠️ **1.107 把这三行调成 (48.0 / 128 / (5,8,13)) 之后, 闸门出现一条稳定回归**:
+#    `neck texture stays inside the straight conduit` FAIL(连跑两次),
+#    而 1.106 的同一支闸门 PASS ⇒ **是这次调参引入的**。机制未查明。
+#    ⇒ **先回退到 1.106 的取值**(不带已知回归跑), 等有上下文时再做二分定位。
+#    要复现: 把 period 改 48.0 / FRAMES 改 128 / HARMONICS 改 (5,8,13), 跑 verify_hourglass.py。
+UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "8.0"))
+UPPER_ROUGH_FRAMES = 64
+UPPER_ROUGH_HARMONICS = (1, 2, 3)    # 谐波次数(整数 ⇒ 整轮严格闭合, 插值不会跳)
 
 UPPER_ROUGH_FRAC = _rough_level(
     os.environ.get("HG_SURFACE_LEVEL", SURFACE_ROUGH_LEVEL_DEFAULT))
