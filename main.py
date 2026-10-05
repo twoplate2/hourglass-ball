@@ -2323,8 +2323,11 @@ class HourglassWidget(Widget):
             x = float(px[i])
             vy = float(pvy[i])
             step_dt = float(pdt[i])
+            # ⚠️ 与 scalar 路径同源: 出生点用**该颗粒自己的接触高度**(dingbu.md §7.1 第 6 条)。
+            #    numpy 路径拿不到 scalar 的 hy, 就地按 x 查一次 —— 两条路径必须同口径。
+            hy = self._lower_sand_bot + self._mound_contact_h(x - self._cx)
             if rand() < 0.25:
-                append_flare({"x": x, "y": mound_top, "end": now + 0.08})
+                append_flare({"x": x, "y": hy, "end": now + 0.08})
             if rand() < 0.50:
                 v = -vy
                 bounce = min(110 * motion_scale,
@@ -2332,7 +2335,7 @@ class HourglassWidget(Widget):
                 angle = rand_uniform(-0.85, 0.85)
                 step_left = step_dt - float(hit_dt[k])
                 append_splash({
-                    "x": x, "y": mound_top + 0.5,
+                    "x": x, "y": hy + 0.5,
                     "vx": sin(angle) * bounce,
                     "vy": cos(angle) * bounce,
                     "size": rand_choice([1, 1, 2]),
@@ -2542,8 +2545,12 @@ class HourglassWidget(Widget):
                 if hit:
                     if mound_top > lower_bot + 1:
                         peak_offset = peak_offset * 0.97 + (x - cx) * 0.03
+                    # ⚠️ **出生点用该颗粒自己的接触高度 hy**(dingbu.md §7.1 第 6 条:
+                    #    "闪光、弹跳、滑落起点全部使用该颗粒的接触 y, 不再统一放到一条水平线上")。
+                    #    原来放在标量 mound_top 上 —— 审计实测出生点比该颗粒**当地沙面**
+                    #    高 p50=7.5px / p90=12.6px / max=15.4px(92% 的命中 >1px)。
                     if rand() < 0.25:
-                        append_flare({"x": x, "y": mound_top, "end": now + 0.08})
+                        append_flare({"x": x, "y": hy, "end": now + 0.08})
                     if rand() < 0.50:
                         v = -vy
                         bounce = min(110 * motion_scale,
@@ -2551,7 +2558,7 @@ class HourglassWidget(Widget):
                         angle = rand_uniform(-0.85, 0.85)
                         step_left = step_dt - hit_dt
                         append_splash({
-                            "x": x, "y": mound_top + 0.5,
+                            "x": x, "y": hy + 0.5,
                             "vx": sin(angle) * bounce,
                             "vy": math.cos(angle) * bounce,
                             "size": rand_choice([1, 1, 2]),
