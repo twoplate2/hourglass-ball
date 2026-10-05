@@ -277,7 +277,24 @@ def main():
                           for a, b in zip(*endpoints)),
                       "fall trajectory is identical at 30 and 60 FPS")
 
-                source = ROOT.parent / "backup" / "android_main_pre_perf_20261001.py"
+                # ⚠️ 2026-10-05 换了参照物。旧的 `android_main_pre_perf_20261001.py`
+                #    内容其实是 **2026-08-28** 的构建(文件名写 1001, mtime 是 8-28 19:22)
+                #    —— 拿今天的渲染器去和一个月前的版本**逐像素**比, 它永远红,
+                #    于是四条 `unchanged glass and true-circle sand rendering` 挂了很久,
+                #    谁也不知道是真回归还是旧账。**红色的闸门等于没有闸门。**
+                #    已核对过那四张图的差异**全部是有意改动**:
+                #      · idle/done: **只有沙体材质纹理** —— 缩 8× 后最大通道差
+                #        139/152 → **8**, 即纯高频项被抹掉后两边一致;
+                #      · mid/paused: 还有沙面高度差 **4px**(实测中央列最上沙像素
+                #        135→139) + 沙堆轮廓 —— 正是 2026-10-03「上沙按恒定流速、
+                #        不再写 `满 − 下沙堆`」那次有意的模型改动(见
+                #        `_upper_sand_height_px` 的注释)。
+                #    ⇒ 参照物换成**今天的构建**。这条断言现在守的是:
+                #      **渲染器是确定的, 且此后没有被意外改动过**(已知对 = 0 差异)。
+                #      负对照: 换成上面那个 8-28 的文件, 四条立刻全红(实测)。
+                #      改了视觉**就该**换一份新快照, 换的时候把 diff 是什么写清楚。
+                source = ROOT.parent / "backup" / "android_main_20261005.py"
+                orig_size = tuple(widget.size)   # `old` 是按这个尺寸造的, 之后要复位
                 if source.exists():
                     spec = importlib.util.spec_from_file_location("reference_hourglass", source)
                     reference = importlib.util.module_from_spec(spec)
@@ -301,9 +318,25 @@ def main():
                             obj.dusts = []
                             # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                         # Compare the renderer at identical geometry, independent of new timing.
+                        # ⚠️ 2026-10-05: 原来这里**还打了 `old._raw_height_ratio` 的补丁**,
+                        #    本意只是把**下沙堆**的高度对齐, 好让两边"同样的几何进、同样的像素出"。
+                        #    但 2026-10-03「上沙按恒定流速、不再写 `满 − 下沙堆`」之后,
+                        #    `_upper_sand_height_px()` **也走 `self._raw_height_ratio`**
+                        #    ⇒ 那个补丁把参照物的**上球沙量一起清零**:
+                        #      实测 `old._upper_sand_height_px() = 0.0` vs `widget = 273.4`,
+                        #      `old` 的 canvas 只有 **6** 条指令而 `widget` 有 **839** 条
+                        #      (tools/_probe_ref_instance.py)。
+                        #    于是 `old` 画出来上球**永远是空的** —— 四条
+                        #    `unchanged glass and true-circle sand rendering` 从那次改动起
+                        #    一直红, 而它红的根本不是"渲染器变了"。
+                        #    **是测试自己把自己的参照物毒死了。**
+                        #    (8-28 那版上沙不走这条路, 所以它当年是绿的 —— 这也解释了
+                        #     "为什么换了新参照物它还是红"。)
+                        #    改成**直接对齐两个高度函数**, 不打 `_raw_height_ratio`。
+                        #    校准: 对齐后两边应当**逐像素 0 差异**(已知对);
+                        #          负对照 = 把参照物换回 8-28 那版, 四条立刻全红。
                         old._mound_height_px = widget._mound_height_px
-                        old._raw_height_ratio = lambda _volume: (
-                            widget._mound_height_px() / (2 * widget._R_inner))
+                        old._upper_sand_height_px = widget._upper_sand_height_px
                         for obj in (old, widget):
                             obj.redraw()
                         # This reference checks the original shell/body geometry, not new material shading.
@@ -320,22 +353,30 @@ def main():
                             print("Geometry pixel difference:", state, diff.getbbox(), diff.getextrema())
                         check(diff.convert("RGB").getbbox() is None,
                               "unchanged glass and true-circle sand rendering: " + state)
-                    for period in (1, 5, 10, 30, 360000):
-                        widget.set_duration(period)
-                        check(widget._taper["y_bot"] > widget._neck_y,
-                              "neck geometry: %ss" % period)
-                    for size in ((320, 560), (760, 1460)):
-                        widget.size = size
-                        widget._rebuild_height_table()
-                        widget.redraw()
-                        # ⚠️ 2026-10-05: 旧断言写死 **11**, 实测是 **25**（两个尺寸都一样）。
-                        # 颈部几何换过（贝塞尔过渡 TAPER_SEGS），段数跟着变 —— 测试没跟上。
-                        # 这里守的是"重建后段数确定且两个尺寸一致"，**不是某个历史数字**。
-                        check(len(widget._neck_quads) == 25,
-                              "resize rebuild: %s (quads=%d)" % (size, len(widget._neck_quads)))
-                    widget.size = old.size
+                else:
+                    # ⚠️ 2026-10-05: 参照物**不在仓库里**(在 `pc/backup/`), 所以文件一丢
+                    #    这 4 条检查就**无声消失** —— 与"长按入口改了导致提前 return"
+                    #    是同一类病: **静默跳过**。让它响。
+                    check(False, "renderer reference snapshot is missing: %s" % source)
+                # ⚠️ 2026-10-05: 下面三段(颈部几何 / 尺寸重建 / 复位)**原来都在
+                #    `if source.exists():` 里面**(缩进 20) —— 参照物一丢, 它们跟着一起
+                #    消失。它们和参照物**没有关系**, 已挪出来。
+                for period in (1, 5, 10, 30, 360000):
+                    widget.set_duration(period)
+                    check(widget._taper["y_bot"] > widget._neck_y,
+                          "neck geometry: %ss" % period)
+                for size in ((320, 560), (760, 1460)):
+                    widget.size = size
                     widget._rebuild_height_table()
-                    widget.set_duration(60)
+                    widget.redraw()
+                    # ⚠️ 2026-10-05: 旧断言写死 **11**, 实测是 **25**（两个尺寸都一样）。
+                    # 颈部几何换过（贝塞尔过渡 TAPER_SEGS），段数跟着变 —— 测试没跟上。
+                    # 这里守的是"重建后段数确定且两个尺寸一致"，**不是某个历史数字**。
+                    check(len(widget._neck_quads) == 25,
+                          "resize rebuild: %s (quads=%d)" % (size, len(widget._neck_quads)))
+                widget.size = orig_size
+                widget._rebuild_height_table()
+                widget.set_duration(60)
                 widget.reset()
                 widget.elapsed = 7
                 widget.running = True
@@ -685,19 +726,37 @@ def main():
                 Clock.schedule_once(lambda _dt: self.stop(), 4)
 
             def start_full_benchmark(self, _dt):
-                check(self._benchmark_popup is not None, "real 3-second hold opens popup")
-                if self._benchmark_popup is not None:
-                    check(self._benchmark_popup.title == f"Benchmark v{app_module.APP_VERSION}",
-                          "benchmark title includes the application version")
+                # ⚠️ 2026-10-05 修: 长按的入口**早就改成隐藏菜单了**
+                #    (`_open_dev_menu` ⇒ `self._dev_popup`), 而这段还在断言
+                #    `self._benchmark_popup` —— 于是它**每轮都红**, 而且紧接着那句
+                #    `if self._benchmark_popup is None: self.stop(); return` **每轮都提前返回**
+                #    ⇒ 后面**整个 benchmark 段一次都没跑过**
+                #    (实测: `no results disables save` / `copy report` 在输出里出现 **0** 次)。
+                #    **红着的闸门等于没有闸门; 而"提前 return 的闸门"连红都看不见。**
+                #    现在照**生产路径**走: 长按 → 隐藏菜单 → 菜单里的「性能测试」
+                #    (那两行就是 `bench_btn` 的 on_press: `_close_dev_menu()` + `on_benchmark()`)。
+                check(self._dev_popup is not None, "real 3-second hold opens the dev menu")
+                if self._dev_popup is not None:
+                    check(self._dev_popup.title == "沙漏设置   v%s" % app_module.APP_VERSION,
+                          "dev menu title includes the application version")
                 check(any(getattr(child, "text", None) == f"v{app_module.APP_VERSION}"
                           and child.size == self._benchmark_area.size
                           for child in self._benchmark_area.children),
                       "hold area advertises the version where the user must press")
                 self._benchmark_area.on_touch_up(self._hold_touch)
-                Window.screenshot(name=str(OUT / "benchmark-ready.png"))
-                if self._benchmark_popup is None:
+                Window.screenshot(name=str(OUT / "devmenu-ready.png"))
+                if self._dev_popup is None:
                     self.stop()
                     return
+                self._close_dev_menu()
+                self.on_benchmark()
+                Window.screenshot(name=str(OUT / "benchmark-ready.png"))
+                if self._benchmark_popup is None:
+                    check(False, "dev menu's 性能测试 opens the benchmark popup")
+                    self.stop()
+                    return
+                check(self._benchmark_popup.title == f"Benchmark v{app_module.APP_VERSION}",
+                      "benchmark title includes the application version")
                 check(self._benchmark_save_btn.disabled, "no results disables save")
                 if "--quick" in sys.argv:
                     self._start_benchmark(self._benchmark_popup)
@@ -716,7 +775,12 @@ def main():
                           for name, value in self._before.items()),
                       "UI cancellation restores animation state")
                 check(self._benchmark_popup is not None, "cancelled results popup opens")
-                self.verify_copy()
+                # ⚠️ 2026-10-05: 这里原来调 `self.verify_copy()` —— **那个方法不存在**。
+                #    所以 `--quick` 这条路径**一跑到这儿就 AttributeError 崩掉**,
+                #    `FAILED:` 汇总行根本打不出来(实测: 明明已经有 FAIL 了, 却看不到汇总)。
+                #    与"长按入口改了导致提前 return"是同一类病: **闸门看起来在跑, 其实没在跑**。
+                #    `verify_save()` 自带兜底(没结果时自己造一轮), 直接用它。
+                self.verify_save()
                 Clock.schedule_once(lambda _dt: self.stop(), 0.5)
 
             def finish_checks(self, _dt):
