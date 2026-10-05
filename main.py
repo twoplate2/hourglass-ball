@@ -1315,6 +1315,24 @@ class _SandBgPopup(Popup):
         self._popup_bg.pos = inst.pos
         self._popup_bg.size = inst.size
 
+    def _handle_keyboard(self, _window, key, *_args):
+        """Android 返回键(27) = 关掉**最上面这个弹窗**, 不是退出 App。
+
+        ⚠️ Kivy `ModalView._handle_keyboard` 的原文是
+           `if key == 27 and self.auto_dismiss: self.dismiss(); return True`
+           —— 只在 `auto_dismiss=True` 时才**消费** 27。本 App 的弹窗**全是
+           `auto_dismiss=False`** ⇒ 27 不被消费, 一路冒到 Window ⇒ p4a 把
+           "没有控件要的返回键"当退出 ⇒ **在完成/周期/音效弹窗上按一下返回,
+           整个 App 退到桌面**(r14-2号 报, r15-1号 在三个弹窗上逐个复现, 2026-10-05)。
+
+        用户定的"不点不关"说的是**点弹窗外面**, 与返回键不冲突 ——
+        返回键是 Android"关掉当前这一层"的约定, 是一次明确的用户动作。
+        """
+        if key == 27:
+            self.dismiss()
+            return True
+        return False
+
     def open(self, *args, **kwargs):
         layer = _land_layer()
         if layer is None or layer.angle == 0:
@@ -4620,6 +4638,16 @@ class HourglassApp(App):
         content.pos_hint = {'top': 1}
         content.bind(minimum_height=content.setter('height'))
         popup = self._sound_popup    # 局部引用:闭包持有,弹窗关闭后布局事件仍安全
+        # 返回键(见 `_SandBgPopup._handle_keyboard`)会直接 dismiss ⇒ 引用必须挂在
+        # on_dismiss 上清, 不能只靠"确定"按钮那条路, 否则 `_sound_popup` 留下来是脏的。
+        # ⚠️ **必须返回 None**: Kivy `ModalView.dismiss()` 里有一句
+        #    `if self.dispatch('on_dismiss') is True: return` —— 回调返回 True 会把
+        #    **整个关闭动作取消掉**(弹窗永远关不上)。元组表达式的 lambda 恰好是踩这个坑
+        #    的写法(第一个版本就是, 实测音效弹窗按返回/按确定都关不掉, 2026-10-05)。
+        def _forget_sound(*_a):
+            self._sound_popup = None
+            self._sound_diag_label = None
+        popup.bind(on_dismiss=_forget_sound)
         confirm_btn.bind(on_press=lambda inst, p=popup: self._close_sound_picker(p))
 
         def _adjust_popup_height(inst, val):
@@ -4732,6 +4760,8 @@ class HourglassApp(App):
         content.bind(minimum_height=lambda inst, val:
                      setattr(popup, "height", val + dp(85)))
         close_btn.bind(on_press=lambda inst, p=popup: self._close_completion(p))
+        # 同音效弹窗: 返回键会绕过"确定"直接 dismiss, 引用挂在 on_dismiss 上清
+        popup.bind(on_dismiss=lambda *_: setattr(self, "_completion_popup", None))
         self._completion_popup = popup
         popup.open()
 

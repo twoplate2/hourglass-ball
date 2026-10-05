@@ -402,17 +402,14 @@ def main():
                 check(tuple(widget._neck_fade_rect.size) == (0, 0) and
                       tuple(widget._neck_solid_rect.size) == (0, 0),
                       "reset hides the outlet transition")
-                check(tuple(widget._pause_rect.size) == (0, 0) and
-                      # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
+                check(tuple(widget._pause_rect.size) == (0, 0),
                       "inactive full-screen overlays have no geometry")
                 widget.elapsed = 1
                 widget.running = False
                 # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
                 widget.redraw()
                 check(tuple(widget._pause_rect.size) == tuple(widget.size) and
-                      # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
-                      math.isclose(widget._pause_color.a, 0.55, abs_tol=1e-6) and
-                      # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
+                      math.isclose(widget._pause_color.a, 0.55, abs_tol=1e-6),
                       "active pause and completion overlays retain their appearance")
                 # (完成闪烁 2026-10-04 已删除 —— 这里原来断言它的开关/尺寸/透明度)
 
