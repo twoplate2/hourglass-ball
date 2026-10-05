@@ -1606,6 +1606,11 @@ class _SandBgPopup(Popup):
         self.size_hint = (None, None)
         self.size = (frac * eq_w, self.height)
         self._window = layer                        # 宿主从 Window 换成旋转层
+        # ⚠️ 把自带的 overlay 关掉(它是"铺满宿主"的, 会跟着层转 90° ⇒ 四角露白),
+        #    改由层的**不旋转**整窗压暗顶替。透明度沿用 overlay_color 的 alpha。
+        self._ov_alpha = self.overlay_color[3]
+        self.overlay_color = (0, 0, 0, 0)
+        layer.set_screen_dim(self._ov_alpha)
         self._is_open = True
         self.dispatch('on_pre_open')
         if not self.pos_hint:
@@ -1629,6 +1634,16 @@ class _SandBgPopup(Popup):
                                 on_keyboard=self._handle_keyboard)
         except Exception:
             pass
+        # 横屏挂层的那一支: 把 overlay 与"整窗压暗"一起还原(对称, 不漏)。
+        if getattr(self, "_ov_alpha", None) is not None:
+            try:
+                self.overlay_color = (0, 0, 0, self._ov_alpha)
+                ly = _land_layer()
+                if ly is not None:
+                    ly.set_screen_dim(0.0)
+            except Exception:
+                pass
+            self._ov_alpha = None
         self._is_open = False
         self._window = None
 
@@ -1660,10 +1675,31 @@ class LandLayer(FloatLayout):
         self.angle = 0            # 渲染旋转角: 0=竖屏无旋转, 其他=±90
         self._anchor = None       # "等效竖屏窗口"容器(AnchorLayout), 由 build 塞入
         with self.canvas.before:
+            # ⚠️ **整窗压暗层, 必须放在 PushMatrix 之前**（2026-10-06, r29-2号 设备实测 + 主持人复核）。
+            #    横屏时弹窗挂在本层上, 而 `ModalView` 的 overlay 是"铺满宿主"的矩形
+            #    ⇒ 它跟着本层一起转 90°, 只覆盖 `h×w` ⇒ 屏幕**四角**没被压暗。
+            #    实测(1080x1080@480, 开「周期」弹窗): 四角比值 **1.00**(完全没变),
+            #    四条边中点 0.30(正常) —— "旋转矩形盖不住角"的指纹。
+            #    (先试过"把本层改成正方形", 不行: 根控件的 size 由 Kivy 管, 会被改回去。)
+            #    放这里 ⇒ **不参与旋转**、且在所有子控件之下 ⇒ 天然盖满整窗。
+            self._dim_color = Color(0, 0, 0, 0)
+            self._dim_rect = Rectangle(pos=(0, 0), size=(0, 0))
             PushMatrix()
             self._rot = Rotate(angle=0, axis=(0, 0, 1), origin=(0, 0))
         with self.canvas.after:
             PopMatrix()
+
+    def set_screen_dim(self, alpha):
+        """整窗压暗(不参与旋转)。横屏弹窗用它替代 `ModalView` 那块会跟着转的 overlay。
+
+        `alpha <= 0` = 关掉且把尺寸清零(不留任何绘制)。窗口尺寸随时可能变, 所以每次都重设。
+        """
+        self._dim_color.a = max(0.0, float(alpha))
+        if self._dim_color.a > 0.0:
+            self._dim_rect.pos = (0, 0)
+            self._dim_rect.size = tuple(Window.size)
+        else:
+            self._dim_rect.size = (0, 0)
 
     def apply_orientation(self):
         """窗口尺寸变化时重算: 层永远铺满整窗, anchor 按"等效竖屏盒"定尺寸并绕屏中心旋转。"""
@@ -1675,6 +1711,18 @@ class LandLayer(FloatLayout):
         self.angle = _land_angle() if land else 0
         self._rot.angle = self.angle
         self._rot.origin = (w / 2.0, h / 2.0)       # 绕屏幕中心旋转
+        # ⚠️ **横屏时本层必须是"正方形 + 与窗口同心"**（2026-10-06, r29-2号 设备实测 + 主持人复核）。
+        #    凡是**画在层上、尺寸跟着层走**的东西都会跟着一起转。弹窗的遮罩就是:
+        #    `ModalView` 的 overlay 铺满宿主 ⇒ 宿主(h=本层)是 `w×h`, 绕中心转 90° 之后
+        #    **只覆盖 `h×w` 那一块** ⇒ 屏幕**四角**留成没被压暗的亮角。
+        #    实测(1080x1080@480, 开「周期」弹窗): **四角比值 1.00(完全没变)**, 而四条边中点
+        #    比值 0.30(正常压暗) —— 正是"旋转矩形盖不住角"的指纹。
+        #    取边长 = `max(w, h)` 并同心 ⇒ 转完还是它自己 ⇒ 遮罩盖满。
+        #    (横屏时 `w > h`, 所以边长恒为 w; 竖屏 `angle == 0`, 一个字不动。)
+        if self.angle:
+            side = max(w, h)
+            self.size = (side, side)
+            self.center = (w / 2.0, h / 2.0)
         if self._anchor is not None:
             self._anchor.size = (h, w) if land else (w, h)
             self._anchor.center = self.center
