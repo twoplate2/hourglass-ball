@@ -578,6 +578,15 @@ def main():
                         check(_worst <= 1e-3,
                               "upper sand rect covers the drawn surface: %ss %.2f worst %+.2f px"
                               % (period, fraction, _worst))
+                        # (a3) **镜像检查**: 矩形顶也不得**捅穿 carve 的上沿**。
+                        #      carve(`_draw_upper_shape`)只画到 `_upper_sand_bot + 2Ri +
+                        #      MOUND_CREST_MARGIN`; 矩形若高过它, 抬出来那一条**不会**被抠成
+                        #      玻璃 ⇒ 沙体直接露在球顶外面 —— 正是 (a2) 那条的镜像。
+                        #      全程最小余量 = `MOUND_CREST_MARGIN`(2.0px, 发生在满球态,
+                        #      那里 crest 包络本就是 0) ⇒ 与 rough 档位无关。
+                        check(upper <= h_inner + app_module.MOUND_CREST_MARGIN + 1e-3,
+                              "upper sand rect stays under the carve limit: %ss %.2f %.2f vs %.2f"
+                              % (period, fraction, upper, h_inner + app_module.MOUND_CREST_MARGIN))
                         # (b) ⚠️ **不能拿 `upper + lower` 求和** —— `chords[1]`(下球那个矩形)
                         #     现在是**容器**(高度只有 0.0 或 275.4 两种值, 而 2R=273.4),
                         #     不是沙堆高度。主持人第一版就是这么写的, 结果自己红了 9 次。
