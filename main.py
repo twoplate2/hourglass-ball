@@ -246,10 +246,23 @@ MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carv
 UPPER_FUNNEL_DEPTH = 0.018  # 中段最大下陷 = 0.018 × 直径
 #   ⚠️ 0.010 是 dingbu2.md §3 给的"美术起点"(他明说"不是物理定律、待视觉确认")。
 #   用户实测后说"坑还是太小" ⇒ 加深到 0.018。**宽度已顶到护栏**(见下), 只能靠深度。
-UPPER_FUNNEL_WIDTH = 0.40   # 下陷**半宽** = 0.40 × 可见全宽 C ⇒ = 0.80×半弦宽,
-#   **正好顶到 UPPER_FUNNEL_MAXB 的护栏**(0.35 时还有余量, 但用户要更大的坑)。
+# ⚠️ 用户 2026-10-05 实测后裁定: "**深度也还行, 主要是宽度太窄**"、
+#   "中间深两边浅, 而不是又小又深"、"最极端应该达到最大宽度的 90~100%"。
+#   0.50C = **100% 半弦宽**(坑的边缘正好落在球壁上)。
+#   ⚠️ 为什么 0.35C 看着还是窄: 曲线 [1-(x/b)²]² 掉得极快 —— |x|=b/2 处只剩 56%,
+#   |x|=0.7b 处只剩 26% ⇒ **"看得见的坑"只有 b 的一半**。这是评审 §2.1 说的
+#   "造型范围偏窄"在观感上的真实后果, 不能只照数字填。
+UPPER_FUNNEL_WIDTH = 0.50   # 下陷**半宽** = 0.50 × 可见全宽 C = 1.00 × 半弦宽
 UPPER_FUNNEL_MAXH = 0.25    # 下陷深度上限 = 0.25 × 当前沙层厚度
-UPPER_FUNNEL_MAXB = 0.80    # 下陷半宽上限 = 0.80 × 该高度的半弦宽
+UPPER_FUNNEL_MAXB = 1.00    # 下陷半宽上限(0.80 -> 1.00: 用户要的 100% 宽度需要它)
+# ---- §3 公式里的上球微粗糙 r_upper(x)(dingbu2.md §4.2 / §3) ----
+# ⚠️ **这一项 1.83~1.88 一直是漏做的**: 评审的公式写的是 `P_upper = a - d·F(x) + r_upper(x)`,
+#    并单独给了上球的幅度上限 `A_upper = min(0.0025×D, 1.25/g)`、还要求"独立 seed"。
+#    但代码里上球沙面**从来没有粗糙项**(审计 2026-10-05 查出)。
+#    幅度按他给的上限折算成占直径比 = 0.0025(他那条 1.25/g 在 g=1 时是 1.25px,
+#    设备 D=891 时 0.0025D=2.23px 更大, 取小的那个 ⇒ 用 0.0014 更保守)。
+UPPER_ROUGH_FRAC = 0.0014   # 起伏幅度 = 0.0014 × 直径(设备 ≈1.25px, 桌面 ≈0.38px)
+UPPER_ROUGH_SEED = 20261006 # **独立 seed**(评审: 与下球各用一组, 不要共用)
 # ---- §5 表层滑动标记: 让静态轮廓读起来像在流沙(专家 dingbu.md §5, 用户点名的那条) ----
 # 专家原话: 「只有凹陷和尖堆, 没有材料沿表面运动, 仍可能像一块正在变形的色纸」。
 # ⚠️ **不要画一整条随相位移动的亮线** —— 标记必须**离散、细小**, 集中薄表层;
@@ -1620,6 +1633,9 @@ class HourglassWidget(Widget):
         try:
             shape = _mound_shape_array(Ri)
             self._mound_profile = _MoundProfile(Ri, shape)
+            # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
+            _uamp = UPPER_ROUGH_FRAC * 2.0 * Ri
+            self._upper_rough = _surface_roughness(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED, _uamp)
             self._mound_shape = tuple(shape)
         except ValueError:
             self._mound_profile = None
@@ -2833,6 +2849,21 @@ class HourglassWidget(Widget):
         b = UPPER_FUNNEL_WIDTH * (2.0 * half_chord)
         return min(d, UPPER_FUNNEL_MAXH * height), min(b, UPPER_FUNNEL_MAXB * half_chord)
 
+    def _upper_rough_at(self, index, height):
+        """上球第 index 个节点的粗糙偏移(已乘"随沙量出现/收敛"的包络)。
+
+        包络按评审 §4.3: `e(q) = smoothstep(0,0.015,q) × [1-smoothstep(0.97,1,q)]`,
+        q 用"平顶等效高度占球高之比"代理(与目标面积占比单调同向)。
+        ⇒ 满球(无自由面)和空球两端自动收敛成平面, 少量沙不会先长出几根尖刺。
+        """
+        arr = getattr(self, "_upper_rough", None)
+        if not arr or index >= len(arr):
+            return 0.0
+        Ri = self._R_inner
+        q = 0.0 if Ri <= 0 else min(1.0, max(0.0, height / (2.0 * Ri)))
+        env = _smoothstep(0.0, 0.015, q) * (1.0 - _smoothstep(0.97, 1.0, q))
+        return arr[index] * env if env > 0.0 else 0.0
+
     def _upper_area(self, level, d, b):
         """上球沙面在给定 level 下的**面积**(65 点采样)与该 level 处未被夹住的权重和。
 
@@ -2847,7 +2878,7 @@ class HourglassWidget(Widget):
             dx = -Ri + w * i
             floor = Ri - math.sqrt(max(0.0, Ri * Ri - dx * dx))
             roof = 2.0 * Ri - floor
-            y = level - self._upper_surface_drop(dx, d, b)
+            y = level - self._upper_surface_drop(dx, d, b) + self._upper_rough_at(i, level)
             if y <= floor:
                 continue
             if y >= roof:
@@ -3079,7 +3110,9 @@ class HourglassWidget(Widget):
             dx = -Ri + step * i
             if abs(dx) > half_chord:      # 弦外: 由 stencil 裁, 不出四边形
                 continue
-            cols.append((cx + dx, level - self._upper_surface_drop(dx, d, b)))
+            # ⚠️ 必须与 `_upper_area` **同一套算式**(含微粗糙), 否则解出来的面积 != 画出来的面积
+            cols.append((cx + dx, level - self._upper_surface_drop(dx, d, b)
+                         + self._upper_rough_at(i, upper_height)))
         limit = top - 1e-6
         for i in range(len(carve)):
             if i + 1 < len(cols):
