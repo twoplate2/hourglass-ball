@@ -218,9 +218,22 @@ MOUND_REPOSE_SLOPE = 0.60   # 休止角 tanθ ≈ 0.60 (≈31°); 专家: 只是
 MOUND_SLOPE_L = 0.58        # 左坡斜率(专家 §3.1 建议 0.58/0.62 —— 故意不对称, 破镜像)
 MOUND_SLOPE_R = 0.62
 MOUND_SHAPE_NODES = 65      # 表面轮廓控制点数(奇数 ⇒ 第 32 点正好在中心轴上, 画得出尖顶)
-MOUND_ROUGH_FRAC = 0.003    # 粗糙幅度上限 = 0.003 × 直径(专家 §3.2); 手机 D≈893 ⇒ ≈2.7px
+# ⚠️ **两个旋钮必须一起抬**(2026-10-05 dingbu2.md §4 取证): 幅度 = min(FRAC·2R, 限坡)。
+#    限坡 = `SMOOTH × min(斜率) × Δx`, 而 Δx = R/32 ⇒ 限坡 ∝ R, 与 FRAC·2R 同量纲。
+#    令两者相等得 `SMOOTH_crit = 103.2 × FRAC`:
+#      FRAC=0.003 ⇒ crit=0.310; 而旧的 SMOOTH=0.25 < crit ⇒ **限坡恒生效**,
+#      幅度被钉成 `R × 0.01938 × SMOOTH`, **与 FRAC 完全无关**。
+#    实测(取证 AI 在 R=445.5 上跑): FRAC = 0.0025/0.003/0.004/0.006/0.01/0.05
+#      ⇒ 幅度**全部** 2.1588px, 数组逐位相同, 渲染**逐像素 0 差异**。
+#    ⇒ **FRAC 是个死旋钮**, 过去任何"把粗糙度调大"的尝试都静默无效。
+#    现在: FRAC 提到 0.004(设备 0.004×891 = 3.56px), SMOOTH 提到 0.45 > crit=0.413
+#    ⇒ 限坡**退出约束**, 幅度直接由 FRAC 决定 = 可预测、不依赖 seed 的 peak/dif 比。
+#    幅度档位(设备 px, 总偏移 / 单点局部鼓包): 旧 2.16/0.98(A 档, 1:1 看成一条直线)
+#      → 新 3.56/1.62(介于评审的 B 与 C 之间); 评审的 C(4.32/1.97) 已"读起来是波浪",
+#      D(6.48/2.95) 是"明显锯齿山" —— 他自己划的红线, 不越。
+MOUND_ROUGH_FRAC = 0.004    # 粗糙幅度 = 0.004 × 直径
 MOUND_ROUGH_SEED = 20261004 # **固定** seed: 整轮不重抽(逐帧重抽 = 1.60/1.61 的"原地闪现"教训)
-MOUND_ROUGH_SMOOTH = 0.25   # 相邻差上限 = 该系数 × 斜率 × Δx(保证主体仍向两侧下降)
+MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则 FRAC 失效(见上)
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -241,9 +254,23 @@ UPPER_FUNNEL_MAXB = 0.80    # 下陷半宽上限 = 0.80 × 该高度的半弦宽
 SURFACE_MARKERS_UP = 8      # 上球 8 颗(左右各 4), 向中心滑
 SURFACE_MARKERS_LOW = 12    # 下球 12 颗(左右各 6), 沿坡向外滑
 SURFACE_MARKER_LIFE = 0.9   # 单颗寿命(秒); 逐颗错开相位
-SURFACE_MARKER_SIZE = 1.6   # 短划线长度(逻辑像素, 专家建议 1~2)
+# ⚠️ 单位陷阱: widget 单位在**真机上就是物理像素**(geometry 从 widget size 派生)。
+#    1.6 单位 = 1.6 物理像素 = **0.914 dp**(density 280) —— 桌面预览把它放大了 3.26 倍
+#    (相对球径: 桌面 0.585%D vs 设备 0.180%D)。"桌面上看着清楚"不能作数。
+# 大小分级(dingbu2.md §5: "不要全部一样大"): 交替 1.5 / 2.4 物理像素,
+# 大的那批读作"颗粒簇"。
+SURFACE_MARKER_SIZE = 1.5
+SURFACE_MARKER_SIZE_BIG = 2.4
 SURFACE_MARKER_ALPHA = 1.00
 SURFACE_MARKER_UP_START = 0.30   # 上球起点 = 弦半宽的 30% 处 → 滑向中心
+# ⚠️ 内侧偏移(dingbu2.md §5): 必须**离开沙面自带的那条 3px 亮带**。
+#    取证实测: 原实现 20/20 颗 `offset = +0.0000 px`, 与亮带重合度 **100%** ——
+#    正好压在亮带上, 而评审要的是"自由表面**内侧** 2~4 最终像素的薄层"。
+SURFACE_MARKER_INSET = 2.6
+# ⚠️ 相位抖动(dingbu2.md §5: 不要"像一串珠子排列在坡沿"):
+#    原实现每侧等分相位 ⇒ 同侧间距**严格等距**(上球 8.202px, spread=0.000)。
+#    这里给每颗一个**固定**的(不随帧变的)相位偏移, 打破等距但不破坏"固定 seed"纪律。
+SURFACE_MARKER_JITTER = 0.17
 MOUND_AREA_SAMPLES = 129    # 面积表积分节点数(奇数)
 MOUND_CURVE_SAMPLES = 129   # 每帧接触高度曲线 H(x) 的均匀节点数(粒子侧 O(1) 定位)
 MOUND_DRAW_EXTRA = 48       # 绘制折线的角度采样数(另加 ±R/0 与**逐帧的壁交点**这些真转折点)
@@ -2919,7 +2946,7 @@ class HourglassWidget(Widget):
         color_base = self.sand_dark
         color_light = tuple(0.5 * self.sand_dark[i] + 0.5 * self.sand_base[i] for i in range(3))
 
-        def emit(x, y, frac, light):
+        def emit(x, y, frac, light, big):
             nonlocal n_used
             if n_used >= len(pool):
                 return
@@ -2927,7 +2954,10 @@ class HourglassWidget(Widget):
             fade = min(1.0, 4.0 * frac) * min(1.0, 4.0 * (1.0 - frac))   # 两端淡入淡出
             col.rgba = (*(color_light if light else color_base),
                         SURFACE_MARKER_ALPHA * fade)
-            ln.points = [x, y, x, y - SURFACE_MARKER_SIZE]
+            # 往下(沙体内侧)偏移 —— 离开 3px 亮带, 见 SURFACE_MARKER_INSET 的说明
+            size = SURFACE_MARKER_SIZE_BIG if big else SURFACE_MARKER_SIZE
+            ln.points = [x, y - SURFACE_MARKER_INSET,
+                         x, y - SURFACE_MARKER_INSET - size]
             n_used += 1
 
         # ---- 上球: 从两侧朝中心滑(漏斗内) ----
@@ -2945,14 +2975,17 @@ class HourglassWidget(Widget):
             per_side = SURFACE_MARKERS_UP // 2
             for k in range(SURFACE_MARKERS_UP if half_chord >= 4.0 else 0):
                 side = -1.0 if k < per_side else 1.0
-                frac = ((t / life) + (k % per_side) / max(1.0, per_side)) % 1.0
-                x0 = side * half_chord * SURFACE_MARKER_UP_START
+                # 固定抖动(不随帧变)打破"一串珠子": 每颗的相位与路径起点都错开一点
+                jit = ((k * 0.6180339887) % 1.0 - 0.5) * SURFACE_MARKER_JITTER
+                frac = ((t / life) + (k % per_side) / max(1.0, per_side) + jit) % 1.0
+                start = SURFACE_MARKER_UP_START + jit * 0.6
+                x0 = side * half_chord * start
                 x1 = side * half_chord * 0.06            # 终点靠近中心轴
                 dx = x0 + (x1 - x0) * frac
                 if abs(dx) >= half_chord:
                     continue
                 y = level - self._upper_surface_drop(dx, d, b)
-                emit(self._cx + dx, y, frac, (k % 2) == 0)
+                emit(self._cx + dx, y, frac, (k % 2) == 0, (k % 4) < 2)
         # ---- 下球: 从落点附近沿坡向外滑 ----
         if h_mound > 0.0 and SURFACE_MARKERS_LOW > 0:
             prof = self._mound_profile
@@ -2961,7 +2994,8 @@ class HourglassWidget(Widget):
             per_side = SURFACE_MARKERS_LOW // 2
             for k in range(SURFACE_MARKERS_LOW):
                 side = -1.0 if k < per_side else 1.0
-                frac = ((t / life) + (k % per_side) / max(1.0, per_side)) % 1.0
+                jit = ((k * 0.6180339887) % 1.0 - 0.5) * SURFACE_MARKER_JITTER
+                frac = ((t / life) + (k % per_side) / max(1.0, per_side) + jit) % 1.0
                 # 沿接触面从近顶滑向坡脚: 用"接触高度随 |dx| 下降到球底"定终点
                 lo, hi = 1.0, Ri
                 for _ in range(14):                       # 找接触面与球底相交处 = 坡脚
@@ -2976,7 +3010,7 @@ class HourglassWidget(Widget):
                 y = base + prof.contact(dx, apex)
                 if not prof.free_surface(dx, apex):
                     continue
-                emit(self._cx + dx, y, frac, (k % 2) == 1)
+                emit(self._cx + dx, y, frac, (k % 2) == 1, (k % 4) >= 2)
         for _c, ln in pool[n_used:]:
             if ln.points:
                 ln.points = []
