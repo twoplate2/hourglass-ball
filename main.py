@@ -3143,7 +3143,10 @@ class HourglassWidget(Widget):
         # 只按 h/直径 截取 —— 否则沙越少纹理越扁, 读起来像橡皮(见 crop_tex_coords)。
         diameter = 2 * self._R_inner
         full_uv = None if self._sand_material is None else self._sand_material.tex_coords
-        up_draw = upper_height
+        # ⚠️ 沙面被面积求解**抬高**了 `lift`(最多 ~1.4px) ⇒ 矩形顶必须跟着抬,
+        #    否则抬起来那一条露在矩形外面, 成一条玻璃缝(2026-10-05 自查出的回归)。
+        _up_lift = max(0.0, self._upper_level_for(upper_height) - upper_height)
+        up_draw = upper_height + _up_lift
         # 下球矩形**固定画满整个内球**(D + 余量), 不再跟着虚拟峰顶走 —— 专家 §2.5:
         #   ① 放开"虚拟锥顶高于球顶"之后, 再按高度截 UV 会把颗粒**纵向拉伸**;
         #   ② 轮廓以上的沙由 carve 抠掉, 所以矩形只管"铺满", 上沿永远取球内顶 + 余量。
@@ -3162,18 +3165,12 @@ class HourglassWidget(Widget):
         # ⚠️ 沙体薄时按可见厚度按比例减弱, 否则会剩一条悬空的独立亮线。
         # ⚠️ 下球那条由 `_draw_mound_shape` 沿真实轮廓逐段画(直边矩形跟不上起伏,
         #    会留下悬空亮台/缺口 —— 评审 1 号指出), 这里只画上球那条。
-        self._sand_bands[1][1].size = (0, 0)      # 下球那条改由 _draw_mound_shape 画
-        for (band_color, band_rect), top_y, height in (
-                (self._sand_bands[0], self._upper_sand_bot + upper_height, upper_height),):
-            band = min(SAND_SURFACE_BAND, height)
-            band_rect.pos = (self._cx - self._R_inner, top_y - band)
-            band_rect.size = (diameter, band)
-            # ① 沙体太薄(近空)按比例减弱 ② 沙面贴到球顶(满球)时收掉 —— 见 SAND_BAND_APEX_FADE
-            apex_fade = min(1.0, max(0.0, (height - (diameter - SAND_BAND_APEX_FADE))
-                                     / SAND_BAND_APEX_FADE))
-            band_color.a = (SAND_SURFACE_ALPHA
-                            * min(1.0, max(0.0, height / SAND_SURFACE_FADE))
-                            * (1.0 - apex_fade))
+        # ⚠️ **两条旧的直边亮带都作废了**: 下球改由 `_draw_mound_shape`、上球改由
+        #    `_draw_upper_shape` 沿真实轮廓逐段画。留着会与曲线带叠成两条
+        #    (一条平一条弯) —— 2026-10-05 上球漏斗落地后自查出的回归。
+        for _band_color, _band_rect in self._sand_bands:
+            _band_rect.size = (0, 0)
+            _band_color.a = 0.0
         self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
         self._draw_mound_shape(h_mound)
         # ⚠️ 闸门含 `_done_at`: 漏完那一帧 upper_height 已是 0, 但沙柱还要排空 fill_t 秒
