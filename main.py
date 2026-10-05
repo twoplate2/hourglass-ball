@@ -525,7 +525,7 @@ def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES, harmo
     return out
 
 
-def _mound_shape_array(radius):
+def _mound_shape_array(radius, frac=None):
     """下球轮廓 `f(x)`(绝对值, 相对中心轴): `-m·|x| + r(x)`, 无平台。
 
     左右斜率故意略不同(0.58 / 0.62) ⇒ 破掉完全镜像, 但**不需要让堆尖来回摆**。
@@ -534,8 +534,16 @@ def _mound_shape_array(radius):
     n = MOUND_SHAPE_NODES
     half = (n - 1) // 2
     dx = radius / half
-    limit = MOUND_ROUGH_SMOOTH * min(MOUND_SLOPE_L, MOUND_SLOPE_R) * dx
-    rough = _surface_roughness(radius, MOUND_ROUGH_FRAC, MOUND_ROUGH_SEED, limit)
+    frac = MOUND_ROUGH_FRAC if frac is None else frac
+    # ⚠️ **限坡必须跟着幅度走**, 否则又踩 1.87 那个"死旋钮":
+    #    `_surface_roughness` 在"相邻差 > limit"时**整体缩放**, 而 FRAC 生效的条件是
+    #    `SMOOTH > 103.2 × FRAC`。旧写法 limit = 0.45 × 斜率 × dx = 3.63px 是**定值**
+    #    ⇒ FRAC 超过约 0.0044 之后**再调大一点用都没有**(幅度被钉成 R×0.01938×SMOOTH)。
+    #    现在: 上限放到位所需幅度, 但**不许超过基准坡降的 0.9 倍** ——
+    #    否则局部邻点会"翻上去"(从中心向两侧不再是单调下降), 沙堆会长出反坡的小包。
+    amp = frac * 2.0 * radius
+    limit = min(amp, 0.9 * min(MOUND_SLOPE_L, MOUND_SLOPE_R) * dx)
+    rough = _surface_roughness(radius, frac, MOUND_ROUGH_SEED, limit)
     out = []
     for i in range(n):
         u = (i - half) * dx
@@ -1848,7 +1856,7 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            shape = _mound_shape_array(Ri)
+            shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
             _uamp = UPPER_ROUGH_FRAC * 2.0 * Ri
@@ -3013,11 +3021,11 @@ class HourglassWidget(Widget):
         if abs(frac - UPPER_ROUGH_FRAC) < 1e-12:
             return False
         UPPER_ROUGH_FRAC = frac
-        Ri = self._R_inner
-        self._upper_rough = _surface_roughness(Ri, frac, UPPER_ROUGH_SEED,
-                                               frac * 2.0 * Ri)
-        self._upper_rough_frames = _build_rough_frames(Ri, frac, UPPER_ROUGH_SEED)
-        self._upper_rough_cache = None
+        # ⚠️ **下球轮廓也要跟着重建** —— 用户 2026-10-05「包含下面沙漏中斜面中的沙子的起伏,
+        #    你也没有做」: 原先下球用的是另一个常量 `MOUND_ROUGH_FRAC`, 这个设置**压根没接到它**。
+        #    `_mound_shape` / `_mound_profile` 的粗糙度是**烘进面积表**的 ⇒ 换档必须重建,
+        #    但**只在按键这一下**(不是每帧) —— 每帧重建面积表太贵。
+        self._rebuild_height_table()
         self._mound_shape_cache = None
         self.redraw()
         return True
