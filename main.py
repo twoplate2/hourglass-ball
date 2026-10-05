@@ -222,6 +222,14 @@ MOUND_ROUGH_FRAC = 0.003    # 粗糙幅度上限 = 0.003 × 直径(专家 §3.2)
 MOUND_ROUGH_SEED = 20261004 # **固定** seed: 整轮不重抽(逐帧重抽 = 1.60/1.61 的"原地闪现"教训)
 MOUND_ROUGH_SMOOTH = 0.25   # 相邻差上限 = 该系数 × 斜率 × Δx(保证主体仍向两侧下降)
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
+# ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
+# 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
+# 而**同一帧里**下球沙堆是 30.1°/31.7° 的标准休止角 ⇒ 同一种沙两个角度, 实现内部不自洽。
+# 真沙漏的上球沙面必然以休止角朝颈口下凹成漏斗(靠壁一圈高于中心)。
+UPPER_FUNNEL_DEPTH = 0.03   # 中央下陷 = 0.03 × 直径(专家 §4.2 的参数起点)
+UPPER_FUNNEL_WIDTH = 0.10   # 下陷半宽下限 = 0.10 × 直径(中期涨到 0.14)
+UPPER_FUNNEL_MAXH = 0.25    # 下陷深度上限 = 0.25 × 当前沙层厚度
+UPPER_FUNNEL_MAXB = 0.80    # 下陷半宽上限 = 0.80 × 该高度的半弦宽
 MOUND_AREA_SAMPLES = 129    # 面积表积分节点数(奇数)
 MOUND_CURVE_SAMPLES = 129   # 每帧接触高度曲线 H(x) 的均匀节点数(粒子侧 O(1) 定位)
 MOUND_DRAW_EXTRA = 48       # 绘制折线的角度采样数(另加 ±R/0 与**逐帧的壁交点**这些真转折点)
@@ -274,6 +282,12 @@ class _MoundArea:
         i = bisect_right(self.areas, area) - 1
         f = (area - self.areas[i]) / (self.areas[i + 1] - self.areas[i])
         return self.heights[i] + f * (self.heights[i + 1] - self.heights[i])
+
+
+def _smoothstep(lo, hi, v):
+    """标准夹紧平滑插值(专家 dingbu.md §4.2 用的那个)。"""
+    t = min(1.0, max(0.0, (v - lo) / max(1e-9, hi - lo)))
+    return t * t * (3.0 - 2.0 * t)
 
 
 def _surface_roughness(radius, amp_frac, seed, limit):
@@ -1414,6 +1428,9 @@ class HourglassWidget(Widget):
         self._geom_generation = 0            # 几何代: 尺寸/周期/窗口一变就 +1, 形状缓存跟着失效
         self._mound_profile = None           # 下球沙堆形状解(见 _MoundProfile), 几何重建时换新
         self._mound_shape = ()               # 65 点轮廓(绝对值): 绘制节点/接触查表都用它
+        self._upper_carve = []               # 上球漏斗 carve(§4)
+        self._upper_band = []
+        self._upper_band_color = None
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._completion_triggered = False
@@ -2734,6 +2751,79 @@ class HourglassWidget(Widget):
             out.append(0.5 * (lo + hi))
         return out
 
+    def _upper_funnel_params(self, p, height):
+        """上球漏斗的 (下陷深度 d, 半宽 b) —— 专家 dingbu.md §4.2。
+
+        d = 0.03D · smoothstep(0,0.25,p) · [1 - smoothstep(0.85,1,p)]
+        b = D · [0.10 + 0.04 · smoothstep(0.10,0.80,p)]
+        两个限制: d ≤ 0.25×当前沙层厚, b ≤ 0.8×该高度的半弦宽。
+        ⚠️ 两端 sstep 包络 ⇒ **满球和空球都自动收敛成平面**(那是正确的: 满球没有自由表面)。
+        """
+        D = 2.0 * self._R_inner
+        s1 = _smoothstep(0.0, 0.25, p)
+        s2 = 1.0 - _smoothstep(0.85, 1.0, p)
+        d = UPPER_FUNNEL_DEPTH * D * s1 * s2
+        b = D * (UPPER_FUNNEL_WIDTH + 0.04 * _smoothstep(0.10, 0.80, p))
+        half_chord = math.sqrt(max(0.0, self._R_inner ** 2
+                                   - (self._R_inner - height) ** 2))
+        return min(d, UPPER_FUNNEL_MAXH * height), min(b, UPPER_FUNNEL_MAXB * half_chord)
+
+    def _upper_surface_drop(self, dx, d, b):
+        """上球沙面在 dx 处的**下陷量**(≥0, px): `d · [max(0,1-(dx/b)²)]²`。
+
+        ⚠️ 恒 ≥ 0 ⇒ 沙面只会**低于或等于**平面高度 ⇒ 现有"矩形 + 按高度截 UV"机制不用动,
+           只在它上面加一遍 carve 抠掉多出来的那块(与下球 `_draw_mound_shape` 同一套写法)。
+        """
+        if b <= 1e-6 or d <= 0.0:
+            return 0.0
+        u = 1.0 - (dx / b) ** 2
+        return d * (u * u) if u > 0.0 else 0.0
+
+    def _draw_upper_shape(self, upper_height):
+        """上球沙面的 carve + 亮带 —— 专家 dingbu.md §4 的绘制部分。
+
+        节点 = 该高度弦上的 65 个等距 x(与下球控制点同一套口径); 只在该弦范围内出四边形,
+        弦外由球面 stencil 自己裁(出到弦外会画出反向四边形, 把玻璃色糊到沙上)。
+        """
+        carve, band = self._upper_carve, self._upper_band
+        if upper_height <= 0.0:
+            for q in carve + band:
+                q.points = [0] * 8
+            self._upper_band_color.a = 0.0
+            return
+        p = 0.0 if self.duration <= 0 else min(1.0, self.elapsed / self.duration)
+        d, b = self._upper_funnel_params(p, upper_height)
+        cx = self._cx
+        Ri = self._R_inner
+        level = self._upper_sand_bot + upper_height
+        top = self._upper_sand_bot + 2.0 * Ri + MOUND_CREST_MARGIN
+        n = MOUND_SHAPE_NODES - 1
+        step = 2.0 * Ri / n
+        half_chord = math.sqrt(max(0.0, Ri * Ri - (Ri - upper_height) ** 2))
+        # 与下球亮带同样的"薄→淡出 / 贴顶→收掉"处理
+        fade = min(1.0, max(0.0, upper_height / SAND_SURFACE_FADE))
+        apex_fade = min(1.0, max(0.0, (upper_height - (2.0 * Ri - SAND_BAND_APEX_FADE))
+                                 / SAND_BAND_APEX_FADE))
+        self._upper_band_color.a = SAND_SURFACE_ALPHA * fade * (1.0 - apex_fade)
+        band_w = min(SAND_SURFACE_BAND, upper_height)
+        cols = []
+        for i in range(n + 1):
+            dx = -Ri + step * i
+            if abs(dx) > half_chord:      # 弦外: 由 stencil 裁, 不出四边形
+                continue
+            cols.append((cx + dx, level - self._upper_surface_drop(dx, d, b)))
+        limit = top - 1e-6
+        for i in range(len(carve)):
+            if i + 1 < len(cols):
+                x0, y0 = cols[i]
+                x1, y1 = cols[i + 1]
+                carve[i].points = [x0, y0, x1, y1, x1, limit, x0, limit]
+                band[i].points = [x0, y0, x1, y1, x1, y1 - band_w, x0, y0 - band_w]
+            else:
+                carve[i].points = [0] * 8
+                if i < len(band):
+                    band[i].points = [0] * 8
+
     def _draw_mound_shape(self, h_mound):
         """下球沙堆的**锥面**轮廓 —— carve 抠掉轮廓以上的沙, band 只画在真正的自由表面上。
 
@@ -2801,6 +2891,13 @@ class HourglassWidget(Widget):
                 band_color = Color(*(tuple(self.sand_light) + (0.0,)))
                 band_rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
                 self._sand_bands.append((band_color, band_rect))
+                if yc == self._upper_y_c:
+                    # 上球: 漏斗 carve(专家 dingbu.md §4) —— 与下球同一套写法, 段数同样按节点数定
+                    n_seg_u = max(1, MOUND_SHAPE_NODES)
+                    Color(*hex_rgb(GLASS_FILL), 1)
+                    self._upper_carve = [Quad(points=[0] * 8) for _ in range(n_seg_u)]
+                    self._upper_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
+                    self._upper_band = [Quad(points=[0] * 8) for _ in range(n_seg_u)]
                 if yc == self._lower_y_c:
                     # 下球: carve 按**真转折点**折线抠掉轮廓以上的沙(见 _draw_mound_shape)。
                     # 段数 = 节点数-1(含 ±R/±b/0), 在几何重建时定下来。
@@ -3006,6 +3103,7 @@ class HourglassWidget(Widget):
             band_color.a = (SAND_SURFACE_ALPHA
                             * min(1.0, max(0.0, height / SAND_SURFACE_FADE))
                             * (1.0 - apex_fade))
+        self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
         self._draw_mound_shape(h_mound)
         # ⚠️ 闸门含 `_done_at`: 漏完那一帧 upper_height 已是 0, 但沙柱还要排空 fill_t 秒
         side = (self._neck_sand_side()
