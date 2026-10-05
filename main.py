@@ -2977,11 +2977,56 @@ class HourglassWidget(Widget):
 
     # ---------- 点击沙漏球 = 开始/暂停 ----------
 
+    def _neck_half_width(self, y):
+        """高度 `y` 处的**颈部(两球之间那一段)玻璃外轮廓半宽**; `y` 不在这段里返回 None。
+
+        ⚠️ 2026-10-05（r19-2号 设备实测 + `tools/_probe_tap_deadzone.py` 桌面复现）:
+           原来 `on_touch_down` 只认"落在上下两个**球**内", 而两球不相交
+           ⇒ **两圆之间那一段没有任何一点满足条件** = 死区。
+           设备实测: 空闲态点 (540,1250) 按钮不变色、运行中点它也不暂停;
+           逐点扫描 y≈1198~1305(约 108px), 整行从左到右全灭。
+           桌面复现: 631px 高的 widget 上死带 36px(5.7%), 与设备的 108/2200≈4.9% 同量级。
+           **而沙漏正中间正是用户最自然会点的地方**（我自己给评审写坐标表时都写成了 (540,1200)）。
+        """
+        pts = self._taper.get("out_pts") if self._taper else None
+        if not pts:
+            return None
+        y_top = max(p[1] for p in pts)
+        y_knee = self._taper["y_bot"]                  # 上喇叭口的下端 = 直筒上端
+        y_low = 2.0 * self._neck_y - y_knee            # 直筒下端(出口)
+        # ⚠️ 出口(≈370)比**下球上缘**(≈366)还高几像素, 那一小段也得算进来,
+        #    否则颈部死带会剩最后 8px(实测 36→28→8)。取两者更低的那个当下界。
+        y_low = min(y_low, self._lower_y_c + self._R)
+        if not (y_low - 1e-6 <= y <= y_top + 1e-6):
+            return None
+        if y <= y_knee + 1e-6:
+            # ⚠️ 直筒段是**等宽**的, 不在 `out_pts` 里 —— 第一版只查了 out_pts,
+            #    于是死带只修掉 8px(实测 36→28px), 剩下一整段直筒仍是死的。
+            return self._taper["t_out"]
+        # out_pts 是 (半宽, y) 的顺序表; 不假定升序还是降序, 逐段找包含 y 的那一段
+        for i in range(len(pts) - 1):
+            (w0, a), (w1, b) = pts[i], pts[i + 1]
+            lo, hi = (a, b) if a <= b else (b, a)
+            if lo - 1e-9 <= y <= hi + 1e-9:
+                if abs(b - a) < 1e-9:
+                    return max(w0, w1)
+                t = (y - a) / (b - a)
+                return w0 + (w1 - w0) * t
+        return pts[-1][0]
+
     def on_touch_down(self, touch):
         if self._geom_ready and self.collide_point(*touch.pos):
             dx = touch.x - self._cx
             if (dx * dx + (touch.y - self._upper_y_c) ** 2 <= self._R ** 2 or
                     dx * dx + (touch.y - self._lower_y_c) ** 2 <= self._R ** 2):
+                app = App.get_running_app()
+                if app is not None:
+                    app.on_toggle()
+                return True
+            # 两球之间的**颈部**也要能点(死区修复, 见 `_neck_half_width` 的注释)。
+            # 横向仍跟着**玻璃轮廓**走 —— 不是把整幅矩形当热区, 沙漏之外的空白照旧没反应。
+            half = self._neck_half_width(touch.y)
+            if half is not None and abs(dx) <= half + self._ow:
                 app = App.get_running_app()
                 if app is not None:
                     app.on_toggle()
