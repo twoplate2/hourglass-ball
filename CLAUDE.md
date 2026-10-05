@@ -746,3 +746,25 @@ Android `on_start` 绑定首个可用 `on_flip`，调用锁定 p4a 的 `android.
 
 ## 资源文件
 `icon.png`(1024×1024) / `presplash.png`(1080×1920, `#fdf6e3` 底) / `sand_loop.wav`(15s 无缝 PCM 16bit mono **48000Hz**, ~1.4MB) / `sounds/{water,wind}.wav`(14s 无缝循环)、`sounds/clock.wav`(8.112s = 17 个滴答对，48000Hz 16bit mono，`tools/make_clock_loop.py` 从 `mp3/zhongbiao.mp3` **按拍**加工) / `fonts/NotoSansSC-Medium.otf`(~8MB，Apache 2.0 可公开分发) / `ui/slider_track.png`(8×8 纯色 #8a7a68，周期弹窗滑杆未滑段贴图)。修改 `buildozer.spec` 的 `source.include_patterns` 时别漏字体、wav、`sounds/*.wav` 和 `ui/*.png`。
+
+## 🔴 铁律：push 完必须挂 CI 监视，不许等人去看（2026-10-06 用户定）
+
+用户原话：
+
+> 「你刚 push 之后再等 5 分钟，5 分钟之后你再去看看上一个 push 有没有成功、有没有失败。
+>  如果还没成功，再等 5 分钟，发现有错误你就去通告主线程。**不要让我来搞。**」
+
+**为什么立的**：1.111~1.114 **四次构建全失败**，是用户自己起床后发现的。
+
+**关键认知：本地闸门绿 ≠ APK 能构建出来。** `verify_hourglass.py` 验的是**桌面逻辑**，
+构建是另一条独立的路（buildozer + p4a + gradle）。「闸门全绿」不能当作"推送没问题"的依据。
+
+**做法**：`git push` 之后立刻挂
+
+```
+bash tools/_watch_build.sh          # 5 分钟一轮, 出结论时打一行并退出
+```
+
+用 `Monitor` 挂着，它出结论时会自动回到主线程 —— 失败就报，成功也报一声，**不用人问**。
+脚本走 **actions 列表页的 HTML**（`aria-label` 里就写着结论），**不要走 `api.github.com`**
+—— 未认证 60 次/小时，实测这个 IP 直接 403，脚本会静默空转。
