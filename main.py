@@ -3370,6 +3370,27 @@ class HourglassWidget(Widget):
         env = _smoothstep(0.0, 0.015, q) * (1.0 - _smoothstep(0.97, 1.0, q))
         return arr[index] * env if env > 0.0 else 0.0
 
+    def _upper_rough_crest(self, height):
+        """`rough` 在整个数组上的**最大正值**(含包络) —— 沙体矩形顶要盖住它。
+
+        用途见 `redraw()` 里 `up_draw` 的说明: 画出来的沙面是 `level − drop + rough`,
+        矩形顶**不含 rough** ⇒ 正的 rough 会把沙面线和它的亮带顶到矩形外面。
+        取 `max(arr)` 而不是"弦内节点最大": 弦外那些节点本来就不参与绘制, 多算一点
+        只会让矩形略高, 而矩形高于沙面的部分由 carve 抠成玻璃 ⇒ **不可见、零风险**,
+        换来的是不必在这里重算一遍弦宽(少一处和 `_draw_upper_shape` 走样的机会)。
+        """
+        arr = self._upper_rough_now()
+        if not arr:
+            return 0.0
+        Ri = self._R_inner
+        if Ri <= 0:
+            return 0.0
+        q = min(1.0, max(0.0, height / (2.0 * Ri)))
+        env = _smoothstep(0.0, 0.015, q) * (1.0 - _smoothstep(0.97, 1.0, q))
+        if env <= 0.0:
+            return 0.0
+        return max(0.0, max(arr) * env)
+
     def _upper_area(self, level, d, b):
         """上球沙面在给定 level 下的**面积**(65 点采样)与该 level 处未被夹住的权重和。
 
@@ -3928,7 +3949,16 @@ class HourglassWidget(Widget):
         # ⚠️ 沙面被面积求解**抬高**了 `lift`(最多 ~1.4px) ⇒ 矩形顶必须跟着抬,
         #    否则抬起来那一条露在矩形外面, 成一条玻璃缝(2026-10-05 自查出的回归)。
         _up_lift = max(0.0, self._upper_level_for(upper_height) - upper_height)
-        up_draw = upper_height + _up_lift
+        # ⚠️ **同一个坑的第二处, 2026-10-06 补**: 画出来的沙面是
+        #    `level − drop(dx) + rough(i)`(`_draw_upper_shape`), 而矩形顶只到 `level`
+        #    ⇒ 凡 `rough(i) > drop(dx)` 的节点, 沙面线**连同它那条 3px 亮带**一起跑到
+        #    矩形外面 —— 那儿没有沙, 亮带于是合成到**玻璃**上, 沙面上方浮出一排淡色小帽。
+        #    r27-1号 在设备档6 抓到; 颜色实测 (232,211,173) == `sand_light`(230,184,112)
+        #    与背景的 0.55 混合(**逐位**对得上), 正是 `SAND_SURFACE_ALPHA`。
+        #    越界量桌面上实测: 档6 **+1.90px** / 档4 +0.52px / 档3 及以下 0
+        #    (`tools/_probe_rect_vs_surface.py`)。幅度 `_uamp ∝ 2·Ri` 而
+        #    `SAND_SURFACE_BAND = 3.0` 是死像素 ⇒ **设备上比桌面明显**。
+        up_draw = upper_height + _up_lift + self._upper_rough_crest(upper_height)
         # 下球矩形**固定画满整个内球**(D + 余量), 不再跟着虚拟峰顶走 —— 专家 §2.5:
         #   ① 放开"虚拟锥顶高于球顶"之后, 再按高度截 UV 会把颗粒**纵向拉伸**;
         #   ② 轮廓以上的沙由 carve 抠掉, 所以矩形只管"铺满", 上沿永远取球内顶 + 余量。

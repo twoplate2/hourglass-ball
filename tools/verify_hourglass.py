@@ -293,7 +293,15 @@ def main():
                 #      **渲染器是确定的, 且此后没有被意外改动过**(已知对 = 0 差异)。
                 #      负对照: 换成上面那个 8-28 的文件, 四条立刻全红(实测)。
                 #      改了视觉**就该**换一份新快照, 换的时候把 diff 是什么写清楚。
-                source = ROOT.parent / "backup" / "android_main_20261005.py"
+                # ⚠️ 2026-10-06 换快照: 修了"沙体矩形顶不含 rough"那条(见 main.py `up_draw`)。
+                #    diff 是什么(逐像素量过, `tools/_probe_cap_diff.py` / 本次 A/B):
+                #      · **1349 px 差 1 级** —— 沙体颗粒纹理的 ±1 抖动。成因: 矩形高了 `crest`
+                #        之后 `crop_tex_coords(uv, h/diameter)` 的截取比例变了千分之几,
+                #        采样落点亚纹素偏移。**不可见**(1/255), 但会破坏逐位相等 ⇒ 必须换快照。
+                #      · **极少数边缘像素** 玻璃→沙(实测 d=155 @ (132,57)) —— 那才是修复本身:
+                #        峰顶原先露在矩形外、亮带合成到玻璃上, 现在归位成沙。
+                #      · idle / done **逐像素 0 差异** —— 两端 `rough` 包络为 0(crest=0), 符合设计。
+                source = ROOT.parent / "backup" / "android_main_20261006.py"
                 orig_size = tuple(widget.size)   # `old` 是按这个尺寸造的, 之后要复位
                 if source.exists():
                     spec = importlib.util.spec_from_file_location("reference_hourglass", source)
@@ -531,10 +539,45 @@ def main():
                         #   改成守**现在真正成立的三条**(每条都先量过实际值再定容差):
                         h_inner = 2.0 * widget._R_inner
                         want_upper = widget._upper_sand_height_px()
-                        # (a) 上沙高度跟着体积模型走(实测差 ≤3.3px, 取 5px 容差)
-                        check(abs(upper - want_upper) <= 5.0,
-                              "upper height follows the volume model: %ss %.2f (%.1f vs %.1f)"
+                        # ⚠️ 2026-10-06 改: 矩形顶 = 沙面高度 + `lift` + `crest`(rough 峰值),
+                        #    因为**矩形是容器不是沙堆**(下球那半句注释早写了同一件事)。
+                        #    旧式 `abs(upper - want_upper) <= 5` 在 crest 一加就红,
+                        #    红的不是"沙量错了", 是断言还拿容器当沙堆。
+                        want_rect = (want_upper
+                                     + max(0.0, widget._upper_level_for(want_upper) - want_upper)
+                                     + widget._upper_rough_crest(want_upper))
+                        check(abs(upper - want_rect) <= 1.0,
+                              "upper sand rect matches container model: %ss %.2f (%.1f vs %.1f)"
                               % (period, fraction, upper, want_upper))
+                        # (a2) **矩形顶必须盖住画出来的沙面线** —— 2026-10-06 新加。
+                        #      这条才是真判据(上面那条是"接线对不对", 这条是"够不够高")。
+                        #      修之前 `up_draw` 少了 rough 的**正**峰值: 凡 `rough(i) > drop(dx)`
+                        #      的节点, 沙面线连同它那条 3px 亮带一起露到矩形外面 —— 那儿没有沙,
+                        #      亮带于是合成到**玻璃**上, 沙面上方浮出一排淡色小帽。
+                        #      (r27-1号 在设备档6 抓到; 颜色实测 (232,211,173) == sand_light
+                        #       与背景的 0.55 混合, 正是 `SAND_SURFACE_ALPHA`。)
+                        #      负对照: 把 `_upper_rough_crest` 改成 `return 0.0`, 本式实测
+                        #      最差 **+1.90px(档6) / +0.52px(档4)** ⇒ 立刻红。**已跑过**。
+                        _arr = widget._upper_rough_now() or []
+                        _Ri = widget._R_inner
+                        _n = len(_arr) - 1
+                        _worst = -1e9
+                        if _n >= 1 and _Ri > 0:
+                            _pp = min(1.0, widget.elapsed / max(1e-9, widget.duration))
+                            _dd, _bb = widget._upper_funnel_params(_pp, want_upper)
+                            _lvl = widget._upper_level_for(want_upper)
+                            _hc = math.sqrt(max(
+                                0.0, _Ri * _Ri - (_Ri - min(2.0 * _Ri, want_upper)) ** 2))
+                            for _i in range(_n + 1):
+                                _dx = -_Ri + (2.0 * _Ri / _n) * _i
+                                if abs(_dx) > _hc:
+                                    continue
+                                _surf = (_lvl - widget._upper_surface_drop(_dx, _dd, _bb)
+                                         + widget._upper_rough_at(_i, want_upper))
+                                _worst = max(_worst, _surf - upper)
+                        check(_worst <= 1e-3,
+                              "upper sand rect covers the drawn surface: %ss %.2f worst %+.2f px"
+                              % (period, fraction, _worst))
                         # (b) ⚠️ **不能拿 `upper + lower` 求和** —— `chords[1]`(下球那个矩形)
                         #     现在是**容器**(高度只有 0.0 或 275.4 两种值, 而 2R=273.4),
                         #     不是沙堆高度。主持人第一版就是这么写的, 结果自己红了 9 次。
