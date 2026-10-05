@@ -437,6 +437,11 @@ class BenchmarkRunner:
         "duration", "elapsed", "running", "particle_acc", "particles", "splashes",
         "flares", "dusts", "mound_peak_offset", "_completion_triggered",
         "completion_enabled",
+        # ⚠️ **不能漏 `_done_at`**(2026-10-05 r9-1号 查出): 它是"颈管开始排空"的时刻戳,
+        #    漏了它 ⇒ 恢复后仍是 20 多秒前的旧值 ⇒ `_neck_sand_side()` 算出 f=0 返回空
+        #    ⇒ **颈管沙柱不画了**。实测 2/2 复现(前置状态为"暂停"时肉眼可见:
+        #    颈管中轴 x=540,y=1200 从沙色 (195,211,153) 变成玻璃色 (244,245,236))。
+        "_done_at",
     )
 
     def __init__(self, widget, on_case, on_finish, periods=PERIODS):
@@ -656,6 +661,10 @@ class BenchmarkRunner:
         pause = time.perf_counter() - self._paused_at
         for effect in self.widget.flares + self.widget.dusts:
             effect["end"] += pause
+        # `_done_at` 是 perf_counter 时刻戳, 直接还原会变成"很久以前" ⇒ 与 effects 同样平移 pause,
+        # 才能保持"距排空已过多久"不变(_neck_sand_side 的 f 只看这个差值)。
+        if getattr(self.widget, "_done_at", None) is not None:
+            self.widget._done_at += pause
         self.widget.last_frame = time.perf_counter()
         self.widget.last_tick = self.widget.last_frame if self.widget.running else None
         self.widget._rebuild_height_table()

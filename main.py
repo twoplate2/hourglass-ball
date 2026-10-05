@@ -3375,6 +3375,12 @@ class HourglassWidget(Widget):
             for band_color, _rect in self._sand_bands:
                 band_color.rgb = self.sand_light
             self._mound_band_color.rgb = self.sand_light
+            # ⚠️ **上球那条也要刷**(2026-10-05 r9-1号 查出漏了): 它原来只在
+            #    `_build_dynamic_canvas()` 创建时取一次 sand_light, 换沙色后**一直是旧色**,
+            #    直到发生几何重建(改周期/改尺寸/跑一次 benchmark)才跟上。
+            #    实测: 金沙换绿沙后未重建时沙面首 3 行仍 (221,215,166) 暖色调,
+            #    触发重建后 (200,217,160) 才变绿。3~5 设备像素高 × 约 900px 宽, 通道差 ≈20 级。
+            self._upper_band_color.rgb = self.sand_light
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
                 color.rgb = (self._hilite_color if index < 0
                              else self._color_table[index])
