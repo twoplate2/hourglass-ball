@@ -373,6 +373,62 @@ def main():
                     widget.set_duration(period)
                     check(widget._taper["y_bot"] > widget._neck_y,
                           "neck geometry: %ss" % period)
+                    # ⚠️ **点击热区必须盖住画出来的玻璃**（2026-10-06 新加，量法当天返工过一次）。
+                    #    颈部整条轮廓关于 `neck_y` 对称（下喇叭口 = 上喇叭口镜像），
+                    #    而命中判定必须用**与 `on_touch_down` 同构的三选一**：
+                    #    ①上球圆 ②下球圆 ③`_neck_half_width(y)` 非 None 且 |dx| ≤ half+ow。
+                    #    ⚠️ **第一版断言只比了 ③，遇到它返回 None 就跳过** —— 而那一段
+                    #    （下喇叭口的下半段，整个落在球顶上缘以下）**正是有问题的**：
+                    #    它退回球圆判定，而球在极点附近远窄于画出来的喇叭口。
+                    #    于是断言报"0.0"、设备上那一点**仍然点不动**。**判据把被测对象排除了。**
+                    #    负对照（去掉 `y_low = min(y_low, 2*neck_y - y_top)` 那行）：
+                    #    本式在三个周期分别报 22.8 / 24.7 / 29.5 px ⇒ 立刻红。**已跑过**。
+                    _tp = widget._taper
+                    _mir = 2.0 * widget._neck_y
+                    _pts = _tp["out_pts"]
+                    _t_out = _tp["t_out"]
+                    _y_top = max(p[1] for p in _pts)
+                    _y_knee = _tp["y_bot"]
+                    _ow = widget._ow
+
+                    def _drawn_half(yy):
+                        yf = max(yy, _mir - yy)
+                        if yf <= _y_knee:
+                            return _t_out
+                        for (w0, a), (w1, b) in zip(_pts, _pts[1:]):
+                            lo_, hi_ = (a, b) if a <= b else (b, a)
+                            if lo_ - 1e-9 <= yf <= hi_ + 1e-9:
+                                if abs(b - a) < 1e-9:
+                                    return max(w0, w1)
+                                return w0 + (w1 - w0) * (yf - a) / (b - a)
+                        return _t_out
+
+                    def _hittable(yy, dx):
+                        """**与 `on_touch_down` 逐字同构**的三选一。"""
+                        if dx * dx + (yy - widget._upper_y_c) ** 2 <= widget._R ** 2:
+                            return True
+                        if dx * dx + (yy - widget._lower_y_c) ** 2 <= widget._R ** 2:
+                            return True
+                        hlf = widget._neck_half_width(yy)
+                        return hlf is not None and dx <= hlf + _ow
+
+                    _gap = 0.0
+                    for _yy in range(int(_mir - _y_top) - 6, int(_y_top) + 7):
+                        _dh = _drawn_half(_yy)
+                        if _dh <= 0:
+                            continue
+                        _a, _b = 0.0, _dh + 40.0
+                        if _hittable(_yy, 0.0):
+                            for _k in range(24):
+                                _mid = 0.5 * (_a + _b)
+                                if _hittable(_yy, _mid):
+                                    _a = _mid
+                                else:
+                                    _b = _mid
+                        _gap = max(_gap, _dh - _a)
+                    check(_gap <= 1e-6,
+                          "neck hit region covers the drawn glass: %ss gap %.2f px"
+                          % (period, _gap))
                 for size in ((320, 560), (760, 1460)):
                     widget.size = size
                     widget._rebuild_height_table()
