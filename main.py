@@ -490,28 +490,36 @@ def _surface_roughness(radius, amp_frac, seed, limit):
     return vals
 
 
-def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES, smooth=4):
-    """预烘 `frames` 张粗糙数组, **相邻帧在时间上做过环形平滑** ⇒ 连续演化、不闪。
+def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES, harmonics=3):
+    """预烘 `frames` 张粗糙数组, **随时间平滑演化**(供上球沙面用)。
 
-    ⚠️ 每帧的幅度都**重新归一化到同一个峰值** —— 否则相邻帧平均会把幅度压小,
-       看起来像"呼吸"(整体一鼓一瘪), 而用户要的是"一颗颗鼓包在原地长大缩小"。
-    ⚠️ 环形平滑(首尾也参与)保证 `t=周期` 时能无缝接回 `t=0`。
+    ⚠️ **为什么不用"独立的随机帧 + 时间上环形平滑"**（第一版就是那么写的, 实测被否）:
+       64 张独立帧做 ±4 的移动平均, 相邻帧仍只共享 8/9 的样本 ⇒ 实测帧间相关只有 **r≈0.89**,
+       按 60fps 算 **~0.17 秒就换一副面孔** —— 那会看起来像微光闪烁, 正是 1.60/1.61
+       被用户判死("颗粒原地闪现 + 整条轮廓颤动")的那类毛病。
+    改成: **每个节点的时间序列 = 3 个低频正弦之和**(频率 1/2/3 倍周期, 振幅与相位各自随机)
+       ⇒ 相邻相位的差是 O(1/frames), 天生连续; 而整轮下来图案确实换过一遍。
+    ⚠️ 每帧按 **RMS 归一**(不是按峰值): 峰值归一会让"峰值出现在哪个节点"跳变时整体鼓一下,
+       看起来像呼吸; RMS 归一稳定得多。
     """
     import numpy as np
     n = MOUND_SHAPE_NODES
-    rng = np.random.default_rng(seed if seed is not None else 721)
-    raw = rng.uniform(-1.0, 1.0, size=(frames, n))
+    rng = np.random.default_rng((seed or 721) + 991)
+    amps = [rng.uniform(0.6, 1.0, size=n) if j == 0 else rng.uniform(0.15, 0.5, size=n)
+            for j in range(harmonics)]
+    psis = [rng.uniform(0.0, 2.0 * np.pi, size=n) for _ in range(harmonics)]
+    # 目标 RMS: 与静态版同源(用同一套空间平滑口径算一遍参考值)
+    ref = np.asarray(_surface_roughness(radius, amp_frac, seed, amp_frac * 2.0 * radius))
+    target_rms = float(np.sqrt((ref ** 2).mean())) or 1.0
     out = []
     for k in range(frames):
-        idx = [(k + d) % frames for d in range(-smooth, smooth + 1)]
-        v = raw[idx].mean(axis=0)
-        # 与静态版同源的平滑(1,2,1), 再归一化到统一下的幅度
-        sm = np.empty(n)
-        sm[0] = (v[0] * 3 + v[1]) / 4.0
-        sm[-1] = (v[-1] * 3 + v[-2]) / 4.0
-        sm[1:-1] = (v[:-2] + 2.0 * v[1:-1] + v[2:]) / 4.0
-        pk = float(np.abs(sm).max()) or 1.0
-        out.append((sm / pk * (amp_frac * 2.0 * radius)).tolist())
+        ph = k / float(frames)
+        v = np.zeros(n)
+        for j in range(harmonics):
+            v += amps[j] * np.sin(2.0 * np.pi * (j + 1) * ph + psis[j])
+        rms = float(np.sqrt((v ** 2).mean()))
+        v = v * (target_rms / rms) if rms > 1e-9 else v
+        out.append(v.tolist())
     for a in out:                      # 中心点强制 0: 堆尖保持在入沙轴线上
         a[(n - 1) // 2] = 0.0
     return out
@@ -1845,6 +1853,9 @@ class HourglassWidget(Widget):
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
             _uamp = UPPER_ROUGH_FRAC * 2.0 * Ri
             self._upper_rough = _surface_roughness(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED, _uamp)
+            # 演化帧: 与静态版同幅度、同节点口径, 只是**随时间平滑地换形状**
+            self._upper_rough_frames = _build_rough_frames(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED)
+            self._upper_rough_cache = None
             self._mound_shape = tuple(shape)
         except ValueError:
             self._mound_profile = None
@@ -3005,6 +3016,8 @@ class HourglassWidget(Widget):
         Ri = self._R_inner
         self._upper_rough = _surface_roughness(Ri, frac, UPPER_ROUGH_SEED,
                                                frac * 2.0 * Ri)
+        self._upper_rough_frames = _build_rough_frames(Ri, frac, UPPER_ROUGH_SEED)
+        self._upper_rough_cache = None
         self._mound_shape_cache = None
         self.redraw()
         return True
@@ -3110,6 +3123,31 @@ class HourglassWidget(Widget):
         b = UPPER_FUNNEL_WIDTH * (2.0 * half_chord)
         return min(d, UPPER_FUNNEL_MAXH * height), min(b, UPPER_FUNNEL_MAXB * half_chord)
 
+    def _upper_rough_now(self):
+        """**本帧**的上球粗糙数组(随时间平滑演化)。每帧只算一次, 全部调用方共用一份。
+
+        ⚠️ 必须共用: `_upper_area`(面积求解) 与 `_draw_upper_shape`(绘制) 若各算各的,
+           算出来的沙量和画出来的就不是一回事 —— 守恒会破(1.90 的老坑, 别再踩)。
+        ⚠️ **绝不能逐帧重抽随机数** —— 那是 1.60/1.61 被用户判死
+           ("颗粒原地闪现 + 整条轮廓颤动")的路。这里只是**在两张预烘帧之间线性插值**。
+        """
+        frames = getattr(self, "_upper_rough_frames", None)
+        if not frames:
+            return getattr(self, "_upper_rough", None)
+        t = self.elapsed
+        if getattr(self, "_upper_rough_cache_t", None) == t:
+            return self._upper_rough_cache
+        nf = len(frames)
+        period = UPPER_ROUGH_PERIOD if UPPER_ROUGH_PERIOD > 0 else 1.0
+        ph = (t / period) % 1.0 * nf
+        k = int(ph) % nf
+        f = ph - int(ph)
+        a, b = frames[k], frames[(k + 1) % nf]
+        out = [a[i] + (b[i] - a[i]) * f for i in range(len(a))]
+        self._upper_rough_cache = out
+        self._upper_rough_cache_t = t
+        return out
+
     def _upper_rough_at(self, index, height):
         """上球第 index 个节点的粗糙偏移(已乘"随沙量出现/收敛"的包络)。
 
@@ -3117,7 +3155,7 @@ class HourglassWidget(Widget):
         q 用"平顶等效高度占球高之比"代理(与目标面积占比单调同向)。
         ⇒ 满球(无自由面)和空球两端自动收敛成平面, 少量沙不会先长出几根尖刺。
         """
-        arr = getattr(self, "_upper_rough", None)
+        arr = self._upper_rough_now()
         if not arr or index >= len(arr):
             return 0.0
         Ri = self._R_inner

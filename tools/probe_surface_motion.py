@@ -26,7 +26,14 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "_shot" / "surfmotion"
 PIX = (1096, 2214)
 DURATION = 60.0
-PROGRESS = [0.10, 0.16, 0.22, 0.30, 0.40, 0.50, 0.62, 0.75]
+# 两种模式:
+#   drain  = 跨整段下漏(帧间隔几秒) —— 问"图案到底动没动"
+#   smooth = 同一进度附近、帧间隔 ~0.05s —— 问"动得平不平滑"(逐帧乱跳 = 1.60/1.61 那种闪)
+MODE = os.environ.get("HG_MOTION_MODE", "drain")
+if MODE == "smooth":
+    PROGRESS = [0.50 + k * 0.0008 for k in range(8)]     # ×60s ⇒ 每帧 ~0.048s
+else:
+    PROGRESS = [0.10, 0.16, 0.22, 0.30, 0.40, 0.50, 0.62, 0.75]
 
 
 def main():
