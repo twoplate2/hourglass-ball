@@ -1710,15 +1710,29 @@ class HourglassWidget(Widget):
             f = min(f, max(0.0, 1.0 - d))
         if f <= 0:
             return []
-        fill_y = y_top - (y_top - y_end) * f
-        side = [(x, y) for x, y in pts if y > fill_y]
+        # ⚠️ **注满与排空的动边不是同一条**(2026-10-05, r7-1号 实测):
+        #    注满: 沙从**上球**经喇叭口注入 ⇒ 顶边钉在喇叭口上端, **下缘往下长**;
+        #    排空: 沙从**出口**流走 ⇒ 自由表面只能**下降**, 底边钉在出口, **顶边往下退**。
+        #    原实现两者共用 `fill_y = y_top - (y_top-y_end)*f`, 排空时下缘从 y_end 爬回 y_top
+        #    ⇒ 画成"沙被从下面吸上去"(1号: top_y 恒 410.28 / bottom_y 373.65→408.82),
+        #    与真沙漏相反。两条路径的**端点相同**(f=1 满柱 / f=0 空), 只有中段不同。
+        draining = self._done_at is not None
+        fill_y = (y_end + (y_top - y_end) * f) if draining else (y_top - (y_top - y_end) * f)
         w = tp['t_in']
         if fill_y >= tp['y_bot']:          # 截断点还在曲线段 → 插值取半宽
             for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
                 if y1 <= fill_y <= y0:
                     w = x0 + (x1 - x0) * (y0 - fill_y) / max(1e-6, y0 - y1)
                     break
-        side.append((w, fill_y))
+        if draining:
+            # 保留曲线段中位于截断点**以下**的部分; 截断点在顶端 ⇒ 补在最前
+            # 出口端始终保留一段直筒(底边钉住) ⇒ 消费者看的 `side[-1]` 恒 = 出口 ⇒ connected
+            side = [(w, fill_y)]
+            side += [(x, y) for x, y in pts if y < fill_y]
+            side.append((tp['t_in'], y_end))
+        else:
+            side = [(x, y) for x, y in pts if y > fill_y]
+            side.append((w, fill_y))
         return side
 
     def _mound_apex(self):
@@ -2887,10 +2901,14 @@ class HourglassWidget(Widget):
         Ri = self._R_inner
         life = SURFACE_MARKER_LIFE
         t = self.elapsed
-        # ⚠️ 两档必须是**沙体底色之外**的两个色 —— 曾经用 (light, base): base 就是沙体
-        #    本身的颜色, 画上去像素完全不变 ⇒ 20 颗里 10 颗是隐形的(实测 delta=0)。
-        color_light = self.sand_light
+        # ⚠️ 两档都必须是**沙面自身那条亮带之外**的色。踩过两次同款坑:
+        #    ① 最初用 (sand_light, sand_base): base 就是沙体本色 ⇒ 画上去 delta=0, 10 颗隐形;
+        #    ② 改成 (sand_light, sand_dark) 后, **亮档又撞上了沙面自带的 3px 亮带**
+        #       (`_mound_band_color` = sand_light @ 0.55) —— 金沙: 亮带 181 级、sand_light 190 级
+        #       ⇒ 只差 **+8 级**, 低于材质噪声(±10) ⇒ 1号(上球)/2号(下球) 独立实测都报"看不见"。
+        #    现在两档都取暗侧、且彼此可辨: sand_dark(−44 级) / mid(sand_dark, sand_base)(−27 级)。
         color_base = self.sand_dark
+        color_light = tuple(0.5 * self.sand_dark[i] + 0.5 * self.sand_base[i] for i in range(3))
 
         def emit(x, y, frac, light):
             nonlocal n_used
