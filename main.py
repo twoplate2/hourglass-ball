@@ -1417,6 +1417,7 @@ class HourglassWidget(Widget):
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._completion_triggered = False
+        self._done_at = None                 # 漏完时刻(颈管排空用), 未漏完为 None
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
         self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
         # 拖动「沙子浓度」滑块时的低分辨率材质槽(见 preview_sand_material)。
@@ -1664,12 +1665,20 @@ class HourglassWidget(Widget):
            沙流跟颈部反而断开; 敞开后沙从孔口流出, 与粒子自然接上。
         ② 起跑时在 NECK_FILL 秒内**从上往下注满**, 而不是 elapsed>0 一帧切换 ——
            喇叭口面积大, 瞬间从空变满非常刺眼。
+        ③ **排空同样要有过程**(2026-10-05 帕累托修复): 原来 `redraw` 用
+           `upper_height > 0` 做闸门, 而漏完那一帧 upper_height 恰好归零
+           ⇒ 整根沙柱**一帧消失**, 可下落的颗粒还要再飞 0.3s。**进场有动画、退场硬切**。
+           两位评审独立量到过(r1-2号: 23ms 内 −4901px; r1-1号/r5-1号: f684→685 一帧掉 4620px)。
+           现在漏完后再用同样的 fill_t 把 f 从 1 降到 0 —— 与注满对称, 形状一个字没改。
         """
         tp = self._taper
         pts = tp['in_pts']
         y_top, y_end = pts[0][1], 2 * self._neck_y - tp['y_bot']
         fill_t = self._neck_fill_time
         f = min(1.0, max(0.0, self.elapsed / fill_t))
+        if self._done_at is not None:
+            d = (time.perf_counter() - self._done_at) / fill_t
+            f = min(f, max(0.0, 1.0 - d))
         if f <= 0:
             return []
         fill_y = y_top - (y_top - y_end) * f
@@ -1798,6 +1807,7 @@ class HourglassWidget(Widget):
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._completion_triggered = False
+        self._done_at = None                 # 重置后颈管立刻回到"未排空"状态
         self._completion_token += 1          # 作废还没到点的完成提示
         # 旧场景的循环引用在重置时清理,避免留到流动中触发全量回收。
         gc.collect()
@@ -1994,6 +2004,7 @@ class HourglassWidget(Widget):
             if self.elapsed >= self.duration:
                 self.elapsed = self.duration
                 self.running = False
+                self._done_at = now          # 颈管沙柱从这个时刻开始排空(见 _neck_sand_side ③)
                 self._stop_sound()
                 if not self._completion_triggered:
                     self._spawn_dust()
@@ -2996,7 +3007,9 @@ class HourglassWidget(Widget):
                             * min(1.0, max(0.0, height / SAND_SURFACE_FADE))
                             * (1.0 - apex_fade))
         self._draw_mound_shape(h_mound)
-        side = self._neck_sand_side() if upper_height > 0 else []
+        # ⚠️ 闸门含 `_done_at`: 漏完那一帧 upper_height 已是 0, 但沙柱还要排空 fill_t 秒
+        side = (self._neck_sand_side()
+                if (upper_height > 0 or self._done_at is not None) else [])
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
         transition = min(inlet - outlet, max(8, self._taper["t_in"] * 0.7))
