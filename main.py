@@ -143,7 +143,91 @@ GLASS_OUTLINE = "#5f6b70"
 # ③ 生成是 O(n²) 的纯 Python/numpy 计算, **绝不能在 redraw 里调**; 按配色缓存。
 SAND_MATERIAL = os.environ.get("HG_SAND_MATERIAL", "grain")   # grain | flat(退回旧平色)
 SAND_MATERIAL_SIZE = 512        # 512² ⇒ 球内径 800px 时约 1.56 px/纹素
-SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒强度
+SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒强度(浓度)
+
+# ---- 「沙体颗粒」六档 (A-F) ----------------------------------------------
+# **2026-10-05 用户在对照图里逐档比过、选定 D 为默认**(隐藏菜单可改)。
+#   (标签, 竖向明暗强度, 颗粒粗度倍数)
+#   对照图: `_shot/sandmat/sandmat_full.png` / `sandmat_upper_1to1.png`
+#   ⚠️ 与「沙子浓度」滑杆是**两个不同的旋钮**: 滑杆调 `SAND_MATERIAL_GRAIN`(强弱),
+#      这里调的是**明暗落差**(grad)与**颗粒粗细**(coarse)。用户 2026-10-05 的原话:
+#      "第一个没有任何意义吧, 因为我可以在设置中设置啊" —— 那句是把两者当成同一个了,
+#      实测滑杆到不了这里的任何一档 ⇒ 故单独做成档位。
+#   ⚠️ 标签用**数字 1-6**(用户 2026-10-05: "你的选择应该是用数字, 而不是 abcd")。
+SAND_GRAIN_LEVELS = (
+    ("1", 0.10, 1), ("2", 0.35, 1), ("3", 0.70, 1),
+    ("4", 0.10, 2), ("5", 0.10, 3), ("6", 0.35, 2),
+)
+SAND_GRAIN_LEVEL_DEFAULT = "4"      # 1-3 是细颗粒递增强渐变; 4/5 是粗颗粒; 6 是粗+渐变
+
+# ---- 「沙面起伏」六档 (A-F) ----------------------------------------------
+# 值 = 起伏幅度 ÷ 直径。**同一张对照图里用户选定 D**(设备 ≈5.35px; 旧值是 A = 1.25px)。
+#   ⚠️ 选它的实测理由: 旧值铺在 890px 宽的沙面上只占 0.14% —— 逐列量出来沙面中心
+#      只比两侧低 10px/640px, 四位评审独立说"像水位/像液面"。
+#   ⚠️ 三个独立读图的人里有两个把再上一档(E=7.13px)排到最后("像被挖过或堆过")。
+#   ⚠️ 标签同样用**数字 1-6**, 且**单调**: 1 最平 → 6 最毛。
+SURFACE_ROUGH_LEVELS = (
+    ("1", 0.0014), ("2", 0.0025), ("3", 0.0040),
+    ("4", 0.0060), ("5", 0.0080), ("6", 0.0120),
+)
+SURFACE_ROUGH_LEVEL_DEFAULT = "4"
+
+
+def _grain_level(label):
+    """标签 → (明暗强度, 颗粒粗度)。认不得就回出厂默认。"""
+    for lb, grad, coarse in SAND_GRAIN_LEVELS:
+        if lb == label:
+            return grad, coarse
+    for lb, grad, coarse in SAND_GRAIN_LEVELS:
+        if lb == SAND_GRAIN_LEVEL_DEFAULT:
+            return grad, coarse
+    return SAND_GRAIN_LEVELS[0][1], SAND_GRAIN_LEVELS[0][2]
+
+
+def _rough_level(label):
+    """标签 → 起伏幅度系数。认不得就回出厂默认。"""
+    for lb, frac in SURFACE_ROUGH_LEVELS:
+        if lb == label:
+            return frac
+    return dict(SURFACE_ROUGH_LEVELS)[SURFACE_ROUGH_LEVEL_DEFAULT]
+
+
+def apply_rough_level(label):
+    """按标签写 `UPPER_ROUGH_FRAC`(开机时用; 运行中换档走 `HourglassWidget.set_rough_level`)。"""
+    global UPPER_ROUGH_FRAC
+    UPPER_ROUGH_FRAC = _rough_level(label)
+    return UPPER_ROUGH_FRAC
+
+
+def current_grain_level():
+    """当前生效的「沙体颗粒」档标签(给隐藏菜单打高亮)。"""
+    for lb, grad, coarse in SAND_GRAIN_LEVELS:
+        if abs(grad - SAND_MATERIAL_GRAD) < 1e-9 and coarse == SAND_MATERIAL_COARSE:
+            return lb
+    return SAND_GRAIN_LEVEL_DEFAULT
+
+
+def current_rough_level():
+    """当前生效的「沙面起伏」档标签。"""
+    for lb, frac in SURFACE_ROUGH_LEVELS:
+        if abs(frac - UPPER_ROUGH_FRAC) < 1e-12:
+            return lb
+    return SURFACE_ROUGH_LEVEL_DEFAULT
+
+
+SAND_MATERIAL_GRAD, SAND_MATERIAL_COARSE = _grain_level(
+    os.environ.get("HG_SAND_LEVEL", SAND_GRAIN_LEVEL_DEFAULT))
+# 环境变量仍可单独覆盖(取图与 A/B 用), 但要**逐项**给, 别让本地配置悄悄盖掉测量档位
+def apply_grain_level(label):
+    """按标签写 `SAND_MATERIAL_GRAD/COARSE`(开机时用)。"""
+    global SAND_MATERIAL_GRAD, SAND_MATERIAL_COARSE
+    SAND_MATERIAL_GRAD, SAND_MATERIAL_COARSE = _grain_level(label)
+    return SAND_MATERIAL_GRAD, SAND_MATERIAL_COARSE
+
+
+SAND_MATERIAL_GRAD = float(os.environ.get("HG_SAND_GRAD", str(SAND_MATERIAL_GRAD)))
+SAND_MATERIAL_COARSE = int(round(float(os.environ.get(
+    "HG_SAND_COARSE", str(SAND_MATERIAL_COARSE)))))
 SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
 # 颈部沙柱采样材质时的 v 锚点。两个值都被实测钉过，别随手改：
@@ -261,7 +345,9 @@ UPPER_FUNNEL_MAXB = 1.00    # 下陷半宽上限(0.80 -> 1.00: 用户要的 100%
 #    但代码里上球沙面**从来没有粗糙项**(审计 2026-10-05 查出)。
 #    幅度按他给的上限折算成占直径比 = 0.0025(他那条 1.25/g 在 g=1 时是 1.25px,
 #    设备 D=891 时 0.0025D=2.23px 更大, 取小的那个 ⇒ 用 0.0014 更保守)。
-UPPER_ROUGH_FRAC = 0.0014   # 起伏幅度 = 0.0014 × 直径(设备 ≈1.25px, 桌面 ≈0.38px)
+UPPER_ROUGH_FRAC = _rough_level(
+    os.environ.get("HG_SURFACE_LEVEL", SURFACE_ROUGH_LEVEL_DEFAULT))
+# 出厂默认 = D 档(设备 ≈5.35px)。六档定义见 `SURFACE_ROUGH_LEVELS`(隐藏菜单可改)。
 UPPER_ROUGH_SEED = 20261006 # **独立 seed**(评审: 与下球各用一组, 不要共用)
 # ---- §5 表层滑动标记: 让静态轮廓读起来像在流沙(专家 dingbu.md §5, 用户点名的那条) ----
 # 专家原话: 「只有凹陷和尖堆, 没有材料沿表面运动, 仍可能像一块正在变形的色纸」。
@@ -528,7 +614,45 @@ def apply_sand_style(mode, grain):
 _SAND_MATERIAL_CACHE = {}
 
 
-def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0):
+def _coarsen_noise(size, coarse, seed):
+    """把逐像素白噪换成**约 coarse 倍粗**的颗粒场, 幅度保持**同样的 RMS**。
+
+    ⚠️ **为什么必须归一 RMS**: 单纯把噪点放大, 会顺带把对比度也改掉 ——
+       那样"颗粒变粗"和"颗粒变强"两个变量就混在一起了, 对照不干净。
+       均匀分布 σ=1/√12 = 0.2886751, 放大后按实测 σ 缩回去。
+    ⚠️ **取数顺序必须与 A/B 工具逐字节一致**(用户是照着那张图挑的):
+       同一个 seed、同样先抽 `(low, low)`、同样 ×255 过一遍 uint8(那是预览管线的一环)。
+    """
+    import numpy as np
+    low = max(2, int(round(size / coarse)))
+    small = np.random.default_rng(seed).random((low, low), dtype=np.float32)
+    try:
+        from PIL import Image as _PILImage
+        up = _PILImage.fromarray((small * 255.0).astype(np.uint8)).resize(
+            (size, size), _PILImage.BILINEAR)
+        out = np.asarray(up, dtype=np.float32) / 255.0
+    except Exception:
+        # PIL 缺失时的 numpy 双线性(坐标映射与 PIL 的 (i+0.5)*src/dst-0.5 一致, 边缘夹取)
+        t = ((np.arange(size, dtype=np.float32) + 0.5) * (low / float(size))) - 0.5
+        i0 = np.clip(np.floor(t).astype(np.int32), 0, low - 1)
+        i1 = np.clip(i0 + 1, 0, low - 1)
+        f = np.clip(t - np.floor(t), 0.0, 1.0).astype(np.float32)
+        fx, fy = f[None, :], f[:, None]
+        out = (small[np.ix_(i0, i0)] * (1 - fx) * (1 - fy)
+               + small[np.ix_(i0, i1)] * fx * (1 - fy)
+               + small[np.ix_(i1, i0)] * (1 - fx) * fy
+               + small[np.ix_(i1, i1)] * fx * fy)
+    sd = float(out.std())
+    if sd > 1e-6:
+        out = 0.5 + (out - float(out.mean())) * (0.2886751 / sd)
+    # ⚠️ **不要在这里 clip 到 [0,1]** —— 归一化会把值推出这个区间(实测 3.5% 的元素),
+    #    而对照图那一版**没有 clip**。加了它, 线上就与用户挑的那张图差最多 7 级
+    #    (2026-10-05 首次验证就是这么被自己抓出来的)。下游 `tone` 本来就会 clip 到 [-1,1]。
+    return out
+
+
+def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0,
+                        coarse=1, grad=0.10):
     """生成 size×size 的 RGBA 材质字节。**numpy 缺失时返回 None**(退回原来的平色填充)。
 
     UV 约定: 第 0 行 = **球底**(沙体底), 最后一行 = 球顶 —— 与"Rectangle 从球底往上长"一致。
@@ -540,16 +664,18 @@ def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0
         return None
     axis = (np.arange(size, dtype=np.float32) + 0.5) / size
     qx = (axis * 2.0 - 1.0)[None, :]
-    qy = (axis * 2.0 - 1.0)[:, None]
     # 「靠壁压暗」只看**水平**距离: 玻璃壁在左右两侧, 而竖直方向的上下两端
     # 分别是沙面(上)与**颈口**(下), 都不是壁。
     # ⚠️ 原来用径向 r²=qx²+qy², 会把球底那个极点也当成"靠壁"压暗 ——
-    # 而颈部采样不到那一段, 于是颈部比球体亮一个档, 被读成两种材料
+    # 而颈部采样不到那一段, 于是颈部比球体亮一个档, 被读成两种材质
     # (2026-10-04 用户报"上面的部分和颈部的沙子构成完全不同")。
     w = np.clip((qx * qx - 0.64) / 0.36, 0.0, 1.0)
     edge = w * w * (3.0 - 2.0 * w)
-    broad = 0.10 * (axis[:, None] - 0.5) - 0.07 * qx - 0.16 * edge
-    noise = np.random.default_rng(seed).random((size, size), dtype=np.float32)
+    broad = grad * (axis[:, None] - 0.5) - 0.07 * qx - 0.16 * edge
+    if coarse and coarse > 1:
+        noise = _coarsen_noise(size, coarse, seed)
+    else:
+        noise = np.random.default_rng(seed).random((size, size), dtype=np.float32)
     tone = np.clip(shade * broad + grain * (2.0 * noise - 1.0), -1.0, 1.0)
     pal = [np.asarray(c, dtype=np.float32) for c in (base, dark, light)]
     target = np.where(tone[..., None] >= 0.0, pal[2], pal[1])
@@ -585,11 +711,14 @@ def sand_material(base, dark, light, size=None, grain=None, shade=None):
     size = SAND_MATERIAL_SIZE if size is None else size
     grain = SAND_MATERIAL_GRAIN if grain is None else grain
     shade = SAND_MATERIAL_SHADE if shade is None else shade
-    key = (size, tuple(base), tuple(dark), tuple(light), round(grain, 4), round(shade, 4))
+    key = (size, tuple(base), tuple(dark), tuple(light), round(grain, 4),
+           round(shade, 4), SAND_MATERIAL_COARSE, round(SAND_MATERIAL_GRAD, 4))
     material = _SAND_MATERIAL_CACHE.get(key)
     if material is None:
         try:
-            rgba = _sand_material_rgba(size, base, dark, light, grain=grain, shade=shade)
+            rgba = _sand_material_rgba(size, base, dark, light, grain=grain, shade=shade,
+                                       coarse=SAND_MATERIAL_COARSE,
+                                       grad=SAND_MATERIAL_GRAD)
             if rgba is None:
                 return None
             material = _SandMaterial(size, rgba)
@@ -612,7 +741,9 @@ def preview_sand_material(base, dark, light, grain, size=None):
         return None
     size = SAND_PREVIEW_SIZE if size is None else size
     try:
-        rgba = _sand_material_rgba(size, base, dark, light, grain=grain)
+        rgba = _sand_material_rgba(size, base, dark, light, grain=grain,
+                                   coarse=SAND_MATERIAL_COARSE,
+                                   grad=SAND_MATERIAL_GRAD)
         if rgba is None:
             return None
         return _SandMaterial(size, rgba)
@@ -2101,7 +2232,12 @@ class HourglassWidget(Widget):
                            # 沙体材质(隐藏菜单的浓度滑块)。存 mode+grain 而不是序号 ——
                            # 以后改名/换量程都不会让旧配置串到别的档。
                            'sand_mode': SAND_MATERIAL,
-                           'sand_grain': SAND_MATERIAL_GRAIN}, f, ensure_ascii=False)
+                           'sand_grain': SAND_MATERIAL_GRAIN,
+                           # 隐藏菜单的两个六档(2026-10-05 用户要求做成可调)。
+                           # 同样存**标签**: 以后调数值不会让旧配置串到别的档。
+                           'grain_level': current_grain_level(),
+                           'rough_level': current_rough_level()},
+                  f, ensure_ascii=False)
         except Exception:
             pass
 
@@ -2776,6 +2912,45 @@ class HourglassWidget(Widget):
         if material is None:
             return False
         self.rebind_sand_material(material)
+        return True
+
+    def set_grain_level(self, label):
+        """隐藏菜单「沙体颗粒」六档 (A-F)。返回是否真的换上了。
+
+        ⚠️ 与 `set_sand_grain`(浓度滑块) 是**两个旋钮**: 这里改的是明暗落差 + 颗粒粗细,
+           那两个值进**缓存键** ⇒ 第一次换到某档要重烘一张 512²(约 17ms + 上传),
+           换回来的第二次命中缓存、秒切。**只在按键那一下, 不在每帧。**
+        """
+        global SAND_MATERIAL_GRAD, SAND_MATERIAL_COARSE
+        grad, coarse = _grain_level(label)
+        if (abs(grad - SAND_MATERIAL_GRAD) < 1e-9
+                and coarse == SAND_MATERIAL_COARSE):
+            return False
+        SAND_MATERIAL_GRAD, SAND_MATERIAL_COARSE = grad, coarse
+        self._preview_material = None
+        material = sand_material(self.sand_base, self.sand_dark, self.sand_light)
+        if material is None:
+            return False
+        self.rebind_sand_material(material)     # ⚠️ 轻量绑定, 不重建画布
+        return True
+
+    def set_rough_level(self, label):
+        """隐藏菜单「沙面起伏」六档 (A-F)。返回是否真的换上了。
+
+        只换 `self._upper_rough` 那 65 个浮点(纯赋值, 不重建几何/画布) ——
+        **`_upper_area`(面积求解) 与 `_draw_upper_shape`(绘制) 读的是同一个数组**
+        ⇒ 体积守恒自动跟着走, 不需要任何额外同步(两边各算各的就会破守恒, 别改)。
+        """
+        global UPPER_ROUGH_FRAC
+        frac = _rough_level(label)
+        if abs(frac - UPPER_ROUGH_FRAC) < 1e-12:
+            return False
+        UPPER_ROUGH_FRAC = frac
+        Ri = self._R_inner
+        self._upper_rough = _surface_roughness(Ri, frac, UPPER_ROUGH_SEED,
+                                               frac * 2.0 * Ri)
+        self._mound_shape_cache = None
+        self.redraw()
         return True
 
     def set_sand_style(self, mode, grain):
@@ -3921,6 +4096,11 @@ class HourglassApp(App):
         if os.environ.get("HG_SAND_MATERIAL") is None and os.environ.get("HG_SAND_GRAIN") is None:
             apply_sand_style(cfg.get('sand_mode', 'grain'),
                              cfg.get('sand_grain', SAND_GRAIN_DEFAULT))
+        # 两个六档: 环境变量给了就**不读配置**(取图/AB 的档位绝不能被本地配置盖掉)
+        if os.environ.get("HG_SAND_LEVEL") is None and os.environ.get("HG_SAND_GRAD") is None                 and os.environ.get("HG_SAND_COARSE") is None:
+            apply_grain_level(cfg.get('grain_level', SAND_GRAIN_LEVEL_DEFAULT))
+        if os.environ.get("HG_SURFACE_LEVEL") is None:
+            apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT))
 
         root = BoxLayout(orientation="vertical", spacing=dp(3),
                          padding=[dp(8), dp(6), dp(8), dp(6)])
@@ -4282,7 +4462,11 @@ class HourglassApp(App):
             self._dev_popup.dismiss()
 
     def _open_dev_menu(self, *_):
-        """长按**版本号**进的隐藏菜单: 沙子浓度 / 玻璃反光两个滑块 + 性能测试。
+        """长按**版本号**进的隐藏菜单: 沙子浓度滑块 + **沙体颗粒六档** + **沙面起伏六档** + 性能测试。
+
+        两个六档是 2026-10-05 加的: 用户在对照图里逐档比过, 选定 D/D 为出厂默认,
+        并要求"加入设置"以便自己改。它们是**离散档位**不是滑块 —— 换沙体颗粒要重烘
+        一张 512² 材质(约 17ms), 连续拖动会卡; 沙面起伏很轻但也没必要连续。
 
         2026-10-04 用户要求: 原来沙子材质是「平色/淡/标准/浓」四档按钮, 改成连续滑块;
         并加一个玻璃反光滑块。
@@ -4323,6 +4507,43 @@ class HourglassApp(App):
                         cursor_image=resource_path("ui/slider_cursor.png"),
                           background_width='8dp', value_track_width='8dp')
 
+        def make_levels(title, labels, current, on_pick, fmt=None):
+            """一行标题 + 一行档位按钮(选中金色)。返回 (容器, 刷新高亮, 按钮表)。
+
+            ⚠️ 按钮的 lambda **必须用默认参数绑住 `lb`** —— 闭包延迟绑定会让所有按钮
+               都指向最后一档(Android Kivy 2.3.0 上这个坑踩过, 见周期弹窗)。
+            """
+            box = BoxLayout(orientation="vertical", size_hint=(1, None),
+                            height=dp(54), spacing=dp(2))
+            head = Label(text=title, font_size=sp(15), color=POPUP_TEXT,
+                         halign="left", valign="middle",
+                         size_hint=(1, None), height=dp(22))
+            head.bind(size=lambda inst, s: setattr(inst, "text_size", s))
+
+            def set_head(lb):
+                head.text = title if fmt is None else "%s   %s" % (title, fmt(lb))
+            set_head(current)
+            box.add_widget(head)
+            row = BoxLayout(orientation="horizontal", size_hint=(1, None),
+                            height=dp(30), spacing=dp(4))
+            btns = {}
+
+            def refresh(sel):
+                for lb, b in btns.items():
+                    b.background_color = (POPUP_GOLD_SEL if lb == sel
+                                          else POPUP_UNSEL_MULT)
+                set_head(sel)
+
+            for lb in labels:
+                b = Button(text=lb, font_size=sp(14), bold=True, background_normal="",
+                           color=POPUP_TEXT, size_hint=(1, 1))
+                b.bind(on_press=lambda inst, l=lb: on_pick(l))
+                btns[lb] = b
+                row.add_widget(b)
+            refresh(current)
+            box.add_widget(row)
+            return box, refresh, btns
+
         # ---- 沙子浓度 ----
         sand_row, sand_label = make_row(
             "沙子浓度", "%.2f" % SAND_MATERIAL_GRAIN)
@@ -4355,6 +4576,36 @@ class HourglassApp(App):
         sand_slider.bind(value=on_sand)
         self._dev_sliders = (sand_slider,)   # 供测试/自检取用
 
+        content.add_widget(Widget(size_hint=(1, None), height=dp(8)))
+
+        # ---- 沙体颗粒 六档 (A-F, 出厂默认 D) ----
+        # 换档要重烘一张 512² 材质(约 17ms) ⇒ **只能按键触发, 不能做成连续滑块**。
+        def pick_grain(lb):
+            if hg.set_grain_level(lb):
+                refresh_grain(lb)
+                hg.save_config(self._selected_color_name())
+
+        grain_box, refresh_grain, grain_btns = make_levels(
+            "沙体颗粒", [lb for lb, _g, _c in SAND_GRAIN_LEVELS],
+            current_grain_level(), pick_grain,
+            fmt=lambda lb: "颗粒 %d 倍粗细 · 明暗 %.2f" % (_grain_level(lb)[1],
+                                                          _grain_level(lb)[0]))
+        content.add_widget(grain_box)
+
+        # ---- 沙面起伏 六档 (A-F, 出厂默认 D) ----
+        # 这个只是换 65 个浮点 + 一次 redraw, 很轻。
+        def pick_rough(lb):
+            if hg.set_rough_level(lb):
+                refresh_rough(lb)
+                hg.save_config(self._selected_color_name())
+
+        rough_box, refresh_rough, rough_btns = make_levels(
+            "沙面起伏", [lb for lb, _f in SURFACE_ROUGH_LEVELS],
+            current_rough_level(), pick_rough,
+            fmt=lambda lb: "约 %.1f 像素" % (_rough_level(lb) * 2 * 445.63))
+        content.add_widget(rough_box)
+        self._dev_level_btns = {"grain": grain_btns, "rough": rough_btns}
+
         content.add_widget(Widget(size_hint=(1, None), height=dp(6)))
         bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",
                        background_color=POPUP_CONFIRM, color=POPUP_TEXT_WHITE,
@@ -4378,7 +4629,7 @@ class HourglassApp(App):
         # 尺寸照**基准弹窗**那套(它已经跑过真机): 宽度 0.94, 高度取"内容需要"与
         # "窗口 85%"的较小值 —— 不再写死一个数, 否则字体缩放一变就被裁掉。
         # (2026-10-04 用户反馈"太拥挤、很多地方显示不全": 原来写的 0.8 宽 + dp(360) 高。)
-        popup_height = min(dp(440), max(Window.width, Window.height) * 0.85)
+        popup_height = min(dp(560), max(Window.width, Window.height) * 0.90)
         popup = _SandBgPopup(title=f"v{APP_VERSION}", content=content,
                              size_hint=(0.94, None), height=popup_height,
                              auto_dismiss=False)
