@@ -4605,7 +4605,12 @@ class HourglassWidget(Widget):
         n_colors = len(self._color_table)
         div = max(1.0, self._neck_y - self._glass_bot) / n_colors
         outlet = 2 * self._neck_y - self._taper["y_bot"]
-        tone_scale = 5 / math.tau
+        # ★ **每颗粒的色调抖动**(2026-10-06 用户:「**下层的沙子落下的层和原有的层差异巨大**」
+        #   —— 经确认为**沙流 vs 沙堆**)。实测局部纹理 std: **沙流 0.47 / 沙堆 2.14**
+        #   ⇒ 沙流光滑 4.5 倍, 读起来像一条"光带"而不是沙。
+        #   原来只随 `W = int(相位×5/τ) ∈ {0..4}` 摆 ±2 档, 交叠后糊平 ⇒ 放宽到 ±4 档。
+        #   ⚠️ **numpy 路径与标量路径必须一起改**(下面两处), 否则两条物理路径分叉。
+        tone_scale = 9 / math.tau
         # 预先摊平成二维表: 原来每颗粒都要现造一个 (index, size) 元组再查字典,
         # 这里换成两次列表下标。分组结果与原来逐字相同。
         by_key = [[buckets.get((i, s)) for s in (1, 2)]
@@ -4625,8 +4630,8 @@ class HourglassWidget(Widget):
             if sel.size:
                 yy = y_all[sel]
                 w = (self.pwp[:n][sel] * tone_scale).astype(np.int64)
-                np.minimum(w, 4, out=w)
-                idx = ((self._neck_y - yy) / div).astype(np.int64) + w - 2
+                np.minimum(w, 8, out=w)
+                idx = ((self._neck_y - yy) / div).astype(np.int64) + w - 4
                 np.clip(idx, 0, last, out=idx)
                 key = np.where(self.pli[:n][sel] != 0.0, n_colors, idx)
                 slot = np.where(self.psz[:n][sel] == 1.0, 0, 1)
@@ -4655,9 +4660,9 @@ class HourglassWidget(Widget):
                 row = light_row
             else:
                 w = int(phases[i] * tone_scale)
-                if w > 4:
-                    w = 4
-                index = int((self._neck_y - y) / div) + w - 2
+                if w > 8:
+                    w = 8
+                index = int((self._neck_y - y) / div) + w - 4
                 if index < 0:
                     index = 0
                 elif index > last:
