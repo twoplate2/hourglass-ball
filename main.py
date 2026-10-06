@@ -390,6 +390,48 @@ SPLASH_BG_VY = float(os.environ.get("HG_SPLASH_VY", "1.0"))
 SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))
 
 
+def _autofit_font(btn, base_size, pad=6.0, floor=0.6):
+    """按钮标签**跟着按钮实际宽度缩字号** —— 不许文字溢出去压邻居。
+
+    🔴 Kivy 事实(2026-10-06 实测): `Button` 把文字**居中画出来, 既不裁切也不缩字号**。
+    ⇒ 只要按钮被压得比文字窄, 字就**画到邻居身上** —— 用户实拍的症状是
+    `50秒 / 沙沙声 / v1.154 / 开始 / 重置` 糊成一片、顶部 6 个色块文字连成一条。
+    触发条件是**密度 × 窗宽**换算下来控件不够宽(桌面 density≥1.5, 或窄窗),
+    **不是代码"必然坏"** —— 同密度下 1.152 更糟: 底栏子控件合计 532/400=133%、
+    `重置` 直接跑到 x458..588 **完全出屏**(1.153 的 `_fit_bottom_widths` 修的是那个),
+    但它把按钮压小之后, **文字溢出**这一层才露出来。
+
+    ⚠️ **只在装不下时才缩**(装得下时字号一字不动) ⇒ 设备上(密度 3.0、控件宽裕)
+    是**空操作**, 不影响已验收的观感。
+    """
+    state = {"key": None}
+
+    def _fit(*_a):
+        w = btn.width
+        if w <= 1:
+            return
+        key = (round(w, 1), btn.text, base_size)
+        if state["key"] == key:
+            return
+        state["key"] = key
+        avail = max(8.0, w - pad)
+        try:
+            from kivy.core.text import Label as _CL
+            cl = _CL(text=btn.text, font_size=base_size,
+                     font_name=btn.font_name or "Roboto")
+            cl.refresh()
+            need = cl.content_size[0]
+        except Exception:
+            return
+        if need <= avail or need <= 0:
+            btn.font_size = base_size
+        else:
+            btn.font_size = max(base_size * floor, base_size * avail / need)
+
+    btn.bind(width=_fit, text=_fit)
+    _fit()
+
+
 def _inv_norm(p):
     """标准正态的**逆 CDF**(Acklam 有理逼近, |绝对误差| < 1.15e-9)。
 
@@ -4796,6 +4838,7 @@ class HourglassApp(App):
             btn.bind(on_press=lambda inst, b=base, d=dark, l=light, n=name:
                      self.on_color(b, d, l, n))
             top_colors.add_widget(btn)
+            _autofit_font(btn, sp(15))
             self.color_btns.append((name, btn))
         root.add_widget(top_colors)
 
@@ -4818,6 +4861,7 @@ class HourglassApp(App):
                                    background_normal="",
                                    background_color=(0.769, 0.682, 0.557, 1),
                                    color=POPUP_TEXT)
+        _autofit_font(self.duration_btn, sp(16), pad=10.0)
         self.duration_btn.bind(on_press=self.on_duration_picker)
         bottom.add_widget(self.duration_btn)
         self.sound_btn = Button(text="沙沙声",
@@ -4825,6 +4869,7 @@ class HourglassApp(App):
                                 background_normal="",
                                 background_color=(*POPUP_GOLD_SEL[:3], 0.92),
                                 color=POPUP_TEXT)
+        _autofit_font(self.sound_btn, sp(15), pad=10.0)
         self.sound_btn.bind(on_press=self.on_sound_picker)
         bottom.add_widget(self.sound_btn)
         self._benchmark_runner = None
@@ -4856,8 +4901,10 @@ class HourglassApp(App):
                                 background_normal="",
                                 background_color=(0.353, 0.620, 0.243, 1), color=(1, 1, 1, 1))
         self.start_btn.bind(on_press=self.on_toggle)
+        _autofit_font(self.start_btn, sp(16), pad=6.0)
         bottom.add_widget(self.start_btn)
         reset_btn = Button(text="重置", size_hint=(None, 1), width=dp(74), font_size=sp(16))
+        _autofit_font(reset_btn, sp(16), pad=6.0)
         reset_btn.bind(on_press=self.on_reset)
         self._reset_btn = reset_btn
         bottom.add_widget(reset_btn)
