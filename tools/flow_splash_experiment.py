@@ -231,7 +231,7 @@ class SplashBatch:
             part = self._ensure_part(chunk)
             mesh, _vertices, indices, texture, data, previous = part
             if use_np:
-                blk = _np.empty((n, 4), dtype=_np.float64)
+                blk = _np.empty((n, 4), dtype="<f4")
                 x = xs[start:start + n]
                 y = ys[start:start + n]
                 hw = hws[start:start + n]
@@ -240,7 +240,7 @@ class SplashBatch:
                 blk[:, 1] = y - hh
                 blk[:, 2] = x + hw
                 blk[:, 3] = y + hh
-                data[:n * 16] = blk.astype("<f4").tobytes()
+                data[:n * 16] = blk.tobytes()
             else:
                 off = 0
                 for k in range(start, start + n):
@@ -278,12 +278,12 @@ class SplashBatch:
         if n == 0 and previous == 0:
             return
         if n:
-            blk = _np.empty((n, 4), dtype=_np.float64)
+            blk = _np.empty((n, 4), dtype="<f4")
             blk[:, 0] = l[:n]
             blk[:, 1] = b[:n]
             blk[:, 2] = r[:n]
             blk[:, 3] = t[:n]
-            data[:n * 16] = blk.astype("<f4").tobytes()
+            data[:n * 16] = blk.tobytes()
         _upload = n
         if n > previous:
             mesh.indices = indices[:n * len(_INDICES)]

@@ -107,8 +107,33 @@ def check_formula():
     return bad == 0
 
 
+def check_direct_f32_block():
+    """「直接建 `<f4` 块再逐列赋值」 == 「先建 f64 再 `astype('<f4')`」。
+
+    2026-10-07 把打包从后者改成前者(少一次分配 + 少一趟遍历), 这条是那次改动的**唯一假设**。
+    覆盖 0/-0/denormal/±float32 极值 —— 两条路都走 IEEE 就近舍入, 但必须**实测**而不是断言。
+    """
+    rng = random.Random(7)
+    pool = [0.0, -0.0, 1e-320, -1e-320, 3.4e38, -3.4e38, 1.17e-38, 1.0, -1.0]
+    bad = 0
+    for _ in range(300):
+        n = rng.randint(1, 60)
+        vals = [rng.choice(pool) if rng.random() < 0.5
+                else rng.uniform(-2.9e38, 2.9e38) for _ in range(n * 4)]
+        blk64 = np.array(vals, dtype=np.float64).reshape(n, 4)
+        ref = blk64.astype("<f4").tobytes()
+        blk32 = np.empty((n, 4), dtype="<f4")
+        for col in range(4):
+            blk32[:, col] = blk64[:, col]
+        if blk32.tobytes() != ref:
+            bad += 1
+    print("  直接建 f32 块 vs astype: %d/300 不一致" % bad)
+    return bad == 0
+
+
 def main():
     ok = check_float32_cast()
+    ok = check_direct_f32_block() and ok
     ok = check_formula() and ok
     print("PASS: 向量化打包与逐颗粒打包字节完全相同" if ok else "FAIL")
     return 0 if ok else 1
