@@ -1611,7 +1611,14 @@ class _SandBgPopup(Popup):
         if not self.pos_hint:
             self.pos_hint = {"center_x": 0.5, "center_y": 0.5}
         layer.add_widget(self)                      # 挂到层而非 Window
-        layer.bind(on_resize=self._align_center, on_keyboard=self._handle_keyboard)
+        layer.bind(on_resize=self._align_center)
+        # ⚠️ **`on_keyboard` 必须绑在 `Window` 上, 不能绑在层上**（2026-10-06, r31-1号 设备实测）:
+        #    Kivy 只在 `Window` 上派发这个事件; 绑在任意 widget(这里是旋转层)上**永远不会被触发**
+        #    ⇒ 横屏下按 BACK 键不关弹窗, 一路冒到 p4a ⇒ **整个 app 退到桌面**
+        #    (弹窗还会在前台恢复后继续开着)。竖屏走 `ModalView.open()`, 它自己绑的就是 Window,
+        #    所以**竖屏一直是对的** —— 只有横屏这条分支漏了。
+        Window.bind(on_keyboard=self._handle_keyboard)
+        self._kb_window = Window
         self.center = layer.center
         self.fbind('center', self._align_center)
         self.fbind('size', self._align_center)
@@ -1629,6 +1636,14 @@ class _SandBgPopup(Popup):
                                 on_keyboard=self._handle_keyboard)
         except Exception:
             pass
+        # 横屏分支另外把 on_keyboard 绑在了 Window 上(见 open 里的说明), 这里对称解开。
+        _kbw = getattr(self, "_kb_window", None)
+        if _kbw is not None:
+            try:
+                _kbw.unbind(on_keyboard=self._handle_keyboard)
+            except Exception:
+                pass
+            self._kb_window = None
         self._is_open = False
         self._window = None
 
