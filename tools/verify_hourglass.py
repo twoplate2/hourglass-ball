@@ -318,6 +318,12 @@ def main():
                     #    (加宽 `high` 之前先看这里 —— 不对齐的话, 档位一改这条就红,
                     #     而它红的根本不是"渲染器变了"。)
                     reference._surface_roughness = app_module._surface_roughness
+                    # ⚠️ 2026-10-06 追加: **上球那条生成路也要对齐**。
+                    #    1.163 只对齐了 `_surface_roughness`(**下球**用的),
+                    #    而**上球沙面**走的是 `_build_rough_frames` —— 它是**另一条独立的
+                    #    生成路**, 当天也被改成"2 维带限"。**修一条不等于修两条**,
+                    #    这条闸门正是第二次把它抓出来的地方。
+                    reference._build_rough_frames = app_module._build_rough_frames
                     old = reference.HourglassWidget(size=widget.size, pos=widget.pos)
                     Clock.unschedule(old.tick)
                     for obj in (old, widget):

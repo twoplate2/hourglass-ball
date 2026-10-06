@@ -720,23 +720,36 @@ def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES,
     n = MOUND_SHAPE_NODES
     rng = np.random.default_rng((seed or 721) + 991)
     hz = tuple(harmonics) if hasattr(harmonics, "__len__") else tuple(range(1, harmonics + 1))
-    amps = [rng.uniform(0.6, 1.0, size=n) if j == 0 else rng.uniform(0.15, 0.5, size=n)
-            for j in range(len(hz))]
-    psis = [rng.uniform(0.0, 2.0 * np.pi, size=n) for _ in hz]
+    # 🔴🔴 **空间也必须带限**(2026-10-06 用户实测: 「起伏放到最大**还是有一个锐角**」)。
+    #    旧版 `psis[j] = rng.uniform(0, 2π, size=n)` 是**逐节点独立**的随机相位
+    #    ⇒ **时间上平滑, 空间上是白噪声** ⇒ 相邻节点可以差很多, 被 `shape_at` 的
+    #    **线性插值**连起来就是**锯齿 / 锐角**。
+    #    ⚠️ 1.163 只修了**下球**那条(`_surface_roughness`), **上球这条路没改到** ——
+    #       这是本轮的真实教训: **两条独立的生成路, 修了一条不等于修了两条**。
+    #    改成 **2 维带限**: 空间频率 `p`(整数 1..P) × 时间频率 `m`(整数, 取 `harmonics`)
+    #    的正弦积之和 ⇒ **空间、时间两边都连续**; `m` 取整数 ⇒ **整轮闭合**。
+    #    空间基用 `sin(2πp·(i-c)/n)`(`c` = 中心节点) ⇒ **天生在中心为 0**,
+    #    与"堆尖保持在入沙轴线上"那条约束**不打架**, 也就**不需要**最后再硬把中心点置 0
+    #    —— 那个硬置 0 本身就是一个折角源(邻居有余量、中心被摁到 0)。
+    P = 4
+    _idx = np.arange(n) - (n - 1) // 2
+    comps = []
+    for _p in range(1, P + 1):
+        for _m in hz:
+            _A = rng.uniform(0.6, 1.0) / _p            # 空间低频为主(~1/p)
+            _psi = rng.uniform(0.0, 2.0 * np.pi)
+            comps.append((_A * np.sin(2.0 * np.pi * _p * _idx / n), _m, _psi))
     # 目标 RMS: 与静态版同源(用同一套空间平滑口径算一遍参考值)
     ref = np.asarray(_surface_roughness(radius, amp_frac, seed, amp_frac * 2.0 * radius))
     target_rms = float(np.sqrt((ref ** 2).mean())) or 1.0
     out = []
     for k in range(frames):
-        ph = k / float(frames)
         v = np.zeros(n)
-        for j, m in enumerate(hz):
-            v += amps[j] * np.sin(2.0 * np.pi * m * ph + psis[j])
+        for _spatial, _m, _psi in comps:
+            v += _spatial * np.sin(2.0 * np.pi * _m * k / float(frames) + _psi)
         rms = float(np.sqrt((v ** 2).mean()))
         v = v * (target_rms / rms) if rms > 1e-9 else v
         out.append(v.tolist())
-    for a in out:                      # 中心点强制 0: 堆尖保持在入沙轴线上
-        a[(n - 1) // 2] = 0.0
     return out
 
 
