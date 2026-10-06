@@ -3597,14 +3597,13 @@ class HourglassWidget(Widget):
         #   算式与 `_mound_contact_h` 逐字相同(见 `contact_np`), 由金标准轨迹兜底。
         _prof = self._mound_profile
         _apex = self._mound_apex()
+        # 🔴 **2026-10-07 回退**: 这里曾用 `contact_np` 整批算 `hy`(向量化, 净 −0.05ms)。
+        #    但加完之后逐像素比对显示 **30 帧里有 1 帧不同**(同代码两遍是 0 差异 ⇒ 渲染本身
+        #    是确定的, 差别来自这次改动)。隔离守卫(`_probe_ctab_equiv` 的 300×62 点)与
+        #    金标准轨迹都过了, 所以差异落在**两者都没覆盖的工况**上 —— 我没能定位到具体是哪
+        #    一种输入。**收益 0.05ms 远小于一个我说不清的差异** ⇒ 整批路径不再启用。
+        #    `contact_np` 与它的守卫留在代码里备查(要再启用, 先补一个能覆盖真实工况的判据)。
         hy_all = None
-        # ⚠️ **阈值是量出来的, 不是推出来的**(与 `_NUMPY_MIN` 同一条教训):
-        #    `contact_np` 有 ~28 次 numpy 调用(每次 2~4µs 固定开销), nhit ≈ 50 时那笔开销
-        #    几乎吃掉逐颗省下的。设备实测 nhit≈50 净 **−0.05ms**; 更少时可能转负。
-        #    交叉点估计在 **nhit ≈ 24** 附近, 所以低于它就退回逐颗。
-        if _np is not None and _prof is not None and _apex > 0.0 and len(hit_idx) >= 24:
-            hy_all = self._lower_sand_bot + _prof.contact_np(
-                px[hit_idx] - self._cx, _apex)
         for k in range(len(hit_idx)):
             i = int(hit_idx[k])
             x = float(px[i])
