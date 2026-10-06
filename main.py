@@ -331,6 +331,9 @@ MOUND_REPOSE_SLOPE = 0.60   # 休止角 tanθ ≈ 0.60 (≈31°); 专家: 只是
 MOUND_SLOPE_L = 0.58        # 左坡斜率(专家 §3.1 建议 0.58/0.62 —— 故意不对称, 破镜像)
 MOUND_SLOPE_R = 0.62
 MOUND_SHAPE_NODES = 65      # 表面轮廓控制点数(奇数 ⇒ 第 32 点正好在中心轴上, 画得出尖顶)
+# 🔴 沙堆**接触高度查找表**的采样数(见 `update_particles` 的飞溅段, 2026-10-06 性能)。
+#   257 ≈ 4× 控制点数 ⇒ 线性插值的误差远小于 1px; 表本身每帧只建一次。
+CONTACT_TABLE_N = 257
 # ⚠️ **两个旋钮必须一起抬**(2026-10-05 dingbu2.md §4 取证): 幅度 = min(FRAC·2R, 限坡)。
 #    限坡 = `SMOOTH × min(斜率) × Δx`, 而 Δx = R/32 ⇒ 限坡 ∝ R, 与 FRAC·2R 同量纲。
 #    令两者相等得 `SMOOTH_crit = 103.2 × FRAC`:
@@ -447,14 +450,20 @@ SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
 #         于是**永远看不到"停住"那一刻**, 只看到它滑到底然后被抹掉。
 #         现在停住后原地留 `SPLASH_STILL_LIFE` 秒 ⇒ 任一时刻坡面上都撒着一层**已停稳**的
 #         颗粒, **覆盖面积反而更大**(也正是用户此前要的「表面大部分地方都有沙子在流动」)。
-SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "4.0"))   # 坡面摩擦(1/秒)
-SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.90"))     # 滑动阶段最久多久(s)
+# 🔴 **2026-10-06 性能**: 4.0 → **7.0**。飞溅的**在世数 = 生成率 × 寿命**, 而设备实测
+#   `物理` +3.15ms / `Canvas` +3.83ms 全是飞溅数量(431 → 2657)推上去的 ——
+#   今天"溅到沙子上才开始掉"那一轮把寿命从"落地即删"拉到 ~1.06s, 代价就在这里。
+#   摩擦 7.0 ⇒ 滑行距离 `(57-4)/7 ≈ 7.6px`、刹停 **0.37s**(原 0.66s)
+#   ⇒ 一条命从 ~1.06s 收到 ~0.65s(**−39% 在世数**), 而**观感仍是"流动一会会就停"**。
+SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "7.0"))   # 坡面摩擦(1/秒)
+# ⚠️ 必须 > 刹停耗时(摩擦 7.0 时 0.37s), 否则又变成"滑到一半被抹掉"。
+SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.50"))     # 滑动阶段最久多久(s)
 # ⚠️ **代价(实测, 别当成免费)**: 滞留会抬高飞溅的**稳态在世数** ——
 #   桌面 15s 档隔离实测(`tools/_probe_splash_count.py`, 只动这一个变量):
 #     滞留 0.40s ⇒ 稳态峰值 **2187** / 均值 1924
 #     滞留 0    ⇒ 稳态峰值 **1720** / 均值 1436     (即 **+27%**)
 #   要压成本先降这个值, 别去动生成率(那是用户按 σ 定过的数量轴)。
-SPLASH_STILL_LIFE = float(os.environ.get("HG_SPLASH_STILL", "0.40"))   # **停住之后**再留多久(s)
+SPLASH_STILL_LIFE = float(os.environ.get("HG_SPLASH_STILL", "0.28"))   # **停住之后**再留多久(s)
 # 沿坡加速度的倍率(1.0 = 真实 `g·sinα`)。⚠️ 默认 **0**: 见上面 ①。
 SPLASH_SLOPE_GAIN = float(os.environ.get("HG_SPLASH_SLOPE", "0.0"))
 SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
@@ -2211,6 +2220,7 @@ class HourglassWidget(Widget):
         self._surface_marker_n = 0
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
+        self._contact_table = []             # 飞溅用的接触高度查找表(见 update_particles)
         self._completion_triggered = False
         self._done_at = None                 # 漏完时刻(颈管排空用), 未漏完为 None
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
@@ -2369,6 +2379,8 @@ class HourglassWidget(Widget):
             #    **恰好和真相相反**, 用户很容易读成"N 越大越平"。
             #    (elapsed 一走缓存就失效, 所以只在暂停预览这一种状态下出现, 看起来像"一动又回来了"。)
             self._upper_rough_cache_t = None
+            self._upper_env_h = None          # `_upper_rough_at` 的包络 memo(见那里)
+            self._upper_env = 0.0
             self._mound_shape = tuple(shape)
             # ---- 下球轮廓的**演化帧**（用户 2026-10-05: "下球斜面也应该有起伏" + "要动"）----
             # ⚠️ 每帧扰动**减掉自己的均值** ⇒ 面积精确不变（用户原话"有高就有低"），
@@ -2710,6 +2722,7 @@ class HourglassWidget(Widget):
         #    由尺寸/周期变化重建; 重置一局不能把沙堆形状解删掉(删了沙堆就画不出来)。
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
+        self._contact_table = []             # 飞溅用的接触高度查找表(见 update_particles)
         self._completion_triggered = False
         self._done_at = None                 # 重置后颈管立刻回到"未排空"状态
         self._completion_token += 1          # 作废还没到点的完成提示
@@ -3534,8 +3547,36 @@ class HourglassWidget(Widget):
         #    归因已被他证伪(判别性实验: 几何与分母都对齐后仍差 ~10×)。
         #    `HG_SPLASH_G=0` ⇒ 用不缩放的 g(对照组); 默认 1.0 = 现状(逐位不变)。
         g_splash = g if SPLASH_G_SCALE >= 1.0 else -450.0 * (motion_scale ** SPLASH_G_SCALE)
+        # 🔴 **每帧一张"沙堆接触高度"查找表**(2026-10-06 性能)。
+        #   原来**每颗下落中的飞溅、每帧**都现算一次 `contact()` —— 那是
+        #   `sqrt` + 65 节点线性插值 + 两次 clamp; 峰值实测 **~2200 次/帧**,
+        #   cProfile 里这一族占 **6.3ms/帧**(桌面, 飞溅 1939), 是整帧最大的一块纯 Python。
+        #   而 `apex` 一帧只有一个值 ⇒ **整条接触曲线每帧只该算一次**。
+        #   读表用**线性插值**(不是最近邻: 最近邻在设备上会有 ~3px 的台阶, 粒子会浮/陷)。
+        #   ⚠️ 定义仍然只有 `_MoundProfile.contact` 一份 —— 建表就是调它, 没有第二套公式。
+        _ctab = _ctab_r = _ctab_inv = None
+        _ctab_n = 0
+        if _profile is not None and _apex > 0.0:
+            _ctab_n = CONTACT_TABLE_N
+            _ctab_r = _profile.radius
+            _ctab_inv = (_ctab_n - 1) / (2.0 * _ctab_r)
+            _ctab = self._contact_table
+            if len(_ctab) != _ctab_n:
+                _ctab = self._contact_table = [0.0] * _ctab_n
+            for _k in range(_ctab_n):
+                _ctab[_k] = _profile.contact(-_ctab_r + _k / _ctab_inv, _apex)
         for s in self.splashes:
             step_dt = s.pop("_step_dt", dt)
+            # ★ **已停稳的直接跳过整段积分与接触判定**(它们 x/y/v 都不再变, 只推进计时)。
+            #   滞留期占在途寿命约 4 成 ⇒ 这一段省掉的是 4 成的飞溅循环。
+            _still = s.get("_still")
+            if _still is not None:
+                _still += step_dt
+                if _still > SPLASH_STILL_LIFE:
+                    continue
+                s["_still"] = _still
+                append_splash_keep(s)
+                continue
             _g = g_splash * s.get("gd", 1.0)      # 每颗自己的重力(轨迹才各不相同)
             y = s["y"] + s["vy"] * step_dt + 0.5 * _g * step_dt * step_dt
             vy = s["vy"] + _g * step_dt
@@ -3552,8 +3593,16 @@ class HourglassWidget(Widget):
             # ⚠️ **只在真的要判定时才求接触高度**(v<0 = 正在下落): 上升期多算一次
             #    `contact()` 实测让 15s 档 physics 多 0.35ms(A/B 3 轮可分辨)。
             #    定义仍然是 `_MoundProfile.contact` 那一份, 没有第二套公式。
-            if vy < 0 and _profile is not None and _apex > 0.0:
-                _surf = _mound_bot + _profile.contact(sx, _apex)
+            if vy < 0 and _ctab is not None:
+                _z = (sx + _ctab_r) * _ctab_inv
+                _i = int(_z)
+                if _i < 0:
+                    _surf = _mound_bot + _ctab[0]
+                elif _i >= _ctab_n - 1:
+                    _surf = _mound_bot + _ctab[_ctab_n - 1]
+                else:
+                    _a0 = _ctab[_i]
+                    _surf = _mound_bot + _a0 + (_ctab[_i + 1] - _a0) * (_z - _i)
                 if y <= _surf:
                     # 🔴 **2026-10-06 用户口径: 「溅到沙子上才开始掉的」+「简化一个模型」**
                     #    旧版这里直接 `continue`(删掉) ⇒ 颗粒**永远贴不上沙面**,
@@ -3990,9 +4039,17 @@ class HourglassWidget(Widget):
         arr = self._upper_rough_now()
         if not arr or index >= len(arr):
             return 0.0
-        Ri = self._R_inner
-        q = 0.0 if Ri <= 0 else min(1.0, max(0.0, height / (2.0 * Ri)))
-        env = _smoothstep(0.0, 0.015, q) * (1.0 - _smoothstep(0.97, 1.0, q))
+        # 🔴 **包络每帧只算一次**(2026-10-06 性能)。`env` 只跟 `height` 走, 而一帧里
+        #    `height` 是同一个值 —— 原来却按**每个节点**各算一遍(实测 `_draw_upper_shape`
+        #    940 次/帧 ⇒ 1880 次 `_smoothstep`/帧)。cProfile: `_upper_rough_at` + `_smoothstep`
+        #    合计 **2.0ms/帧**(桌面), 全是重复劳动。
+        if height != self._upper_env_h:
+            Ri = self._R_inner
+            q = 0.0 if Ri <= 0 else min(1.0, max(0.0, height / (2.0 * Ri)))
+            self._upper_env = (_smoothstep(0.0, 0.015, q)
+                               * (1.0 - _smoothstep(0.97, 1.0, q)))
+            self._upper_env_h = height
+        env = self._upper_env
         return arr[index] * env if env > 0.0 else 0.0
 
     def _upper_rough_crest(self, height):
@@ -4532,8 +4589,16 @@ class HourglassWidget(Widget):
                 group.add(rect)
                 pool.append(rect)
             else:
-                pool[i].pos = pos
-                pool[i].size = size
+                # ★ **值没变就别写**(2026-10-06 性能): 停稳的飞溅占在世数约四成,
+                #   它们的 `pos`/`size` 一帧到一帧**完全一样**。Kivy 的属性赋值要走
+                #   描述符 + 事件派发, 每帧白写两千多次不值当。
+                #   ⚠️ `Rectangle` **没有** `x`/`y`/`width`/`height`(只有 `pos`/`size`
+                #      两个 ReferenceListProperty)—— 踩过, 属性名写错会当场 AttributeError。
+                rect = pool[i]
+                if rect.pos != pos:
+                    rect.pos = pos
+                if rect.size != size:
+                    rect.size = size
         for rect in pool[len(particles):]:
             if rect.size[0] or rect.size[1]:
                 rect.size = (0, 0)
