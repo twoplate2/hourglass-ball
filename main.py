@@ -410,6 +410,16 @@ SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))      # v4: 沙�
 #   ⚠️ 它**不改变出射速度**, 所以闸门那条"飞溅不能比入射快"不受影响。
 SPLASH_GRAV_LO = float(os.environ.get("HG_SPLASH_GRAV_LO", "0.62"))
 SPLASH_GRAV_HI = float(os.environ.get("HG_SPLASH_GRAV_HI", "1.55"))
+# ★ **飞溅颗粒的尺寸**(用户 2026-10-06:「颗粒度从 1x1 改成 2x2? 或者随机, 有 1x1 又有 1x2
+#   还有 2x2 的…现在感觉太密集、太细了」)。
+#   ⚠️ **两个独立的毛病, 一起修**:
+#     ① **尺寸没跟屏幕缩放** —— 专家实测: 同一份 1~2px 的颗粒, 桌面占球半径 0.92~1.85%,
+#        设备只有 **0.22~0.45%**(**桌面是设备的 3.3 倍**) ⇒ 设备上细到几乎看不见。
+#        现在按 `_R_inner / 140`(桌面参考半径) 缩放。
+#     ② **尺寸单一** —— 全是 1x1(67%)/2x2(33%), 读起来像一层均匀点阵 ⇒ 按用户说的做成混合。
+#   `SPLASH_SIZE_MIX` 里每个条目是 (宽, 高) 的**相对倍数**, 乘上缩放后的基准。
+SPLASH_SIZE_MIX = ((1, 1), (1, 2), (2, 2), (2, 2), (2, 3))
+SPLASH_PX_BASE = float(os.environ.get("HG_SPLASH_PX", "1.0"))   # 基准像素(再乘屏幕缩放)
 
 # 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
 # ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为"打农药"的做法。
@@ -3091,6 +3101,8 @@ class HourglassWidget(Widget):
         (`_replay_hits` 与标量循环), 改动它要同步改 `tools/test_physics_equiv.py`。
         """
         v_impact = v_impact if v_impact > 0.0 else 0.0
+        # 尺寸随**画布**缩放(桌面参考半径 ≈140px) ⇒ 设备上不再细成 1/3 大小
+        _px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
         b = v_impact * random.uniform(SPLASH_SPEED_LO, SPLASH_SPEED_HI) * SPLASH_GAIN
         # 出射角: **避开竖直**(见 `SPLASH_ANGLE_MIN` 处注释 —— 离竖直 <14° 会读成"原地蹦")
         ang = random.choice((-1.0, 1.0)) * random.uniform(SPLASH_ANGLE_MIN, SPLASH_ANGLE_MAX)
@@ -3099,7 +3111,7 @@ class HourglassWidget(Widget):
             "y": y_surface + SPLASH_LIFT_PX,
             "vx": math.sin(ang) * b,
             "vy": abs(math.cos(ang)) * b,      # 🔴 **向上**(Kivy y 向上) —— v4 的 55~110 就是向上
-            "size": random.choice((1, 1, 2)),
+            "size": tuple(round(_k * _px) for _k in random.choice(SPLASH_SIZE_MIX)),
             "gd": random.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI),   # 这颗自己的重力倍率
         }
         self.splashes.append(d)
@@ -4374,9 +4386,14 @@ class HourglassWidget(Widget):
     def _sync_rects(group, pool, particles, fixed_size=None):
         for i, particle in enumerate(particles):
             sz = particle["size"] if fixed_size is None else fixed_size
-            offset = sz / 2 if fixed_size is None else 0
-            pos = (particle["x"] - offset, particle["y"] - offset)
-            size = (sz, sz)
+            # ⚠️ `size` 可以是**数字**(正方形)也可以是 **(w, h) 二元组** —— 飞溅层用它做
+            #    1x1 / 1x2 / 2x2 的混合尺寸(用户 2026-10-06:「感觉太密集、太细」)。
+            if isinstance(sz, (tuple, list)):
+                w, h = float(sz[0]), float(sz[1])
+            else:
+                w = h = float(sz)
+            pos = (particle["x"] - w / 2, particle["y"] - h / 2)
+            size = (w, h)
             if i == len(pool):
                 rect = Rectangle(pos=pos, size=size)
                 group.add(rect)
