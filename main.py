@@ -419,6 +419,14 @@ SPLASH_LIFT = float(os.environ.get("HG_SPLASH_LIFT", "1.0"))
 #      正解: 这是**边缘的弹射高度 ÷ 中心的弹射高度 = 1/6**, 与沙堆高矮无关。
 #      ⇒ `FALLOFF = 1 − 1/6 = 5/6`: 中心 6~14px、边缘只剩 **1.0~2.3px**(基本贴着沙面)。
 SPLASH_LIFT_FALLOFF = float(os.environ.get("HG_SPLASH_LIFT_F", "0.8333"))
+# ★ **落到沙面上之后**: 现实里沙粒是**贴着坡面往外滑、最后停住**, 不是凭空消失。
+#   用户 2026-10-06: 「本来是他妈的**溅到沙子上才开始掉的**…现实中他那个珠子应该怎么落,
+#   你得想一想, 我们**简化一个模型**」。旧判据是"触面即删" ⇒ **永远不会出现停在坡上的颗粒**,
+#   也就没有那层顺着坡面往下流的沙。现改成: 触面 ⇒ 把 y 贴到沙面、纵向速度清零、
+#   横向速度按摩擦衰减, 滑到**停住**(或超时)才消失。
+SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "3.0"))   # 坡面摩擦(1/秒)
+SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.45"))    # 落地后最多再活多久(s)
+SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
 
 
 def _autofit_font(btn, base_size, pad=6.0, floor=0.6):
@@ -3403,8 +3411,23 @@ class HourglassWidget(Widget):
             # ⚠️ **只在真的要判定时才求接触高度**(v<0 = 正在下落): 上升期多算一次
             #    `contact()` 实测让 15s 档 physics 多 0.35ms(A/B 3 轮可分辨)。
             #    定义仍然是 `_MoundProfile.contact` 那一份, 没有第二套公式。
-            if vy < 0 and _profile is not None and _apex > 0.0                     and y <= _mound_bot + _profile.contact(sx, _apex):
-                continue
+            if vy < 0 and _profile is not None and _apex > 0.0:
+                _surf = _mound_bot + _profile.contact(sx, _apex)
+                if y <= _surf:
+                    # 🔴 **2026-10-06 用户口径: 「溅到沙子上才开始掉的」+「简化一个模型」**
+                    #    旧版这里直接 `continue`(删掉) ⇒ 颗粒**永远贴不上沙面**,
+                    #    看到的就是"悬在半空的一圈浮尘"。改成 **贴着坡面滑**:
+                    #    贴到面 + 纵向速度归零(重力下一帧又把它按回面上 ⇒ 自然沿面走)
+                    #    + 横向按摩擦衰减, 直到停住或超时。
+                    y = _surf
+                    s["y"] = y
+                    s["vy"] = 0.0
+                    s["_rest"] = s.get("_rest", 0.0) + step_dt
+                    _k = 1.0 - SPLASH_SLIDE_DAMP * step_dt
+                    s["vx"] = s["vx"] * (_k if _k > 0.0 else 0.0)
+                    _avx = s["vx"] if s["vx"] >= 0.0 else -s["vx"]
+                    if s["_rest"] > SPLASH_REST_LIFE or _avx < SPLASH_MIN_VX:
+                        continue
             if y < lower_bot or y > lower_top - 5:
                 continue
             append_splash_keep(s)
