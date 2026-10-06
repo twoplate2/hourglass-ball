@@ -17,7 +17,7 @@ import os
 import random
 import struct
 from array import array
-from bisect import bisect_right     # 下球沙堆面积表求逆(_MoundArea)
+from bisect import bisect_left as _bisect_left, bisect_right   # 面积表求逆 / 颈部半宽
 import sys
 import time
 import wave
@@ -3584,11 +3584,15 @@ class HourglassWidget(Widget):
             s["y"] = y
             s["vy"] = vy
             s["x"] = x
+            # ★ **平方比较代替 `sqrt`**(2026-10-06 性能): 这颗 sqrt 只用来跟 `|sx|`
+            #   比大小, 而 `|sx| > sqrt(r) - 1  ⟺  (|sx|+1)² > r = Ri² - dy²`
+            #   (两边都非负)。**逐字等价**, 连原来那两个分支都一并覆盖了:
+            #   `r <= 0` 时右边为负 ⇒ 恒真(跳过); `sqrt(r) < 1` 时右边 ≤ 1 < (|sx|+1)²
+            #   ⇒ 也恒真(跳过) —— 与原式完全一致。省掉每颗每帧一次 sqrt + 一个分支。
             dy = y - lower_center
-            r = Ri2 - dy ** 2
-            half = sqrt(r) if r > 0.0 else 0.0
             sx = x - cx
-            if (sx if sx > 0 else -sx) > half - 1:
+            _ax = sx + 1.0 if sx > 0.0 else 1.0 - sx
+            if _ax * _ax + dy * dy > Ri2:
                 continue
             # ⚠️ **只在真的要判定时才求接触高度**(v<0 = 正在下落): 上升期多算一次
             #    `contact()` 实测让 15s 档 physics 多 0.35ms(A/B 3 轮可分辨)。
@@ -4947,16 +4951,23 @@ class HourglassWidget(Widget):
         ys = [y for _x, y in side]
         xs = [x for x, _y in side]
 
+        # ★ **二分代替线性扫描**(2026-10-06 性能): `side` 的 y 是**单调下降**的,
+        #   原来每个颗粒都把 26 段扫一遍(实测 `half_w_at` 250 次调用/帧 × 最多 25 次比较)。
+        #   翻成升序后 `bisect_left` 一次定位, 语义与原式逐字相同(取夹住 y 的那一段线性插值)。
+        ys_asc = ys[::-1]
+        xs_asc = xs[::-1]
+
         def half_w_at(y):
             if y >= ys[0]:
                 return xs[0]
-            for i in range(len(side) - 1):
-                y0, y1 = ys[i], ys[i + 1]
-                if y1 <= y <= y0:
-                    if y0 - y1 < 1e-9:
-                        return xs[i]
-                    return xs[i] + (xs[i + 1] - xs[i]) * (y0 - y) / (y0 - y1)
-            return xs[-1]
+            if y <= ys_asc[0]:
+                return xs_asc[0]
+            k = _bisect_left(ys_asc, y)          # 第一个 >= y 的下标
+            y0, y1 = ys_asc[k], ys_asc[k - 1]    # y0 = 上端(大), y1 = 下端(小)
+            x0, x1 = xs_asc[k], xs_asc[k - 1]
+            if y0 - y1 < 1e-9:
+                return x0
+            return x0 + (x1 - x0) * (y0 - y) / (y0 - y1)
 
         t_in = max(1e-6, self._taper["t_in"])
         tone_scale = 5 / math.tau
