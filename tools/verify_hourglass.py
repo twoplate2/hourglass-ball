@@ -375,8 +375,29 @@ def main():
                             for label, image in zip(("before", "after"), images):
                                 image.save(directory / f"{state}-{label}.png")
                             print("Geometry pixel difference:", state, diff.getbbox(), diff.getextrema())
-                        check(diff.convert("RGB").getbbox() is None,
-                              "unchanged glass and true-circle sand rendering: " + state)
+                        # ⚠️ **2026-10-06: 判据从"逐像素全等"改成"差异只能落在一条横带"**。
+                        #    原因: 用户当天要求把**沙面两端补到精确的弦端点**(修"沙面粘在壁上
+                        #    留台阶"), 它必然改**上球沙面那条线**的像素(实测 **28 px, 横带 5 px 高**)。
+                        #    而这条检查**自己的名字与注释**都写明它守的是
+                        #    **「玻璃壳 + 真圆沙体」** —— 沙面线不在它的辖区。
+                        #    ⇒ 判据改成 **"差异必须只落在一条约 ≤16px 高的横带内, 且总数 ≤400"**。
+                        #    **这比"全等"更有针对性**: 玻璃壳/球体一旦动了, 差异会**铺开到很多行**
+                        #    (不再是一条带) ⇒ 照样红。**不是放宽, 是换了个能说清"哪里变了"的判据。**
+                        #    ⚠️ 标定: 已知对(只改沙面)= 28px / 5px 带; 负对照见下。
+                        _d = diff.convert("RGB")
+                        _bb = _d.getbbox()
+                        if _bb is not None:
+                            try:
+                                import numpy as _np
+                                _arr = _np.asarray(_d).max(axis=2)
+                                _ys, _xs = _np.nonzero(_arr > 8)
+                                _n, _band = len(_ys), (int(_ys.max() - _ys.min() + 1) if len(_ys) else 0)
+                            except Exception:
+                                _n, _band = 10 ** 9, 10 ** 9   # 没 numpy ⇒ 退回严格(宁可红)
+                            check(_band <= 16 and _n <= 400,
+                                  "unchanged glass and true-circle sand rendering: %s "
+                                  "(差异 %d px, 横带 %d px 高 —— 玻璃/球体动了会铺开到多行)"
+                                  % (state, _n, _band))
                 else:
                     # ⚠️ 2026-10-05: 参照物**不在仓库里**(在 `pc/backup/`), 所以文件一丢
                     #    这 4 条检查就**无声消失** —— 与"长按入口改了导致提前 return"

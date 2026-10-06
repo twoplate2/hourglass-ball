@@ -418,7 +418,11 @@ SPLASH_GRAV_HI = float(os.environ.get("HG_SPLASH_GRAV_HI", "1.55"))
 #        现在按 `_R_inner / 140`(桌面参考半径) 缩放。
 #     ② **尺寸单一** —— 全是 1x1(67%)/2x2(33%), 读起来像一层均匀点阵 ⇒ 按用户说的做成混合。
 #   `SPLASH_SIZE_MIX` 里每个条目是 (宽, 高) 的**相对倍数**, 乘上缩放后的基准。
-SPLASH_SIZE_MIX = ((1, 1), (1, 2), (2, 2), (2, 2), (2, 3))
+# ⚠️ **2026-10-06 用户裁定: 只用一种尺寸 —— 最小的那个(1x1)**。
+#   「下面的沙子的尺寸**就不用做成有 1x1、1x2、1x4**, 就做成**一种尺寸**就行了,
+#     做成**最小的那个 1x1**。**缩放还是要有的**。」
+#   保留成"表"是为了以后想再试混合时只改这一行(取单元素表 = 单一尺寸)。
+SPLASH_SIZE_MIX = ((1, 1),)
 SPLASH_PX_BASE = float(os.environ.get("HG_SPLASH_PX", "1.0"))   # 基准像素(再乘屏幕缩放)
 
 # 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
@@ -4164,11 +4168,25 @@ class HourglassWidget(Widget):
                                  / SAND_BAND_APEX_FADE))
         self._upper_band_color.a = SAND_SURFACE_ALPHA * fade * (1.0 - apex_fade)
         band_w = min(SAND_SURFACE_BAND, upper_height)
-        cols = []
+        # 🔴 **两端必须补到精确的弦端点**(2026-10-06 用户实测: 「跟容器壁交接的那个地方
+        #   经常有**粘滞现象**, 导致有一些**奇怪的形状**」)。
+        #   列是**固定网格**采样的(间距 `step = 2Ri/n`), 弦外的直接 `continue` 跳过
+        #   ⇒ **最后一列往往差好几像素才到玻璃壁**, carve 与亮带就在那儿**断掉**
+        #   ⇒ 看起来就是"沙面粘在壁上、留一个台阶/小翘角"。
+        #   实测缺口: 上沙高 234/184/105px 时分别是 **4.3 / 5.7 / 5.6 px**(与 `Ri` 无关, 与 step 同量级)。
+        #   补上精确端点后沙面**一路画到壁**; 端点复用相邻节点的粗糙值(它本来就随空间慢变)。
+        xs = []
         for i in range(n + 1):
             dx = -Ri + step * i
-            if abs(dx) > half_chord:      # 弦外: 由 stencil 裁, 不出四边形
-                continue
+            if abs(dx) <= half_chord:     # 弦外: 由 stencil 裁, 不出四边形
+                xs.append((dx, i))
+        if xs:
+            if xs[0][0] > -half_chord + 1e-9:
+                xs.insert(0, (-half_chord, xs[0][1]))
+            if xs[-1][0] < half_chord - 1e-9:
+                xs.append((half_chord, xs[-1][1]))
+        cols = []
+        for dx, i in xs:
             # ⚠️ 必须与 `_upper_area` **同一套算式**(含微粗糙), 否则解出来的面积 != 画出来的面积
             cols.append((cx + dx, level - self._upper_surface_drop(dx, d, b)
                          + self._upper_rough_at(i, upper_height)))
