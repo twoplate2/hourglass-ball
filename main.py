@@ -162,15 +162,24 @@ SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒�
 #      因为沙色调色板 base→light 只有十几级, 再大的渐变也翻不出可见差。
 #      ⇒ 改成**只有"颗粒粗细"一条维度**的梯子(1 最细 → 6 最粗), 每个相邻对都实测可见。
 SAND_GRAIN_LEVELS = (
-    ("1", 0.10, 1), ("2", 0.10, 2), ("3", 0.10, 3),
-    ("4", 0.10, 4), ("5", 0.10, 5), ("6", 0.10, 6),
+    ("1", 0.10, 1.0), ("2", 0.10, 1.4), ("3", 0.10, 1.8),
+    ("4", 0.10, 2.2), ("5", 0.10, 2.6), ("6", 0.10, 3.0),
 )
+# 🔴 **2026-10-06 用户实测反馈: 「本来还凑合 … 新版本的很奇怪, 好像需要很低的数值
+#    才能达到之前比较高数值的效果」** —— 说的是**准的**, 原因在版本史里:
+#      1.99  引入六档: 粗度 = 1,1,1,2,3,2 (最高 3 倍), 另有一维"明暗落差" grad
+#      1.100 判定 grad 是**假档**(1/2/3 三档画出来一样) ⇒ 删掉那一维,
+#            顺手把粗度铺成 1..6 ⇒ **上限从 3 倍变成 6 倍**
+#    ⇒ 同一个"4", 旧版 = 粗 2, 新版 = 粗 4 ⇒ 想要旧的样子只能选很低的数字。
+#    **修法: 六档保持六个不同的档(不回到假档), 但把粗度区间压回 1→3**,
+#    这样"4"≈ 旧的"4"(2.2 vs 2)、"6"≈ 旧的"5"(3.0 vs 3) —— 手感回到"还凑合"那版。
+#    ⚠️ 粗度在 `_coarsen_noise` 里是**除数**(`size / coarse`) ⇒ 小数合法。
 # ⚠️ **「沙体颗粒」表的版本号** —— 这张表的"含义"改过一次(2026-10-05 grad→只看粗细),
 #    同号的档已经不是同一个东西 ⇒ 对不上就回落默认, 免得用户存的"3"被静默换成另一种颗粒。
 # ⚠️⚠️ **只锁这一张表!** 第一版把它做成了"两把锁共用一把"(`levels_rev` 同时管 grain 与 rough),
 #    而 **rough 表的含义从来没变过** ⇒ **用户明确选过的 rough=4 被一起作废、静默降到 3(降 33%)**。
 #    这是 r18-1号 2026-10-05 在设备上查出来的 —— **静默改用户设置**, 比不改还糟。
-SAND_GRAIN_REV = 2
+SAND_GRAIN_REV = 3
 SAND_GRAIN_LEVEL_DEFAULT = "1"      # 1 = 最细(≈1.7px 颗粒) —— **用户最后选的是"细颗粒"那一档**
 #   ⚠️ 档号变了: 用户 2026-10-05 说的 "C(=3)" 在原表里是"细颗粒", 新表里**细颗粒 = 1**。
 #      观感保持不变, 只是号码从 3 挪到 1 —— 已在给用户的汇报里写明。
@@ -245,8 +254,9 @@ def apply_grain_level(label):
 
 
 SAND_MATERIAL_GRAD = float(os.environ.get("HG_SAND_GRAD", str(SAND_MATERIAL_GRAD)))
-SAND_MATERIAL_COARSE = int(round(float(os.environ.get(
-    "HG_SAND_COARSE", str(SAND_MATERIAL_COARSE)))))
+# ⚠️ 原来是 `int(round(...))` —— 表格里一旦出现小数粗度会被四舍五入掉(2026-10-06 改)
+SAND_MATERIAL_COARSE = float(os.environ.get(
+    "HG_SAND_COARSE", str(SAND_MATERIAL_COARSE)))
 SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
 # 颈部沙柱采样材质时的 v 锚点。两个值都被实测钉过，别随手改：
@@ -2797,12 +2807,16 @@ class HourglassWidget(Widget):
                 v = -vy
                 bounce = min(110 * motion_scale,
                              (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
+                # 🔴 2026-10-06 用户: 「完全是随机运动 … 甚至从下往上跳动」
+                #    ⇒ 不再往**上**弹; 改成 "从落点往外、往下斜着走"。
+                #    `cos` 那一半取负 = 向下; 出生点抬 2~8px, 否则一出生
+                #    就被接触判定删掉(这就是当年改成往上弹的原因)。
                 angle = rand_uniform(-1.15, 1.15)
                 step_left = step_dt - float(hit_dt[k])
                 append_splash({
-                    "x": x, "y": hy + 0.5,
+                    "x": x, "y": hy + rand_uniform(2.0, 8.0),
                     "vx": sin(angle) * bounce,
-                    "vy": cos(angle) * bounce,
+                    "vy": -abs(cos(angle)) * bounce,
                     "size": rand_choice([1, 1, 2]),
                     "_step_dt": step_left if step_left > 0 else 0,
                 })
@@ -2817,6 +2831,9 @@ class HourglassWidget(Widget):
         if Ri <= 0:
             return
         rand_uniform = random.uniform      # 与粒子同一条随机数流(工程惯例, 便于复现)
+        # 本帧的锥面与锥顶只取一次(与下面 h 用的必须是同一份)
+        _prof = self._mound_profile
+        _apex = self._mound_apex()
         self._bg_splash_acc += dt * SPLASH_BG_RATE
         k = int(self._bg_splash_acc)
         if k <= 0:
@@ -2834,21 +2851,34 @@ class HourglassWidget(Widget):
             if abs(j) > 0.96:            # 不许越出沙堆范围
                 continue
             h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
+            # 🔴🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
+            #    —— 这条是真的, 而且**代码里本来就有现成的判据没用上**:
+            #    `h = _mound_contact_h(mag)` 在**没有沙的那几列**返回的是**球内底**
+            #    (profile.contact 会 clamp 到 floor) ⇒ 飞溅被撒在**裸露的玻璃底**上跳,
+            #    而 `mag` 铺到 0.96·Ri 那么远 —— 沙堆根本没那么宽。
+            #    `_MoundProfile.has_sand(dx, apex)` 就是干这个的(注释原文:
+            #    "该列有没有沙 … P ≤ B 才是裸露球底"), **别自己再写一套判据**。
+            if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
+                continue
             f = abs(j) / 0.96
+            # 🔴 **2026-10-06 用户实测反馈: 「完全是随机运动 … 甚至从下往上跳动」**
+            #    ⇒ 旧版 `vy = +90~180`(Kivy y 向上 = **往上弹**) + `vx` 随机正负
+            #      = 一撮在原地乱蹦的东西。**改成"从落点往外、往下斜着走"**:
+            #      · `vx` **取坡的外向**(不再随机正负) —— 一粒打在堆上的沙是往坡下走的
+            #      · `vy` **向下**(负) —— 不再往上跳
+            #      · 生成点抬高 3~10px —— 否则一出生就沉进沙面、下一帧被接触判定删掉
+            #        (当年就是因为这个才改成往上弹的; 抬高之后斜抛能跑完一段)
+            #    ⚠️ 横向**铺满半宽**的密度分布不动 —— 那是用户 10-05 定的("两边再多一些")。
+            _outw = 1.0 if mag >= 0.0 else -1.0
             append({
                 "x": self._cx + mag,
-                "y": self._lower_sand_bot + h + rand_uniform(0.0, 2.0),
-                # ⚠️ Kivy **y 向上** ⇒ "往上弹"是 **vy > 0**。第一版写成负值,
-                #    结果一出生就往下掉进沙里、下一帧被剔除(实测分布一动不动才发现)。
-                #    与现有 splash 同源: `vy = cos(angle) * bounce`(bounce > 0)。
-                # ⚠️ **高度是这次的关键**: 一跳最高 = v²/(2g)。原来 vy=26~74、g=450
-                #    ⇒ 最高只有 **0.75~6px**, 精灵 1~2px —— 在 900px 宽的沙堆上
-                #    **读起来是"沙面自带的颗粒", 不是"东西在跳"**(r18-1号 设备实测:
-                #    斜坡上的飞溅按**可见像素**只有 7.2% 在半宽以外)。
-                #    而且原来还按距离衰减到 38% ⇒ **越靠边跳得越矮, 根本离不了地**。
-                #    改: vy 90~180 ⇒ 一跳最高 **9~36px**; 衰减放缓到 30%; 精灵放大。
-                "vx": rand_uniform(-1.0, 1.0) * 34.0 * (1.0 - 0.40 * f),
-                "vy": rand_uniform(90.0, 180.0) * SPLASH_BG_VY * (1.0 - 0.30 * f),
+                "y": self._lower_sand_bot + h + rand_uniform(3.0, 10.0),
+                # 🔴 2026-10-06 用户: 「飞溅的高度应该也是变化的, **越在中心越高**」
+                #    原来是 `(1-0.40f)` / `(1-0.30f)` —— 边缘只掉三四成, 读起来是**均匀一片**。
+                #    改成**从落点往外明显递减**: 中心最强、到沙堆边缘只剩一成多。
+                #    (`f = |dx| / 沙堆半宽 ∈ [0,1]`)
+                "vx": _outw * rand_uniform(25.0, 70.0) * (1.0 - 0.75 * f),
+                "vy": -rand_uniform(30.0, 110.0) * SPLASH_BG_VY * (1.0 - 0.85 * f),
                 "size": 2 if rand_uniform(0.0, 1.0) < 0.7 else 1,
             })
 
@@ -2875,7 +2905,15 @@ class HourglassWidget(Widget):
             self.pdt[:self.pn] = dt
 
         if self.running and remaining > 0:
-            rate = 600 * self.speed_factor
+            # 🔴 **2026-10-06 用户一眼看出来: 1 秒档的沙流是"断续虚线", 5s/15s 是"连续的一条绳"。**
+            #    根因: `_particle_motion_scale` 把初速与重力乘了倍率(1s 档 6.44)让粒子飞快穿过,
+            #    **但生成率没跟着放大** ⇒ 同样多的粒子被摊在 6.4 倍的长度上
+            #    ⇒ 线性密度掉到 1/6.4 ⇒ 看起来就是虚线。
+            #    实测算过: 5s = 1500/s ÷ 630px/s = **2.38 粒/px**; 1s = 1500 ÷ 4006 = **0.37 粒/px**。
+            #    正解 = 让**线性密度与周期无关**(文档里用户自己定过"落沙密度该相同"):
+            #    生成率跟着 `motion_scale` 一起放大。1s 档 1500 → ~9500/s,
+            #    而在途粒子数 rate×飞行时间 = ~1400, 与 5s 的 ~2300 **同量级**, 不是性能爆炸。
+            rate = 600 * self.speed_factor * self._particle_motion_scale
             if remaining < 0.08:
                 rate *= max(0.1, (remaining / 0.08) ** 0.5)
             # 沙柱先接通出口; 在帧内均匀发射,避免每一帧生出一整排同龄沙粒。
@@ -3067,12 +3105,16 @@ class HourglassWidget(Widget):
                         v = -vy
                         bounce = min(110 * motion_scale,
                                      (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
+                        # 🔴 2026-10-06 用户: 「完全是随机运动 … 甚至从下往上跳动」
+                        #    ⇒ 不再往**上**弹; 改成 "从落点往外、往下斜着走"。
+                        #    `cos` 那一半取负 = 向下; 出生点抬 2~8px, 否则一出生
+                        #    就被接触判定删掉(这就是当年改成往上弹的原因)。
                         angle = rand_uniform(-1.15, 1.15)
                         step_left = step_dt - hit_dt
                         append_splash({
-                            "x": x, "y": hy + 0.5,
+                            "x": x, "y": hy + rand_uniform(2.0, 8.0),
                             "vx": sin(angle) * bounce,
-                            "vy": math.cos(angle) * bounce,
+                            "vy": -abs(math.cos(angle)) * bounce,
                             "size": rand_choice([1, 1, 2]),
                             "_step_dt": step_left if step_left > 0 else 0,
                         })
@@ -3990,8 +4032,9 @@ class HourglassWidget(Widget):
         """按最长飞行时间预留图元,只影响分配时机,实际粒子仍按原速率生成。"""
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         floor = self._lower_sand_bot
-        rate = 600 * self.speed_factor
         motion_scale = self._particle_motion_scale
+        # ⚠️ 预留也要跟着放大 —— 否则池子按旧速率预留, 1s 档会边跑边扩容
+        rate = 600 * self.speed_factor * motion_scale
         div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
         thin_only = max(1, self.neck_w - self._ow) < 3
 
@@ -5073,7 +5116,7 @@ class HourglassApp(App):
         grain_box, refresh_grain, grain_btns = make_levels(
             "沙体颗粒", [lb for lb, _g, _c in SAND_GRAIN_LEVELS],
             current_grain_level(), pick_grain,
-            fmt=lambda lb: "颗粒 %d 倍粗" % _grain_level(lb)[1])
+            fmt=lambda lb: "颗粒 %.1f 倍粗" % _grain_level(lb)[1])
         content.add_widget(grain_box)
 
         # ---- 沙面起伏 六档 (A-F, 出厂默认 D) ----
@@ -5129,6 +5172,21 @@ class HourglassApp(App):
         content.bind(minimum_height=lambda inst, val: setattr(popup, "height", val + dp(78)))
         # **贴底**: 留出上半屏给沙漏当预览
         popup.pos_hint = {"center_x": 0.5, "y": 0.015}
+        # 🔴🔴 **2026-10-06 用户实测: 「让你把沙漏设置做个预览, 结果你把预览窗口直接灰化了,
+        #     那预览个毛啊」** —— 这条是**真的, 而且是这个界面唯一的用途**:
+        #     它贴底摆就是为了把上半屏的沙漏留出来当预览, 而 `ModalView` 的默认遮罩
+        #     (`overlay_color = (0,0,0,0.70)`, 铺满整个宿主) **把上面那块沙压到只剩 30% 亮度**:
+        #     实测沙色 (217,164,97) → **(66,50,29)** —— 你要调的正是沙面起伏/颗粒,
+        #     而沙被盖在一层 70% 的黑底下 ⇒ **等于没有预览**。
+        # ⚠️ 前面两次修都修错了属性: 试的是 `background_color=(0,0,0,0)` 与 `background=""`,
+        #    **那两个只影响控件自身背景, 根本不管遮罩** ⇒ 所以一直"关不掉"。
+        #    管遮罩的是 **`overlay_color`**, 而全仓库从来没设过它。
+        # ✅ 现按**本文件上方那段注释里原本就写明的意图**落地: "留 10% 只为跟卡片分层"。
+        #    桌面实测 α 是**线性连续**的: 0→(253,246,227) 与无弹窗完全一致 /
+        #    0.10→(228,222,205) / 0.70(原值)→(76,74,69)。取 0.10 = 保留一丝分层感,
+        #    沙仍然看得清。⚠️ 只改**这一个弹窗** —— 周期/音效/完成那三个的压暗是**要的**
+        #    (它们不是预览界面, 压暗是为了把注意力收到卡片上), 一个都不动。
+        popup.overlay_color = (0, 0, 0, 0.10)
         # ⚠️ **原打算**把这个界面的模态遮罩调到几乎透明（当"预览"用, 留 10% 只跟卡片分层）。
         #    🔴 **但这个打算从未落地** —— 全仓库**没有任何地方设 `overlay_color`**
         #    （2026-10-06 实查: `grep -n overlay_color main.py` ⇒ **0 处**;
