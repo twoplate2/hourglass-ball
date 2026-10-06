@@ -143,9 +143,9 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             reload_data(texture)
             texture.add_reload_observer(reload_data)
             span = capacity * TEXELS_PER_PARTICLE
-            vertices = array("f", (
-                value for i in range(capacity) for dx, dy, end in self.template
-                for value in (dx, dy, (i * TEXELS_PER_PARTICLE + 0.5) / span, end)))
+            # ★ 顶点表改用切片拼(原来三层生成器逐元素 ⇒ 0.74~2.2ms/块 × 25 块)
+            vertices = flow_batch_experiment.build_vertices(
+                self.template, capacity, TEXELS_PER_PARTICLE, span)
             indices = array("H", (
                 index + i * len(self.template)
                 for i in range(capacity) for index in self.indices))

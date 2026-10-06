@@ -66,6 +66,7 @@ try:
 except ImportError:                      # 兜底: 逐颗 pack_into
     _np = None
 
+import flow_batch_experiment
 from kivy.graphics import BindTexture, Color, InstructionGroup, Mesh, RenderContext
 from kivy.graphics.opengl import glGetIntegerv, GL_MAX_TEXTURE_SIZE
 from kivy.graphics.texture import Texture
@@ -155,11 +156,10 @@ class SplashBatch:
         binding.texture = texture
 
         span = CHUNK * TEXELS_PER_SPLASH
-        vertices = array("f", (
-            value
-            for i in range(CHUNK)
-            for sel in _SELECTORS
-            for value in (0.0, 0.0, (i * TEXELS_PER_SPLASH + 0.5) / span, sel)))
+        # ★ 切片拼(同 `flow_batch_experiment.build_vertices`; 原来逐元素生成器)
+        vertices = flow_batch_experiment.build_vertices(
+            [(0.0, 0.0, sel) for sel in _SELECTORS], CHUNK,
+            TEXELS_PER_SPLASH, span)
         indices = array("H", (
             index + i * len(_SELECTORS)
             for i in range(CHUNK) for index in _INDICES))
@@ -781,11 +781,9 @@ class FlareBatch:
         binding.texture = texture
 
         span = CHUNK * FLARE_TEXELS
-        vertices = array("f", (
-            value
-            for i in range(CHUNK)
-            for sel in FLARE_SELECTORS
-            for value in (0.0, 0.0, (i * FLARE_TEXELS + 0.5) / span, sel)))
+        vertices = flow_batch_experiment.build_vertices(
+            [(0.0, 0.0, sel) for sel in FLARE_SELECTORS], CHUNK,
+            FLARE_TEXELS, span)
         indices = array("H", (
             index + i * len(_SELECTORS)
             for i in range(CHUNK) for index in _INDICES))

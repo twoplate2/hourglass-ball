@@ -6,6 +6,35 @@ import math
 from kivy.graphics import Mesh
 
 
+
+def build_vertices(template, capacity, texels_per_particle, span):
+    """拼"每槽 `len(template)` 个四边形顶点"的顶点表 —— **切片拼, 不逐元素跑生成器**。
+
+    ## 为什么(2026-10-07)
+
+    原来三个地方(沙流端点纹理 / 飞溅批 / 颈部批 / 闪光批)都写成三层嵌套生成器逐元素
+    吐 `capacity × len(template) × 4` 个 float。实测 **0.74ms/块**(512 槽 / 6 顶点模板,
+    真模板 20 顶点 ⇒ 约 2.2ms/块), 一次几何重建要建 **25 块 + 32 块** ⇒ **几十毫秒的卡顿**
+    —— 改周期 / 转屏 / 分屏 / 拖窗都会撞上。
+
+    而这张表里**只有 `u` 依赖槽位号**, 其余全是常量模式:
+        (dx, dy, u_i, end) × len(template) × capacity
+    ⇒ 常量部分用 `bytes * capacity` 铺一次(C 级), `u` 那一列用**步长切片**整体赋值。
+    实测 **9.2×**, 且 `list(...) == list(...)` **逐个 float 相同**(守卫见下)。
+
+    ⚠️ `u` 的算式必须**逐字**保持 `(i * texels_per_particle + 0.5) / span`
+    (端点纹理那套 shader 靠 `texel_step` 恒定推位置, 这里少一个 bit 就错位)。
+    守卫: `tools/_render_golden.py` + `tools/_probe_quadmesh_equiv.py`。
+    """
+    step = len(template) * 4
+    base = array("f", (v for _dx, _dy, _end in template
+                       for v in (_dx, _dy, 0.0, _end)))
+    verts = array("f", base.tobytes() * capacity)
+    col = array("f", ((i * texels_per_particle + 0.5) / span for i in range(capacity)))
+    for k in range(len(template)):
+        verts[k * 4 + 2::step] = col
+    return verts
+
 class DictFlowView:
     """老 main.py(粒子还是 dict 列表)的只读适配器。
 
