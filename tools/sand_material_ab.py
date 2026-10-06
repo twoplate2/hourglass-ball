@@ -207,7 +207,7 @@ def main():
                 w.elapsed = min(target, w.duration)
                 # 粒子清空: 这一版只比**沙体材质**, 不要让沙流给对照添噪
                 w.particles[:] = []
-                w.splashes[:] = []
+                w.splashes = []
                 w.flares[:] = []
                 w.dusts[:] = []
 

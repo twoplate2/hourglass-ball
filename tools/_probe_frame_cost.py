@@ -40,8 +40,11 @@ def run():
         t0 = time.perf_counter()
         r = orig_phys(self, dt)
         stats["phys"].append((time.perf_counter() - t0) * 1000)
-        if CAP >= 0 and len(self.splashes) > CAP:
-            del self.splashes[CAP:]
+        # ⚠️ 原来是 `del self.splashes[CAP:]` —— `splashes` 现在是 property, 每次访问都
+        #    新建一批 dict, 那个 del 删的是**临时 list**, 静默无效。
+        #    等价写法: 截存活数(保留前 CAP 个, 与原来同序)。
+        if CAP >= 0 and self._sn > CAP:
+            self._sn = CAP
         return r
 
     def redraw(self):

@@ -40,10 +40,9 @@ def run_one(duration):
     _orig = m.HourglassWidget._spawn_bg_splashes
 
     def _marked(self, dt):
-        n0 = len(self.splashes)
+        n0 = self._sn
         _orig(self, dt)
-        for sp in self.splashes[n0:]:
-            sp["_bg"] = 1
+        self._s_tag_from(n0, 1)      # 标记位跟着压实走, 见 `_s_tag_from`
 
     m.HourglassWidget._spawn_bg_splashes = _marked
 
@@ -70,7 +69,7 @@ def run_one(duration):
                 for s in hg.splashes:
                     dx = abs(s["x"] - cx)
                     h = s["y"] - hg._mound_top_at(s["x"])   # 同一帧的当地沙面
-                    acc["live"].append((dx, h, s.get("_bg", 0)))
+                    acc["live"].append((dx, h, s.get("_tag", 0)))
                 acc["edge"].append(hg._mound_edge())
 
             Clock.schedule_interval(sample, 1.0 / 30.0)

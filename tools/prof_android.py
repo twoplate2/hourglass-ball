@@ -84,6 +84,7 @@ EXTRA_TARGETS = (
     ("flow_numpy", "step"),
     ("flow_texture_experiment", "TextureFlowBatch.update"),
     ("flow_splash_experiment", "SplashBatch.update"),
+    ("flow_splash_experiment", "SplashBatch.update_arrays"),
 )
 
 DUMP_INTERVAL = 4.0      # 每 4 秒打一行; 一轮 15 秒的周期约 3~4 行
@@ -211,7 +212,13 @@ def install(widget_class, marker_path):
         (hooked if _wrap(widget_class, name, count_frame=(name == "tick"))
          else skipped).append(name)
     for mod_name, dotted in EXTRA_TARGETS:
-        lab = mod_name.split("_")[-1] + "." + dotted.split(".")[-1]
+        # ⚠️ 标签要能区分模块 —— `flow_texture_experiment` 与 `flow_splash_experiment`
+        #    取 `split("_")[-1]` **都会得到 "experiment"**, 两行数据会撞成一个名字,
+        #    在日志里根本分不出哪个是哪个(踩过)。
+        _m = mod_name
+        for _p in ("flow_", "_experiment"):
+            _m = _m.replace(_p, "")
+        lab = _m + "." + dotted.split(".")[-1]
         (hooked if _wrap_module_target(mod_name, dotted, lab) else skipped).append(lab)
     # 把区间打点钩子挂进 main(默认是 None ⇒ 不打点时零开销)
     mod = sys.modules.get(widget_class.__module__)

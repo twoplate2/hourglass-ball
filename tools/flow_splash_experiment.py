@@ -38,6 +38,11 @@
 import math
 from array import array
 
+try:
+    import numpy as _np
+except ImportError:                      # 兜底: 逐颗 pack_into
+    _np = None
+
 from kivy.graphics import BindTexture, Color, InstructionGroup, Mesh, RenderContext
 from kivy.graphics.opengl import glGetIntegerv, GL_MAX_TEXTURE_SIZE
 from kivy.graphics.texture import Texture
@@ -202,6 +207,61 @@ class SplashBatch:
                 part[0].indices = array("H")
                 part[5] = 0
 
+
+    def update_arrays(self, count, xs, ys, hws, hhs):
+        """与 `update` **同语义**, 但数据源是**并行数组** —— 每颗省掉 3 次 dict 查找。
+
+        `xs/ys/hws/hhs` 同长(numpy 数组或 list 都行); 只有前 `count` 个有效。
+        分块、"索引只增不减"、`PAD` 中性化、局部上传, 全部与 `update` 一致 ——
+        见那两处的注释(每一条都是踩过的)。
+
+        ⚠️ 浮点转换用 `astype("<f4")`, 与 `struct.pack("<f")` **逐位相同**
+        (项目里 `tools/test_pack_equiv.py` 对 30 万样本证过, 含 0/-0/inf/denormal)。
+        """
+        total = count
+        chunks = -(-total // CHUNK) if total else 0
+        pack = _FLT.pack_into
+        use_np = _np is not None and hasattr(xs, "dtype")
+        for chunk in range(chunks):
+            start = chunk * CHUNK
+            n = total - start
+            if n > CHUNK:
+                n = CHUNK
+            part = self._ensure_part(chunk)
+            mesh, _vertices, indices, texture, data, previous = part
+            if use_np:
+                blk = _np.empty((n, 4), dtype=_np.float64)
+                x = xs[start:start + n]
+                y = ys[start:start + n]
+                hw = hws[start:start + n]
+                hh = hhs[start:start + n]
+                blk[:, 0] = x - hw
+                blk[:, 1] = y - hh
+                blk[:, 2] = x + hw
+                blk[:, 3] = y + hh
+                data[:n * 16] = blk.astype("<f4").tobytes()
+            else:
+                off = 0
+                for k in range(start, start + n):
+                    hw = hws[k]
+                    hh = hhs[k]
+                    pack(data, off, xs[k] - hw, ys[k] - hh, xs[k] + hw, ys[k] + hh)
+                    off += 16
+            _upload = n
+            if n > previous:
+                mesh.indices = indices[:n * len(_INDICES)]
+                part[5] = n
+            elif n < previous:
+                # 缩的时候**必须传到 previous** —— 索引只增不减, 那些槽位仍在被画
+                data[n * 16:previous * 16] = PAD * (previous - n)
+                _upload = previous
+            if _upload:
+                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                    colorfmt="rgba", bufferfmt="ubyte")
+        for part in self.parts[chunks:]:
+            if part[5]:
+                part[0].indices = array("H")
+                part[5] = 0
 
     def update_bounds(self, bounds):
         """`bounds` = 可迭代的 `(left, bottom, right, top)`(颈部颗粒用)。

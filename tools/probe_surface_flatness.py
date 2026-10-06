@@ -85,7 +85,7 @@ def main():
                         break
                 w.elapsed = t
                 w.particles[:] = []
-                w.splashes[:] = []
+                w.splashes = []
                 w.flares[:] = []
                 w.dusts[:] = []
                 w.redraw()

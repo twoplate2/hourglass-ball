@@ -44,10 +44,9 @@ def run_one(duration):
     _orig_bg = m.HourglassWidget._spawn_bg_splashes
 
     def _bg_marked(self, dt):
-        n0 = len(self.splashes)
+        n0 = self._sn
         _orig_bg(self, dt)
-        for sp in self.splashes[n0:]:
-            sp["_bg"] = 1
+        self._s_tag_from(n0, 1)      # 标记位跟着压实走, 见 `_s_tag_from`
         # 生成瞬间的位置 —— 绕开一切存活/老化效应
         if self.running and duration * 0.35 <= self.elapsed <= duration * 0.65:
             for sp in self.splashes[n0:]:
@@ -81,7 +80,7 @@ def run_one(duration):
                     #    第一帧之后命中路径的飞溅也不带它 ⇒ 会把命中层全判成背景层
                     #    (实测"命中占 0%"就是这条错判据的产物)。
                     #    改用包装器在**生成时**打的 `_bg` 标记(见 run_one)。
-                    k = "bg" if s.get("_bg") else "hit"
+                    k = "bg" if s.get("_tag") else "hit"
                     acc[k].append(abs(s["x"] - cx))
                 # 沙堆边缘: 从中心往外走, 找最后一个 has_sand 为真的 |dx|
                 prof = hg._mound_profile

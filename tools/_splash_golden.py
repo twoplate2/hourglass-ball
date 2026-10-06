@@ -60,7 +60,13 @@ STORE = ROOT / "tools" / "splash_golden.fp.json"     # ★ 进 git 的紧凑指�
 CASES = ((1.0, 240), (15.0, 600), (120.0, 600))
 
 # 额外臂: (标签, 环境变量)。默认配置下为假的分支必须单独跑一趟才谈得上"验过"。
-ARMS = (("default", {}), ("slope1", {"HG_SPLASH_SLOPE": "1.0", "HG_SPLASH_GRAV_LO": "0.62"}))
+# ⚠️ **不要加 `HG_NO_NUMPY` 臂** —— 试过, 它当不了判据: 关掉 numpy 会把**粒子**物理也
+#    切到标量兜底, 而那条路与 numpy 路的**随机数消耗本来就不同**。实测 1s 档第 25 帧
+#    首次分叉, 而那一帧 `n=0`(**一颗飞溅都没有**) ⇒ 差异纯粹来自粒子, 与飞溅无关,
+#    是**项目既有的性质**。飞溅两个积分器的等价改由
+#    `tools/_probe_splash_scalar_equiv.py` 单独对拍(同状态、同参数, 逐 bit)。
+ARMS = (("default", {}),
+        ("slope1", {"HG_SPLASH_SLOPE": "1.0", "HG_SPLASH_GRAV_LO": "0.62"}))
 TAG_WIDTH = 4.0      # 标识用, 无计算意义
 
 
@@ -79,12 +85,39 @@ def _freeze(value):
     return value
 
 
+def _norm_splash(d):
+    """把一颗飞溅的字段归一化到"物理等价"的形式。
+
+    ## 为什么必须做这一步(2026-10-07, 对抗审查 A1)
+
+    `_freeze` 会把 dict 的**键集合**一起冻进去。而 `_rest` / `_still` 是**懒创建**的
+    (`s.get("_rest", 0.0)` / `s.get("_still")`), 换存储后"什么时候出现这个键"会变
+    ⇒ 守卫会**因为表示差异而非物理差异**翻红, 逼人重建基线 —— **那一键会把真漂移一起洗白**。
+
+    ## 哪些是表示、哪些是真语义
+
+    - `_rest`: 所有读点都是 `s.get("_rest", 0.0)`, **缺失 ≡ 0.0** ⇒ 可以归一(0.0 就丢掉键)。
+    - `_still`: **不能归一**。读的是 `s.get("_still")` 再判 `is not None` —— 缺失与
+      `0.0` **走的是不同分支**(缺失 = 活跃, `0.0` = 已停稳但计时为 0)。
+      所以这一项由**数组里的 `shas` 标志**决定, 与值分开判。
+    - `_step_dt`: 每帧对每一颗 `pop` 掉 ⇒ **轨迹里永远看不到**, 不用管。
+    """
+    out = {k: v for k, v in d.items() if not k.startswith("_")}
+    rest = d.get("_rest", 0.0)
+    if rest:                      # 0.0 与"没有这个键"物理等价
+        out["_rest"] = rest
+    if d.get("_still") is not None:
+        out["_still"] = d["_still"]
+    out["_has_still"] = d.get("_still") is not None   # ★ 存在性单独一个字段, 与值解耦
+    return out
+
+
 def _frame_payload(w):
     return {
         "n": len(w.splashes),
         "pn": w.pn,
         "nd": len(w.dusts),
-        "g": [_freeze(s) for s in w.splashes],
+        "g": [_freeze(_norm_splash(s)) for s in w.splashes],
         # ★ flares 记**内容**不只记个数 —— 原来 `"x": hy` 改成 `"y": _surf` 这种漂移
         #   在只记 len 时指纹一位不变。
         "f": [_freeze(f) for f in w.flares],
@@ -121,6 +154,11 @@ def run_case(period, frames):
         module.HourglassWidget._make_sound_proxy = lambda *_: None
         module.HourglassWidget._make_completion_sound = lambda *_: None
         module.HourglassApp.on_completed = lambda *_: None
+        if os.environ.get("HG_NO_NUMPY"):
+            # 验**标量兜底路径** —— `_np = None` 时飞溅走 `_update_splashes_scalar`。
+            # 那条路在出货配置里不会走到(numpy 是硬依赖), 正因如此**最容易烂在那儿**。
+            module._np = None
+            module._flow_numpy = None    # 粒子物理判的是它, 不是 `_np`
         module.HourglassWidget.load_config = lambda *_: {"duration": period}
         module.HourglassWidget.save_config = lambda *_: None
         # 假时钟: 步长必须**完全确定**, 否则两次跑的 dt 不同, 比对没有意义。
