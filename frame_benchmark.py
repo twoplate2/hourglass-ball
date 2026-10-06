@@ -24,6 +24,15 @@ from kivy.utils import platform as runtime_platform
 PERIODS = (1, 5, 15)
 REPORT_REVISION = 2
 TAIL_MIN_FRAMES = 5     # "1% low" 至少平均这么多帧 —— 见 frame_statistics 里的说明
+# 🔴 **两轮之间的静置**(2026-10-06 用户: 「性能测试的时候, **等沙子彻底流动完成后的 1 秒
+#    之后**再进行下一次测试」)。
+#    原来这一轮 `elapsed >= duration` 就**立刻** `schedule_once(_prepare_case, 0)` ⇒
+#    下一轮是在"上一轮的沙还在空中/颈部还在排空/飞溅还没停"的状态下起跑的。
+#    现在: 每帧检查"彻底静止"(在途粒子 0 + 颈部沙柱空 + 飞溅/尘埃/闪光都空),
+#    静止后再等 `SETTLE_AFTER_QUIET` 秒才进下一轮。
+SETTLE_AFTER_QUIET = 1.0
+# 兜底: 万一有东西永远静止不下来, 不能把整轮 benchmark 挂死。
+SETTLE_TIMEOUT = 15.0
 
 
 def tukey_upper_adjacent(values):
@@ -459,6 +468,8 @@ class BenchmarkRunner:
         self._gc_generation = -1
         self._gc_start = time.perf_counter()
         self.capture_slow_frames = False
+        self._settle_start = None      # 本轮结束、开始等"彻底静止"的时刻
+        self._quiet_since = None       # 第一次观测到"彻底静止"的时刻
 
     def start(self):
         if self.active:
@@ -476,10 +487,42 @@ class BenchmarkRunner:
         Window.bind(on_flip=self._on_flip)
         self._event = Clock.schedule_once(self._prepare_case, 0)
 
+    def _flow_settled(self):
+        """上一轮的沙**彻底流动完成**了吗。
+
+        四个都要空: 在途主流粒子 / 颈部沙柱 / 飞溅颗粒 / 尘埃与闪光。
+        ⚠️ **不能只看 `running`** —— 计时归零那一刻它们全都还在。
+        """
+        w = self.widget
+        if w.pn or w.splashes or w.dusts or w.flares:
+            return False
+        return not w._neck_sand_side()
+
+    def _await_settle(self, _dt):
+        """每帧轮询, 静止后再多等 `SETTLE_AFTER_QUIET` 秒才进下一轮。"""
+        self._event = None
+        if not self.active:
+            return
+        now = time.perf_counter()
+        if self._flow_settled():
+            if self._quiet_since is None:
+                self._quiet_since = now
+            if now - self._quiet_since >= SETTLE_AFTER_QUIET:
+                self._prepare_case(0)
+                return
+        else:
+            self._quiet_since = None
+        if self._settle_start is not None and now - self._settle_start > SETTLE_TIMEOUT:
+            self._prepare_case(0)          # 兜底: 不许挂死整轮 benchmark
+            return
+        self._event = Clock.schedule_once(self._await_settle, 0)
+
     def _prepare_case(self, _dt):
         self._event = None
         if not self.active:
             return
+        self._settle_start = None
+        self._quiet_since = None
         if self._index == len(self.periods):
             self._finish(False)
             return
@@ -565,7 +608,10 @@ class BenchmarkRunner:
                 "visual_frames": self._visual_frames,
             })
             self._index += 1
-            self._event = Clock.schedule_once(self._prepare_case, 0)
+            # 🔴 不再立刻进下一轮 —— 先等"沙子彻底流动完成"再等 1 秒(见模块顶部常量)。
+            self._settle_start = time.perf_counter()
+            self._quiet_since = None
+            self._event = Clock.schedule_once(self._await_settle, 0)
 
     def cancel(self):
         if self.active:

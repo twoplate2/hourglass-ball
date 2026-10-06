@@ -433,18 +433,25 @@ SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))   # 外�
 SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
 # ★ **落到沙面上之后** —— 用户 2026-10-06 选定「**贴坡面滑一段再没**」(不是 v4 的"落回即删")。
 #   ⚠️ 这是**有意的偏离**, 不是抄错 v4。贴 y 到面 + `vy` 归零(重力下一帧又把它按回面上
-#      ⇒ 自然沿坡走) + 横向按摩擦衰减, 停住或超时才消失。
-# ⚠️ **3.0 是拍错的** —— 专家团实测(2026-10-06): 落地 |vx| 中位 **57px/s**, 而"停住"门槛是
-#   4px/s ⇒ 指数衰减 `v0·exp(-k·t)` 要 `k = ln(57/4)/0.45 ≈ 6.0` 才刹得住。
-#   k=3.0 时**没有任何一颗能在 0.45s 内停住** ⇒ `_rest` 实测 p50 = p90 = **0.467s**,
-#   即 **≈90% 的颗粒是在"明显运动中"被定时器硬砍掉的**(死时 p90 还有 91~137px/s)。
-#   ⇒ 那不是"滑到停住再消失", 是"滑到一半被抹掉"。改成 **6.0** 让设计意图真的发生。
-SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "1.5"))   # 坡面摩擦(1/秒)
-# 落地后能活多久 —— ⚠️ 2026-10-06 从 0.45 提到 **1.2**: 加了沿坡重力之后颗粒**一直在动**
-#   (不会再触到 `MIN_VX` 停住), 0.45s 会把正在顺坡下流的颗粒**拦腰砍断**。
-SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.55"))     # 落地后最多再活多久(s)
-# 沿坡加速度的倍率(1.0 = 真实 `g·sinα`)。
-SPLASH_SLOPE_GAIN = float(os.environ.get("HG_SPLASH_SLOPE", "0.5"))
+#      ⇒ 自然沿坡走) + 横向按摩擦衰减, **停住后原地留一会儿**才消失。
+#
+# 🔴 **2026-10-06 第二次调(用户): 「沙子的向下流动应该是流动一会会就不动了(因为有阻力),
+#    否则全部向下流动, 但是下面没有堆积, 这个不合理」**。
+#    上一版是「沿坡重力 `g·sinα·0.5` + 摩擦只有 1.5/s」⇒ 颗粒**越滑越快**,
+#    终端速度 `a/k = 112/1.5 ≈ 75px/s`, 一路滑到 `REST_LIFE` 计时器把它**半路砍掉**。
+#    三处一起改:
+#      ① `SLOPE_GAIN → 0`  —— 不让重力再给颗粒加速, 摩擦说了算;
+#      ② `SLIDE_DAMP 1.5 → 4.0` —— 落地 |vx| 中位 57px/s(专家团实测) ⇒
+#         **滑行距离 `(57-4)/4 ≈ 13px`、刹停耗时 0.66s**, 即"流动一会会就停";
+#      ③ **"停住"不再等于"立刻删除"** —— 旧版 `|vx| < MIN_VX` 直接 `continue`(删除),
+#         于是**永远看不到"停住"那一刻**, 只看到它滑到底然后被抹掉。
+#         现在停住后原地留 `SPLASH_STILL_LIFE` 秒 ⇒ 任一时刻坡面上都撒着一层**已停稳**的
+#         颗粒, **覆盖面积反而更大**(也正是用户此前要的「表面大部分地方都有沙子在流动」)。
+SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "4.0"))   # 坡面摩擦(1/秒)
+SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.90"))     # 滑动阶段最久多久(s)
+SPLASH_STILL_LIFE = float(os.environ.get("HG_SPLASH_STILL", "0.40"))   # **停住之后**再留多久(s)
+# 沿坡加速度的倍率(1.0 = 真实 `g·sinα`)。⚠️ 默认 **0**: 见上面 ①。
+SPLASH_SLOPE_GAIN = float(os.environ.get("HG_SPLASH_SLOPE", "0.0"))
 SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
 
 
@@ -910,6 +917,16 @@ class _MoundProfile:
 # 1.0 = 原样用 sand_light —— 它比出口正上方的颈部沙柱(材质色)亮 15 级, 见
 # `_rebuild_color_table` 的注释。0.32 = 与材质自身的亮端上限对齐。
 FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
+# 🔴 **色调抖动的中点**(`_flow_table` 下标; 5 == `sand_base`)。
+#   **不是 5** —— 这一点反直觉, 但是设备实测出来的:
+#   沙流是**按下标分桶、按下标顺序提交**的, 而 Kivy 里**后提交的画在上层** ⇒
+#   高下标的颗粒**压在**低下标的上面, 于是**可见像素系统性地偏向上半段**。
+#   设备实测(50s 档, 沙流带 vs 沙堆带的逐色直方图): 中点定在 5(=base) 时,
+#   沙流带里只看得见 `_flow_table[6..9]` 与高光色, **[0..5] 全被盖住** ⇒
+#   沙流均值比沙层亮 **7~11 级**(用户在真机上看到的就是这个)。
+#   把中点下移到 2 恰好抵消这个可见性偏差(每档 ≈ +2.5R/+3.5G/+3.6B)。
+#   ⚠️ 改它之前先重量一次直方图 —— 这个数是**量出来的**, 不是推出来的。
+FLOW_TONE_CENTER = 2
 
 # 🔴 沙流的**基础生成率**(颗/秒) —— **与周期无关**(2026-10-06, 用户报「沙流和沙堆差距过大」)。
 #
@@ -2716,6 +2733,20 @@ class HourglassWidget(Widget):
     def _rebuild_color_table(self):
         self._color_table = [lerp_rgb(self.sand_base, self.sand_light, i / 10.0)
                              for i in range(11)]
+        # 🔴 **沙流专用调色板: 以 `sand_base` 居中**(下标 5 == base)。
+        #   原因(2026-10-06, 用户:「沙子流和沙层颜色差异过大」): 沙流原来直接用
+        #   `_color_table`(**base→light 单向 11 档**), 再叠一条"越往下档位越高"的
+        #   深度斜率(`div = (neck_y-glass_bot)/11`) ⇒ 自由落体**底部**的颗粒稳定落在
+        #   8~10 档 = 接近 `sand_light`, 而**沙堆停在 base**。
+        #   实测(**用户自己的截图**, 588x910, 50s 档):
+        #     沙层 (206,163,103) / 沙流底部 **(219,183,123)** —— 亮 13R 21G 20B。
+        #   改成居中之后: **均值 == 沙层色**, 抖动只负责给出与沙堆同性质的颗粒感,
+        #   不再有系统性的偏亮。暗端取 `sand_dark` ⇒ 与沙堆材质的暗颗粒同源。
+        self._flow_table = (
+            [lerp_rgb(self.sand_dark, self.sand_base, i / 5.0) for i in range(5)]
+            + [self.sand_base]
+            + [lerp_rgb(self.sand_base, self.sand_light, i / 5.0)
+               for i in range(1, 6)])
         # 「高光组」= 刚出孔口的新生颗粒(trail_time 短)。它原来直接用 sand_light,
         # 而**出口正上方就是颈部沙柱**, 那里是材质色(≈base, tone 中位 -0.04)。
         # 于是出口处出现一道**15 级的亮度阶跃**(实测 215 → 230 @ 屏幕 y=426 = outlet),
@@ -3509,23 +3540,34 @@ class HourglassWidget(Widget):
                     s["y"] = y
                     s["vy"] = 0.0
                     s["_rest"] = s.get("_rest", 0.0) + step_dt
-                    # ★ **沿坡下滑的加速度**(2026-10-06 用户实测):
-                    #   「**整个下面的沙子表面大部分地方都有沙子在流动**…现在只看到一点点地方有」
-                    #   旧版贴面之后**只做横向摩擦衰减、没有沿坡重力** ⇒ 颗粒滑一小段就停住
-                    #   ⇒ 只有落点附近看得见东西。真实沙堆上颗粒是**顺坡往下流**的。
-                    #   沿坡加速度 `a = g·sinα`(α = 当地坡角), 方向 = 背离堆尖(外向)。
-                    #   ⚠️ 坡角用 `contact` 的**中心差分**取(与绘制同一份定义, 不另写一套)。
-                    _dd = 2.0
-                    _slope = (_profile.contact(sx + _dd, _apex)
-                              - _profile.contact(sx - _dd, _apex)) / (2.0 * _dd)
-                    _sin_a = abs(_slope) / math.sqrt(1.0 + _slope * _slope)
-                    s["vx"] += ((1.0 if sx >= 0.0 else -1.0)
-                                * g_abs * _sin_a * SPLASH_SLOPE_GAIN * step_dt)
-                    _k = 1.0 - SPLASH_SLIDE_DAMP * step_dt
-                    s["vx"] = s["vx"] * (_k if _k > 0.0 else 0.0)
                     _avx = s["vx"] if s["vx"] >= 0.0 else -s["vx"]
-                    if s["_rest"] > SPLASH_REST_LIFE or _avx < SPLASH_MIN_VX:
-                        continue
+                    if _avx < SPLASH_MIN_VX:
+                        # 🔴 **2026-10-06 用户: 「沙子的向下流动应该是流动一会会就不动了
+                        #   (因为有阻力), 否则全部向下流动, 但是下面没有堆积, 这个不合理」**
+                        #   旧版这一支直接 `continue`(**删除**) ⇒ 颗粒**永远看不到"停住"**,
+                        #   只看到它一路顺着坡滑到底、然后被抹掉 ⇒ 读起来就是
+                        #   "所有沙都在往下流、可下面什么都没堆"。
+                        #   现在: 停住之后**原地留 `SPLASH_STILL_LIFE` 秒**再消失 ——
+                        #   任一时刻坡面上都撒着一层已经停稳的颗粒, 覆盖面积反而更大
+                        #   (这也正是用户此前要的「表面大部分地方都有沙子在流动」)。
+                        s["vx"] = 0.0
+                        s["_still"] = s.get("_still", 0.0) + step_dt
+                        if s["_still"] > SPLASH_STILL_LIFE:
+                            continue
+                    else:
+                        # ★ **沿坡加速度**(2026-10-06 加; 同日又调成 ~0, 见常量区注释)。
+                        #   ⚠️ 坡角用 `contact` 的**中心差分**取(与绘制同一份定义, 不另写一套)。
+                        if SPLASH_SLOPE_GAIN > 0.0:
+                            _dd = 2.0
+                            _slope = (_profile.contact(sx + _dd, _apex)
+                                      - _profile.contact(sx - _dd, _apex)) / (2.0 * _dd)
+                            _sin_a = abs(_slope) / math.sqrt(1.0 + _slope * _slope)
+                            s["vx"] += ((1.0 if sx >= 0.0 else -1.0)
+                                        * g_abs * _sin_a * SPLASH_SLOPE_GAIN * step_dt)
+                        _k = 1.0 - SPLASH_SLIDE_DAMP * step_dt
+                        s["vx"] = s["vx"] * (_k if _k > 0.0 else 0.0)
+                        if s["_rest"] > SPLASH_REST_LIFE:
+                            continue
             if y < lower_bot or y > lower_top - 5:
                 continue
             append_splash_keep(s)
@@ -4384,7 +4426,7 @@ class HourglassWidget(Widget):
             for size in (1, 2):
                 group = InstructionGroup()
                 color = Color(*(self._hilite_color if index < 0
-                                else self._color_table[index]))
+                                else self._flow_table[index]))
                 group.add(color)
                 self.canvas.add(group)
                 self._stream_pools[index, size] = (group, color, [])
@@ -4515,7 +4557,7 @@ class HourglassWidget(Widget):
             self._upper_band_color.rgb = self.sand_light
             for (index, _size), (_group, color, _pool) in self._stream_pools.items():
                 color.rgb = (self._hilite_color if index < 0
-                             else self._color_table[index])
+                             else self._flow_table[index])
             self._splash_color.rgb = self._dust_color.rgb = self.sand_light
             self._render_colors = colors
 
@@ -4645,7 +4687,6 @@ class HourglassWidget(Widget):
         for bucket in buckets.values():
             bucket.clear()
         n_colors = len(self._color_table)
-        div = max(1.0, self._neck_y - self._glass_bot) / n_colors
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         # ★ **每颗粒的色调抖动**(2026-10-06 用户:「**下层的沙子落下的层和原有的层差异巨大**」
         #   —— 经确认为**沙流 vs 沙堆**)。实测局部纹理 std: **沙流 0.47 / 沙堆 2.14**
@@ -4670,10 +4711,11 @@ class HourglassWidget(Widget):
             # NaN 时两者都为 False 故**不跳过** —— 取反才逐字对齐(NaN 实际不会出现)。
             sel = np.flatnonzero(~(y_all >= outlet))
             if sel.size:
-                yy = y_all[sel]
                 w = (self.pwp[:n][sel] * tone_scale).astype(np.int64)
                 np.minimum(w, 8, out=w)
-                idx = ((self._neck_y - yy) / div).astype(np.int64) + w - 4
+                # **以 base 居中**(见 `_rebuild_color_table` 的 `_flow_table` 注释):
+                # 不再有"越往下越亮"的深度斜率 —— 沙堆没有那条斜率, 沙流也不该有。
+                idx = w + (FLOW_TONE_CENTER - 4)
                 np.clip(idx, 0, last, out=idx)
                 key = np.where(self.pli[:n][sel] != 0.0, n_colors, idx)
                 slot = np.where(self.psz[:n][sel] == 1.0, 0, 1)
@@ -4704,7 +4746,7 @@ class HourglassWidget(Widget):
                 w = int(phases[i] * tone_scale)
                 if w > 8:
                     w = 8
-                index = int((self._neck_y - y) / div) + w - 4
+                index = w + (FLOW_TONE_CENTER - 4)
                 if index < 0:
                     index = 0
                 elif index > last:

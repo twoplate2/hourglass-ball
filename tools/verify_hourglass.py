@@ -946,7 +946,41 @@ def main():
                     Clock.schedule_once(self.cancel_checks, 0.75)
                     return
                 self._start_benchmark(self._benchmark_popup)
-                Clock.schedule_once(self.finish_checks, sum(PERIODS) + 3)
+                # 🔴 **轮次之间必须真的等到"沙子彻底流动完成"**(2026-10-06 用户要求
+                #    「等沙子彻底流动完成后的 1 秒之后再进行下一次测试」)。
+                #    包住 `_begin_case`, 在**每一轮开始那一刻**把静止状态记下来 ——
+                #    这是唯一不自我循环的取证方式: 旧代码(立刻进下一轮)下这几个数非零。
+                self._case_start_states = []
+                _runner = self._benchmark_runner
+                _orig_prepare = _runner._prepare_case
+
+                def _record_prepare(_dt, _r=_runner, _o=_orig_prepare):
+                    # ⚠️ **必须记 `_prepare_case` 的入口, 不能记 `_begin_case`** ——
+                    #    `_begin_case` 比它晚 0.5s, 那时 `reset()` 早把粒子清空了,
+                    #    于是**改前改后都是全零**, 检查形同虚设(2026-10-06 负对照当场揭穿)。
+                    #    `_prepare_case` 的入口正是"决定进入下一轮"那一刻, 而 reset 还在它体内。
+                    # 第 0 轮由 `start()` 直接调, 不是"轮次之间的间隔", 跳过;
+                    # `_index == len(periods)` 那次是收尾(`_finish`), 也不是间隔。
+                    if 0 < _r._index < len(_r.periods):
+                        w = self.hourglass
+                        self._case_start_states.append(
+                            (w.pn, len(w.splashes), len(w.dusts), len(w.flares),
+                             len(w._neck_sand_side())))
+                    _o(_dt)
+
+                _runner._prepare_case = _record_prepare
+                # ⚠️ **预算必须把"轮次之间的静置"算进去** —— 2026-10-06 加静置时踩到:
+                #    这里原来写死 `sum(PERIODS) + 3`, 而静置让整轮多花几秒 ⇒
+                #    `finish_checks` 到点时 `_benchmark_popup` 还是 None ⇒
+                #    `verify_save()` 里 `None.dismiss()` 抛 AttributeError,
+                #    **整份闸门以异常收场、连 FAILED 汇总都打不出来**。
+                #    按模块常量算, 常量改了这里自动跟上。
+                _gaps = max(0, len(PERIODS) - 1)
+                Clock.schedule_once(
+                    self.finish_checks,
+                    sum(PERIODS) + 3
+                    + _gaps * (benchmark_module.SETTLE_AFTER_QUIET
+                               + benchmark_module.SETTLE_TIMEOUT))
                 for delay in (0.75, 1.0, 1.5, 12):
                     Clock.schedule_once(lambda _dt, d=delay: Window.screenshot(
                         name=str(OUT / ("flow-%.2f.png" % d))), delay)
@@ -968,6 +1002,12 @@ def main():
 
             def finish_checks(self, _dt):
                 check(not self._benchmark_active(), "all four benchmark periods completed")
+                # 每轮开始那一刻必须已经彻底静止(在途粒子/飞溅/尘埃/闪光/颈部沙柱全空)。
+                states = getattr(self, "_case_start_states", [])
+                check(len(states) == len(PERIODS) - 1,
+                      "benchmark records the flow state at every period transition")
+                check(all(s == (0, 0, 0, 0, 0) for s in states),
+                      "next benchmark period waits for the sand to settle: %s" % (states,))
                 check([r["period"] for r in self._benchmark_results] == list(PERIODS),
                       "benchmark order: 1, 5, 15 seconds")
                 for result in self._benchmark_results:
