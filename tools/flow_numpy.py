@@ -57,8 +57,11 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     g_abs = c["g_abs"]
     mound_top = c["mound_top"]
 
-    old_y = y.copy()
-    old_vy = vy.copy()
+    # ⚠️ 这两个**别名**就够了(原来写的是 `.copy()`, 每帧白拷 2×2750 个 float64 = 44KB):
+    #    `y`/`vy` 下面都是**重绑定**(`y = y + ...` / `y = np.where(...)`), 不是原地改;
+    #    而 `py[sl]`/`pvy[sl]` 直到函数末尾的 `py[sl] = y` 才被写 ⇒ 在这之前它们就是旧值。
+    old_y = y
+    old_vy = vy
 
     # y += vy*dt + 0.5*g*dt*dt —— 括号位置与原式一一对应(见模块头 规则 1)
     y = y + (vy * dt + 0.5 * g * dt * dt)
