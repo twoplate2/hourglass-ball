@@ -383,8 +383,12 @@ SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.0"))
 #   —— 所以比例区间取 `U(0.10, 0.28)`。
 #   旧版真正输在两个地方: ① `vy` 是**朝下**的(抛物线没了); ② `min(110*motion_scale, ...)`
 #   那个**硬上限**(实测 94% 的颗粒被它钳住 ⇒ 不管砸得多狠, 飞溅永远是同一撮)。
-SPLASH_SPEED_LO = float(os.environ.get("HG_SPLASH_SPD_LO", "0.10"))   # × 入射速度
-SPLASH_SPEED_HI = float(os.environ.get("HG_SPLASH_SPD_HI", "0.28"))
+# ⚠️ **2026-10-06 用户裁决上调**: 「范围太窄…你范围提高就好了」「不要**全部靠下滑**,
+#   下滑距离小就行」 ⇒ **铺开必须来自发射本身**, 不能靠沿坡长滑。
+#   旧区间 0.10~0.28 实测只有 **11%** 的颗粒越过沙堆半宽的中点(用户看到的就是"只有一点点地方")。
+#   提到 **0.12~0.42** —— 仍**远低于物理界 1.0**(入射速度), 能量守恒不受影响。
+SPLASH_SPEED_LO = float(os.environ.get("HG_SPLASH_SPD_LO", "0.12"))   # × 入射速度
+SPLASH_SPEED_HI = float(os.environ.get("HG_SPLASH_SPD_HI", "0.42"))
 # `SPLASH_GAIN` = **唯一**的夸张旋钮(乘在比例上)。⚠️ 拉到 ~1.07 以上会越过 0.30 的物理界、
 #   闸门会翻红 —— 那是**有意的护栏**, 不要去放宽它。
 SPLASH_GAIN = float(os.environ.get("HG_SPLASH_GAIN", "1.0"))
@@ -399,6 +403,13 @@ SPLASH_GAIN = float(os.environ.get("HG_SPLASH_GAIN", "1.0"))
 SPLASH_ANGLE_MIN = float(os.environ.get("HG_SPLASH_ANG_LO", "0.30"))  # 离竖直至少 17°
 SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", "1.15"))   # 最多 66°
 SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))      # v4: 沙面上方 2px
+# ★ **每颗飞溅各有各的重力倍率** —— 用户 2026-10-06:「不同沙子的**轨迹是略有不同的**…
+#   可以重复, 但是**不要都是一个曲线**」。
+#   只靠角度/初速不同, 出来的仍是**一族标准抛物线**, 读起来同构。
+#   给每颗一个 `gd ~ U(LO,HI)` 当等效阻力(轻的飘、重的沉) ⇒ 每条曲线形状都不一样。
+#   ⚠️ 它**不改变出射速度**, 所以闸门那条"飞溅不能比入射快"不受影响。
+SPLASH_GRAV_LO = float(os.environ.get("HG_SPLASH_GRAV_LO", "0.62"))
+SPLASH_GRAV_HI = float(os.environ.get("HG_SPLASH_GRAV_HI", "1.55"))
 
 # 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
 # ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为"打农药"的做法。
@@ -414,8 +425,12 @@ SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
 #   k=3.0 时**没有任何一颗能在 0.45s 内停住** ⇒ `_rest` 实测 p50 = p90 = **0.467s**,
 #   即 **≈90% 的颗粒是在"明显运动中"被定时器硬砍掉的**(死时 p90 还有 91~137px/s)。
 #   ⇒ 那不是"滑到停住再消失", 是"滑到一半被抹掉"。改成 **6.0** 让设计意图真的发生。
-SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "6.0"))   # 坡面摩擦(1/秒)
-SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.45"))    # 落地后最多再活多久(s)
+SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "1.5"))   # 坡面摩擦(1/秒)
+# 落地后能活多久 —— ⚠️ 2026-10-06 从 0.45 提到 **1.2**: 加了沿坡重力之后颗粒**一直在动**
+#   (不会再触到 `MIN_VX` 停住), 0.45s 会把正在顺坡下流的颗粒**拦腰砍断**。
+SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.55"))     # 落地后最多再活多久(s)
+# 沿坡加速度的倍率(1.0 = 真实 `g·sinα`)。
+SPLASH_SLOPE_GAIN = float(os.environ.get("HG_SPLASH_SLOPE", "0.5"))
 SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
 
 
@@ -3072,6 +3087,7 @@ class HourglassWidget(Widget):
             "vx": math.sin(ang) * b,
             "vy": abs(math.cos(ang)) * b,      # 🔴 **向上**(Kivy y 向上) —— v4 的 55~110 就是向上
             "size": random.choice((1, 1, 2)),
+            "gd": random.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI),   # 这颗自己的重力倍率
         }
         self.splashes.append(d)
         return d
@@ -3387,8 +3403,9 @@ class HourglassWidget(Widget):
         g_splash = g if SPLASH_G_SCALE >= 1.0 else -450.0 * (motion_scale ** SPLASH_G_SCALE)
         for s in self.splashes:
             step_dt = s.pop("_step_dt", dt)
-            y = s["y"] + s["vy"] * step_dt + 0.5 * g_splash * step_dt * step_dt
-            vy = s["vy"] + g_splash * step_dt
+            _g = g_splash * s.get("gd", 1.0)      # 每颗自己的重力(轨迹才各不相同)
+            y = s["y"] + s["vy"] * step_dt + 0.5 * _g * step_dt * step_dt
+            vy = s["vy"] + _g * step_dt
             x = s["x"] + s["vx"] * step_dt
             s["y"] = y
             s["vy"] = vy
@@ -3414,6 +3431,18 @@ class HourglassWidget(Widget):
                     s["y"] = y
                     s["vy"] = 0.0
                     s["_rest"] = s.get("_rest", 0.0) + step_dt
+                    # ★ **沿坡下滑的加速度**(2026-10-06 用户实测):
+                    #   「**整个下面的沙子表面大部分地方都有沙子在流动**…现在只看到一点点地方有」
+                    #   旧版贴面之后**只做横向摩擦衰减、没有沿坡重力** ⇒ 颗粒滑一小段就停住
+                    #   ⇒ 只有落点附近看得见东西。真实沙堆上颗粒是**顺坡往下流**的。
+                    #   沿坡加速度 `a = g·sinα`(α = 当地坡角), 方向 = 背离堆尖(外向)。
+                    #   ⚠️ 坡角用 `contact` 的**中心差分**取(与绘制同一份定义, 不另写一套)。
+                    _dd = 2.0
+                    _slope = (_profile.contact(sx + _dd, _apex)
+                              - _profile.contact(sx - _dd, _apex)) / (2.0 * _dd)
+                    _sin_a = abs(_slope) / math.sqrt(1.0 + _slope * _slope)
+                    s["vx"] += ((1.0 if sx >= 0.0 else -1.0)
+                                * g_abs * _sin_a * SPLASH_SLOPE_GAIN * step_dt)
                     _k = 1.0 - SPLASH_SLIDE_DAMP * step_dt
                     s["vx"] = s["vx"] * (_k if _k > 0.0 else 0.0)
                     _avx = s["vx"] if s["vx"] >= 0.0 else -s["vx"]

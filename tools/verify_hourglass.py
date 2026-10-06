@@ -698,7 +698,14 @@ def main():
                       "impact highlight does not float (%.3e px)"
                       % (widget.flares[-1]["y"] - surface))
                 splash = widget.splashes[0]
-                check(math.hypot(splash["vx"], splash["vy"]) < 200 * 0.30,
+                # ⚠️ **2026-10-06: 门槛 0.30 -> 0.50**(主持人改, 理由写在这里)。
+                #    这条守的不变量是**"飞溅不能比入射快"**(能量), 物理界是 **1.0**;
+                #    0.30 从来不是物理值 —— 它是当年照抄旧模型 `U(0.14,0.28)` 的余量。
+                #    用户当天要求"范围提高"(铺开必须来自发射、不能靠沿坡长滑),
+                #    实测 0.28 只有 11% 越过半宽中点 ⇒ 提到 0.42。
+                #    0.50 仍给"不能比入射快"留了**一半**的余量, 不变量没被破坏。
+                #    ⚠️ 放宽的是**余量**, 不是判据的名字与形式 —— 别顺手把它改成恒真。
+                check(math.hypot(splash["vx"], splash["vy"]) < 200 * 0.50,
                       "rebound cannot gain energy over the incoming grain")
                 check(widget._particle_trail({"vy": -400, "trail_time": 0.02}) == 8,
                       "individual short trails preserve granular detail")
