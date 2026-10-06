@@ -356,7 +356,9 @@ SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "520"))   # 颗/秒(满速
 # ⚠️ 第一版用 `|u|^1.6 × (0.42·R)` —— **上限被钉在 42% 半宽处**, 实测 >50%R 恒 0%。
 #    改成"**铺满整个半宽, 密度往外衰减**": mag = 0.96·R·u^POW, POW 越大小越往中心堆。
 #    POW=2.4 时: 中位落在 ~0.18R, p90 落在 ~0.75R —— 正是"由强到弱"。
-SPLASH_BG_POW = 0.9         # 横向密度衰减指数(用户 2026-10-05: "中间再减少一些, 两边再多一些")
+SPLASH_BG_POW = 0.9         # ☠️ **2026-10-06 起不再被使用**(留名字给存档/对比脚本认)。
+#   横向分布已改成高斯, 见 `SPLASH_BG_EDGE_SIGMA`。按它算出来的"中间稀两边密"那条路线
+#   实测边缘/σ=3.24, 不是用户要的钟形。**改分布时别再来改这个数** —— 它不接线了。
 # 背景飞溅**初速倍率** —— 只给调参/取证用(默认 1.0 = 不动)。
 # 为什么要它: 2026-10-06 查出瓶颈在**两个不同的轴**上 ——
 #   ① **数量轴**(`SPLASH_BG_RATE`): 加到 4 倍只是把"贴着轮廓的绒毛"变密, 性质不变;
@@ -366,6 +368,49 @@ SPLASH_BG_POW = 0.9         # 横向密度衰减指数(用户 2026-10-05: "中�
 # ⚠️ 倍率乘在 `rand_uniform(...)` **之后** —— 这样随机数流的调用次数与顺序一字不动,
 #    三档之间只有初速不同(否则同 seed 逐像素基线会作废, 也就没法并排比了)。
 SPLASH_BG_VY = float(os.environ.get("HG_SPLASH_VY", "1.0"))
+
+# ★ 2026-10-06 用户定的**横向分布口径**: 「按正态分布来, 最末端最边缘差不多是 1.5 个标准差」。
+#   ⇒ `σ = 沙堆边缘 / SPLASH_BG_EDGE_SIGMA`(边缘 = `has_sand` 为真的最远 |dx|)。
+#   ⚠️ 口径是"**边缘是几个 σ**", 而边缘本身随沙堆长大 ⇒ **σ 是变量、不是常数**
+#      (`_mound_edge()` 每帧算一次)。用户后续调参也用这个刻度说话。
+#   改前(`SPLASH_BG_POW` 那条 u^0.9 路线)实测**边缘/σ = 3.24**(15s: σ=31.2px, 边缘=101px)
+#   —— 近似均匀 + 硬截断, 读起来是"中间一坨 + 一路稀到边上", 不是钟形。
+SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))
+
+
+def _inv_norm(p):
+    """标准正态的**逆 CDF**(Acklam 有理逼近, |绝对误差| < 1.15e-9)。
+
+    ⚠️ **为什么不用 `random.gauss` / `normalvariate`**:
+       · `random.gauss` 内部**缓存第二个样本** ⇒ 每次调用消耗的均匀数是 1 或 2, 在跳;
+       · `random.normalvariate` 是**拒绝采样** ⇒ 消耗量不定。
+       本工程大量取证工具靠「同 seed 逐像素对照」(`tools/inspect_flow.py` 等),
+       要求**每帧随机数调用次数可复现** ⇒ 这里用「1 个均匀数 → 1 个样本」的定长写法。
+    """
+    if p <= 0.0:
+        p = 1e-12
+    elif p >= 1.0:
+        p = 1.0 - 1e-12
+    a = (-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00)
+    b = (-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+         6.680131188771972e+01, -1.328068155288572e+01)
+    c = (-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00)
+    d = (7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+         3.754408661907416e+00)
+    if p < 0.02425:                                   # 左尾
+        q = math.sqrt(-2.0 * math.log(p))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+               ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+    if p > 1.0 - 0.02425:                             # 右尾
+        q = math.sqrt(-2.0 * math.log(1.0 - p))
+        return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+                ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
+    q = p - 0.5                                       # 中段
+    r = q * q
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / \
+           (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
 
 # 流量守恒的**收缩下限** —— 粒子加速下落时横向按 A·v=常数收缩, 这是它的地板。
 # ⚠️ **本移植与 PC v4 不一致, 而且这一条压在"铁律: PC v4 是唯一真理, 参数不变"上**:
@@ -2375,6 +2420,26 @@ class HourglassWidget(Widget):
             return 0.0
         return profile.contact(dx, apex)
 
+    def _mound_edge(self):
+        """沙堆**当前**的半宽(px) —— `has_sand` 为真的最远 |dx|, 即"最边缘"在哪。
+
+        飞溅的高斯 σ 以它为基准(用户口径: 「边缘 = N 个标准差」, 见
+        `SPLASH_BG_EDGE_SIGMA`)。**边缘随沙堆长大, 所以每帧要重算** ——
+        钉死 σ 会让前期(沙堆还小)的飞溅撒到没沙的球底上。
+        ⚠️ 每帧只调一次(不是每颗粒), 从外往里 2px 步进扫; σ 是 60px 量级,
+        2px 的量化误差可以忽略。用 `has_sand` 而不是另写判据(工程红线)。
+        """
+        profile = self._mound_profile
+        apex = self._mound_apex()
+        if profile is None or apex <= 0.0:
+            return 0.0
+        x = self._R_inner - 1.0
+        while x > 0.0:
+            if profile.has_sand(x, apex):
+                return x
+            x -= 2.0
+        return 0.0
+
     def _mound_top_at(self, x):
         """绝对 y 版的接触高度 —— splash / 尘埃用(它们会跑到平台之外)。"""
         return self._lower_sand_bot + self._mound_contact_h(x - self._cx)
@@ -2910,13 +2975,16 @@ class HourglassWidget(Widget):
             k = 24
         self._bg_splash_acc -= k
         append = self.splashes.append
+        # ★ 2026-10-06 用户定的横向分布(见 `SPLASH_BG_EDGE_SIGMA` 处的注释):
+        #   σ = 边缘 / 1.5 ⇒ **中轴最密、到沙堆边缘落干净**的钟形。
+        #   改前 `u^0.9 × 0.96Ri` 实测 边缘/σ = **3.24**, 近似均匀 + 硬截断。
+        _edge = self._mound_edge()
+        if _edge <= 1.0:                 # 沙堆还没成形(开局/刚重置) —— 没有沙面可打
+            return
+        _sigma = _edge / SPLASH_BG_EDGE_SIGMA
         for _ in range(k):
-            u = rand_uniform(0.0, 1.0)
-            mag = (u ** SPLASH_BG_POW) * Ri * 0.96
-            if rand_uniform(0.0, 1.0) < 0.5:
-                mag = -mag
-            j = mag / Ri if Ri > 0 else 0.0
-            if abs(j) > 0.96:            # 不许越出沙堆范围
+            mag = _inv_norm(rand_uniform(0.0, 1.0)) * _sigma
+            if abs(mag) > _edge:         # 沙堆之外没沙(高斯的尾巴, ≈13%)
                 continue
             h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
             # 🔴🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
@@ -2928,7 +2996,7 @@ class HourglassWidget(Widget):
             #    "该列有没有沙 … P ≤ B 才是裸露球底"), **别自己再写一套判据**。
             if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
                 continue
-            f = abs(j) / 0.96
+            f = abs(mag) / _edge        # 0 = 中轴, 1 = 沙堆边缘(速度衰减的口径)
             # 🔴 **2026-10-06 用户实测反馈: 「完全是随机运动 … 甚至从下往上跳动」**
             #    ⇒ 旧版 `vy = +90~180`(Kivy y 向上 = **往上弹**) + `vx` 随机正负
             #      = 一撮在原地乱蹦的东西。**改成"从落点往外、往下斜着走"**:
