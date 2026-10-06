@@ -3651,9 +3651,13 @@ class HourglassWidget(Widget):
                 s["_still"] = _still
                 append_splash_keep(s)
                 continue
-            _g = g_splash * s.get("gd", 1.0)      # 每颗自己的重力(轨迹才各不相同)
-            y = s["y"] + s["vy"] * step_dt + 0.5 * _g * step_dt * step_dt
-            vy = s["vy"] + _g * step_dt
+            # ★ **消掉重复查找**(2026-10-07 性能): `s["vy"]` 原来读了两次、
+            #   `gd` 用 `.get(..., 1.0)` 白走一次默认值分支(它**每颗必有**, 见 `_eject_splash`)。
+            #   峰值 ~1770 颗/帧 ⇒ 每颗省一次哈希 + 一个分支。
+            _g = g_splash * s["gd"]               # 每颗自己的重力(轨迹才各不相同)
+            _vy0 = s["vy"]
+            y = s["y"] + _vy0 * step_dt + 0.5 * _g * step_dt * step_dt
+            vy = _vy0 + _g * step_dt
             x = s["x"] + s["vx"] * step_dt
             s["y"] = y
             s["vy"] = vy
