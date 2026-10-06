@@ -17,7 +17,8 @@ import os
 import random
 import struct
 from array import array
-from bisect import bisect_left as _bisect_left, bisect_right   # 面积表求逆 / 颈部半宽
+from bisect import bisect_left as _bisect_left
+from bisect import bisect_right, insort as _insort   # 面积表求逆 / 沙堆节点插入
 import sys
 import time
 import wave
@@ -2444,6 +2445,7 @@ class HourglassWidget(Widget):
         self.dusts = []
         self.mound_peak_offset = 0.0
         self._geom_generation = 0            # 几何代: 尺寸/周期/窗口一变就 +1, 形状缓存跟着失效
+        self._knots_fixed = None             # `_mound_knots` 的几何固定部分(按几何代缓存)
         self._mound_profile = None           # 下球沙堆形状解(见 _MoundProfile), 几何重建时换新
         self._mound_shape = ()               # 65 点轮廓(绝对值): 绘制节点/接触查表都用它
         self._upper_carve = []               # 上球漏斗 carve(§4)
@@ -4503,6 +4505,35 @@ class HourglassWidget(Widget):
         左右球壁各留一条金边。按 θ 均匀 ⇒ Δx = R·cosθ·Δθ 在壁附近自动变细(最外一格 <1px)。
         """
         Ri = self._R_inner
+        fixed = self._mound_knots_fixed()
+        if apex is None:
+            return list(fixed)
+        out = None
+        for dx in self._mound_wall_cross(apex):
+            if not (-Ri < dx < Ri):
+                continue
+            if out is None:
+                out = list(fixed)
+            # ⚠️ 原实现走的是 **set** ⇒ 重复的 dx 会被并掉。这里必须**先查重再插入** ——
+            #    插进重复值会让 `cols` 里出现零长线段, carve/band 的 Quad 退化。
+            if dx not in out:
+                _insort(out, dx)
+        return out if out is not None else list(fixed)
+
+    def _mound_knots_fixed(self):
+        """`apex` **无关**的那部分节点(几何固定) —— 每个几何代只建一次。
+
+        原来每帧都现建一个 ~113 元素的 `set` 再 `sorted()` —— 而其中 65 个控制点、
+        46 个 θ 均匀采样点、±R、0 全都只跟几何有关, **只有 ≤2 个壁交点是逐帧变的**。
+        按 `_geom_generation` 缓存(`_R_inner`/`_mound_shape` 变时代也变)。
+        ⚠️ 顺序必须与原来 `sorted(set(...))` **完全一致** —— 节点顺序决定 carve/band
+        的 Quad 顺序, 换了顺序画面就变(值相同也不行)。
+        """
+        cache = self._knots_fixed
+        gen = self._geom_generation
+        if cache is not None and cache[0] == gen:
+            return cache[1]
+        Ri = self._R_inner
         xs = {0.0, Ri, -Ri}
         # 轮廓的**控制点本身**就是折线的折点(粗糙起伏在这些点上), 必须全进节点集,
         # 否则 θ 均匀网格(中轴附近 ~29px 一格)会把微粗糙整段抹平。
@@ -4516,11 +4547,9 @@ class HourglassWidget(Widget):
         n = MOUND_DRAW_EXTRA
         for i in range(n + 1):
             xs.add(Ri * math.sin(-math.pi / 2.0 + math.pi * i / n))
-        if apex is not None:
-            for dx in self._mound_wall_cross(apex):
-                if -Ri < dx < Ri:
-                    xs.add(dx)
-        return sorted(xs)
+        val = tuple(sorted(xs))
+        self._knots_fixed = (gen, val)
+        return val
 
     def _mound_wall_cross(self, apex):
         """锥面 `P(x)` 与球内底 `B(x)` 的交点(左右各一个, 没有就跳过)。

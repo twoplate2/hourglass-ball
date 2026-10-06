@@ -23,7 +23,9 @@ FRAMES = int(sys.argv[3]) if len(sys.argv) > 3 else 120
 
 def run():
     os.environ.setdefault("KIVY_METRICS_DENSITY", "1.75")
-    os.environ["HG_FLOW_RENDERER"] = "line"       # 排除批处理器, 只看应用侧
+    # 默认排除批处理器(只看应用侧); 但**允许外部覆写** —— 用设备那套渲染器跑, 排序才
+    # 与设备可比(否则桌面走的是线渲染器, 榜上一半是设备上根本不存在的东西)。
+    os.environ.setdefault("HG_FLOW_RENDERER", "line")
     sys.argv = [sys.argv[0], "_prof"]
     import main as m
     from kivy.clock import Clock
