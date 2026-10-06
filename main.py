@@ -5733,7 +5733,16 @@ class HourglassWidget(Widget):
             # NaN 时两者都为 False 故**不跳过** —— 取反才逐字对齐(NaN 实际不会出现)。
             sel = np.flatnonzero(~(y_all >= outlet))
             if sel.size:
-                w = (self.pwp[:n][sel] * tone_scale).astype(np.int64)
+                # ★ **全选时省掉三次花式索引**(2026-10-07 性能)。粒子是在颈口**出生**的,
+                #   往下只会更小 ⇒ `y >= outlet` 几乎永不成立, `sel` 实际等于 `arange(n)`
+                #   (实测 1036 颗里 0 颗被排除)。而 `pwp/pli/psz[:n][sel]` 三次 gather 各值
+                #   ~6.5µs(n=1560, 随机访问)。`sel.size == n` 时 `arr[sel]` **就是** `arr`
+                #   —— 逐位相同, 直接换成整片视图。
+                if sel.size == n:
+                    _pw, _pl, _ps = self.pwp[:n], self.pli[:n], self.psz[:n]
+                else:
+                    _pw, _pl, _ps = self.pwp[:n][sel], self.pli[:n][sel], self.psz[:n][sel]
+                w = (_pw * tone_scale).astype(np.int64)
                 np.minimum(w, 8, out=w)
                 # **以 base 居中**(见 `_rebuild_color_table` 的 `_flow_table` 注释):
                 # 不再有"越往下越亮"的深度斜率 —— 沙堆没有那条斜率, 沙流也不该有。
@@ -5741,8 +5750,8 @@ class HourglassWidget(Widget):
                 np.clip(idx, 0, last, out=idx)
                 # ★ 色调研磨成 4 档(每 3 档取 1) —— 桶数 22 → 8。见 /tmp/patch_buckets.py
                 idx -= idx % 3
-                key = np.where(self.pli[:n][sel] != 0.0, n_colors, idx)
-                slot = np.where(self.psz[:n][sel] == 1.0, 0, 1)
+                key = np.where(_pl != 0.0, n_colors, idx)
+                slot = np.where(_ps == 1.0, 0, 1)
                 code = key * 2 + slot
                 # ★ **先把桶码压到 `uint8` 再排**(2026-10-07 性能)。`np.argsort(kind="stable")`
                 #   对整数走**基数排序**, 轮数正比于 dtype 宽度: 实测 n=1560 时
