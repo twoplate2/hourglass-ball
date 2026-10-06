@@ -4278,19 +4278,27 @@ class HourglassWidget(Widget):
             apex = self._mound_apex()
             base = self._lower_sand_bot
             per_side = SURFACE_MARKERS_LOW // 2
+            # ★ **坡脚每帧只解两次**(2026-10-06 性能): `foot` 只跟 `side`(±1) 与 `apex` 走,
+            #   而 12 颗标记左右各 6 颗 —— 原来**每颗各做一次 14 步二分**, 每步调
+            #   `prof.raw()` + `prof.bounds()` ⇒ **336 次调用/帧** 全在算同一个数。
+            #   设备实测这段占 `_draw_surface_markers` 的绝大部分(该方法 **1.08ms/帧**,
+            #   而它只画 8+12=20 根短线, 逐颗成本 ~54µs —— 见 low1.md §6-C)。
+            foot_of = {}
+            for _side in (-1.0, 1.0):
+                _lo, _hi = 1.0, Ri
+                for _ in range(14):                   # 找接触面与球底相交处 = 坡脚
+                    _mid = 0.5 * (_lo + _hi)
+                    if prof.raw(_side * _mid, apex) - prof.bounds(_side * _mid)[0] > 0.0:
+                        _lo = _mid
+                    else:
+                        _hi = _mid
+                foot_of[_side] = 0.5 * (_lo + _hi)
             for k in range(SURFACE_MARKERS_LOW):
                 side = -1.0 if k < per_side else 1.0
                 jit = ((k * 0.6180339887) % 1.0 - 0.5) * SURFACE_MARKER_JITTER
                 frac = ((t / life) + (k % per_side) / max(1.0, per_side) + jit) % 1.0
                 # 沿接触面从近顶滑向坡脚: 用"接触高度随 |dx| 下降到球底"定终点
-                lo, hi = 1.0, Ri
-                for _ in range(14):                       # 找接触面与球底相交处 = 坡脚
-                    mid = 0.5 * (lo + hi)
-                    if prof.raw(side * mid, apex) - prof.bounds(side * mid)[0] > 0.0:
-                        lo = mid
-                    else:
-                        hi = mid
-                foot = 0.5 * (lo + hi)
+                foot = foot_of[side]
                 start = min(foot, max(6.0, 0.12 * Ri))
                 # ⚠️ **由强到弱**: 评审 dingbu.md §5 那张表对下球写的是
                 #    "先**集中**在堆顶周围的短坡段" —— 不是把 12 颗均匀铺满整条坡。
