@@ -357,7 +357,12 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 # ⚠️ 会改变随机数调用序列 ⇒ 旧的"同 seed 逐像素对照"基线作废(有意的视觉改动)。
 # ★ 与周期无关的**水位**(用户 2026-10-06: 「和周期没有关系」)—— 这就是唯一那个数。
 #   520 = 用户说"有点少了"时的量; 现取 **700(+35%)**。要更多/更少只改这一个数。
-SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "700"))
+# 🔴 **2026-10-07 性能: 700 → 480**(用户 /goal: 「甚至可以牺牲少量表现」)。
+#   设备分段实测 `物理` 3.77ms 里的大头是**飞溅循环**(~1700 颗 × 纯 Python dict 读写),
+#   而飞溅的**在世数 = 生成率 × 寿命** ⇒ 直接按比例换时间。
+#   480/700 = −31% 的背景层(背景层约占生成量的一半) ⇒ 总颗数约 −15%。
+#   ⚠️ 这是**观感取舍**: 觉得稀了就把这个数调回去(一行)。
+SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "480"))
 # 🔴 **2026-10-06 用户裁决: 「这个实际上和周期没有关系」** ⇒ 飞溅**不随周期变**。
 #   曾按 `∝ 在途主流粒子数` 做过(比例跨 14 倍 → 4.2 倍), 但那必然让长周期变少(50s 只剩 45%)
 #   ⇒ **作废**。默认 0 = 走定率 `SPLASH_BG_RATE`; 非 0 可恢复"按比例"(留作对照臂)。
@@ -2241,6 +2246,9 @@ class HourglassWidget(Widget):
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._contact_table = []             # 飞溅用的接触高度查找表(见 update_particles)
         self._upper_level_key = None        # `_upper_level_for` 的每帧 memo
+        self._upper_cols = None             # `_upper_area` 的布局缓存(dx/floor/roof)
+        self._neck_tone_tab = None          # 颈部颗粒的色调查表(见 _draw_neck_grains)
+        self._neck_tone_last = None         # 每槽上次写过的颜色(值没变就不写)
         self._completion_triggered = False
         self._done_at = None                 # 漏完时刻(颈管排空用), 未漏完为 None
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
@@ -2744,6 +2752,9 @@ class HourglassWidget(Widget):
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._contact_table = []             # 飞溅用的接触高度查找表(见 update_particles)
         self._upper_level_key = None        # `_upper_level_for` 的每帧 memo
+        self._upper_cols = None             # `_upper_area` 的布局缓存(dx/floor/roof)
+        self._neck_tone_tab = None          # 颈部颗粒的色调查表(见 _draw_neck_grains)
+        self._neck_tone_last = None         # 每槽上次写过的颜色(值没变就不写)
         self._completion_triggered = False
         self._done_at = None                 # 重置后颈管立刻回到"未排空"状态
         self._completion_token += 1          # 作废还没到点的完成提示
@@ -2805,6 +2816,17 @@ class HourglassWidget(Widget):
         #   改成居中之后: **均值 == 沙层色**, 抖动只负责给出与沙堆同性质的颗粒感,
         #   不再有系统性的偏亮。暗端取 `sand_dark` ⇒ 与沙堆材质的暗颗粒同源。
         self._flow_table = [self._flow_tone(k) for k in range(11)]
+        # 🔴 **颈部颗粒的色调查表**(2026-10-07 性能)。原来每颗要现算:
+        #   2 次 clamp + 3 次 lerp(得到 T) + 再 3 次 lerp(0.85 预混) = 6 次 lerp/颗。
+        #   而整条式子化简后就是 `base + (light-base) * M`, `M = mix*0.85`(高光颗恒 0.85)。
+        #   把 M **量化成 32 档**列表: 最大量化误差 = (light-base)/31/2 ≈ **0.21 级**,
+        #   肉眼不可见; 换来每颗只要 1 次查表。
+        self._neck_tone_tab = [
+            tuple(self.sand_base[i]
+                  + (self.sand_light[i] - self.sand_base[i]) * (j / 31.0)
+                  for i in range(3))
+            for j in range(32)]
+        self._neck_tone_last = [None] * len(getattr(self, "_neck_grain_pool", ()))
         # 「高光组」= 刚出孔口的新生颗粒(trail_time 短)。它原来直接用 sand_light,
         # 而**出口正上方就是颈部沙柱**, 那里是材质色(≈base, tone 中位 -0.04)。
         # 于是出口处出现一道**15 级的亮度阶跃**(实测 215 → 230 @ 屏幕 y=426 = outlet),
@@ -4135,12 +4157,36 @@ class HourglassWidget(Widget):
         w = 2.0 * Ri / n
         area = deriv = 0.0
         rough = self._upper_rough_now()      # ← 循环外取一次(见 `_upper_rough_at` 的 `arr` 说明)
-        rough_at = self._upper_rough_at
+        # `_upper_rough_at` 的包络 —— `level` 在一次调用内不变 ⇒ 每调用只算一次(同式)
+        if Ri > 0.0:
+            _q = min(1.0, max(0.0, level / (2.0 * Ri)))
+            env = _smoothstep(0.0, 0.015, _q) * (1.0 - _smoothstep(0.97, 1.0, _q))
+        else:
+            env = 0.0
+        # 🔴 **整个循环内联**(2026-10-07 性能)。这是一个**牛顿迭代的内核**:
+        #   `_upper_solve_level` 每帧调它 ~6 次、每次 65 个节点 ⇒ 每帧 ~390 次节点迭代,
+        #   而原来**每个节点要两次函数调用**(`_upper_surface_drop` + `_upper_rough_at`)
+        #   ⇒ ~780 次/帧。设备实测 `_upper_level_for` **一次求解就要 0.39ms**, 全在这。
+        #   内联 + 把只跟几何有关的量(`dx`/`floor`/`roof`, 含一个 `sqrt`)预先算好。
+        cols = self._upper_cols                 # 布局缓存(见 `_rebuild_height_table`)
+        if cols is None or len(cols) != n + 1:
+            cols = self._upper_cols = [None] * (n + 1)
         for i in range(n + 1):
-            dx = -Ri + w * i
-            floor = Ri - math.sqrt(max(0.0, Ri * Ri - dx * dx))
-            roof = 2.0 * Ri - floor
-            y = level - self._upper_surface_drop(dx, d, b) + rough_at(i, level, rough)
+            c = cols[i]
+            if c is None:
+                dx = -Ri + w * i
+                fl = Ri - math.sqrt(max(0.0, Ri * Ri - dx * dx))
+                c = cols[i] = (dx, fl, 2.0 * Ri - fl)
+            dx, floor, roof = c
+            # `_upper_surface_drop` 内联(与那一份定义逐字相同)
+            if d > 0.0 and b > 1e-6:
+                u = 1.0 - (dx / b) ** 2
+                drop = d * u if u > 0.0 else 0.0
+            else:
+                drop = 0.0
+            y = level - drop
+            if rough and i < len(rough):
+                y += rough[i] * env
             if y <= floor:
                 continue
             if y >= roof:
@@ -4892,6 +4938,8 @@ class HourglassWidget(Widget):
                 # 不再有"越往下越亮"的深度斜率 —— 沙堆没有那条斜率, 沙流也不该有。
                 idx = w + (FLOW_TONE_CENTER - 4)
                 np.clip(idx, 0, last, out=idx)
+                # ★ 色调研磨成 4 档(每 3 档取 1) —— 桶数 22 → 8。见 /tmp/patch_buckets.py
+                idx -= idx % 3
                 key = np.where(self.pli[:n][sel] != 0.0, n_colors, idx)
                 slot = np.where(self.psz[:n][sel] == 1.0, 0, 1)
                 code = key * 2 + slot
@@ -4922,6 +4970,7 @@ class HourglassWidget(Widget):
                 if w > 8:
                     w = 8
                 index = w + (FLOW_TONE_CENTER - 4)
+                index -= index % 3      # ← 与 numpy 路径一起改(见上)
                 if index < 0:
                     index = 0
                 elif index > last:
@@ -5045,8 +5094,17 @@ class HourglassWidget(Widget):
 
         t_in = max(1e-6, self._taper["t_in"])
         tone_scale = 5 / math.tau
+        tone_tab = self._neck_tone_tab
+        if tone_tab is None or len(tone_tab) != 32:
+            tone_tab = self._neck_tone_tab = [
+                tuple(self.sand_base[k]
+                      + (self.sand_light[k] - self.sand_base[k]) * (j / 31.0)
+                      for k in range(3)) for j in range(32)]
         pool = self._neck_grain_pool
         pool_len = len(pool)
+        tone_last = self._neck_tone_last
+        if tone_last is None or len(tone_last) != pool_len:
+            tone_last = self._neck_tone_last = [None] * pool_len
         cx = self._cx
         base_r, base_g, base_b = self.sand_base
         light_r, light_g, light_b = self.sand_light
@@ -5083,26 +5141,27 @@ class HourglassWidget(Widget):
             # 比球体整整高一个档 ⇒ 颈部读成另一种材料。压暗会变脏斑(项目试过), 所以只收窄亮端。
             tone_t = 0.06 + 0.20 * t
             if lights_p[i]:
-                tr, tg, tb = light_r, light_g, light_b
+                ji = 26                      # 0.85 * 31 ≈ 26.35 ⇒ 最近的量化档
             else:
                 variation = int(phases_p[i] * tone_scale)
                 if variation > 4:
                     variation = 4
                 variation -= 2
-                mix = tone_t + variation * 0.04
-                if mix < 0.0:
-                    mix = 0.0
-                elif mix > 1.0:
-                    mix = 1.0
-                # 等价于 lerp_rgb(sand_base, sand_light, mix)
-                tr = base_r + (light_r - base_r) * mix
-                tg = base_g + (light_g - base_g) * mix
-                tb = base_b + (light_b - base_b) * mix
+                # 化简: color.rgb = base + (light-base) * (mix * 0.85)
+                # (原来先 lerp 出 T=base+(light-base)*mix, 再 base+(T-base)*0.85 —— 同一个式子)
+                m = (tone_t + variation * 0.04) * 0.85
+                if m < 0.0:
+                    m = 0.0
+                elif m > 1.0:
+                    m = 1.0
+                ji = int(m * 31.0 + 0.5)
             color, line = pool[count]
             # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
-            color.rgb = (base_r + (tr - base_r) * 0.85,
-                         base_g + (tg - base_g) * 0.85,
-                         base_b + (tb - base_b) * 0.85)
+            # 量化后查表 —— 且**同一槽位颜色没变就不写**(Kivy 属性赋值要过描述符 + 事件派发)
+            rgb = tone_tab[ji]
+            if tone_last[count] != rgb:
+                color.rgb = rgb
+                tone_last[count] = rgb
             if line.width != size:
                 line.width = size
             top_pt = y + 1
