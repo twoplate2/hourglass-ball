@@ -2240,6 +2240,7 @@ class HourglassWidget(Widget):
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._contact_table = []             # 飞溅用的接触高度查找表(见 update_particles)
+        self._upper_level_key = None        # `_upper_level_for` 的每帧 memo
         self._completion_triggered = False
         self._done_at = None                 # 漏完时刻(颈管排空用), 未漏完为 None
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
@@ -2742,6 +2743,7 @@ class HourglassWidget(Widget):
         self._mound_shape_cache = None       # ((几何代, elapsed), apex) —— 每帧只解一次
         self._mound_curve_cache = None       # ((几何代, elapsed), (cx+dx, y)) 接触曲线
         self._contact_table = []             # 飞溅用的接触高度查找表(见 update_particles)
+        self._upper_level_key = None        # `_upper_level_for` 的每帧 memo
         self._completion_triggered = False
         self._done_at = None                 # 重置后颈管立刻回到"未排空"状态
         self._completion_token += 1          # 作废还没到点的完成提示
@@ -4186,13 +4188,27 @@ class HourglassWidget(Widget):
         无漏斗时直接返回平顶高度(`_upper_sand_height_px` 的结果); 有漏斗时解一次面积方程,
         把沙面抬到"漏斗扣掉多少就补回多少"。⇒ 上球与下球**共用同一个沙量真值**。
         """
+        # ★ **一帧内只解一次**(2026-10-07 性能)。这是个**牛顿/二分求解**
+        #   (`_upper_solve_level` 里反复调 65 点的 `_upper_area`), 而**每帧有三个调用方**:
+        #   `redraw`(up_draw 的护栏)、`_draw_upper_shape`(画沙面)、
+        #   `_draw_surface_markers`(表层标记定位) —— 三个传进来的 `upper_height`
+        #   **逐位相同**(都来自本帧的 `_upper_sand_height_px()`), `elapsed` 一帧内也不变
+        #   ⇒ 后两次是**纯白算**。memo 键用 `(elapsed, upper_height, duration)`,
+        #   三个量任何一个变了都必须重解(暂停/重置/改周期都会变)。
+        _key = (self.elapsed, upper_height, self.duration)
+        if getattr(self, "_upper_level_key", None) == _key:
+            return self._upper_level_val
         p = 0.0 if self.duration <= 0 else min(1.0, self.elapsed / self.duration)
         d, b = self._upper_funnel_params(p, upper_height)
         if d <= 0.0 or upper_height <= 0.0:
-            return upper_height
-        target, _ = self._upper_area(upper_height, 0.0, 0.0)     # 平顶等效面积
-        return self._upper_solve_level(target, d, b, 0.0,
-                                       upper_height + d + 1.0)
+            val = upper_height
+        else:
+            target, _ = self._upper_area(upper_height, 0.0, 0.0)     # 平顶等效面积
+            val = self._upper_solve_level(target, d, b, 0.0,
+                                          upper_height + d + 1.0)
+        self._upper_level_key = _key
+        self._upper_level_val = val
+        return val
 
     def _upper_surface_drop(self, dx, d, b):
         """上球沙面在 dx 处的**下陷量**(≥0, px): `d · [max(0,1-(dx/b)²)]²`。
