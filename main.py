@@ -1558,6 +1558,11 @@ class _SandBgPopup(Popup):
         kwargs.setdefault('title_color', (1, 1, 1, 1))
         kwargs.setdefault('title_align', 'center')
         super().__init__(**kwargs)
+        # 记住**构造时**的宽度比例: 重挂回竖屏时要拿它还原 `size_hint`。
+        # 不能等 open() 时再读 —— 横屏分支把 size_hint 改成了 (None, None),
+        # 那时再读就只剩兜底值 0.88, 开发者菜单(0.94)会被悄悄改窄。
+        self._frac = (self.size_hint[0]
+                      if (self.size_hint and self.size_hint[0] is not None) else 0.88)
         # 兜底层: Popup 本体 canvas.before(填充容器外间隙)
         with self.canvas.before:
             Color(*self._bg_rgb, 1)
@@ -1590,6 +1595,12 @@ class _SandBgPopup(Popup):
         layer = _land_layer()
         if layer is None or layer.angle == 0:
             super().open(*args, **kwargs)          # 竖屏回落原生行为(零回归)
+            # 原生 open() 把 on_keyboard 绑在 Window 上(不是绑在本 widget), 记下来好解。
+            self._kb_window = Window
+            if layer is not None:
+                # ⚠️ 竖屏开的弹窗**也要登记** —— 否则"竖屏开着弹窗再转横屏"时
+                #    没人通知它 (2026-10-06 r32-1号 设备实测的那条 E1 缺陷)。
+                layer.track_popup(self)
             Clock.schedule_once(self._apply_light_theme, 0)
             return
         # 横屏: 不再把弹窗挂 Window(Window 不旋转), 改挂旋转层让其随层旋转成竖构图。
@@ -1598,11 +1609,7 @@ class _SandBgPopup(Popup):
         if self._is_open:
             return
         eq_w = min(Window.width, Window.height)    # 等效竖屏窗宽=短边
-        frac = None
-        if self.size_hint and self.size_hint[0] is not None:
-            frac = self.size_hint[0]
-        else:
-            frac = 0.88
+        frac = self._frac                          # 构造时记下的(dev 菜单 0.94, 其余 0.88)
         self.size_hint = (None, None)
         self.size = (frac * eq_w, self.height)
         self._window = layer                        # 宿主从 Window 换成旋转层
@@ -1611,6 +1618,7 @@ class _SandBgPopup(Popup):
         if not self.pos_hint:
             self.pos_hint = {"center_x": 0.5, "center_y": 0.5}
         layer.add_widget(self)                      # 挂到层而非 Window
+        layer.track_popup(self)                     # 转屏时由 apply_orientation 通知重挂
         layer.bind(on_resize=self._align_center)
         # ⚠️ **`on_keyboard` 必须绑在 `Window` 上, 不能绑在层上**（2026-10-06, r31-1号 设备实测）:
         #    Kivy 只在 `Window` 上派发这个事件; 绑在任意 widget(这里是旋转层)上**永远不会被触发**
@@ -1626,26 +1634,97 @@ class _SandBgPopup(Popup):
         self.dispatch('on_open')
         Clock.schedule_once(self._apply_light_theme, 0)
 
-    def _real_remove_widget(self):
-        """覆写: dismiss 时从旋转层对称摘除(非横屏时 host=Window, 行为等同原生)。"""
-        if not self._is_open:
-            return
-        self._window.remove_widget(self)
-        try:
-            self._window.unbind(on_resize=self._align_center,
-                                on_keyboard=self._handle_keyboard)
-        except Exception:
-            pass
-        # 横屏分支另外把 on_keyboard 绑在了 Window 上(见 open 里的说明), 这里对称解开。
-        _kbw = getattr(self, "_kb_window", None)
-        if _kbw is not None:
+    def _align_center(self, *_args):
+        """ModalView 原版是 `if self._is_open: self.center = self._window.center`。
+        加一句 `self._window is not None` —— 转屏重挂(`rehost`)过程中会短暂把 `_window`
+        清空, 而那时 `size`/`center` 的绑定还在, 原版会在这一瞬间
+        `AttributeError: 'NoneType' object has no attribute 'center'`。
+        """
+        if self._is_open and self._window is not None:
+            self.center = self._window.center
+
+    def _unmount(self):
+        """从当前宿主摘下来 + 解开该宿主上的绑定。**不动 `_is_open`**。
+
+        与 `_real_remove_widget` 的区别: 那个是"关掉"(还要置 `_is_open=False`),
+        这个是"搬家"—— 摘完马上会挂到另一个宿主上。
+        """
+        host = self._window
+        if host is not None:
             try:
-                _kbw.unbind(on_keyboard=self._handle_keyboard)
+                host.remove_widget(self)
+            except Exception:
+                pass
+            try:
+                host.unbind(on_resize=self._align_center)
+            except Exception:
+                pass
+        # 键盘绑定: 两个分支都绑在 **Window** 上(横屏分支见 open() 里的说明),
+        # 所以从 host 那边解不掉, 要单独记住 Window 再解。
+        kbw = getattr(self, "_kb_window", None)
+        if kbw is not None:
+            try:
+                kbw.unbind(on_keyboard=self._handle_keyboard)
             except Exception:
                 pass
             self._kb_window = None
-        self._is_open = False
         self._window = None
+
+    def rehost(self, to_layer):
+        """窗口方向变了 → 把**已经开着**的弹窗换到正确的宿主上。
+
+        ⚠️ 为什么必须有: `open()` 是在**开的那一刻**按 `layer.angle` 定宿主的 ——
+           竖屏挂 `Window`(Window 不旋转) / 横屏挂旋转层(随层转)。转屏只改 `layer.angle`,
+           原先**没有任何地方重挂已开的弹窗** ⇒ 竖屏开着弹窗再转横屏, 弹窗**侧躺 90°**。
+           反向(横→竖)只是"侥幸对": 层角回 0, 挂在层上也不转了。
+           (2026-10-06 r32-1号 设备实测 E1: 周期/音效两个弹窗各复现一次,
+            反向对照臂方向正确。)
+
+        幂等: 已经在正确宿主上就直接返回。宿主由 `LandLayer.apply_orientation()` 调。
+        """
+        if not self._is_open:
+            return
+        layer = _land_layer()
+        if layer is None:
+            return
+        on_layer = (self._window is layer)
+        if bool(to_layer) == on_layer:
+            return
+        self._unmount()
+        if to_layer:
+            # 挂旋转层: 尺寸按"等效竖屏窗宽 = 短边"换算(直接挂会按物理长边放大溢出)
+            eq_w = min(Window.width, Window.height)
+            self.size_hint = (None, None)
+            self.size = (self._frac * eq_w, self.height)
+            self._window = layer
+            layer.add_widget(self)
+            layer.bind(on_resize=self._align_center)
+            Window.bind(on_keyboard=self._handle_keyboard)
+            self._kb_window = Window
+            self.center = layer.center
+        else:
+            # 回竖屏: 还原成原生宿主(Window)与原生 size_hint, 让 Window 自己排
+            Window.add_widget(self)
+            self._window = Window
+            Window.bind(on_resize=self._align_center,
+                        on_keyboard=self._handle_keyboard)
+            self._kb_window = Window
+            self.size_hint = (self._frac, None)
+            self.center = Window.center
+
+    def _real_remove_widget(self):
+        """覆写: dismiss 时从旋转层对称摘除(非横屏时 host=Window, 行为等同原生)。
+
+        ⚠️ 原先那句"覆写"其实是**抄了一遍 ModalView 的实现再打补丁**;
+        现在统一走 `_unmount()`, 免得两处各解一半绑定(转屏重挂新增了第二个调用点)。
+        """
+        if not self._is_open:
+            return
+        layer = _land_layer()
+        if layer is not None:
+            layer.untrack_popup(self)
+        self._unmount()
+        self._is_open = False
 
     def _apply_light_theme(self, *_):
         """清空 _container 深色背景,替换为浅色"""
@@ -1674,11 +1753,19 @@ class LandLayer(FloatLayout):
         super().__init__(**kw)
         self.angle = 0            # 渲染旋转角: 0=竖屏无旋转, 其他=±90
         self._anchor = None       # "等效竖屏窗口"容器(AnchorLayout), 由 build 塞入
+        # 开着的沙色弹窗(它们要在转屏时换宿主, 见 _SandBgPopup.rehost)
+        self._popups = set()
         with self.canvas.before:
             PushMatrix()
             self._rot = Rotate(angle=0, axis=(0, 0, 1), origin=(0, 0))
         with self.canvas.after:
             PopMatrix()
+
+    def track_popup(self, p):
+        self._popups.add(p)
+
+    def untrack_popup(self, p):
+        self._popups.discard(p)
 
     def apply_orientation(self):
         """窗口尺寸变化时重算: 层永远铺满整窗, anchor 按"等效竖屏盒"定尺寸并绕屏中心旋转。"""
@@ -1693,6 +1780,19 @@ class LandLayer(FloatLayout):
         if self._anchor is not None:
             self._anchor.size = (h, w) if land else (w, h)
             self._anchor.center = self.center
+        # ⚠️ **已开着的弹窗必须跟着换宿主**(2026-10-06 r32-1号 设备实测 E1)。
+        #    `_SandBgPopup.open()` 是在**开的那一刻**按 `layer.angle` 定宿主的 ——
+        #    竖屏挂 `Window`(Window 不旋转), 横屏挂本层(随层转)。而转屏只改 `self.angle`,
+        #    原先**没有任何地方重挂已开的弹窗** ⇒ 竖屏开着弹窗再转横屏, 弹窗**侧躺 90°**。
+        #    反向(横→竖)只是"侥幸对": 层角回 0, 挂在层上也不转了。
+        #    ⚠️ `_LAYER` 那句注释里写的"弹窗 remount"就是这个位置 ——
+        #    初版只写了注释、没写代码(见 commit 8d950b3), 这个洞一直留到今天。
+        want = (self.angle != 0)
+        for _p in list(self._popups):
+            try:
+                _p.rehost(want)
+            except Exception:
+                pass
         return land
 
     def _to_eq(self, x, y):
