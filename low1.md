@@ -167,7 +167,7 @@ power_save / thermal_status`。
 
 ---
 
-## 4. 关键代码（供对照）
+## 4. 关键代码（**摘要**；完整原文见 §8**自包含**）
 
 ### 4.1 沙流渲染器（曾经的最大优化，已落地）
 
@@ -391,26 +391,530 @@ def shape_at(self, dx):                    # 65 个控制点之间**线性插值
 
 ---
 
-## 8. 可复现的关键文件
+## 8. 关键代码**全文**（本文件**自包含** —— 你只拿到这一个文件也能读）
 
-| 文件 | 作用 |
-|---|---|
-| `main.py` | 单文件 App（~6300 行）：几何 + 物理 + 渲染 + UI |
-| `frame_benchmark.py` | **benchmark 的测量算法**（§2 就是它） |
-| `tools/flow_texture_experiment.py` | 沙流的端点纹理批处理器（§4.1） |
-| `tools/_probe_frame_cost.py` | **墙钟**帧成本（判收益用，**不要用 cProfile**） |
-| `tools/_probe_splash_count.py` | 飞溅在世数峰值 |
-| `tools/_probe_splash_slide.py` | 逐颗跟踪飞溅的滑行距离/寿命 |
-| `tools/_probe_stream_ink.py` | 沙流"墨量"随周期 |
-| `tools/verify_hourglass.py` | 278 项闸门（含负对照） |
-| `tools/ab_device_benchmark.sh` + `tools/analyze_ab.py` | 设备侧 A/B（n≥3 交替轮 + 按轮配对差） |
+> 下面是从仓库里**原文抽出**的代码，不需要访问任何其他文件。
+> 行号/路径仅供参考，**判断以这里贴出的代码为准**。
+
+### A. `frame_benchmark.py` —— **四探针切帧**
+帧时间 = 相邻两次 `Window.on_flip` 的间隔。四段 = 物理/图元/Canvas/前次Swap。
+```python
+    def _install_probes(self):
+        self._probe_methods = []
+        gc.callbacks.append(self._gc_probe)
+        for target, name, stage in (
+                (self.widget, "update_particles", "physics_ms"),
+                (self.widget, "redraw", "update_draw_ms"),
+                (Window, "on_draw", "canvas_ms"),
+                (Window, "flip", "previous_swap_ms")):
+            original = getattr(target, name)
+
+            def measured(*args, _original=original, _stage=stage, **kwargs):
+                before = time.perf_counter()
+                try:
+                    return _original(*args, **kwargs)
+                finally:
+                    after = time.perf_counter()
+                    self._stages[_stage] = (after - before) * 1000
+                    # 额外记时间戳: 把 flip->flip 里四探针之外的部分拆开
+                    self._stamps[_stage] = (before, after)
+
+            self._probe_methods.append((target, name, original))
+            setattr(target, name, measured)
+
+```
+
+### B. `frame_benchmark.py` —— **统计量**(平均 / 1% low / 分位)
+⚠️ `1% low` 的尾部帧数有下限 `TAIL_MIN_FRAMES = 5`(1s 档只有 ~110 帧)。
+```python
+def frame_statistics(intervals):
+    samples = [dt for dt in intervals if math.isfinite(dt) and dt > 0]
+    if not samples:
+        return {"frames": 0, "average_fps": None, "one_percent_low_fps": None,
+                "slowest_five_fps": [], "slowest_five_ms": []}
+    slowest = sorted(samples, reverse=True)
+    # ⚠️ 尾部帧数要设**下限**: 1 秒档只有 ~110 帧, ceil(1%) = 2 帧 ⇒ "1% low" 退化成
+    # "最慢那一帧"(实测 95.6 而最慢帧 93.6 —— 几乎是同一个数), 还跟上面那行
+    # 「最慢 5 帧」重复显示同一信息, 并且会随测试时长漂移(同一段开头测 1s / 5s 给出的值不同)。
+    # 下限取 5 帧, 并把**实际用了几帧**一并报出去(界面和日志都能看见)。
+    low_count = min(len(slowest), max(TAIL_MIN_FRAMES, math.ceil(len(samples) * 0.01)))
+    return {
+        "frames": len(samples),
+        "average_fps": len(samples) / sum(samples),
+        "one_percent_low_fps": low_count / sum(slowest[:low_count]),
+        "one_percent_low_frames": low_count,
+        "slowest_five_fps": [1 / dt for dt in slowest[:5]],
+        "slowest_five_ms": [dt * 1000 for dt in slowest[:5]],
+    }
+
+
+```
+
+### C. `main.py` —— **主粒子循环**的每帧核心(流量守恒收缩所在)
+每颗粒每帧都会走这里。**峰值 ~1540 颗粒**。
+```python
+                fd = gen_y - y
+                fallen_dist = fd if fd > 0.0 else 0.0
+                # 管内: 管壁约束,填满内径 shrink=1.0
+                # 出管: 40px 平滑过渡区渐变到流量守恒目标值,避免突兀收缩
+                if y > lower_cut:
+                    shrink = 1.0
+                else:
+                    below_tube = lower_cut - y
+                    # ★ `** 0.5` → `sqrt`(2026-10-06 性能): 两处操作数都**非负**
+                    #   ⇒ 逐字等价, 而 CPython 里 `**0.5` 走 `pow`、明显慢于 `math.sqrt`。
+                    #   这是**每颗粒每帧两次**, 峰值 1540 颗粒 ⇒ ~3080 次/帧。
+                    v_at_y = sqrt(source_speed_squared + 2 * g_abs * below_tube)
+                    target = sqrt(source_speed / v_at_y)
+                    if target <= FLOW_SHRINK_MIN:
+                        target = FLOW_SHRINK_MIN
+                    # 平滑过渡区长度(px)
+                    if below_tube < 40.0:
+                        shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
+                    else:
+                        shrink = target
+                    dist_to_floor = y - mound_top
+                    if 0 < dist_to_floor < 30:
+                        shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
+                x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
+                    * wobble_amp * (1 - shrink * 0.4)
+
+```
+
+### D. `main.py` —— **飞溅循环**(落坡前抛物线 + 落坡后贴面滑行)
+峰值 **~1900~2600 颗**。每颗每帧一次 sqrt(已改平方比较)、一次接触面查询(已改每帧一张表)。
+```python
+        for s in self.splashes:
+            step_dt = s.pop("_step_dt", dt)
+            # ★ **已停稳的直接跳过整段积分与接触判定**(它们 x/y/v 都不再变, 只推进计时)。
+            #   滞留期占在途寿命约 4 成 ⇒ 这一段省掉的是 4 成的飞溅循环。
+            _still = s.get("_still")
+            if _still is not None:
+                _still += step_dt
+                if _still > SPLASH_STILL_LIFE:
+                    continue
+                s["_still"] = _still
+                append_splash_keep(s)
+                continue
+            _g = g_splash * s.get("gd", 1.0)      # 每颗自己的重力(轨迹才各不相同)
+            y = s["y"] + s["vy"] * step_dt + 0.5 * _g * step_dt * step_dt
+            vy = s["vy"] + _g * step_dt
+            x = s["x"] + s["vx"] * step_dt
+            s["y"] = y
+            s["vy"] = vy
+            s["x"] = x
+            # ★ **平方比较代替 `sqrt`**(2026-10-06 性能): 这颗 sqrt 只用来跟 `|sx|`
+            #   比大小, 而 `|sx| > sqrt(r) - 1  ⟺  (|sx|+1)² > r = Ri² - dy²`
+            #   (两边都非负)。**逐字等价**, 连原来那两个分支都一并覆盖了:
+            #   `r <= 0` 时右边为负 ⇒ 恒真(跳过); `sqrt(r) < 1` 时右边 ≤ 1 < (|sx|+1)²
+            #   ⇒ 也恒真(跳过) —— 与原式完全一致。省掉每颗每帧一次 sqrt + 一个分支。
+            dy = y - lower_center
+            sx = x - cx
+            _ax = sx + 1.0 if sx > 0.0 else 1.0 - sx
+            if _ax * _ax + dy * dy > Ri2:
+                continue
+            # ⚠️ **只在真的要判定时才求接触高度**(v<0 = 正在下落): 上升期多算一次
+            #    `contact()` 实测让 15s 档 physics 多 0.35ms(A/B 3 轮可分辨)。
+            #    定义仍然是 `_MoundProfile.contact` 那一份, 没有第二套公式。
+            if vy < 0 and _ctab is not None:
+                _z = (sx + _ctab_r) * _ctab_inv
+                _i = int(_z)
+                if _i < 0:
+                    _surf = _mound_bot + _ctab[0]
+                elif _i >= _ctab_n - 1:
+                    _surf = _mound_bot + _ctab[_ctab_n - 1]
+                else:
+                    _a0 = _ctab[_i]
+                    _surf = _mound_bot + _a0 + (_ctab[_i + 1] - _a0) * (_z - _i)
+                if y <= _surf:
+                    # 🔴 **2026-10-06 用户口径: 「溅到沙子上才开始掉的」+「简化一个模型」**
+                    #    旧版这里直接 `continue`(删掉) ⇒ 颗粒**永远贴不上沙面**,
+                    #    看到的就是"悬在半空的一圈浮尘"。改成 **贴着坡面滑**:
+                    #    贴到面 + 纵向速度归零(重力下一帧又把它按回面上 ⇒ 自然沿面走)
+                    #    + 横向按摩擦衰减, 直到停住或超时。
+                    y = _surf
+                    s["y"] = y
+                    s["vy"] = 0.0
+                    s["_rest"] = s.get("_rest", 0.0) + step_dt
+                    _avx = s["vx"] if s["vx"] >= 0.0 else -s["vx"]
+                    if _avx < SPLASH_MIN_VX:
+                        # 🔴 **2026-10-06 用户: 「沙子的向下流动应该是流动一会会就不动了
+                        #   (因为有阻力), 否则全部向下流动, 但是下面没有堆积, 这个不合理」**
+                        #   旧版这一支直接 `continue`(**删除**) ⇒ 颗粒**永远看不到"停住"**,
+                        #   只看到它一路顺着坡滑到底、然后被抹掉 ⇒ 读起来就是
+                        #   "所有沙都在往下流、可下面什么都没堆"。
+                        #   现在: 停住之后**原地留 `SPLASH_STILL_LIFE` 秒**再消失 ——
+                        #   任一时刻坡面上都撒着一层已经停稳的颗粒, 覆盖面积反而更大
+                        #   (这也正是用户此前要的「表面大部分地方都有沙子在流动」)。
+                        s["vx"] = 0.0
+                        s["_still"] = s.get("_still", 0.0) + step_dt
+                        if s["_still"] > SPLASH_STILL_LIFE:
+                            continue
+                    else:
+                        # ★ **沿坡加速度**(2026-10-06 加; 同日又调成 ~0, 见常量区注释)。
+                        #   ⚠️ 坡角用 `contact` 的**中心差分**取(与绘制同一份定义, 不另写一套)。
+                        if SPLASH_SLOPE_GAIN > 0.0:
+                            _dd = 2.0
+                            _slope = (_profile.contact(sx + _dd, _apex)
+                                      - _profile.contact(sx - _dd, _apex)) / (2.0 * _dd)
+                            _sin_a = abs(_slope) / math.sqrt(1.0 + _slope * _slope)
+                            s["vx"] += ((1.0 if sx >= 0.0 else -1.0)
+                                        * g_abs * _sin_a * SPLASH_SLOPE_GAIN * step_dt)
+                        _k = 1.0 - SPLASH_SLIDE_DAMP * step_dt
+                        s["vx"] = s["vx"] * (_k if _k > 0.0 else 0.0)
+                        if s["_rest"] > SPLASH_REST_LIFE:
+                            continue
+            if y < lower_bot or y > lower_top - 5:
+                continue
+            append_splash_keep(s)
+```
+
+### E. `main.py` —— `_sync_rects`(飞溅**每颗一个 `Rectangle`** 的提交路径)
+**这是当前最大的单点**: 1800~2600 个独立 `Rectangle`。
+```python
+    def _sync_rects(group, pool, particles, fixed_size=None):
+        for i, particle in enumerate(particles):
+            sz = particle["size"] if fixed_size is None else fixed_size
+            # ⚠️ `size` 可以是**数字**(正方形)也可以是 **(w, h) 二元组** —— 飞溅层用它做
+            #    1x1 / 1x2 / 2x2 的混合尺寸(用户 2026-10-06:「感觉太密集、太细」)。
+            if isinstance(sz, (tuple, list)):
+                w, h = float(sz[0]), float(sz[1])
+            else:
+                w = h = float(sz)
+            pos = (particle["x"] - w / 2, particle["y"] - h / 2)
+            size = (w, h)
+            if i == len(pool):
+                rect = Rectangle(pos=pos, size=size)
+                group.add(rect)
+                pool.append(rect)
+            else:
+                # ★ **值没变就别写**(2026-10-06 性能): 停稳的飞溅占在世数约四成,
+                #   它们的 `pos`/`size` 一帧到一帧**完全一样**。Kivy 的属性赋值要走
+                #   描述符 + 事件派发, 每帧白写两千多次不值当。
+                #   ⚠️ `Rectangle` **没有** `x`/`y`/`width`/`height`(只有 `pos`/`size`
+                #      两个 ReferenceListProperty)—— 踩过, 属性名写错会当场 AttributeError。
+                rect = pool[i]
+                if rect.pos != pos:
+                    rect.pos = pos
+                if rect.size != size:
+                    rect.size = size
+        for rect in pool[len(particles):]:
+            if rect.size[0] or rect.size[1]:
+                rect.size = (0, 0)
+
+```
+
+### F. `main.py` —— `_draw_neck_grains`(颈部颗粒层, 1.65ms)
+固定 128 图元池, 把已流出的粒子投影回整条颈部轮廓。
+```python
+    def _draw_neck_grains(self, side):
+        """把已流出的粒子投影回**整条**颈部轮廓(喇叭口 + 直筒),做连续颗粒纹理。
+
+        旧写法只覆盖直筒、且颗粒可见度从入口的 0 起 —— 颗粒在入口一段完全看不见,
+        于是"可见度前沿"在颈部留下一条横向分界线(线上是纯平色块、线下才有颗粒),
+        就是那条看不出画在哪的横线。这里改为:
+        ① 覆盖整条 side(喇叭口→孔口),颗粒横向按轮廓半宽展开成扇形;
+        ② 可见度恒定、不再归零;
+        ③ 色调只在 [底色 → sand_light] 之间走且入口端不归零 —— 既保留原设计的
+           "闪砂"观感(压暗会变成脏斑),又不留纯平区,横向突变随之消失。
+        """
+        if not side or side[-1][1] > 2 * self._neck_y - self._taper["y_bot"] + 1e-6:
+            self._hide_neck_grains()
+            return
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        length = max(1e-6, self._taper["y_bot"] - outlet)
+        top_y, bottom_y = side[0][1], side[-1][1]
+        span = max(1e-6, top_y - bottom_y)
+        scale = self._particle_motion_scale
+        twice_gravity = 900 * scale * scale
+        source_limit_squared = (75 * scale) ** 2
+        # 第一趟只求最深的投影深度, 第二趟再画 —— 原来给每个候选都分配一个
+        # (distance, particle) 元组(峰值约 1800 次/帧)。两趟的候选顺序与 depth
+        # 都与原实现一致, 所以 128 上限的截断结果也相同。按下标遍历 `_pv` 快照。
+        pv = self._pv
+        ys_p = pv.y
+        vys_p = pv.vy
+        depth = 1e-6
+        if pv.use_np:
+            # 向量化这一趟: 它每帧都要扫全部 pn 颗粒(第二趟本来就 break 在 128, 不是 O(pn))。
+            # 条件逐字照抄标量版, 且用 ~(A|B) 而不是直接写"保留条件" —— 标量版是
+            # `if <cond>: continue`, NaN 时比较为 False 故**不跳过**, 取反才逐字对齐。
+            _d = outlet - pv.ny[:pv.n]
+            _keep = ~((_d < 0) | (_d > length + 1e-6))
+            _keep &= ~(pv.nvy[:pv.n] ** 2 - twice_gravity * _d > source_limit_squared)
+            # 第二趟原先是 `for i in range(pv.n)` 的纯 Python 裸扫描, 重复做上面同一组判定。
+            # 这里把候选下标取出来给它复用: O(n) -> O(候选数)。
+            # flatnonzero 恒升序 ⇒ 与 range(n) 同序 ⇒ count/池下标的分配顺序不变,
+            # 且循环体内无 random 调用 ⇒ random.seed(23) 闸门不受影响。
+            _cand = _np.flatnonzero(_keep).tolist() if _keep.any() else []
+            if _keep.any():
+                _mx = float(_d[_keep].max())
+                if _mx > depth:
+                    depth = _mx
+        else:
+            for i in range(pv.n):
+                distance = outlet - ys_p[i]
+                if distance < 0 or distance > length + 1e-6:
+                    continue
+                # An isolated fast grain must not stretch the startup texture ahead of the main flow.
+                if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
+                    continue
+                if distance > depth:
+                    depth = distance
+            _cand = None
+        ys = [y for _x, y in side]
+        xs = [x for x, _y in side]
+
+        # ★ **二分代替线性扫描**(2026-10-06 性能): `side` 的 y 是**单调下降**的,
+        #   原来每个颗粒都把 26 段扫一遍(实测 `half_w_at` 250 次调用/帧 × 最多 25 次比较)。
+        #   翻成升序后 `bisect_left` 一次定位, 语义与原式逐字相同(取夹住 y 的那一段线性插值)。
+        ys_asc = ys[::-1]
+        xs_asc = xs[::-1]
+
+        def half_w_at(y):
+            if y >= ys[0]:
+                return xs[0]
+            if y <= ys_asc[0]:
+                return xs_asc[0]
+            k = _bisect_left(ys_asc, y)          # 第一个 >= y 的下标
+            y0, y1 = ys_asc[k], ys_asc[k - 1]    # y0 = 上端(大), y1 = 下端(小)
+            x0, x1 = xs_asc[k], xs_asc[k - 1]
+            if y0 - y1 < 1e-9:
+                return x0
+            return x0 + (x1 - x0) * (y0 - y) / (y0 - y1)
+
+        t_in = max(1e-6, self._taper["t_in"])
+        tone_scale = 5 / math.tau
+        pool = self._neck_grain_pool
+        pool_len = len(pool)
+        cx = self._cx
+        base_r, base_g, base_b = self.sand_base
+        light_r, light_g, light_b = self.sand_light
+        sizes_p = pv.sz
+        phases_p = pv.wp
+        lights_p = pv.light
+        xs_p = pv.x
+        count = 0
+        # use_np 时只遍历候选(第一趟已算好); 标量兜底路径保持原样。
+        for i in (_cand if _cand is not None else range(pv.n)):
+            distance = outlet - ys_p[i]
+            if distance < 0 or distance > length + 1e-6:
+                continue
+            if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
+                continue
+            t = distance / depth                     # 0 = 刚出孔口, 1 = 流得最深的一颗
+            if t > 1.0:
+                t = 1.0
+            y = top_y - t * span
+            half_w = half_w_at(y)
+            size = sizes_p[i]
+            half_stroke = size if size > 1 else 0.5
+            limit = half_w - half_stroke
+            if limit <= 0.0:
+                limit = 0.0
+            spread = (xs_p[i] - cx) * (half_w / t_in)
+            if spread > limit:
+                spread = limit
+            elif spread < -limit:
+                spread = -limit
+            x = cx + spread
+            # ⚠️ 亮端必须与**沙体材质**的量级对齐(2026-10-04 用户: "上面的部分和颈部的沙子
+            # 构成完全不同")。材质在 base ± 0.35 之间, 而这里原来最高走到 base→light 的 0.85,
+            # 比球体整整高一个档 ⇒ 颈部读成另一种材料。压暗会变脏斑(项目试过), 所以只收窄亮端。
+            tone_t = 0.06 + 0.20 * t
+            if lights_p[i]:
+                tr, tg, tb = light_r, light_g, light_b
+            else:
+                variation = int(phases_p[i] * tone_scale)
+                if variation > 4:
+                    variation = 4
+                variation -= 2
+                mix = tone_t + variation * 0.04
+                if mix < 0.0:
+                    mix = 0.0
+                elif mix > 1.0:
+                    mix = 1.0
+                # 等价于 lerp_rgb(sand_base, sand_light, mix)
+                tr = base_r + (light_r - base_r) * mix
+                tg = base_g + (light_g - base_g) * mix
+                tb = base_b + (light_b - base_b) * mix
+            color, line = pool[count]
+            # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
+            color.rgb = (base_r + (tr - base_r) * 0.85,
+                         base_g + (tg - base_g) * 0.85,
+                         base_b + (tb - base_b) * 0.85)
+            if line.width != size:
+                line.width = size
+            top_pt = y + 1
+            if top_pt > top_y:
+                top_pt = top_y
+            bot_pt = y - 1
+            if bot_pt < bottom_y:
+                bot_pt = bottom_y
+            line.points = (x, bot_pt, x, top_pt)
+            count += 1
+            if count == pool_len:
+                break
+        for color, line in self._neck_grain_pool[count:self._neck_grain_count]:
+            line.points = []
+        self._neck_grain_count = count
+
+
+# ---------- App / UI(v2 布局: 色块在上, 控件在下) ----------
+
+class HourglassApp(App):
+    title = "跳跳的沙漏"
+
+```
+
+### G. `main.py` —— `_MoundProfile` 的接触面/轮廓(被各层反复调用)
+`shape_at` 在 65 个控制点之间**线性插值**; `contact` = clamp(apex+shape, 球底, 球顶)。
+```python
+    def shape_at(self, dx):
+        """轮廓偏移 f(dx) —— 控制点之间线性插值(与面积表、绘制折线同一份定义)。"""
+        r = self.radius
+        n = len(self.shape)
+        z = (dx + r) / (2.0 * r) * (n - 1)
+        if z <= 0.0:
+            return self.shape[0]
+        if z >= n - 1:
+            return self.shape[-1]
+        i = int(z)
+        f = z - i
+        return self.shape[i] + (self.shape[i + 1] - self.shape[i]) * f
+
+    def apex_for_height(self, height):
+        """体积反查: 平顶等效高度 h → **虚拟**峰高(绝对, 离球内底)。
+
+        ⚠️ **全程绝对单位**。面积表的 bottom/top 是绝对高度(`R - √(R²-x²)`),
+        不是归一化的 0..2 —— 1.74 初版这里漏改(拿归一化的 h 去查绝对表、又把结果
+        乘 radius), 两次换算互相抵消 ⇒ 峰高无意义, 表现为**下球提前灌满、上球还剩大半**
+        (2026-10-04 用户实拍 37/50 抓到: 只漏了 26%, 下球却已经满了)。
+        ⚠️ 同一次漏改也让 `tools/_xz_geom_accept.py` 的"面积自洽"检查变成瞎的 ——
+        它两边用的是同一个错误口径, 误差自己抵消。已同时修测试并补判别性判据。
+        """
+        h = min(max(height, 0.0), 2.0 * self.radius)
+        fraction = self.flat.area_at(h) / self.flat.capacity
+        return self.heap.height_at(fraction * self.heap.capacity)
+
+    def raw(self, dx, apex):
+        """未裁剪堆面高度(绝对, 离球内底)。"""
+        return apex + self.shape_at(dx)
+
+    def bounds(self, dx):
+        """该列的球内底/球内顶高度(绝对) —— 理想圆公式, 实际接缝仍交给 Ellipse 裁剪。"""
+        r = self.radius
+        x = min(max(dx, -r), r)
+        half = math.sqrt(max(0.0, r * r - x * x))
+        return r - half, r + half
+
+    def contact(self, dx, apex):
+        """该列的**接触高度**(绝对) —— 粒子/尘埃的判定面, 与绘制同一份定义。"""
+        floor, roof = self.bounds(dx)
+        return min(max(self.raw(dx, apex), floor), roof)
+
+    def has_sand(self, dx, apex):
+        """该列有没有沙(自由表面/填满都算有; P ≤ B 才是裸露球底)。"""
+        floor, _roof = self.bounds(dx)
+        return self.raw(dx, apex) > floor
+
+    def free_surface(self, dx, apex):
+        """该列是不是**真正的自由表面**(沙与空气之间) —— 亮带只画在这里。"""
+        floor, roof = self.bounds(dx)
+        p = self.raw(dx, apex)
+        return floor < p < roof
+
+
+```
+
+### H. 沙流的**端点纹理批处理**(当年同类问题的解法 —— **飞溅还没做**)
+沙流曾经也是逐条 `Line`(Kivy 在 `width>1` 时**每条线自建一个带圆头帽的三角网格**),
+靠这个从 47.9 → 65.4 fps。核心: 每颗粒的 `x/bottom/top` **连续放 3 个纹素**,
+每颗只做 **1 次** `struct.pack_into`, 整块用一次 `Mesh` 提交。
+
+```python
+    def update(self, view, indices, top_limit, motion_scale=1):
+        """`view` 是 widget 的 `_pv`(本帧 list 快照), `indices` 是本桶的粒子下标。
+
+        按下标读原生 float, 不再逐颗粒取 numpy 标量。
+        """
+        STATS["buckets"] += 1
+        ys = view.y
+        vys = view.vy
+        trails = view.tl
+        xs = view.x
+        total = len(indices)
+        chunks = -(-total // self.CHUNK)
+        # 向量化: 本桶所有颗粒的 (x, 底端, 顶端) 一次算完, 再 astype('<f4') 出字节。
+        # 逐位等价已实测: astype('<f4') 与 struct.pack('<f') 对 30 万样本(含 0/-0/inf/
+        # denormal/float32 极值)完全相同, 整段公式的字节输出也完全相同
+        # —— 见 tools/test_pack_equiv.py。
+        # 阈值由 _FlowView.use_np 统一决定(见 main.py:_NUMPY_MIN): 粒子少时
+        # numpy 的逐桶固定开销盖过收益。
+        use_np = np is not None and total > 0 and view.use_np
+        if use_np:
+            nidx = np.array(indices, dtype=np.intp)
+        else:
+            pack = FLOAT3.pack_into
+        for chunk in range(chunks):
+            start = chunk * self.CHUNK
+            count = total - start
+            if count > self.CHUNK:
+                count = self.CHUNK
+            part = self._ensure_part(chunk, count)
+            mesh, _vertices, _indices, _capacity, previous, texture, data, _binding = part
+            if use_np:
+                idx = nidx[start:start + count]
+                bottom = view.ny[idx]
+                # 算式与逐字相同: (-vy) / (vy*tl)/ms / 下限 2 / 上限 top_limit
+                vy = np.abs(view.nvy[idx])
+                trail = vy * view.ntl[idx] / motion_scale
+                np.maximum(trail, 2.0, out=trail)
+                top = bottom + trail
+                np.minimum(top, top_limit, out=top)
+                blk = np.empty((count, 3), dtype=np.float64)
+                blk[:, 0] = view.nx[idx]
+                blk[:, 1] = bottom
+                blk[:, 2] = top
+                # 尾部(count*12 之后)保持上一帧的陈旧字节, 与逐颗粒写法一致:
+                # 那部分不渲染(mesh.indices 已按 count 截断)。
+                data[:count * 12] = blk.astype("<f4").tobytes()
+            else:
+                # 每颗粒只做 1 次 pack_into(x, bottom, top 连续); 数值与逐字相同。
+                offset = 0
+                for k in range(start, start + count):
+                    i = indices[k]
+                    bottom = ys[i]
+                    vy = vys[i]
+                    if vy < 0:
+                        vy = -vy
+                    trail = vy * trails[i] / motion_scale
+                    if trail < 2:
+                        trail = 2
+                    top = bottom + trail
+                    if top > top_limit:
+                        top = top_limit
+                    pack(data, offset, xs[i], bottom, top)
+                    offset += 12
+            # ⚠️ 顺序要紧: 先把纹理内容(含下面的"中性化")写完, 再上传。
+            if count > previous:
+```
 
 ---
 
 ## 9. 一句话总结给外部评审
 
-> 这是一个**完全用 Python + Kivy 指令**画的 2D 沙漏，帧预算要 8.33ms，
-> 现在应用侧 ~19.8ms。**redraw 8.7ms 是七块 0.5~1.6ms 堆的、没有大头；
-> 物理 6.2ms 有 5.6ms 在两个内联循环里；GL 6.0ms 基本没碰过。**
-> 最大的单点可疑是 **1800~2600 个独立 `Rectangle` 组成的飞溅层**。
-> 请判断：**先做哪个、以及有没有我们没想到的招。**
+> 这是一个**完全用 Python + Kivy 指令**画的 2D 沙漏。真机帧预算 **8.33ms(120fps)**，
+> 现在应用侧 **≈17.0ms**（物理 4.5 / 图元 7.1 / Canvas 5.3）。
+>
+> - **redraw 7.1ms 是七块 0.5~1.6ms 堆出来的，没有大头**；
+> - **物理 4.5ms 有 ~3.9ms 在两个内联 `for` 循环里**（挂不到任何方法上）；
+> - **Canvas 5.3ms（GL）我们基本没碰过**。
+>
+> **最大的单点是飞溅层 —— 设备实测 4.0ms/帧**（临时把飞溅数封顶 400 测出来的，见 §3.2），
+> 由 **1800~2600 个独立 `Rectangle`** 构成。沙流当年靠"端点纹理 + 一次 Mesh"解决过同类问题。
+>
+> **请判断：先做哪个、以及有没有我们没想到的招。**
+>
+> 📌 **本文件自包含**（§8 内联了全部关键代码原文），你不需要访问任何仓库。
+> 冻结基线：**`v1.178` / `code_hash = 0c00a6ad00d2`**。

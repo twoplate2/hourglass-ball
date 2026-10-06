@@ -3371,7 +3371,7 @@ class HourglassWidget(Widget):
         g = -450.0 * motion_scale * motion_scale
         g_abs = abs(g)
         source_speed = 60.0 * motion_scale
-        source_speed_squared = source_speed ** 2
+        source_speed_squared = source_speed * source_speed
         lower_cut = self._lower_ball_cut
         lower_top = self._lower_sand_top
         lower_center = self._lower_y_c
@@ -3471,8 +3471,11 @@ class HourglassWidget(Widget):
                     shrink = 1.0
                 else:
                     below_tube = lower_cut - y
-                    v_at_y = (source_speed_squared + 2 * g_abs * below_tube) ** 0.5
-                    target = (source_speed / v_at_y) ** 0.5
+                    # ★ `** 0.5` → `sqrt`(2026-10-06 性能): 两处操作数都**非负**
+                    #   ⇒ 逐字等价, 而 CPython 里 `**0.5` 走 `pow`、明显慢于 `math.sqrt`。
+                    #   这是**每颗粒每帧两次**, 峰值 1540 颗粒 ⇒ ~3080 次/帧。
+                    v_at_y = sqrt(source_speed_squared + 2 * g_abs * below_tube)
+                    target = sqrt(source_speed / v_at_y)
                     if target <= FLOW_SHRINK_MIN:
                         target = FLOW_SHRINK_MIN
                     # 平滑过渡区长度(px)
@@ -3491,7 +3494,7 @@ class HourglassWidget(Widget):
                     lim = tube_lim
                 else:
                     dy = y - lower_center
-                    r = Ri2 - dy ** 2
+                    r = Ri2 - dy * dy
                     raw_ball = sqrt(r) if r > 0.0 else 0.0
                     below = lower_top - y
                     t = below / 30.0
