@@ -1407,6 +1407,17 @@ class _QuadBand:
     def __len__(self):
         return self._n
 
+    def __getitem__(self, i):
+        if i < 0:
+            i += self._n
+        if not (0 <= i < self._n):
+            raise IndexError(i)
+        return _QuadView(self, i)
+
+    def __iter__(self):
+        for i in range(self._n):
+            yield _QuadView(self, i)
+
     def _uv_fill(self):
         """把 uv 写满一次 —— **顶点布局是 `[x, y, u, v]`**, 所以 uv 落在下标 ≡2,3 (mod 4),
         而 x/y 落在 ≡0,1。两者互不重叠 ⇒ 更新位置时**根本不必碰 uv**, 它在
@@ -1465,6 +1476,58 @@ class _QuadBand:
 
 
 _ZERO4 = (0.0, 0.0, 0.0, 0.0)
+
+
+class _QuadView:
+    """**只读**的"第 i 个四边形"视图 —— 给 `tools/` 下那批按 Quad 列表写的探针用。
+
+    🔴 2026-10-07: `_upper_*` / `_mound_*` / `_neck_quads` 从"Quad 列表"变成了
+    `_QuadBand`(一个 `Mesh`), 于是 `_probe_neck_uv` / `_probe_neck_ablate` /
+    `_r1_probe3` / `_rv2_geom` 四个取证探针当场 `TypeError: not subscriptable`。
+    对抗审查专家的原话: **"改动本身没问题, 但它拆掉了自己的证据链"** —— 性能优化
+    把复现"优化前结论"的量具弄坏了, 那条结论就再也回不去。这里补上只读协议接回去。
+
+    ⚠️ **写入一律不许** —— 真值在那块扁平顶点数组里, 逐条写会绕过 `flush()`,
+    静默失效(改了但不提交)。要改就走 `set`/`zero`/`set_uv`。
+    """
+
+    __slots__ = ("_b", "_i")
+
+    def __init__(self, band, i):
+        self._b = band
+        self._i = i
+
+    @property
+    def points(self):
+        v = self._b._v
+        o = self._i * 16
+        return [v[o], v[o + 1], v[o + 4], v[o + 5],
+                v[o + 8], v[o + 9], v[o + 12], v[o + 13]]
+
+    @points.setter
+    def points(self, pts):
+        """逐条写顶点 —— **走 `_QuadBand.set`**, 只动位置、不动 uv
+        (原来 `Quad.points = ...` 也不动 `tex_coords`, 行为一致)。
+        ⚠️ 写入**不会** `flush()` —— 与逐 `Quad` 时代一样, 提交由调用方那一帧的
+        `flush()` 负责。"""
+        self._b.set(self._i, list(pts))
+
+    @property
+    def tex_coords(self):
+        v = self._b._v
+        o = self._i * 16
+        return (v[o + 2], v[o + 3], v[o + 6], v[o + 7],
+                v[o + 10], v[o + 11], v[o + 14], v[o + 15])
+
+    @property
+    def texture(self):
+        return self._b.bind.texture
+
+    @texture.setter
+    def texture(self, tex):
+        # ⚠️ 逐条换纹理对整条带是**全局**效果(一个 Mesh 只有一张纹理) —— 与逐 Quad
+        #    时代"每 Quad 各自一张"不同。探针若靠逐条换纹理来做对照, 得改成整条换。
+        self._b.set_texture(tex)
 
 
 def sand_material(base, dark, light, size=None, grain=None, shade=None):
@@ -7493,10 +7556,13 @@ def _install_splash_renderer(widget_class):
             _flare_ok = mod.install_flares(widget_class)
         except Exception as exc:
             print("flare batch unavailable (%s); keeping per-Rectangle" % exc)
-    # ★ **正面报一句**。上面两条失败路径都会自己喊, 但"没装"与"装了"在日志里
-    #   本来长得一样(都不出声)—— 而分辨这两件事恰恰是性能对比最容易搞错的地方
-    #   (拿一个静默回退的版本去比, 会量出"改了没差别")。
-    print("batch renderers: splash=%s neck=%s flare=%s"
+    # ⚠️ **这句只报"接线状态", 不是"生效状态"** —— `install_flares()` 只要把 wrapper 挂上
+    #    就返回 True, 而 shader 是**建画布时**才编译的。3号专家 2026-10-07 实测: 强制
+    #    失败时本句照样印 `flare=batch`, 同时下面还有一句 `flare batch failed`。
+    #    **要判断"批处理真的生效了没有", 看的是建画布之后那对互斥日志**
+    #    (`flare batch active (shader compiled)` vs `flare batch failed, ...`)。
+    #    这里保留一句"接线"记录, 措辞改成不会读成"已生效"。
+    print("batch renderers wired: splash=%s neck=%s flare=%s"
           % (SPLASH_RENDERER, NECK_RENDERER, "batch" if _flare_ok else "rect"))
 
 

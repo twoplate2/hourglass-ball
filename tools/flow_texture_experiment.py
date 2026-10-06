@@ -3,6 +3,27 @@
 from array import array
 import math
 import os
+# ---------------------------------------------------------------------------
+# 诊断开关一律用**标记文件**(不是环境变量)!
+#   🔴 **安卓上的 app 读不到宿主 shell 的环境变量** —— `HG_*` 那一整套开关在桌面有效,
+#      在设备上**一律取默认值**。2026-10-07 我拿 `HG_NO_BLIT=1 bash tools/_one_bench.sh`
+#      量了半天"砍光纹理上传能省多少", 量出来的差 (2.89→2.83ms) **全是噪声** ——
+#      那次上传**根本没被跳过**(变量只存在于 Windows 的 shell 里)。
+#      要在设备上做单变量对照, 只能写**标记文件**(app 私有目录, 与 `prof.on` 同一套):
+#          adb shell touch /data/data/org.shalou.hourglass/files/app/blit.off   # 开(要重启)
+#          adb shell rm    /data/data/org.shalou.hourglass/files/app/blit.off   # 关
+#   ⚠️ 桌面**两种都认**(环境变量优先), 免得改一次桌面流程。
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _flag(env_name, file_name):
+    if os.environ.get(env_name):
+        return True
+    try:
+        return os.path.exists(os.path.join(_APP_DIR, file_name))
+    except Exception:
+        return False
+
 from struct import Struct
 
 try:
@@ -46,7 +67,7 @@ PAD_ENDPOINT = FLOAT3.pack(-1e5, 0.0, 0.0)
 #     HG_NO_BLIT=1 tools/_one_bench.sh noblit
 # 实测(2026-10-07, MuMu): 15s 图元 2.89 → 2.83 / 5s 2.86 → 2.70 / 1s 3.76 → 3.60
 # ⇒ **上传只值 0.06~0.16ms, 远不是 `update()` 那 0.81ms 的大头** —— 钱在 numpy 上。
-SKIP_BLIT = bool(os.environ.get("HG_NO_BLIT"))
+SKIP_BLIT = _flag("HG_NO_BLIT", "blit.off")
 
 # ★ **把所有桶拼成一条再算**(2026-10-07 性能)。
 # 原写法每桶各跑一遍算式: 每帧 9 桶 × ~15 次 numpy 调用 = ~135 次**固定开销**

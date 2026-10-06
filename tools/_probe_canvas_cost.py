@@ -28,11 +28,16 @@ PERIOD = float(sys.argv[1]) if len(sys.argv) > 1 else 15.0
 SPAN = float(sys.argv[2]) if len(sys.argv) > 2 else 3.0
 FAMILY = sys.argv[3] if len(sys.argv) > 3 else "mound"
 
+# ⚠️ **2026-10-07 之后这几族里只剩 `_neck_quads` 还是"画布指令列表"**:
+#    `_mound_carve/_mound_band/_upper_carve/_upper_band` 已经被 `_QuadBand` 收成
+#    **一个 `Mesh`** ⇒ 摘它们等于摘 1 条指令, 量不出原来那 548 条的单价。
+#    想量"现在的指令单价"请改用 `CanvasBase` 里的 `Mesh`/`Line`/`Ellipse` 族,
+#    或者直接数指令条数 × 单条价(`_hot_desktop` 那次测到的 **~1.2µs/条**)。
 FAMILIES = {
     "none": (),                      # 对照臂: 什么都不摘(量两段之间的漂移)
+    "neck": ("_neck_quads",),        # 仍是列表式的族(25 条 `Quad`)
     "mound": ("_mound_carve", "_mound_band"),
     "upper": ("_upper_carve", "_upper_band"),
-    "neck": ("_neck_quads",),
     "all": ("_mound_carve", "_mound_band", "_upper_carve", "_upper_band", "_neck_quads"),
 }
 
@@ -84,6 +89,11 @@ def run():
         def cut(self):
             hg = self.hourglass
             removed = 0
+            # ⚠️ `_mound_carve`/`_upper_*` 现在是 `_QuadBand` **包装对象**, 不是画布指令列表
+            #    —— 第一版照旧去画布上摘它们, 于是**一条都摘不到**、却照常打印"差 0.004ms",
+            #    看起来像"这些指令不要钱"。**一个静默量不到东西的量具比没有更坏。**
+            #    所以 FAMILIES 里凡是非空的族, 摘到 0 条就当场报警(下面 `_seen`)。
+            _seen = {}
             try:
                 for nm in FAMILIES[FAMILY]:
                     for q in (getattr(hg, nm, None) or ()):
@@ -94,6 +104,10 @@ def run():
                             pass
             except Exception as exc:            # 出任何事都要往下走, 否则 app 永不退出
                 print("   cut failed: %r" % (exc,))
+            if FAMILY != "none" and removed == 0:
+                print("!! 族 %s **一条指令都没摘到** —— 这些常量怕是已经改名/改结构了,"
+                      " 本次读数不作数(见本文件 FAMILIES 的注释)" % FAMILY)
+                box["dead"] = True
             box["removed"] = removed
             box["phase"] = 2
 
@@ -104,9 +118,15 @@ def run():
             print("周期 %gs  族 %s  摘掉 %d 条指令" % (PERIOD, FAMILY, box.get("removed", 0)))
             print("  摘之前 on_draw %6.3f ms/frame (n=%d)" % (mean(a), len(a)))
             print("  摘之后 on_draw %6.3f ms/frame (n=%d)" % (mean(c), len(c)))
-            print("  == 差值 %+.3f ms/frame = %.3f µs/条 ==" %
-                  (mean(a) - mean(c),
-                   (mean(a) - mean(c)) * 1000.0 / max(1, box.get("removed", 1))))
+            # ⚠️ **摘到 0 条时绝不报"µs/条"** —— 那等于拿噪声除以 max(1,0), 会印出一个
+            #    看着很正经的数(3号专家 2026-10-07 实测: 报过 "1364.254 µs/条")。
+            #    宁可不报 —— 一个"跑了、报了数、量的不是它"的量具比没有更坏。
+            if box.get("dead"):
+                print("  == 本次**不作数**: 一条指令都没摘到, 不报单价 ==")
+            else:
+                print("  == 差值 %+.3f ms/frame = %.3f µs/条 ==" %
+                      (mean(a) - mean(c),
+                       (mean(a) - mean(c)) * 1000.0 / max(1, box.get("removed", 1))))
             sys.stdout.flush()
             self.stop()
 

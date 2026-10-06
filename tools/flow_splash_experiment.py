@@ -37,6 +37,27 @@
 
 import math
 import os
+# ---------------------------------------------------------------------------
+# 诊断开关一律用**标记文件**(不是环境变量)!
+#   🔴 **安卓上的 app 读不到宿主 shell 的环境变量** —— `HG_*` 那一整套开关在桌面有效,
+#      在设备上**一律取默认值**。2026-10-07 我拿 `HG_NO_BLIT=1 bash tools/_one_bench.sh`
+#      量了半天"砍光纹理上传能省多少", 量出来的差 (2.89→2.83ms) **全是噪声** ——
+#      那次上传**根本没被跳过**(变量只存在于 Windows 的 shell 里)。
+#      要在设备上做单变量对照, 只能写**标记文件**(app 私有目录, 与 `prof.on` 同一套):
+#          adb shell touch /data/data/org.shalou.hourglass/files/app/blit.off   # 开(要重启)
+#          adb shell rm    /data/data/org.shalou.hourglass/files/app/blit.off   # 关
+#   ⚠️ 桌面**两种都认**(环境变量优先), 免得改一次桌面流程。
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _flag(env_name, file_name):
+    if os.environ.get(env_name):
+        return True
+    try:
+        return os.path.exists(os.path.join(_APP_DIR, file_name))
+    except Exception:
+        return False
+
 import sys
 from array import array
 
@@ -202,8 +223,9 @@ class SplashBatch:
                 data[count * 16:previous * 16] = PAD * (previous - count)
                 _upload = previous
             # **只传用到的纹素**(同上: 整块传 8KB 而每块常只用到几百颗)
-            texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                colorfmt="rgba", bufferfmt="ubyte")
+            if not SKIP_BLIT:
+                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                                colorfmt="rgba", bufferfmt="ubyte")
         for part in self.parts[chunks:]:
             if part[5]:
                 part[0].indices = array("H")
@@ -258,8 +280,9 @@ class SplashBatch:
                 data[n * 16:previous * 16] = PAD * (previous - n)
                 _upload = previous
             if _upload:
-                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                    colorfmt="rgba", bufferfmt="ubyte")
+                if not SKIP_BLIT:
+                    texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                                        colorfmt="rgba", bufferfmt="ubyte")
         for part in self.parts[chunks:]:
             if part[5]:
                 part[0].indices = array("H")
@@ -293,8 +316,9 @@ class SplashBatch:
             data[n * 16:previous * 16] = PAD * (previous - n)
             _upload = previous
         if _upload:
-            texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                colorfmt="rgba", bufferfmt="ubyte")
+            if not SKIP_BLIT:
+                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                                colorfmt="rgba", bufferfmt="ubyte")
 
     def write_bounds_raw(self, raw, off, count):
         """把**已经算好**的边界字节(`raw`, 每条 16 字节)从第 `off` 条起写 `count` 条。
@@ -322,8 +346,9 @@ class SplashBatch:
             data[n * 16:previous * 16] = PAD * (previous - n)
             _upload = previous
         if _upload:
-            texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                colorfmt="rgba", bufferfmt="ubyte")
+            if not SKIP_BLIT:
+                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                                colorfmt="rgba", bufferfmt="ubyte")
 
     def update_bounds(self, bounds):
         """`bounds` = 可迭代的 `(left, bottom, right, top)`(颈部颗粒用)。
@@ -363,8 +388,9 @@ class SplashBatch:
             upload = total
         if upload:
             # 只传用到的纹素(第一版整块 2048 纹素全传, 这里最多 320 颗 × 4)
-            texture.blit_buffer(data, size=(upload * TEXELS_PER_SPLASH, 1),
-                                colorfmt="rgba", bufferfmt="ubyte")
+            if not SKIP_BLIT:
+                texture.blit_buffer(data, size=(upload * TEXELS_PER_SPLASH, 1),
+                                                colorfmt="rgba", bufferfmt="ubyte")
 
 
 def available():
@@ -686,7 +712,12 @@ FLARE_SELECTORS = (0.0, 1.0, 3.0, 2.0)
 # 兜底路径不自己走出来对一遍, 就不知道它到底还能不能画(2026-10-07 自查发现:
 # 回滚时漏把 `_flare_group` 放回画布 ⇒ 闪光**无声消失**, 不崩不报错)。
 #     HG_SPLASH_RENDERER=batch HG_FLARE_RENDERER=batch HG_FLARE_FORCE_FAIL=1 #         python tools/inspect_flow.py --label fb --steady-period 15 --steady-frames 30
-FLARE_FORCE_FAIL = bool(os.environ.get("HG_FLARE_FORCE_FAIL"))
+FLARE_FORCE_FAIL = _flag("HG_FLARE_FORCE_FAIL", "flare_fail.on")
+_FLARE_ACTIVE_LOGGED = False
+
+# 诊断: **砍掉本模块所有"每帧上传"**(颈部批 / 飞溅 / 闪光)。只用来量"上传一共值多少毫秒",
+# 画面会停在上一帧的数据上 ⇒ **不许当出货配置**。
+SKIP_BLIT = _flag("HG_NO_BLIT", "blit.off")
 
 FLARE_TEXELS = 5                 # left / bottom / right / top / alpha
 FLARE_STEP = 1.0 / (CHUNK * FLARE_TEXELS)
@@ -787,8 +818,9 @@ class FlareBatch:
                 data[n * 20:previous * 20] = FLARE_PAD * (previous - n)
                 _upload = previous
             if _upload:
-                texture.blit_buffer(data, size=(_upload * FLARE_TEXELS, 1),
-                                    colorfmt="rgba", bufferfmt="ubyte")
+                if not SKIP_BLIT:
+                    texture.blit_buffer(data, size=(_upload * FLARE_TEXELS, 1),
+                                                        colorfmt="rgba", bufferfmt="ubyte")
         for part in self.parts[chunks:]:
             if part[5]:
                 part[0].indices = array("H")
@@ -842,6 +874,18 @@ def install_flares(widget_class):
             self._flare_batches = FlareBatch(context)
             self._flare_rgb = None
             self._flare_rects = []          # 批处理路径不再用, 置空免得误读
+            # ★ **成功信号必须打在这里**(建画布时), 不能打在 `install()` 那一刻。
+            #   3号专家实测(2026-10-07): 强制失败时 stdout 里**两句同时出现** ——
+            #       batch renderers: splash=batch neck=batch flare=batch   ← 假的
+            #       flare batch failed, keeping per-Rectangle: RuntimeError(...)
+            #   因为 `install_flares()` 只要**把 wrapper 挂上**就返回 True, 而 shader 是
+            #   **建画布时**才编译的 ⇒ 那句打印区分的是"接线了 / 没接线",
+            #   **不是"生效了 / 静默回退了"** —— 它会主动误导性能对比。
+            #   现在: 成功打这句, 失败打上面那句, 二者互斥且都在**建画布**之后。
+            global _FLARE_ACTIVE_LOGGED
+            if not _FLARE_ACTIVE_LOGGED:
+                _FLARE_ACTIVE_LOGGED = True
+                print("flare batch active (shader compiled)")
         except Exception as exc:            # 装不上就退回逐 Rectangle, 不要连累整幅画
             print("flare batch failed, keeping per-Rectangle: %r" % (exc,))
             self._flare_batches = None

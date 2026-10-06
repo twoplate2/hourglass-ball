@@ -328,6 +328,35 @@ argsort 排的都是**小整数桶码**(沙流的 `code = key*2+slot` 恒 < 24, 
 (实测三种 dtype 两两相等)。⇒ 排之前先 `.astype(np.uint8)`。
 ⚠️ `np.bincount` 相反: int64 1.26µs 比 uint8 1.81µs **快**, 所以只压 argsort 的输入。
 
+### 🔴 三条"信任链"教训(2026-10-07, 1.213, 3号对抗审查专家)
+
+**① 「接线了」不等于「生效了」—— 别让日志自己撒谎。**
+`install_flares()` 只要**把 wrapper 挂上**就返回 True, 而 shader 是**建画布时**才编译的。
+于是 1.210 加的那句 `batch renderers: ... flare=batch` 在**强制失败时照样印**,
+和下面那句 `flare batch failed` **同时出现**(3号专家实测)。⇒ 现在拆成互斥的两句,
+**都在建画布之后**打: `flare batch active (shader compiled)` / `flare batch failed, ...`;
+`install()` 那句措辞降级成 `batch renderers wired: ...`(只报接线)。
+**判断"批处理真的生效没有", 看的是建画布之后那一对。**
+
+**② 优化把**自己的量具**弄坏了 —— 而且是"静默地报了个像样的数"。**
+1.204/1.205 把 `_upper_*`/`_mound_*`/`_neck_quads` 从 Quad 列表换成 `_QuadBand` 之后:
+- `tools/_probe_canvas_cost.py` 的 FAMILIES 摘不到任何指令, 却**照常打印**
+  `== 差值 +1.364 ms/frame = 1364.254 µs/条 ==`(拿噪声除以 `max(1,0)`)。
+  它就是当初量出"~1.2µs/条"的那把尺, 于是**那个数一度失去出处**。
+- `_probe_neck_uv` / `_probe_neck_ablate` / `_r1_probe3` / `_rv2_geom` 四个探针当场
+  `TypeError: not subscriptable`。
+⇒ 现在: 探针**摘到 0 条就不报单价**(改报"本次不作数"); `_QuadBand` 补上
+**只读视图协议** `__getitem__`/`__iter__`(`_QuadView`, 有 `points`/`tex_coords`/`texture`,
+写 `points` 走 `set()` —— 只动位置不动 uv, 与原来 `Quad.points = ...` 同义)。
+**改动型优化做完, 要回头跑一遍当初用来支持它的那些量具** —— 否则结论回不去。
+
+**③ 环境变量到不了设备端。** 安卓 app **读不到宿主 shell 的环境变量** ⇒ `HG_*` 那一整套
+开关**在设备上一律取默认值**。我拿 `HG_NO_BLIT=1 bash tools/_one_bench.sh` 量了半天
+"砍光纹理上传能省多少", 量出来的差**全是噪声**(上传根本没被跳过)。
+⇒ 要设备单变量对照, 只能写**标记文件**(app 私有目录, 与 `prof.on` 同一套):
+`_flag("HG_NO_BLIT", "blit.off")` —— 桌面两种都认, 设备只认文件。
+**实测(标定过的 A/B, 6/6 同号): 砍光全部纹理上传省 `图元` 0.12~0.31ms/帧(~4%)。**
+
 ### 🔴 benchmark 自己每帧读 `splashes` property(2026-10-07, 1.212, 4号专家实测)
 
 `frame_benchmark.py` 的每帧探针里写着 `"splashes": len(self.widget.splashes)` —— 而
