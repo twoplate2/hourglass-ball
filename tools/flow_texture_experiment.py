@@ -139,7 +139,8 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         # numpy 的逐桶固定开销盖过收益。
         use_np = np is not None and total > 0 and view.use_np
         if use_np:
-            nidx = np.array(indices, dtype=np.intp)
+            # `asarray` 而不是 `array`: 上游已经给 numpy 数组时不再拷一份
+            nidx = np.asarray(indices, dtype=np.intp)
         else:
             pack = FLOAT3.pack_into
         for chunk in range(chunks):
@@ -158,13 +159,16 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 np.maximum(trail, 2.0, out=trail)
                 top = bottom + trail
                 np.minimum(top, top_limit, out=top)
-                blk = np.empty((count, 3), dtype=np.float64)
+                # ★ **直接建 float32 块**: 原来先建 float64 再 `astype("<f4")`,
+                #   那是多一次分配 + 多一趟遍历。往 float32 数组里赋 float64 走的
+                #   同样是 IEEE 就近舍入 ⇒ 结果与 `astype` **逐位相同**。
+                blk = np.empty((count, 3), dtype="<f4")
                 blk[:, 0] = view.nx[idx]
                 blk[:, 1] = bottom
                 blk[:, 2] = top
                 # 尾部(count*12 之后)保持上一帧的陈旧字节, 与逐颗粒写法一致:
                 # 那部分不渲染(mesh.indices 已按 count 截断)。
-                data[:count * 12] = blk.astype("<f4").tobytes()
+                data[:count * 12] = blk.tobytes()
             else:
                 # 每颗粒只做 1 次 pack_into(x, bottom, top 连续); 数值与逐字相同。
                 offset = 0
@@ -221,6 +225,7 @@ def install(widget_class):
 
     def build_texture_batches(self):
         build(self)
+        self._stream_np_only = True      # 上游只建下标数组桶(见 `_group_stream_particles`)
         units = glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS)[0]
         if units < 1:
             raise RuntimeError("Vertex texture sampling is unavailable")
@@ -248,10 +253,14 @@ def install(widget_class):
         self._flow_texture_context = context
 
     def draw_texture_batches(self):
+        # `_stream_np_only` 在装配时置位 ⇒ `_group_stream_particles` 只建**下标数组**桶,
+        # 这里直接拿去用(省掉 tolist/array 的往返); 粒子数低于 `_NUMPY_MIN` 时它退回
+        # Python list 桶, `update` 的逐颗分支照样吃 list ⇒ 两条都安全。
+        view = self._pv
+        top_limit = self._taper["y_bot"]
+        motion = self._particle_motion_scale
         for key, bucket in self._group_stream_particles().items():
-            view, indices = flow_batch_experiment.flow_bucket(self, bucket)
-            self._flow_batches[key].update(
-                view, indices, self._taper["y_bot"], self._particle_motion_scale)
+            self._flow_batches[key].update(view, bucket, top_limit, motion)
 
     widget_class._build_dynamic_canvas = build_texture_batches
     widget_class._draw_stream = draw_texture_batches

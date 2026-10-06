@@ -5144,6 +5144,10 @@ class HourglassWidget(Widget):
                 self.canvas.add(group)
                 self._stream_pools[index, size] = (group, color, [])
         self._stream_buckets = {key: [] for key in self._stream_pools}
+        # ★ 纹理渲染器在跑时只建**下标数组**桶(见 `_stream_np_only`), 省掉
+        #   `tolist()` -> 渲染器再 `np.asarray()` 的往返(峰值 2750 个整数)。
+        self._stream_np = {}
+        self._stream_np_only = False
         self._stream_counts = {key: 0 for key in self._stream_pools}
         self._reserve_stream_lines()
 
@@ -5455,6 +5459,23 @@ class HourglassWidget(Widget):
                 order = np.argsort(code, kind="stable")
                 counts = np.bincount(code, minlength=(n_colors + 1) * 2)
                 pos = 0
+                if self._stream_np_only:
+                    # ★ **只建下标数组桶** —— 纹理渲染器直接用, 不必 `tolist()` 出来再
+                    #   让渲染器 `np.asarray()` 转回去(峰值 2750 个整数走两趟)。
+                    #   ⚠️ key 的构法与 `_build_dynamic_canvas` 里 `_stream_pools` 一致:
+                    #      行 `n_colors` 对应 key `-1`(高光), 其余行就是 key 本身;
+                    #      `slot` 0/1 对应尺寸 1/2。
+                    npb = self._stream_np
+                    npb.clear()
+                    for k in range(counts.shape[0]):
+                        c = int(counts[k])
+                        if not c:
+                            continue
+                        key_idx = k >> 1
+                        npb[(-1 if key_idx == n_colors else key_idx,
+                             1 if (k & 1) == 0 else 2)] = order[pos:pos + c]
+                        pos += c
+                    return npb
                 for k in range(counts.shape[0]):
                     c = int(counts[k])
                     if not c:
