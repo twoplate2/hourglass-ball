@@ -36,6 +36,7 @@
 """
 
 import math
+import os
 import sys
 from array import array
 
@@ -681,6 +682,12 @@ def install_neck(widget_class):
 #    ⚠️ 飞溅那边用的是 (0,1,2,3) —— 它**与逐 Rectangle 路径本来就不同**(先于本次改动,
 #    且是安卓出货路径), 不动它; 这里只保证闪光层与它要替换的那条路**逐像素相同**。
 FLARE_SELECTORS = (0.0, 1.0, 3.0, 2.0)
+# 诊断开关: **强制装配失败**, 用来走一遍"回退到逐 `Rectangle`"那条路。
+# 兜底路径不自己走出来对一遍, 就不知道它到底还能不能画(2026-10-07 自查发现:
+# 回滚时漏把 `_flare_group` 放回画布 ⇒ 闪光**无声消失**, 不崩不报错)。
+#     HG_SPLASH_RENDERER=batch HG_FLARE_RENDERER=batch HG_FLARE_FORCE_FAIL=1 #         python tools/inspect_flow.py --label fb --steady-period 15 --steady-frames 30
+FLARE_FORCE_FAIL = bool(os.environ.get("HG_FLARE_FORCE_FAIL"))
+
 FLARE_TEXELS = 5                 # left / bottom / right / top / alpha
 FLARE_STEP = 1.0 / (CHUNK * FLARE_TEXELS)
 _F5 = __import__("struct").Struct("<5f")
@@ -804,10 +811,19 @@ def install_flares(widget_class):
         group = getattr(self, "_flare_group", None)
         if group is None:
             return
+        # ⚠️ `position` 必须在 `try` **之前**取 —— 失败回滚时要用它把 group 放回去。
         try:
             position = self.canvas.children.index(group)
+        except ValueError:
+            self._flare_batches = None
+            return
+        removed = False
+        try:
             self.canvas.remove(group)
+            removed = True
             group.clear()                   # 扔掉那些 (Color, Rectangle) 对
+            if FLARE_FORCE_FAIL:            # 诊断: 在**会回滚的那段里**炸, 走一遍回退
+                raise RuntimeError("forced failure (HG_FLARE_FORCE_FAIL)")
             context = RenderContext(use_parent_projection=True,
                                     use_parent_modelview=True)
             context.shader.vs = FLARE_VERTEX_SHADER
@@ -829,6 +845,21 @@ def install_flares(widget_class):
         except Exception as exc:            # 装不上就退回逐 Rectangle, 不要连累整幅画
             print("flare batch failed, keeping per-Rectangle: %r" % (exc,))
             self._flare_batches = None
+            # 🔴 **必须把 group 放回画布**(2026-10-07 自查发现): 上面已经 `remove` +
+            #    `clear` 了, 而 `draw_flares_batched` 的回退是**去写那个 group** ——
+            #    不放回去, 闪光就**无声地整层消失**(不崩、不报错、只是没画面)。
+            #    这正是"兜底路径必须自己走出来对一遍"那条教训的又一例。
+            self._flare_rects = []          # `_draw_flares` 会按需重建 (Color, Rectangle)
+            # ⚠️ **只有真的摘下来过才放回去** —— 无条件 insert 会把同一个 group
+            #    在画布列表里挂**两份** ⇒ Kivy 每帧 apply 两次 ⇒ 半透明的闪光被混合
+            #    两遍、明显变亮(实测逐像素 +2~3 级, 14 个像素)。
+            #    这是**负对照**(`HG_FLARE_FORCE_FAIL=1`)抓出来的: 没有它就只会看到
+            #    "回退路径不崩", 看不出它在悄悄画两遍。
+            if removed:
+                try:
+                    self.canvas.insert(position, group)
+                except Exception as exc2:
+                    print("flare fallback re-insert failed: %r" % (exc2,))
 
     def draw_flares_batched(self, now):
         if getattr(self, "_flare_batches", None) is None:
