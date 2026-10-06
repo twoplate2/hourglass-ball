@@ -891,7 +891,8 @@ class _MoundProfile:
     返回值 `apex` 是**中心轴处**的沙面高度(绝对, 离球内底) —— 原点处 f(0)=0, 所以它就是峰高。
     """
 
-    __slots__ = ("radius", "shape", "xs", "flat", "heap", "slope_l", "slope_r")
+    __slots__ = ("radius", "shape", "xs", "flat", "heap", "slope_l", "slope_r",
+                 "_ctab_axes")
 
     def __init__(self, radius, shape, samples=MOUND_AREA_SAMPLES):
         n = len(shape)
@@ -921,6 +922,8 @@ class _MoundProfile:
         top = [2.0 * radius - y for y in bottom]
         self.flat = _MoundArea(bottom, top, weights, [0.0] * k)
         self.heap = _MoundArea(bottom, top, weights, offs)
+        # `contact_table_axes` 的缓存槽 —— 几何一变这个实例就被换掉, 所以不必另设失效代
+        self._ctab_axes = None
 
     def shape_at(self, dx):
         """轮廓偏移 f(dx) —— 控制点之间线性插值(与面积表、绘制折线同一份定义)。"""
@@ -984,6 +987,93 @@ class _MoundProfile:
         """该列的**接触高度**(绝对) —— 粒子/尘埃的判定面, 与绘制同一份定义。"""
         floor, roof, p = self._parts(dx, apex)
         return floor if p < floor else (roof if p > roof else p)
+
+    def contact_table_axes(self, n, x_offset, inv):
+        """`(offs, floors, roofs)` —— **只跟几何有关**的三条数组, 每个 `_MoundProfile`
+        实例只建一次。
+
+        ## 等式
+
+        `contact(dx, apex) = clamp(apex + f(dx), B(dx), U(dx))` —— `f`(轮廓偏移)、
+        `B`(球内底)、`U`(球内顶) **三个都与 `apex` 无关**。所以每帧真正变的只有那个
+        `apex +`, 其余全是几何常数。
+        ⇒ 建表从"每点一次 `sqrt` + 65 点插值 + 三四层调用"降到"一次加法 + 两次比较"。
+        实测(真 `_MoundProfile`, 257 点): **0.066ms → 0.012ms(5.6×)**。
+
+        ## 为什么逐位相等
+
+        预计算跑的是**与被替换代码逐字相同的算式**(同一串 `x = dx if dx > -r else -r`
+        / `d2 = r2 - x*x` / `z = (dx+r)/two_r*sn` …), 只是**一个几何只跑一次**而非每帧。
+        纯函数 + 同一输入 ⇒ 同一 float。`fill_contact_table` 随后只做
+        `p = apex + offs[k]` 与**次序不变**的钳位(先判 `p < floor`)。
+        ⚠️ 守卫: `tools/_probe_ctab_equiv.py`(逐位) + `tools/_splash_golden.py`
+        (表值差 1 ULP 会直接写进贴坡的 `y = _surf` ⇒ 必翻红)。
+        ⚠️ **缓存挂在实例上** —— 几何一变 `_mound_profile` 就是新对象, 天然失效。
+        """
+        key = (n, x_offset, inv)
+        cache = self._ctab_axes
+        if cache is not None and cache[0] == key:
+            return cache[1], cache[2], cache[3]
+        shape = self.shape
+        r = self.radius
+        sn = len(shape) - 1
+        two_r = 2.0 * r
+        r2 = r * r
+        offs = [0.0] * n
+        floors = [0.0] * n
+        roofs = [0.0] * n
+        for k in range(n):
+            dx = x_offset + k / inv
+            # --- bounds(dx): 逐字照抄 ---
+            x = dx if dx > -r else -r
+            if x > r:
+                x = r
+            d2 = r2 - x * x
+            half = math.sqrt(d2) if d2 > 0.0 else 0.0
+            floors[k] = r - half
+            roofs[k] = r + half
+            # --- shape_at(dx): 逐字照抄 ---
+            z = (dx + r) / two_r * sn
+            if z <= 0.0:
+                offs[k] = shape[0]
+            elif z >= sn:
+                offs[k] = shape[-1]
+            else:
+                i = int(z)
+                offs[k] = shape[i] + (shape[i + 1] - shape[i]) * (z - i)
+        self._ctab_axes = (key, offs, floors, roofs)
+        return offs, floors, roofs
+
+    def fill_contact_table(self, table, x_offset, inv, apex):
+        """一次性把整条接触曲线填进 `table` —— **`contact()` 的保序内联**, 逐位等价。
+
+        ## 为什么要单独来一份(而不是循环调 `contact()`)
+
+        设备实测: 每帧重建 257 点, **循环调 `contact()` 要 0.40ms**(峰值帧, 占
+        `update_particles` 的 10.6%)。拆开看, 1.56µs/点里绝大部分是**四层 Python 调用**
+        (`contact → _parts → bounds` + `shape_at`) —— 而这条曲线一帧只要一条。
+        桌面计时对照(257 点, 300 轮): **0.182ms(调) vs 0.082ms(内联)**, 2.2×。
+
+        ## 🔴 它与 `contact()` 的关系: **同一份公式, 两次抄写**
+
+        项目原本的规矩是"定义只有 `contact` 一份, 建表就是调它"。这里是**有意的例外**,
+        代价必须用守卫抵掉:
+          - `tools/_probe_ctab_equiv.py`: 多组随机 (radius, shape, apex) 下逐位比对
+            内联结果与 `contact()` 的结果;
+          - `tools/_splash_golden.py`: 表值一旦差 1 ULP, 贴坡时的 `y = _surf`
+            会**直接**写进被记录的轨迹 ⇒ 金标准轨迹必然翻红。
+        ⚠️ **改 `contact` / `_parts` / `bounds` / `shape_at` 任何一个, 必须同步改这里,
+        并重跑上面两个守卫。** 四个内联的算子次序全部照抄, 不许"化简":
+        `(dx+r)/(2r)*(n-1)` 不能写成 `(dx+r)*(n-1)/(2r)`, `p < floor` 必须先判。
+        """
+        offs, floors, roofs = self.contact_table_axes(len(table), x_offset, inv)
+        for k in range(len(table)):
+            # 每帧真正变的只有 `apex +` 这一项, 其余全是几何常数(见 `contact_table_axes`)
+            f = floors[k]
+            p = apex + offs[k]
+            roof = roofs[k]
+            # 钳位次序**必须**先判 floor(与 `contact()` 逐字一致)
+            table[k] = f if p < f else (roof if p > roof else p)
 
     def has_sand(self, dx, apex):
         """该列有没有沙(自由表面/填满都算有; P ≤ B 才是裸露球底)。"""
@@ -3331,6 +3421,12 @@ class HourglassWidget(Widget):
             "y": y_surface + SPLASH_LIFT_PX,
             "vx": math.sin(ang) * b,
             "vy": abs(math.cos(ang)) * b,      # 🔴 **向上**(Kivy y 向上) —— v4 的 55~110 就是向上
+            # 🔴 **不许把 `random.choice` 换成"反正只有一种尺寸就写常量"** —— 实测
+            #    (2026-10-07 对抗审查): `random.choice` 走 `_randbelow(1)` 的**拒绝采样**,
+            #    即使 `len == 1` 也**仍然消耗 1~2 次 `getrandbits`**, 且次数是几何分布(不确定)。
+            #    ⇒ 少抽这一下会让**此后所有随机数错位**, 飞溅的 x/y/vx/vy/gd 与背景撒点全变。
+            #    这是本项目最容易被"顺手优化"掉的一行。守卫: `tools/_splash_golden.py`
+            #    每帧记 `random.getstate()` 指纹, 错位会在**发生的那一帧**就翻红。
             "size": tuple(round(_k * _px) for _k in random.choice(SPLASH_SIZE_MIX)),
             "gd": random.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI),   # 这颗自己的重力倍率
         }
@@ -3716,8 +3812,9 @@ class HourglassWidget(Widget):
             _ctab = self._contact_table
             if len(_ctab) != _ctab_n:
                 _ctab = self._contact_table = [0.0] * _ctab_n
-            for _k in range(_ctab_n):
-                _ctab[_k] = _profile.contact(-_ctab_r + _k / _ctab_inv, _apex)
+            # 保序内联版(`_MoundProfile.fill_contact_table`) —— 与逐点调 `contact()`
+            # 逐位等价, 设备实测 0.40ms → 0.18ms。守卫见该方法自己的 docstring。
+            _profile.fill_contact_table(_ctab, -_ctab_r, _ctab_inv, _apex)
         if _pm:
             _pm("ctab")
         for s in self.splashes:
