@@ -1585,15 +1585,71 @@ class _SandBgPopup(Popup):
         #    后, 开发者菜单暖白宽从 **972 掉到 908**(logcat `using 0.88`)。
         self._frac = (self.size_hint[0]
                       if (self.size_hint and self.size_hint[0] is not None) else 0.88)
-        # 兜底层: Popup 本体 canvas.before(填充容器外间隙)
+        self._ov_rot = False                             # 是否处于"自己画遮罩"的横屏态
+        self._ov_dim = float(self.overlay_color[3])      # 原α(Kivy 默认 0.70)
+        # 🔴 **画家顺序是承重的, 别调换这两块**: 原生顺序是
+        #      `canvas.before`(兜底奶油底) → `canvas`(遮罩 → 卡片背景 BorderImage → 内容)
+        #    ⇒ 遮罩必须**在兜底奶油底之后**画。第一版把遮罩摆在前面, 结果卡片外沿那圈
+        #    3~6px 的奶油色(卡片圆角处 BorderImage 透明、露出兜底色)**不再被压暗**:
+        #    实测从 (70,69,67)(压暗后) 变成 (234,230,220)(没压暗), 与原生逐像素对不上。
         with self.canvas.before:
+            # 兜底层: Popup 本体 canvas.before(填充容器外间隙)
             Color(*self._bg_rgb, 1)
             self._popup_bg = Rectangle(pos=self.pos, size=self.size)
+            # 自己那块遮罩(要紧跟其后)
+            self._ov_color = Color(0, 0, 0, 0)
+            self._ov_rect = Rectangle(pos=(0, 0), size=(0, 0))
         self.bind(pos=self._upd_popup_bg, size=self._upd_popup_bg)
+        self.bind(_anim_alpha=self._upd_overlay)         # 自己那块也要跟着开/关动画淡入淡出
 
     def _upd_popup_bg(self, inst, _value):
         self._popup_bg.pos = inst.pos
         self._popup_bg.size = inst.size
+
+    # ---------- 遮罩: 横屏下自带那层只盖 55% 屏宽, 换成"以屏心为中心的正方形" ----------
+    # 🔴 病灶(`kivy/data/style.kv:509-514` 的 `<ModalView>`):
+    #       Color: rgba: root.overlay_color[:3] + [root.overlay_color[-1] * self._anim_alpha]
+    #       Rectangle: size: self._window.size if self._window else (0, 0)
+    #    —— **只给了 size, 没给 pos** ⇒ pos 恒为 (0,0)。竖屏时宿主是 Window 且不转, 没事;
+    #    **横屏时弹窗挂在反旋转层上**(见 `open()`), 整个层绕**屏心**转 ±90° ⇒ 那块
+    #    2400×1080 的矩形转完只剩中间 1080 宽的竖条, 两侧被白白漏掉
+    #    带宽 = (长边−短边)/2 = 660px。桌面实测(`tools/_probe_overlay_band.py 2400 1080`):
+    #    x 0~659 与 x 1740~2399 各 660px 比值 1.000(完全没被压暗), 带里才是 0.302。
+    # ✅ 修法: 矩形要在"绕屏心转 ±90°"下**映射到自身** ⇒ 取以屏心为中心、边长 max(W,H)
+    #    的**正方形**(横竖屏都严丝合缝)。关掉自带那层, 自己画这一块。
+    # ⚠️ 坐标系(已用 `tools/_r37_marker_xy.py` 打标记方块实测): 弹窗 `canvas.before` 的指令
+    #    画在**父(层)坐标系**, 不是弹窗局部系 —— 按局部系算会得到一条 L 形亮带。
+    #    层恒 `pos=(0,0)`(见 `LandLayer.apply_orientation`) ⇒ 直接用窗口坐标即可。
+    def _set_overlay_rotated(self, rot):
+        """横屏(挂旋转层)⇒ 关掉自带遮罩 + 打开自己那块; 竖屏(挂 Window)⇒ 原样还回去。
+
+        幂等。两个宿主都调: `open()` 按开那一刻的宿主定, `rehost()` 在转屏搬家后再定一次。
+        """
+        rot = bool(rot)
+        if rot != self._ov_rot:
+            self._ov_rot = rot
+            if rot:
+                # 记下"当前α"再关 —— 开发者菜单(配方外的既有代码)会把它设成 0.10 要预览,
+                # 直接吞掉会把沙漏压到 30% 亮度 ⇒ α 必须跟随调用方设的值。
+                self._ov_dim = float(self.overlay_color[3])
+                self.overlay_color = (0, 0, 0, 0)
+            else:
+                self.overlay_color = (0, 0, 0, self._ov_dim)
+        self._upd_overlay()
+
+    def _upd_overlay(self, *_args):
+        """自己那块遮罩的几何与α。宿主 resize 时经 `_align_center` 自动跟手。"""
+        rect = getattr(self, "_ov_rect", None)
+        if rect is None:
+            return
+        if not self._ov_rot:
+            rect.size = (0, 0)                           # 竖屏: 收起自己那块, 走自带遮罩
+            return
+        w, h = Window.width, Window.height
+        side = max(w, h)
+        rect.pos = (w / 2.0 - side / 2.0, h / 2.0 - side / 2.0)
+        rect.size = (side, side)
+        self._ov_color.rgba = (0, 0, 0, self._ov_dim * self._anim_alpha)
 
     def _handle_keyboard(self, _window, key, *_args):
         """Android 返回键(27) = 关掉**最上面这个弹窗**, 不是退出 App。
@@ -1624,6 +1680,7 @@ class _SandBgPopup(Popup):
                 #    没人通知它 (2026-10-06 r32-1号 设备实测的那条 E1 缺陷)。
                 layer.track_popup(self)
             Clock.schedule_once(self._apply_light_theme, 0)
+            self._set_overlay_rotated(False)     # 竖屏: 走自带遮罩(自己那块收起)
             return
         # 横屏: 不再把弹窗挂 Window(Window 不旋转), 改挂旋转层让其随层旋转成竖构图。
         # 弹窗用 size_hint=(0.88, None), 直接挂层会按"物理长边×0.88"放大溢出, 故按
@@ -1654,6 +1711,7 @@ class _SandBgPopup(Popup):
         self.fbind('size', self._align_center)
         self._anim_alpha = 1.
         self.dispatch('on_open')
+        self._set_overlay_rotated(True)          # 横屏: 自带那层只盖 55% 屏宽, 换自己那块正方形
         Clock.schedule_once(self._apply_light_theme, 0)
 
     def _align_center(self, *_args):
@@ -1664,6 +1722,7 @@ class _SandBgPopup(Popup):
         """
         if self._is_open and self._window is not None:
             self.center = self._window.center
+        self._upd_overlay()                      # 宿主 resize ⇒ 自己那块遮罩跟着重算
 
     def _unmount(self):
         """从当前宿主摘下来 + 解开该宿主上的绑定。**不动 `_is_open`**。
@@ -1733,6 +1792,11 @@ class _SandBgPopup(Popup):
             self._kb_window = Window
             self.size_hint = (self._frac, None)
             self.center = Window.center
+        # 遮罩跟着宿主走: 挂层(横屏)⇒自己画那块正方形; 回 Window(竖屏)⇒还原自带遮罩。
+        # ⚠️ 只在 `rehost` 里还原, **不在 `_unmount` 里** —— dismiss 走的是
+        #    `_real_remove_widget` → `_unmount`, 而 ModalView 关窗前还有 ~0.2s 的
+        #    `_anim_alpha` 淡出动画; 那时若把自带遮罩还回去, 横屏下会闪一条 660px 亮带。
+        self._set_overlay_rotated(to_layer)
 
     def _real_remove_widget(self):
         """覆写: dismiss 时从旋转层对称摘除(非横屏时 host=Window, 行为等同原生)。
@@ -4683,10 +4747,14 @@ class HourglassApp(App):
         self._benchmark_results = []
         self._benchmark_cancelled = False
         self._benchmark_popup = None
-        self._benchmark_area = BenchmarkHoldArea(self._open_dev_menu)
+        self._benchmark_area = BenchmarkHoldArea(self._open_dev_menu, size_hint=(None, 1))
         # 长按处印出版本号: 隐藏入口总得让人找得到该按哪儿。
         # BenchmarkHoldArea 是裸 Widget、不做子控件布局, 得手动跟着它铺满。
-        hold_label = Label(text=f"v{APP_VERSION}", font_size=sp(11),
+        # ⚠️ 字号 2026-10-06 由 **sp(11) → sp(22)**(用户: 「把这个版本号的文字大幅增加,
+        #    当前太小了」)。这不是美化: 它是**隐藏入口唯一的可见提示**(长按 3 秒进开发者
+        #    菜单), sp(11) 在 360dp 机型上小到看不见、还会被挤成三行。**α 保持 0.38 不动**
+        #    (调淡/调深是另一个决定, 归用户)。
+        hold_label = Label(text=f"v{APP_VERSION}", font_size=sp(22),
                            color=(*POPUP_TEXT[:3], 0.38), halign="center",
                            valign="middle")
 
@@ -4709,6 +4777,45 @@ class HourglassApp(App):
         reset_btn.bind(on_press=self.on_reset)
         self._reset_btn = reset_btn
         bottom.add_widget(reset_btn)
+
+        # ---- 底栏宽度分配: 版本/长按区按"版本文字的实测宽"保底, 四个按钮不够时**等比让出** ----
+        # 为什么必须有这一段: 四个按钮是**定宽**且底栏没有弹性子控件,
+        #   `BoxLayout` 的算法是 `stretch_space = max(0, width - 定宽之和)` —— 空间不够时
+        #   **不压缩、直接往右溢出**(Kivy 2.3.1 `boxlayout.py:226` + `:255-277`)。
+        #   硬需求 = 82+74*3(按钮) + 6*4(间距) + 8*2(根布局 padding) = **344dp**;
+        #   而 360dp 机型只剩 16dp 给版本区(sp(22) 的 "v1.152" 要 ~65dp ⇒ 必然折行/出屏),
+        #   320dp 机型连放都放不下 ⇒ 「重置」右缘直接出屏。
+        # ✅ 保底 = 版本文字**实测宽**(不是猜的固定值: 换字体/换密度/版本号变长都自适),
+        #    不够的部分由四个按钮**同比**让出 ⇒ 宽窗(≥保底+344dp)下按钮**维持原宽, 零改动**。
+        #    (用户口径 2026-10-06: 「触摸区差不多合理就行」—— 所以只保证"不出屏 + 版本号一行",
+        #     不去做"精确 16dp 触摸目标"那套。)
+        self._bottom_btns = (self.duration_btn, self.sound_btn, self.start_btn, reset_btn)
+        self._bottom_base_w = (dp(82), dp(74), dp(74), dp(74))
+
+        def _fit_bottom_widths(*_args):
+            if bottom.width <= dp(1):
+                return                       # 还没布局, 等下一次宽度变化
+            # ⚠️ 量"需要多宽"必须**先解掉折行约束**: 标签的 `text_size` 被 `_fit_hold_label`
+            #    钉成控件尺寸, 此时 `texture_size` 是**折行后**的宽度, 只会等于控件宽 ——
+            #    拿它当 need 会自我满足, 永远算不出"装不下"(第一版就是这么写的, 实测 360dp
+            #    上版本区仍只有 74px)。置 (None,None) 才拿到未折行的自然宽度。
+            hold_label.text_size = (None, None)
+            hold_label.texture_update()
+            need = hold_label.texture_size[0] + dp(6)    # 刚够一行 + 一点余量
+            gap = dp(6) * 4
+            avail = bottom.width - gap
+            base = sum(self._bottom_base_w)
+            scale = 1.0 if avail >= base + need else max(0.0, (avail - need) / base)
+            for btn, w in zip(self._bottom_btns, self._bottom_base_w):
+                btn.width = w * scale
+            self._benchmark_area.width = max(0.0, avail - base * scale)
+            hold_label.text_size = self._benchmark_area.size   # 还给折行约束
+            hold_label.texture_update()
+            if scale < 1.0:
+                bottom.do_layout()           # 改宽度不会自动重排
+
+        bottom.bind(width=_fit_bottom_widths)
+        Clock.schedule_once(_fit_bottom_widths, 0)
         root.add_widget(bottom)
 
         self._mark_selected(color_name)
@@ -4799,6 +4906,14 @@ class HourglassApp(App):
         content = BoxLayout(orientation="vertical", spacing=dp(8),
                             padding=(dp(12), dp(6), dp(12), dp(10)))
 
+        # 中段控件先攒进列表: **装不装得下要等全建完才知道**, 而两种情况的**控件树结构不同**
+        # (见弹窗创建之后那个分支, 注释里写了为什么不能一律套 ScrollView)。
+        mid_widgets = []
+
+        def _mid(w):
+            mid_widgets.append(w)
+            return w
+
         # 预创建 mult_btns/preview_label,避免 lambda 闭包延迟绑定
         # (Android Kivy 2.3.0 对 late binding 时序敏感,曾导致点周期按钮闪退)
         mult_btns = {}
@@ -4812,7 +4927,7 @@ class HourglassApp(App):
                            color=POPUP_TEXT, font_size=sp(15),
                            halign="left", valign="middle")
         base_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
-        content.add_widget(base_title)
+        _mid(base_title)
 
         # --- 基础周期按钮 ---
         base_grid = BoxLayout(orientation="horizontal", spacing=dp(8),
@@ -4830,7 +4945,7 @@ class HourglassApp(App):
                      self._on_base_picked(v, bb, st, mb, pl))
             base_btns[val] = btn
             base_grid.add_widget(btn)
-        content.add_widget(base_grid)
+        _mid(base_grid)
 
         # --- 倍数按钮 (两行 BoxLayout, 不用 GridLayout 避免 Android 兼容问题) ---
         MULTIPLIERS = [1, 2, 3, 5, 10, 20, 30, 50, 70, 100]
@@ -4838,7 +4953,7 @@ class HourglassApp(App):
                            color=POPUP_TEXT, font_size=sp(15),
                            halign="left", valign="middle")
         mult_title.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
-        content.add_widget(mult_title)
+        _mid(mult_title)
         for row_vals in [MULTIPLIERS[:5], MULTIPLIERS[5:]]:
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
                             size_hint=(1, None), height=dp(40))
@@ -4854,7 +4969,7 @@ class HourglassApp(App):
                          self._on_mult_picked(v, mb, st, pl))
                 mult_btns[m] = btn
                 row.add_widget(btn)
-            content.add_widget(row)
+            _mid(row)
 
         # --- 对数倍率滑杆(1–1000 倍,与按钮并存但不同步;默认 Kivy 大滑杆样式,
         #     进度条颜色恢复金色值道(与选中态同色的黄色已滑段);
@@ -4876,20 +4991,20 @@ class HourglassApp(App):
                                size_hint=(1, None), height=dp(44))
         slider_row.add_widget(slider)
         slider_row.add_widget(mult_label)
-        content.add_widget(slider_row)
+        _mid(slider_row)
         # label 用默认参数固定;滑块值变化不触碰任何按钮高亮(不同步)
         slider.bind(value=lambda inst, v, st=state, pv=preview_label,
                     ml=mult_label: self._on_slider_moved(v, st, pv, ml))
 
         # --- 预览 (预创建,此处 add 到正确位置) ---
-        content.add_widget(preview_label)
+        _mid(preview_label)
 
         # --- 运行中警告 ---
         if self.hourglass.running:
             warn_label = Label(text="修改周期将重置当前进度",
                                size_hint=(1, None), height=dp(26),
                                color=(0.85, 0.45, 0.15, 1), font_size=sp(14))
-            content.add_widget(warn_label)
+            _mid(warn_label)
 
         # --- 取消 + 确定 按钮行 ---
         btn_row = BoxLayout(orientation="horizontal", spacing=dp(10),
@@ -4904,7 +5019,7 @@ class HourglassApp(App):
                              background_color=POPUP_GOLD_SEL,
                              color=POPUP_TEXT)
         btn_row.add_widget(confirm_btn)
-        content.add_widget(btn_row)
+        # ⚠️ btn_row **不在这里 add** —— 它挂哪儿取决于"装不装得下"(见弹窗创建后的分支)
 
         popup = _SandBgPopup(title="选择周期", content=content,
                              size_hint=(0.88, None), height=dp(460),
@@ -4913,14 +5028,54 @@ class HourglassApp(App):
         popup.title_size = sp(19)
         popup.separator_color = (*POPUP_GOLD_SEL[:3], 0.25)
         popup.title_color = (1, 1, 1, 1)
-        # content 自适应内容高度,不撑满 _container;顶部对齐紧贴 separator
-        content.size_hint_y = None
-        content.pos_hint = {'top': 1}
-        content.bind(minimum_height=content.setter('height'))
-        # Popup 高度自适应 content 高度(+ title bar/separator/padding 余量)
-        def _adjust_popup_height(inst, val):
-            popup.height = val + dp(85)
-        content.bind(minimum_height=_adjust_popup_height)
+        # ================= F2: 两种结构, 按"装不装得下"选 =================
+        # 触发条件(实测): 窗口长边 < 弹窗自然高(本弹窗 **493dp**) ⇒ 弹窗溢出、居中的话
+        # 「取消/确定」被推到屏幕下缘之外, 弹窗干不成它唯一的活(分屏/自由窗口必现)。
+        #  ① 装得下 ⇒ **原结构一字不改**(逐像素 0 差异 = 回归闸门)。
+        #  ② 装不下 ⇒ 三段式: 中段搬进 ScrollView 可滚动, 「取消/确定」钉在 footer, 高度夹到
+        #     max(W,H)*0.85 ⇒ 标题与两个按钮**必定在屏内**(已成闸门: tools/_r37_f2_fit.py)。
+        # 🔴 **为什么必须分两种结构, 而不是永远挂 ScrollView** —— Kivy 的 `<Label>` 把文字纹理
+        #    摆在 `int(center - texture_size/2)`, 这个 int() 取在**父坐标系**里 ⇒ 把标签挪进
+        #    更深一层的父控件(ScrollView 里的 rows)会改变截断相位: 文字整体偏 0.2px, 字形边缘
+        #    的抗锯齿像素全变。实测卡片内 17802px 有差、最大通道差 121, 而同时
+        #    **文字纹理 md5 完全相同、控件窗口坐标小数点后 4 位完全相同** —— 差的只有那次 int()。
+        #    ⇒ 把控件树逐层搬进 ScrollView, 就**不可能**与原版逐像素一致 ⇒ 常见形态必须走①。
+        natural = (sum(w.height for w in mid_widgets) + content.spacing * len(mid_widgets)
+                   + btn_row.height + content.padding[1] + content.padding[3])
+        if natural + dp(85) <= max(Window.width, Window.height):
+            for w in mid_widgets:                       # ① 原结构
+                content.add_widget(w)
+            content.add_widget(btn_row)
+            content.size_hint_y = None
+            content.pos_hint = {'top': 1}
+            content.bind(minimum_height=content.setter('height'))
+            content.bind(minimum_height=lambda inst, val: setattr(popup, "height", val + dp(85)))
+        else:
+            rows = BoxLayout(orientation="vertical", spacing=dp(8), size_hint_y=None)
+            rows.bind(minimum_height=rows.setter("height"))
+            for w in mid_widgets:                       # ② 中段可滚动
+                rows.add_widget(w)
+            scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
+            scroll.add_widget(rows)
+            content.add_widget(scroll)
+            content.add_widget(btn_row)                 # footer 留在 content(不随中段滚)
+            # ⚠️ content 仍是 **定高 + 顶部对齐**(原实现那两行): 弹窗 chrome 的真实占位比
+            #    dp(85) 小 ~24px, 原实现靠它把差额留在卡片**底部**; 改成 size_hint_y=1 会让
+            #    footer 连同按钮整体下移 24px(实测确定键文字 bbox 从 rows1480-1507 掉到 1504-1531)。
+            content.size_hint_y = None
+            content.pos_hint = {'top': 1}
+
+            def _fit_popup_height(*_args):
+                # ⚠️ 高度**显式算**: 不能拿 content.minimum_height —— `ScrollView` **不参与**
+                #    minimum_height(它的 minimum_height 恒为 0), 拿它定高会让弹窗只剩 footer
+                #    那一截。= 中段自然高 + footer + content 自身 padding/spacing + 标题栏余量。
+                mid = (rows.minimum_height + btn_row.height
+                       + content.padding[1] + content.padding[3] + content.spacing)
+                avail = max(Window.width, Window.height) * 0.85 - dp(85)
+                content.height = min(mid, avail)
+                popup.height = content.height + dp(85)
+            rows.bind(minimum_height=_fit_popup_height)
+            Clock.schedule_once(_fit_popup_height, 0)
 
         cancel_btn.bind(on_press=popup.dismiss)
         confirm_btn.bind(on_press=lambda inst, st=state, p=popup:
@@ -5016,9 +5171,13 @@ class HourglassApp(App):
             return
         hg = self.hourglass
         content = BoxLayout(orientation="vertical", spacing=dp(6),
-                            padding=[dp(16), dp(8), dp(16), dp(12)],
-                            size_hint=(1, None))
-        content.bind(minimum_height=content.setter("height"))
+                            padding=[dp(16), dp(8), dp(16), dp(12)])
+        # 中段控件先攒进列表, 结构与挂法见本函数末尾那个"装不装得下"分支(同周期弹窗)。
+        mid_widgets = []
+
+        def _mid(w):
+            mid_widgets.append(w)
+            return w
 
         def make_row(text, value_text):
             row = BoxLayout(orientation="horizontal", size_hint=(1, None),
@@ -5083,9 +5242,9 @@ class HourglassApp(App):
         # ---- 沙子浓度 ----
         sand_row, sand_label = make_row(
             "沙子浓度", "%.2f" % SAND_MATERIAL_GRAIN)
-        content.add_widget(sand_row)
+        _mid(sand_row)
         sand_slider = make_slider(min(100.0, SAND_MATERIAL_GRAIN / SAND_GRAIN_MAX * 100.0))
-        content.add_widget(sand_slider)
+        _mid(sand_slider)
 
         pending = {"grain": None, "token": 0}
 
@@ -5112,7 +5271,7 @@ class HourglassApp(App):
         sand_slider.bind(value=on_sand)
         self._dev_sliders = (sand_slider,)   # 供测试/自检取用
 
-        content.add_widget(Widget(size_hint=(1, None), height=dp(8)))
+        _mid(Widget(size_hint=(1, None), height=dp(8)))
 
         # ---- 沙体颗粒 六档 (A-F, 出厂默认 D) ----
         # 换档要重烘一张 512² 材质(约 17ms) ⇒ **只能按键触发, 不能做成连续滑块**。
@@ -5125,7 +5284,7 @@ class HourglassApp(App):
             "沙体颗粒", [lb for lb, _g, _c in SAND_GRAIN_LEVELS],
             current_grain_level(), pick_grain,
             fmt=lambda lb: "颗粒 %.1f 倍粗" % _grain_level(lb)[1])
-        content.add_widget(grain_box)
+        _mid(grain_box)
 
         # ---- 沙面起伏 六档 (A-F, 出厂默认 D) ----
         # 这个只是换 65 个浮点 + 一次 redraw, 很轻。
@@ -5138,15 +5297,15 @@ class HourglassApp(App):
             "沙面起伏", [lb for lb, _f in SURFACE_ROUGH_LEVELS],
             current_rough_level(), pick_rough,
             fmt=lambda lb: "约 %.1f 像素" % (_rough_level(lb) * 2 * 445.63))
-        content.add_widget(rough_box)
+        _mid(rough_box)
         self._dev_level_btns = {"grain": grain_btns, "rough": rough_btns}
 
-        content.add_widget(Widget(size_hint=(1, None), height=dp(6)))
+        _mid(Widget(size_hint=(1, None), height=dp(6)))
         bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",
                        background_color=POPUP_CONFIRM, color=POPUP_TEXT_WHITE,
                        size_hint=(1, None), height=dp(50))
         bench.bind(on_press=lambda *_: (self._close_dev_menu(), self.on_benchmark()))
-        content.add_widget(bench)
+        _mid(bench)
 
         def close_menu(*_):
             # 拖动中直接点「确定」⇒ 先把没落定的预览烘成正式版, 再关
@@ -5159,7 +5318,7 @@ class HourglassApp(App):
                        background_color=POPUP_CANCEL_BG, color=POPUP_TEXT,
                        size_hint=(1, None), height=dp(46))
         close.bind(on_press=close_menu)
-        content.add_widget(close)
+        # ⚠️ close 在这一步**不挂父** —— 挂哪儿取决于装不装得下(见末尾分支)
 
         # ⚠️ **高度改成"贴着内容 + 贴底"**（用户 2026-10-05: 「少一个预览功能?」）——
         #    原来高度写死 dp(560), 内容没那么高 ⇒ 标题下面一大块空白;
@@ -5177,8 +5336,42 @@ class HourglassApp(App):
         self._dev_popup = popup
         popup.bind(on_dismiss=lambda *_: setattr(self, "_dev_popup", None))
         # 高度跟着内容长(同周期/音效弹窗那条已跑过真机的链路)
-        content.bind(minimum_height=lambda inst, val: setattr(popup, "height", val + dp(78)))
-        # **贴底**: 留出上半屏给沙漏当预览
+        # ================= F2: 两种结构, 按"装不装得下"选(同周期弹窗) =================
+        # 本菜单自然高 **422dp**; 窄盒(长边 < 422dp, 分屏/自由窗口)里「确定」会被推出屏外。
+        #  ① 装得下 ⇒ **原结构一字不改**(逐像素 0 差异); ② 装不下 ⇒ 中段滚动 + footer 钉底。
+        # 为什么必须分两种结构(不能一律套 ScrollView)见周期弹窗那段长注释。
+        natural = (sum(w.height for w in mid_widgets) + content.spacing * len(mid_widgets)
+                   + close.height + content.padding[1] + content.padding[3])
+        if natural + dp(78) <= max(Window.width, Window.height):
+            for w in mid_widgets:                       # ① 原结构
+                content.add_widget(w)
+            content.add_widget(close)
+            # ⚠️ 本菜单**没有** pos_hint(原实现就没有): 内容贴 wrapper 的**底部**摆。
+            #    照抄周期弹窗那句 `pos_hint={'top':1}` 会让内容整体上移 17px(实测逐像素对不上)。
+            content.size_hint_y = None
+            content.bind(minimum_height=content.setter('height'))
+            content.bind(minimum_height=lambda inst, val: setattr(popup, "height", val + dp(78)))
+        else:
+            rows = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_y=None)
+            rows.bind(minimum_height=rows.setter("height"))
+            for w in mid_widgets:                       # ② 中段可滚动
+                rows.add_widget(w)
+            scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
+            scroll.add_widget(rows)
+            content.add_widget(scroll)
+            content.add_widget(close)                   # 「确定」钉在 footer
+            content.size_hint_y = None
+            content.pos_hint = {'top': 1}
+            # 高度显式算(ScrollView 不参与 minimum_height) + 夹到 max(W,H)*0.85。
+            def _fit_dev_height(*_args):
+                mid = (rows.minimum_height + close.height
+                       + content.padding[1] + content.padding[3] + content.spacing)
+                avail = max(Window.width, Window.height) * 0.85 - dp(78)
+                content.height = min(mid, avail)
+                popup.height = content.height + dp(78)
+            rows.bind(minimum_height=_fit_dev_height)
+            Clock.schedule_once(_fit_dev_height, 0)
+
         popup.pos_hint = {"center_x": 0.5, "y": 0.015}
         # 🔴🔴 **2026-10-06 用户实测: 「让你把沙漏设置做个预览, 结果你把预览窗口直接灰化了,
         #     那预览个毛啊」** —— 这条是**真的, 而且是这个界面唯一的用途**:

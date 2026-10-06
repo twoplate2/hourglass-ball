@@ -82,20 +82,31 @@ def measure_bar(root, w):
                 lab = c
     need = 0.0
     if lab is not None:
+        # ⚠️ 不能再拿 `lab.texture_size[0]` 当"需要多宽" —— 标签的 `text_size` 被
+        #    `_fit_hold_label` 钉成控件尺寸, **折行后**的 texture_size 只会等于控件宽,
+        #    永远得不出"装不下"的结论(旧版就是这么把 360dp 上折成三行判成"放得下"的)。
+        #    改用 CoreLabel 量**未折行**的自然宽度。
         try:
-            lab.texture_update()
-            need = lab.texture_size[0]
+            from kivy.core.text import Label as _CL
+            cl = _CL(text=lab.text, font_size=lab.font_size,
+                     font_name=lab.font_name or "Roboto")
+            cl.refresh()
+            need = cl.content_size[0]
         except Exception:
             need = -1
     dpw = w / (density_scale() or 1.0)
-    # ⚠️ QA_RULES §七第 5 问: 我喂给它的输入, 是应用真的会产生的那种吗?
-    #    按钮恒需 304 dp(实测 532/1.75 == 1216/4), 所以真正决定成败的是**窗口有多少 dp 宽**。
-    #    Android 支持的最窄全屏宽度是 320 dp ⇒ 低于它的行只可能来自分屏/自由窗口, 单独标注。
+    # ★ 硬闸门(2026-10-06): 每个底栏子控件都必须**在屏内**(0 ≤ x 且 right ≤ 屏宽)。
+    #   定宽子控件在空间不够时 Kivy 不压缩、直接向右溢出 ⇒ 「重置」会出屏。
+    off = []
+    for c in bar.children:
+        if c.x < -0.5 or c.right > w + 0.5:
+            off.append("%s x=%.0f..%.0f" % (type(c).__name__, c.x, c.right))
+    gate = ("**出屏**: " + "; ".join(off)) if off else "全部在屏内"
     note = "" if dpw >= 319 else "  [非全屏宽度(%.0f dp < 320), 只见于分屏/自由窗口]" % dpw
-    return ("按钮合计 %.0f (=%.0f dp, 与密度无关) / 屏宽 %d (%.0f%%) | 屏宽=%.0f dp | "
-            "版本区 %.0f px | 版本文字需 %.0f px => %s%s"
+    return ("按钮合计 %.0f (=%.0f dp) / 屏宽 %d (%.0f%%) | 屏宽=%.0f dp | "
+            "版本区 %.0f px | 版本文字需(未折行) %.0f px => %s | 底栏 5 子控件: %s%s"
             % (bw, bw / (density_scale() or 1.0), w, 100.0 * bw / w, dpw, aw, need,
-               "**折行/放不下**" if need > aw else "放得下", note))
+               "**折行/放不下**" if need > aw else "一行放得下", gate, note))
 
 
 def run_case(density, w, h):
