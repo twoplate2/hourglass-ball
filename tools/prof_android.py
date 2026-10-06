@@ -62,6 +62,15 @@ METHODS = (
     "_neck_solid_rect",          # 不存在也没关系, 用来演示"跳过"
 )
 
+# **模块里的函数/方法**也要能量 —— 上面 `METHODS` 只包 widget 类的方法, 而最大的两块
+# (`flow_numpy.step` 主粒子物理、`TextureFlowBatch.update` 沙流打包) 都在别处。
+# 形如 ("模块名", "函数名") 或 ("模块名", "类名.方法名")。
+EXTRA_TARGETS = (
+    ("flow_numpy", "step"),
+    ("flow_texture_experiment", "TextureFlowBatch.update"),
+    ("flow_splash_experiment", "SplashBatch.update"),
+)
+
 DUMP_INTERVAL = 4.0      # 每 4 秒打一行; 一轮 15 秒的周期约 3~4 行
 TAG = "HGPROF"
 
@@ -144,6 +153,34 @@ def _dump(_dt=None):
     _FRAMES = 0
 
 
+def _wrap_module_target(mod_name, dotted, label):
+    """包一个模块里的函数/方法。返回 True 表示挂上了。"""
+    mod = sys.modules.get(mod_name)
+    if mod is None:
+        return False
+    owner, _, attr = dotted.rpartition(".")
+    target = mod
+    for part in (owner.split(".") if owner else []):
+        target = getattr(target, part, None)
+        if target is None:
+            return False
+    orig = getattr(target, attr, None)
+    if orig is None or not callable(orig):
+        return False
+
+    def wrapper(*args, _orig=orig, _name=label, **kwargs):
+        t0 = time.perf_counter()
+        try:
+            return _orig(*args, **kwargs)
+        finally:
+            if _ENABLED:
+                _ACC[_name] = _ACC.get(_name, 0.0) + (time.perf_counter() - t0)
+
+    wrapper.__name__ = attr
+    setattr(target, attr, wrapper)
+    return True
+
+
 def install(widget_class, marker_path):
     """挂到 `widget_class` 上。**必须在这之后再装渲染器替换的方法都已就位时调用。**"""
     global _MARKER, _ENABLED
@@ -158,6 +195,9 @@ def install(widget_class, marker_path):
     for name in METHODS:
         (hooked if _wrap(widget_class, name, count_frame=(name == "tick"))
          else skipped).append(name)
+    for mod_name, dotted in EXTRA_TARGETS:
+        lab = mod_name.split("_")[-1] + "." + dotted.split(".")[-1]
+        (hooked if _wrap_module_target(mod_name, dotted, lab) else skipped).append(lab)
     # 把区间打点钩子挂进 main(默认是 None ⇒ 不打点时零开销)
     mod = sys.modules.get(widget_class.__module__)
     if mod is not None and hasattr(mod, "_PROF_MARK"):

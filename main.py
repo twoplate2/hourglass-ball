@@ -5297,7 +5297,11 @@ class HourglassWidget(Widget):
             # 这里把候选下标取出来给它复用: O(n) -> O(候选数)。
             # flatnonzero 恒升序 ⇒ 与 range(n) 同序 ⇒ count/池下标的分配顺序不变,
             # 且循环体内无 random 调用 ⇒ random.seed(23) 闸门不受影响。
-            _cand = _np.flatnonzero(_keep).tolist() if _keep.any() else []
+            # ⚠️ **不要 `.tolist()`** —— 下游的向量化分支紧接着要 `np.array(_cand[:pool_len])`,
+            #    来回一趟是白钱(候选峰值 ~1500 个)。留着 numpy 数组, 直接切片用。
+            # ⚠️ 空的时候给**空数组**不是空 list —— 下游分支判的是 `_cand is not None`,
+            #    空 list 会走进向量化分支再 `.dtype` 炸掉。
+            _cand = _np.flatnonzero(_keep) if _keep.any() else _np.empty(0, dtype=_np.intp)
             if _keep.any():
                 _mx = float(_d[_keep].max())
                 if _mx > depth:
@@ -5364,7 +5368,8 @@ class HourglassWidget(Widget):
             #   等价性: 逐条照抄标量版(NaN 传播、向零截断、两端越界分支都对齐), 且由
             #   **逐像素比对**兜底(`tools/inspect_flow.py`, random.seed(23) 下必须 0 差异)。
             #   ⚠️ 下面的标量兜底路径**一字未动** —— `_cand is None` 时它是唯一出路。
-            _idx = _np.array(_cand[:pool_len], dtype=_np.intp)
+            # `asarray` 对已经是 intp 的数组是空操作(不拷贝), 不必判断 dtype
+            _idx = _np.asarray(_cand[:pool_len], dtype=_np.intp)
             _cnt = len(_idx)
             _t = (outlet - pv.ny[_idx]) / depth   # 0 = 刚出孔口, 1 = 流得最深的一颗
             _np.minimum(_t, 1.0, out=_t)
