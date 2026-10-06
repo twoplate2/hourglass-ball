@@ -648,3 +648,221 @@ def install_neck(widget_class):
     widget_class._draw_neck_grains = draw_neck_batches
     widget_class.neck_renderer = "batch"
     return True
+
+
+# =====================================================================================
+# 触底闪光(flare)层: 一个 `Mesh` 取代 N 条 `Color` + `Rectangle`
+# =====================================================================================
+#
+# ## 为什么
+#
+# `tools/_probe_canvas_cost.py` 的消融: 48 条 `Rectangle` 的池子值 **on_draw 0.105ms**
+# (141 条指令: 每条还各带一条 Kivy 自动插的 `BindTexture`); 逐帧那 48×3 个 Kivy 属性写入
+# 再值 **~0.11ms**。合计 ~0.21ms/帧(桌面), 设备约 0.34ms —— 是画布上**最大的单族**。
+#
+# ## 与飞溅批处理的唯一差别: 每颗一个 alpha
+#
+# 闪光要按剩余寿命淡出, 所以不能像飞溅那样全场共用一个 `Color`。做法是**每颗多存一个
+# float32**(第 5 个纹素), 顶点着色器里
+#     `frag_color = color * vec4(1, 1, 1, opacity * alpha)`
+# —— 默认片元着色器就是 `gl_FragColor = frag_color`, 所以**不需要自定义 varying**
+# (少一处 GLES2 变数)。`opacity` 是 Kivy `Color` 的不透明度(装配时保持 1.0)
+# ⇒ `1.0 * alpha` 与原 `Color(..., alpha)` 那条路**逐位相同**。
+# 🔴 **顶点的角点顺序必须与 Kivy 的 `Rectangle` 一模一样**, 否则**对角线不同** ——
+#    而两个三角剖分的**外边缘填充规则**在"边正好落在像素边界上"时会给出不同结果
+#    (实测: 12 个边缘像素差 1~16 级)。`_qa/flare_iso.py` 就是为这条写的。
+#    Kivy `Rectangle` 的顶点序是 v0=左下 v1=右下 **v2=右上 v3=左上**;
+#    而本文件那个着色器的解码表是 `mod(sel,2)` 取 x、`floor(sel*0.5)` 取 y
+#    ⇒ sel=0/1/2/3 解成 **左下/右下/左上/右上**。要在**下标 2** 拿到"右上"、**下标 3**
+#    拿到"左上", 就得把选择子的值写成 (0, 1, **3**, **2**)。
+#    ⚠️ 飞溅那边用的是 (0,1,2,3) —— 它**与逐 Rectangle 路径本来就不同**(先于本次改动,
+#    且是安卓出货路径), 不动它; 这里只保证闪光层与它要替换的那条路**逐像素相同**。
+FLARE_SELECTORS = (0.0, 1.0, 3.0, 2.0)
+FLARE_TEXELS = 5                 # left / bottom / right / top / alpha
+FLARE_STEP = 1.0 / (CHUNK * FLARE_TEXELS)
+_F5 = __import__("struct").Struct("<5f")
+FLARE_PAD = _F5.pack(-1e5, -1e5, -1e5, -1e5, 0.0)
+
+FLARE_VERTEX_SHADER = """
+$HEADER$
+uniform sampler2D bounds;
+uniform float texel_step;
+float read_float(float u) {
+    vec4 b = floor(texture2D(bounds, vec2(u, 0.5)) * 255.0 + 0.5);
+    float exponent = mod(b.a, 128.0) * 2.0 + floor(b.b / 128.0);
+    if (exponent == 0.0) {
+        return 0.0;
+    }
+    float fraction = b.r + b.g * 256.0 + mod(b.b, 128.0) * 65536.0;
+    float sign_value = b.a >= 128.0 ? -1.0 : 1.0;
+    return sign_value * (1.0 + fraction / 8388608.0) * exp2(exponent - 127.0);
+}
+void main(void) {
+    float left   = read_float(vTexCoords0.x);
+    float bottom = read_float(vTexCoords0.x + texel_step);
+    float right  = read_float(vTexCoords0.x + texel_step * 2.0);
+    float top    = read_float(vTexCoords0.x + texel_step * 3.0);
+    float alpha  = read_float(vTexCoords0.x + texel_step * 4.0);
+    float sel = floor(vTexCoords0.y + 0.5);
+    vec2 position = vec2(mix(left, right, mod(sel, 2.0)),
+                         mix(bottom, top, floor(sel * 0.5)));
+    frag_color = color * vec4(1.0, 1.0, 1.0, opacity * alpha);
+    gl_Position = projection_mat * modelview_mat * vec4(position, 0.0, 1.0);
+}
+"""
+
+
+class FlareBatch:
+    """一块 = 最多 `CHUNK` 颗闪光。多块自动扩展。"""
+
+    __slots__ = ("group", "parts")
+
+    def __init__(self, group):
+        self.group = group
+        self.parts = []
+
+    def _ensure_part(self, chunk):
+        if chunk < len(self.parts):
+            return self.parts[chunk]
+        binding = BindTexture(index=1)
+        mesh = Mesh(mode="triangles")
+        self.group.add(binding)
+        self.group.add(mesh)
+        data = bytearray(CHUNK * FLARE_TEXELS * 4)
+        texture = Texture.create(size=(CHUNK * FLARE_TEXELS, 1), colorfmt="rgba")
+        texture.mag_filter = texture.min_filter = "nearest"
+
+        def reload_data(target, _data=data):
+            target.blit_buffer(_data, colorfmt="rgba", bufferfmt="ubyte")
+        texture.add_reload_observer(reload_data)
+        # ⚠️ **必须把纹理挂到 `BindTexture` 上** —— "建了 BindTexture" 不等于"绑了纹理",
+        #    漏了它着色器采样到的是别的纹理、四个边界全 0 ⇒ 整层退化到画布原点(踩过)。
+        binding.texture = texture
+
+        span = CHUNK * FLARE_TEXELS
+        vertices = array("f", (
+            value
+            for i in range(CHUNK)
+            for sel in FLARE_SELECTORS
+            for value in (0.0, 0.0, (i * FLARE_TEXELS + 0.5) / span, sel)))
+        indices = array("H", (
+            index + i * len(_SELECTORS)
+            for i in range(CHUNK) for index in _INDICES))
+        part = [mesh, vertices, indices, texture, data, 0]
+        mesh.vertices = vertices
+        self.parts.append(part)
+        return part
+
+    def update_raw(self, raw, count):
+        """`raw` = 全部闪光的 `left/bottom/right/top/alpha` 字节(**每条 20 字节**)。
+
+        与飞溅那边同一套"索引只增不减 + `PAD` 中性化 + 只传用到的纹素"。
+        """
+        chunks = -(-count // CHUNK) if count else 0
+        for chunk in range(chunks):
+            start = chunk * CHUNK
+            n = count - start
+            if n > CHUNK:
+                n = CHUNK
+            part = self._ensure_part(chunk)
+            mesh, _vertices, indices, texture, data, previous = part
+            if n:
+                src = start * 20
+                data[:n * 20] = raw[src:src + n * 20]
+            _upload = n
+            if n > previous:
+                mesh.indices = indices[:n * len(_INDICES)]
+                part[5] = n
+            elif n < previous:
+                data[n * 20:previous * 20] = FLARE_PAD * (previous - n)
+                _upload = previous
+            if _upload:
+                texture.blit_buffer(data, size=(_upload * FLARE_TEXELS, 1),
+                                    colorfmt="rgba", bufferfmt="ubyte")
+        for part in self.parts[chunks:]:
+            if part[5]:
+                part[0].indices = array("H")
+                part[5] = 0
+
+
+def install_flares(widget_class):
+    """把触底闪光从 N 条 `Color`+`Rectangle` 换成一批 `Mesh`。成功返回 True。
+
+    与 `install_neck` 同一形状: 包 `_build_dynamic_canvas`, 把 `_flare_group` 摘下来换成
+    `RenderContext` + `FlareBatch`, 再换掉 `_draw_flares`。
+    """
+    if getattr(widget_class._draw_flares, "_flare_batched", False):
+        return False
+    draw = widget_class._draw_flares
+    build = widget_class._build_dynamic_canvas
+
+    def build_wrapper(self):
+        build(self)
+        group = getattr(self, "_flare_group", None)
+        if group is None:
+            return
+        try:
+            position = self.canvas.children.index(group)
+            self.canvas.remove(group)
+            group.clear()                   # 扔掉那些 (Color, Rectangle) 对
+            context = RenderContext(use_parent_projection=True,
+                                    use_parent_modelview=True)
+            context.shader.vs = FLARE_VERTEX_SHADER
+            context.shader.fs = FRAGMENT_SHADER
+            if not context.shader.success:
+                raise RuntimeError("flare batch shader failed to compile")
+            # ⚠️ 必须用 `context[名字] = 值` —— `context.shader[...]` 是 Kivy **2.3.1**
+            #    才有的, 设备上是 2.3.0, 写了会在画布构建时 TypeError(app 一启动就死)。
+            context["texel_step"] = FLARE_STEP
+            context["bounds"] = 1
+            color = Color(1.0, 1.0, 1.0, 1.0)
+            context.add(color)
+            self.canvas.insert(position, context)
+            self._flare_context = context
+            self._flare_color = color
+            self._flare_batches = FlareBatch(context)
+            self._flare_rgb = None
+            self._flare_rects = []          # 批处理路径不再用, 置空免得误读
+        except Exception as exc:            # 装不上就退回逐 Rectangle, 不要连累整幅画
+            print("flare batch failed, keeping per-Rectangle: %r" % (exc,))
+            self._flare_batches = None
+
+    def draw_flares_batched(self, now):
+        if getattr(self, "_flare_batches", None) is None:
+            return draw(self, now)          # 没装上 ⇒ 原路
+        flares = self.flares
+        n = len(flares)
+        if self._flare_rgb != self.sand_light:
+            self._flare_color.rgb = self.sand_light
+            self._flare_rgb = self.sand_light
+        if n == 0:
+            self._flare_batches.update_raw(b"", 0)
+            return
+        np = _np
+        if np is None:
+            return draw(self, now)
+        # ⚠️ 每个算式都要与逐颗版**逐字对齐** —— 尤其 `right = left + w`
+        #    (不是 `x + w/2`): Kivy 的 `Rectangle` 就是按 `pos + size` 算角点的, 而
+        #    `(x - w/2) + w` 与 `x + w/2` 在浮点下**不保证相等**。
+        fx = np.fromiter((f["x"] for f in flares), dtype=np.float64, count=n)
+        fy = np.fromiter((f["y"] for f in flares), dtype=np.float64, count=n)
+        fe = np.fromiter((f["end"] for f in flares), dtype=np.float64, count=n)
+        life = fe - now
+        np.maximum(life, 0.0, out=life)
+        life /= 0.08
+        w = 2.0 + life * 2.0
+        h = 0.8 + life * 0.4
+        left = fx - w * 0.5
+        bottom = fy - h * 0.5
+        blk = np.empty((n, FLARE_TEXELS), dtype="<f4")
+        blk[:, 0] = left
+        blk[:, 1] = bottom
+        blk[:, 2] = left + w
+        blk[:, 3] = bottom + h
+        blk[:, 4] = 0.45 * life
+        self._flare_batches.update_raw(blk.tobytes(), n)
+
+    draw_flares_batched._flare_batched = True
+    widget_class._build_dynamic_canvas = build_wrapper
+    widget_class._draw_flares = draw_flares_batched
+    return True

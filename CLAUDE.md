@@ -313,10 +313,28 @@ uv**, 所以走 `set_uv`; 换材质走 `set_texture`——**`BindTexture` 与 `M
 `_QuadBand.set` 只写 **8 个位置**(x/y 落在下标 ≡0,1 mod 4, uv 落在 ≡2,3 ⇒ 互不重叠,
 uv 是常量, `__init__` 里铺一次就够), 用**两条步长 4 的切片赋值**而不是 16 个下标写。
 
-**当前画布指令的剩余分布**(593 条, 按族): `_flare_group` **141** / `_flow_texture_context` 123 /
+### 闪光(flare)层也批处理了(2026-10-07, 1.207)
+
+`_flare_group` 原来是画布上**最大的单族**: 48 个 flare 各占
+`Color + BindTexture + Rectangle` = **141 条指令**, 消融实测值 on_draw **0.105ms**;
+per-flare 的 alpha 逼出 per-flare 的 `Color` ⇒ 只能走批处理。
+`tools/flow_splash_experiment.FlareBatch` = 飞溅那套再加**一个纹素存 alpha**
+(顶点着色器里 `frag_color = color * vec4(1,1,1, opacity * alpha)` —— 默认片元着色器就是
+`gl_FragColor = frag_color`, 所以**不必自定义 varying**)。
+设备实测 Canvas 栏 **1.18 → 0.90**(1s 档, flare 最密的档)。
+
+🔴 **踩到的坑, 值得记**: 第一版**逐像素不等**, 12 个边缘像素差 1~16 级。
+根因是**顶点的角点顺序**: Kivy `Rectangle` 是 v0=左下 v1=右下 **v2=右上 v3=左上**,
+而那个着色器的解码表 `mod(sel,2)` 取 x、`floor(sel*0.5)` 取 y ⇒ sel=0/1/2/3 解成
+**左下/右下/左上/右上** ⇒ **对角线不同**。凸四边形的"覆盖面积"当然一样, 但**外边缘的填充
+规则**在"边正好落在像素边界上"时会给出不同结果(flare 只有 2~4px 宽, 整天在边界上)。
+⇒ 选择子的值必须写成 `(0, 1, **3**, **2**)`(`FLARE_SELECTORS`) 才能与 `Rectangle` 逐位对齐。
+**量具**: `tools/_probe_flare_equiv.py` —— 同屏各画一批, 逐像素比(现在 0 差异)。
+⚠️ 飞溅那边用的是 `(0,1,2,3)`, **它与逐 `Rectangle` 路径本来就不同**(先于本次改动,
+且是安卓出货路径) —— 没动它。
+
+**当前画布指令的剩余分布**(593 条, 按族): `_flow_texture_context` 123 /
 `_neck_context` 97 / `_surface_marker_group` 60 / `canvas.before` 36(玻璃壳) / 其余零散。
-`_flare_group` 现在最大: 47 个 flare 各占 `Color + BindTexture + Rectangle` 三条 ——
-**per-flare 的 alpha 逼出 per-flare 的 `Color`**, 想再压只能走批处理(那会动到 stipple)。
 
 **量具**: `tools/_probe_canvas_cost.py`(指令单价) · `tools/_probe_quadmesh_equiv.py`(Quad↔Mesh
 等价) · `tools/_hot_desktop.py`(cProfile 热点排名, **只信排名不信量级**)。

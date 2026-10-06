@@ -5665,6 +5665,20 @@ class HourglassWidget(Widget):
         else:
             # 并行数组直通(每颗省掉 3 次 dict 查找)。
             _batch.update_arrays(self._sn, self.sx, self.sy, self.shw, self.shh)
+        self._draw_flares(now)
+        self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
+        self._bore_color.a = 1 if remaining <= 0.001 else 0
+        self._pause_color.a = 0.55 if not self.running and 0 < self.elapsed < self.duration else 0
+        self._pause_rect.size = self.size if self._pause_color.a else (0, 0)
+
+    def _draw_flares(self, now):
+        """触底闪光 —— **原路: 每颗一条 `Color` + 一条 `Rectangle`**。
+
+        ⚠️ 这一段被**单独拎成方法**是有原因的: 装了批处理渲染器时
+        (`HG_SPLASH_RENDERER=batch` / 安卓) `tools/flow_splash_experiment.install_flares`
+        会把**整个方法**换掉(见那边 `FlareBatch`)。留在 `redraw` 里就没法替换了。
+        池子按需增长: `self._flare_rects` 只增不减, 多出来的置零隐藏。
+        """
         for i, f in enumerate(self.flares):
             if i == len(self._flare_rects):
                 color, rect = Color(), Rectangle()
@@ -5681,10 +5695,6 @@ class HourglassWidget(Widget):
             if rect.size[0] or rect.size[1]:
                 color.a = 0
                 rect.size = (0, 0)
-        self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
-        self._bore_color.a = 1 if remaining <= 0.001 else 0
-        self._pause_color.a = 0.55 if not self.running and 0 < self.elapsed < self.duration else 0
-        self._pause_rect.size = self.size if self._pause_color.a else (0, 0)
 
     def _group_stream_particles(self):
         """按 (色调, 线宽) 分桶 —— 返回 `{key: [粒子下标, ...]}`, 不再是 dict 列表。
@@ -7409,6 +7419,7 @@ SPLASH_RENDERER = os.environ.get("HG_SPLASH_RENDERER", "batch")   # rect | batch
 # 桌面 GL 余量大、测不出, 装不上自动回退原来的 320 个 `Line`。
 # 实测收益(设备, 池子 320→1 的消融): 这一层值 ~2.3ms/帧(Canvas 1.48 + Python 0.78)。
 NECK_RENDERER = os.environ.get("HG_NECK_RENDERER", "batch")       # line | batch
+FLARE_RENDERER = os.environ.get("HG_FLARE_RENDERER", "batch")      # rect | batch
 
 
 def _install_splash_renderer(widget_class):
@@ -7431,6 +7442,19 @@ def _install_splash_renderer(widget_class):
             mod.install_neck(widget_class)
         except Exception as exc:
             print("neck batch unavailable (%s); keeping per-Line" % exc)
+    # ⚠️ 闪光那版**必须排在最后** —— 它也包 `_build_dynamic_canvas`, 后包的先跑,
+    #    而它要找的 `_flare_group` 是原构建里建的(前面两版都不碰它)。
+    _flare_ok = False
+    if FLARE_RENDERER == "batch":
+        try:
+            _flare_ok = mod.install_flares(widget_class)
+        except Exception as exc:
+            print("flare batch unavailable (%s); keeping per-Rectangle" % exc)
+    # ★ **正面报一句**。上面两条失败路径都会自己喊, 但"没装"与"装了"在日志里
+    #   本来长得一样(都不出声)—— 而分辨这两件事恰恰是性能对比最容易搞错的地方
+    #   (拿一个静默回退的版本去比, 会量出"改了没差别")。
+    print("batch renderers: splash=%s neck=%s flare=%s"
+          % (SPLASH_RENDERER, NECK_RENDERER, "batch" if _flare_ok else "rect"))
 
 
 if platform == "android" or os.environ.get("HG_SPLASH_RENDERER"):
