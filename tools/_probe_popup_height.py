@@ -23,6 +23,7 @@ OUT = ROOT / "_shot" / "popupfit"
 
 
 def run_case(tag, win, landscape, dens):
+    tag = "%s__%s" % (tag, OPEN)
     sys.path.insert(0, str(ROOT))
     os.environ["KIVY_METRICS_DENSITY"] = str(dens)
     from kivy.clock import Clock
@@ -35,7 +36,10 @@ def run_case(tag, win, landscape, dens):
     import numpy as np
     m.HourglassWidget._make_sound_proxy = lambda *_: None
     m.HourglassWidget._make_completion_sound = lambda *_: None
-    m.HourglassApp.on_completed = lambda *_: None
+    # ⚠️ 这个桩是给别的用例"防完成弹窗遮住裁图"用的; 测完成弹窗自己时必须去掉,
+    #    否则**把被测对象关掉了**(2026-10-06 踩过: 量不到完成弹窗, 查了半天)
+    if OPEN != "completion":
+        m.HourglassApp.on_completed = lambda *_: None
     m.HourglassWidget.load_config = lambda *_: {"duration": 50}
     m.HourglassWidget.save_config = lambda *_: None
     now = [1000.0]
@@ -66,11 +70,18 @@ def run_case(tag, win, landscape, dens):
             if self.root._anchor is not None:
                 self.root._anchor.do_layout()
             self.hourglass.parent.do_layout()
+            if os.environ.get("HG_RUNNING") == "1":
+                self.hourglass.running = True
             if OPEN == "dev":
                 self._open_dev_menu()
+            elif OPEN == "sound":
+                self.on_sound_picker()
+            elif OPEN == "completion":
+                self.on_completed(95)
             else:
                 self.on_duration_picker(None)
-            Clock.schedule_once(self.take, 0.8)
+            # 完成弹窗有 COMPLETION_POPUP_DELAY=1.0s 的延迟弹出, 抓图要等过它
+            Clock.schedule_once(self.take, 2.2 if OPEN == 'completion' else 0.8)
 
         def take(self, _dt):
             img = shot()
