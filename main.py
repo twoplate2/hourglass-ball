@@ -892,7 +892,7 @@ class _MoundProfile:
     """
 
     __slots__ = ("radius", "shape", "xs", "flat", "heap", "slope_l", "slope_r",
-                 "_ctab_axes")
+                 "_ctab_axes", "_geom_cache")
 
     def __init__(self, radius, shape, samples=MOUND_AREA_SAMPLES):
         n = len(shape)
@@ -922,8 +922,10 @@ class _MoundProfile:
         top = [2.0 * radius - y for y in bottom]
         self.flat = _MoundArea(bottom, top, weights, [0.0] * k)
         self.heap = _MoundArea(bottom, top, weights, offs)
-        # `contact_table_axes` 的缓存槽 —— 几何一变这个实例就被换掉, 所以不必另设失效代
+        # `contact_table_axes` / `geometry_at` 的缓存槽 —— 几何一变这个实例就被换掉,
+        # 所以不必另设失效代。
         self._ctab_axes = None
+        self._geom_cache = {}
 
     def shape_at(self, dx):
         """轮廓偏移 f(dx) —— 控制点之间线性插值(与面积表、绘制折线同一份定义)。"""
@@ -974,18 +976,61 @@ class _MoundProfile:
         floor, roof = self.bounds(dx)
         return floor, roof, apex + self.shape_at(dx)
 
+    def geometry_at(self, dx):
+        """`(球内底, 球内顶, 轮廓偏移)` —— **只跟几何有关**(与 `apex` 无关), 按 `dx` 缓存。
+
+        `H = clamp(apex + off, floor, roof)` ⇒ 一列里那次 `sqrt` 与 65 点插值,
+        **每帧算的都是同一个数**。而绘制节点(111 个)、表层标记(~120 次)、尘埃(~25 次)
+        反复问同一批 `dx`。实测(真 `_MoundProfile`, 111 点): `column()` **0.070ms → 0.012ms**。
+
+        ⚠️ **按 `dx` 精确相等做键**(float 直接当 key, 无 epsilon) ⇒ 命中时拿到的是
+        **同一个 float** ⇒ 逐位等价, 不是"近似相等"。缓存挂在实例上, 几何一变实例
+        就被换掉, 天然失效。
+        ⚠️ 壁交点(`_mound_wall_cross`)的 `dx` **随 apex 每帧变** ⇒ 缓存会缓慢增长,
+        故设上限: 超了整体清空(重建 111 个固定节点只值 0.07ms)。
+        ⚠️ 算式与 `bounds` / `shape_at` **逐字相同**(含 `max(0.0, ...)` 在 `-0.0`/NaN 上
+        的取值、`(dx+r)/(2r)*(n-1)` 的算子次序)。守卫: `tools/_probe_ctab_equiv.py`。
+        """
+        cache = self._geom_cache
+        hit = cache.get(dx)
+        if hit is not None:
+            return hit
+        r = self.radius
+        x = dx if dx > -r else -r
+        if x > r:
+            x = r
+        d2 = r * r - x * x
+        half = math.sqrt(d2) if d2 > 0.0 else 0.0
+        shape = self.shape
+        sn = len(shape) - 1
+        z = (dx + r) / (2.0 * r) * sn
+        if z <= 0.0:
+            off = shape[0]
+        elif z >= sn:
+            off = shape[-1]
+        else:
+            i = int(z)
+            off = shape[i] + (shape[i + 1] - shape[i]) * (z - i)
+        val = (r - half, r + half, off)
+        if len(cache) >= 8192:
+            cache.clear()
+        cache[dx] = val
+        return val
+
     def column(self, dx, apex):
         """绘制用: 一次拿到 `(接触高度, 是否自由表面, 距球底厚度)`。
 
         三个量与 `contact` / `free_surface` **同定义**, 只是算一次。
         """
-        floor, roof, p = self._parts(dx, apex)
+        floor, roof, off = self.geometry_at(dx)
+        p = apex + off
         y = floor if p < floor else (roof if p > roof else p)
         return y, floor < p < roof, y - floor
 
     def contact(self, dx, apex):
         """该列的**接触高度**(绝对) —— 粒子/尘埃的判定面, 与绘制同一份定义。"""
-        floor, roof, p = self._parts(dx, apex)
+        floor, roof, off = self.geometry_at(dx)
+        p = apex + off
         return floor if p < floor else (roof if p > roof else p)
 
     def contact_table_axes(self, n, x_offset, inv):
@@ -1077,12 +1122,13 @@ class _MoundProfile:
 
     def has_sand(self, dx, apex):
         """该列有没有沙(自由表面/填满都算有; P ≤ B 才是裸露球底)。"""
-        floor, _roof, p = self._parts(dx, apex)
-        return p > floor
+        floor, _roof, off = self.geometry_at(dx)
+        return apex + off > floor
 
     def free_surface(self, dx, apex):
         """该列是不是**真正的自由表面**(沙与空气之间) —— 亮带只画在这里。"""
-        floor, roof, p = self._parts(dx, apex)
+        floor, roof, off = self.geometry_at(dx)
+        p = apex + off
         return floor < p < roof
 
 

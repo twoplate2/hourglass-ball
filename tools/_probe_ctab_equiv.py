@@ -92,4 +92,55 @@ for case in range(200):
             if bad <= 3:
                 print("!! 第 %d 组 第 %d 点: contact=%.17g  inline=%.17g" % (case, k, a[k], b[k]))
             break
-print("逐位等价守卫: 200 组随机用例, 不一致 %d 组" % bad)
+print("建表逐位等价守卫: 200 组随机用例, 不一致 %d 组" % bad)
+
+# ---- 同时守卫 `geometry_at` 缓存路径: `column`/`contact`/`has_sand`/`free_surface`
+#      必须与"不走缓存"的参考实现逐位相同(缓存命中返回的是同一个 float, 但**首次未命中**
+#      那条路径也要逐位正确)。
+def _ref_bounds(pf, dx):
+    r = pf.radius
+    x = min(max(dx, -r), r)
+    half = math.sqrt(max(0.0, r * r - x * x))
+    return r - half, r + half
+
+
+def _ref_shape_at(pf, dx):
+    r = pf.radius
+    shp = pf.shape
+    n = len(shp)
+    z = (dx + r) / (2.0 * r) * (n - 1)
+    if z <= 0.0:
+        return shp[0]
+    if z >= n - 1:
+        return shp[-1]
+    i = int(z)
+    return shp[i] + (shp[i + 1] - shp[i]) * (z - i)
+
+
+bad2 = 0
+for case in range(300):
+    r_ = _rnd.uniform(20.0, 400.0)
+    n_ = _rnd.choice((5, 9, 17, 33, 65))
+    shp_ = tuple(_rnd.uniform(-r_ * 0.2, r_ * 0.2) for _ in range(n_))
+    if not any(abs(v) > 1e-9 for v in shp_):
+        shp_ = (0.0,) * (n_ - 1) + (1.0,)
+    pr = m._MoundProfile(radius=r_, shape=shp_)
+    ap_ = _rnd.uniform(0.0, r_ * 1.2)
+    for _ in range(12):
+        dx = _rnd.uniform(-r_ * 1.5, r_ * 1.5)
+        floor, roof = _ref_bounds(pr, dx)
+        p = ap_ + _ref_shape_at(pr, dx)
+        want_y = floor if p < floor else (roof if p > roof else p)
+        want_col = (want_y, floor < p < roof, want_y - floor)
+        want_con = want_y
+        want_has = p > floor
+        want_free = floor < p < roof
+        if (pr.column(dx, ap_) != want_col or pr.contact(dx, ap_) != want_con
+                or pr.has_sand(dx, ap_) != want_has
+                or pr.free_surface(dx, ap_) != want_free):
+            bad2 += 1
+            if bad2 <= 3:
+                print("!! dx=%.17g apex=%.17g 处不一致" % (dx, ap_))
+            break
+print("geometry_at 缓存路径守卫: 300 组 x 12 点, 不一致 %d 组" % bad2)
+bad += bad2
