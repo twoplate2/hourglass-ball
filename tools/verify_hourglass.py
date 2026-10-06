@@ -246,9 +246,33 @@ def main():
                 widget.elapsed = 0.3
                 random.seed(23)
                 widget.update_particles(1 / 60)
-                check(len(widget.particles) == 10, "particle rate is unchanged")
+                # 🔴 **2026-10-06 由"魔法数"改成"不变量"**。
+                #    原检查是 `len(widget.particles) == 10`(duration=60 下), 它只钉住了
+                #    **那一版公式在当时那个周期的取值** —— 公式本身随周期漂移
+                #    (`600*speed_factor`: 1500/s → 300/s) 时, 这条**完全不响**。
+                #    于是"长周期沙流变成一串断续小珠"(用户报的"沙流和沙堆差距过大")
+                #    在闸门全绿的情况下存在了很久。
+                #    新判据 = **主张本身**: 同 elapsed / 同 dt / 同 seed 下,
+                #    60s 与 3600s 必须生成**同样多**的粒子(密度与周期无关)。
+                n_short = len(widget.particles)
+                check(n_short > 0, "particles are emitted once the neck has filled")
                 check(len({p["y"] for p in widget.particles}) > 1,
                       "births are spread across the frame")
+                widget.reset()
+                widget.set_duration(3600)
+                widget.running = True
+                widget.elapsed = 0.3
+                random.seed(23)
+                widget.update_particles(1 / 60)
+                check(len(widget.particles) == n_short,
+                      "flow rate is independent of duration (no long-period thinning)")
+                widget.reset()
+                widget.set_duration(60)
+                widget.running = True
+                widget.elapsed = 0.3
+                random.seed(23)
+                widget.update_particles(1 / 60)
+                check(len(widget.particles) == n_short, "flow rate is reproducible")
                 widget.redraw()
                 particle_order = [id(p) for p in widget.particles]
                 def drawable_ids():

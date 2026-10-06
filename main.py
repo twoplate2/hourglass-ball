@@ -911,6 +911,33 @@ class _MoundProfile:
 # `_rebuild_color_table` 的注释。0.32 = 与材质自身的亮端上限对齐。
 FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
 
+# 🔴 沙流的**基础生成率**(颗/秒) —— **与周期无关**(2026-10-06, 用户报「沙流和沙堆差距过大」)。
+#
+# 历史: 原来是 `600 * speed_factor` = `600 * clamp(60/duration, 0.5, 2.5)`,
+# 即 1500/s(≤24s) 一路降到 300/s(≥120s)。文档给的理由是"抵消孔径随周期收窄,
+# 使**面密度**持平" —— 但那条理由成立于 `neck_w` 还是 `10*(60/d)**0.4`、
+# 从 22px 收到 8px(**2.75×**)的年代。现在 `neck_w` 是 **log 插值**,
+# 只从 17px 收到 13px(**1.31×**) ⇒ 补偿超了约 **3.8 倍**。
+#
+# 设备实测(1080x2400, 量具 `tools/_probe_stream_ink.py`; 覆盖率 = 自由落体段
+# 每行沙色像素 / 该行沙流宽度):
+
+# | 周期 | rate/s | 线密度 颗/px | 沙流每行覆盖率 |
+# |---|---|---|---|
+# | 50s  | 720 | 2.80 | **100%** |
+# | 600s | 300 | 1.16 | **72%**  ← 28% 的像素透出背景 |
+#
+# 沙堆是由 carve 抠出的**不透明实心**多边形 ⇒ 覆盖率恒 100%。600s 档沙流于是
+# 读成"一串断续小珠", 与沙堆"差距巨大"(用户原话)。这也正合用户早就说过的
+# 心智模型: 「下落的沙子的速度是固定的, **理论上在大部分飞行时间中沙子的情况
+# 都是近似固定的**」。
+#
+# 取 1500 = 原公式在 ≤24s 档的取值 ⇒ **那些档一点没动**(1s 档还要再乘
+# `_particle_motion_scale`, 同样不变), 只有 >24s 的档变密。
+# ⚠️ **不要再按孔径去调它** —— 那会把"孔径↔周期"的约束用第二次(过定),
+#    且会把已经修掉的"长周期虚线"重新做回来。
+FLOW_BASE_RATE = float(os.environ.get("HG_FLOW_RATE", "1500"))
+
 
 def apply_sand_style(mode, grain):
     """设置全局沙体材质。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
@@ -2481,8 +2508,15 @@ class HourglassWidget(Widget):
         #   (`_done_at` 那段保留作兜底: 万一 elapsed 跳过了末段, 仍然会排空。)
         #   ⚠️ **不能加 `if _rem > 0` 的守卫** —— 归零那一帧 `_rem` 恰好是 0, 会被跳过,
         #      于是 f 又回到 1(满), 反而在归零处**闪一下满柱**。实测踩过。
-        _rem = self.get_remaining()
-        f = min(f, max(0.0, _rem / fill_t))
+        # 🔴 **2026-10-06 单位错(用户:"50s 档快结束时颈部一段时间没有沙子")**:
+        #   `get_remaining()` 返回的是**比例**(0..1), 不是秒 —— 我上一轮拿它直接除以
+        #   `fill_t`(**秒**) ⇒ 排空起点变成 `_rem = fill_t = 0.25` 的**那一刻**,
+        #   即 **最后 25% 的时长**开始排空, 而不是最后 0.25 秒。
+        #   实测(50s 档, `tools/_probe_neck_end.py`): t=44s 时 `_rem=0.12`,
+        #   `f = 0.12/0.25 = 0.48` ⇒ **颈部只剩一半, 提前 12.5 秒开始排空**。
+        #   1s 档看不出来 —— 那里 0.25×1 = 0.25s, 与设计值**恰好相同**; 周期越长越离谱。
+        _rem_sec = self.get_remaining() * self.duration      # ← 比例 → 秒
+        f = min(f, max(0.0, _rem_sec / fill_t))
         if self._done_at is not None:
             d = (time.perf_counter() - self._done_at) / fill_t
             f = min(f, max(0.0, 1.0 - d))
@@ -3223,9 +3257,17 @@ class HourglassWidget(Widget):
             #    正解 = 让**线性密度与周期无关**(文档里用户自己定过"落沙密度该相同"):
             #    生成率跟着 `motion_scale` 一起放大。1s 档 1500 → ~9500/s,
             #    而在途粒子数 rate×飞行时间 = ~1400, 与 5s 的 ~2300 **同量级**, 不是性能爆炸。
-            rate = 600 * self.speed_factor * self._particle_motion_scale
-            if remaining < 0.08:
-                rate *= max(0.1, (remaining / 0.08) ** 0.5)
+            rate = FLOW_BASE_RATE * self._particle_motion_scale
+            # 🔴 **同一类单位错**(2026-10-06, 与 `_neck_sand_side` 那条同源): `remaining` 是
+            #   **比例**不是秒, 原来写的 `remaining < 0.08` 是"最后 8% 的时长":
+            #   1s 档 = 0.08s(与设计意图恰好相同, 所以一直没被发现);
+            #   **50s 档 = 最后 4 秒**, 生成率一路降到 10% ⇒ 沙流"提前断粮",
+            #   与颈部沙柱提前排空叠在一起, 就是用户看到的"颈部一段时间没有沙子"。
+            #   改成**秒**: 窗口取 `_neck_fill_time`(与沙柱排空同一个窗口) ⇒ 沙流与沙柱同时收尾。
+            _rem_sec = remaining * self.duration
+            _taper = self._neck_fill_time
+            if _rem_sec < _taper:
+                rate *= max(0.1, (_rem_sec / _taper) ** 0.5)
             # 沙柱先接通出口; 在帧内均匀发射,避免每一帧生出一整排同龄沙粒。
             emit_dt = min(dt, max(0.0, self.elapsed - self._neck_fill_time))
             self.particle_acc += emit_dt * rate
@@ -4378,7 +4420,7 @@ class HourglassWidget(Widget):
         floor = self._lower_sand_bot
         motion_scale = self._particle_motion_scale
         # ⚠️ 预留也要跟着放大 —— 否则池子按旧速率预留, 1s 档会边跑边扩容
-        rate = 600 * self.speed_factor * motion_scale
+        rate = FLOW_BASE_RATE * motion_scale
         div = max(1, self._neck_y - self._glass_bot) / len(self._color_table)
         thin_only = max(1, self.neck_w - self._ow) < 3
 
