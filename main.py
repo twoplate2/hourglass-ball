@@ -497,6 +497,13 @@ NECK_SCALAR = os.environ.get("HG_NECK_SCALAR") == "1"
 #    那会在热路径上多一次全局查表。
 _PROF_MARK = None
 
+# 颈部颗粒的**批处理直通**钩子 —— 由 `tools/flow_splash_experiment.install_neck` 填。
+# 填了就跳过"写记录器 -> 再收集成桶"那两步(设备实测合计 ~0.35ms/帧), 直接把已经是
+# numpy 的几何量交给批处理。签名: `sink(widget, cnt, xs, bot, top, ji, sz)`。
+# ⚠️ `ji` 是 **int64 数组**(分组用 `bincount`), 不是 list。
+# ⚠️ 钩子必须负责**清掉它所有的批**, 包括 `cnt == 0`(颈部隐藏)时。
+_NECK_SINK = None
+
 # 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
 # ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为"打农药"的做法。
 SPLASH_BG_SPRAY_FRAC = float(os.environ.get("HG_SPLASH_SPRAY", "0.045"))
@@ -5663,18 +5670,26 @@ class HourglassWidget(Widget):
             _xl = _x.tolist()
             _bl = _np.maximum(_y - 1.0, bottom_y).tolist()
             _tl = _np.minimum(_y + 1.0, top_y).tolist()
-            _jl = _ji.tolist()
-            _sl = _sz.tolist()
-            for _c in range(_cnt):
-                color, line = pool[_c]
-                rgb = tone_tab[_jl[_c]]
-                if tone_last[_c] != rgb:
-                    color.rgb = rgb
-                    tone_last[_c] = rgb
-                size = _sl[_c]
-                if line.width != size:
-                    line.width = size
-                line.points = (_xl[_c], _bl[_c], _xl[_c], _tl[_c])
+            _sink = _NECK_SINK
+            if _sink is not None:
+                # ★ **直通**: 不写记录器、也不再来一趟 283 颗的桶收集。
+                #   几何量本来就是数组, 直接喂批处理。
+                _sink(self, _cnt, _x,
+                      _np.maximum(_y - 1.0, bottom_y), _np.minimum(_y + 1.0, top_y),
+                      _ji, _sz)
+            else:
+                _jl = _ji.tolist()
+                _sl = _sz.tolist()
+                for _c in range(_cnt):
+                    color, line = pool[_c]
+                    rgb = tone_tab[_jl[_c]]
+                    if tone_last[_c] != rgb:
+                        color.rgb = rgb
+                        tone_last[_c] = rgb
+                    size = _sl[_c]
+                    if line.width != size:
+                        line.width = size
+                    line.points = (_xl[_c], _bl[_c], _xl[_c], _tl[_c])
             count = _cnt
         else:
             # use_np 时只遍历候选(第一趟已算好); 标量兜底路径保持原样。

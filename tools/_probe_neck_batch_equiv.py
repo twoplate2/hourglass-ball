@@ -46,7 +46,14 @@ class P(m.HourglassApp):
         real = [(Color(*w.sand_base), Line(points=[], width=1)) for _ in range(320)]
         save_pool, save_last, save_cnt = w._neck_grain_pool, w._neck_tone_last, w._neck_grain_count
         w._neck_grain_pool = real; w._neck_tone_last=[None]*320; w._neck_grain_count=0
-        wrap._orig(w, side)
+        # ⚠️ 装了**直通钩子**之后 `_orig` 不再写记录器(直接喂批处理) ⇒ A 臂会空。
+        #    跑 A 时临时把钩子摘掉, 跑完立刻装回。
+        _sink = m._NECK_SINK
+        m._NECK_SINK = None
+        try:
+            wrap._orig(w, side)
+        finally:
+            m._NECK_SINK = _sink
         A = [(real[i][1].points, tuple(real[i][0].rgb), real[i][1].width)
              for i in range(w._neck_grain_count)]
         nA = w._neck_grain_count
@@ -54,7 +61,15 @@ class P(m.HourglassApp):
         # ---- B: 批处理(记录器) ----
         w._neck_grain_count = 0
         w._draw_neck_grains(side)
-        buckets = w._neck_last_buckets; tab = w._neck_last_tab
+        # 装了直通钩子之后, 结果在 `_neck_last_rects`(每档一组已经算好的边界数组);
+        # 没装时退回旧的 `_neck_last_buckets`(rgb -> [(l,b,r,t), ...])。
+        rects_log = getattr(w, "_neck_last_rects", None)
+        if rects_log is not None:
+            buckets = {rgb: [(float(l[i]), float(b[i]), float(r[i]), float(t[i]))
+                             for i in range(len(l))]
+                       for rgb, l, b, r, t in rects_log}
+        else:
+            buckets = w._neck_last_buckets
         rects = [r for v in buckets.values() for r in v]
         nB = len(rects)
         print("orig grains=%d  batch rects=%d  buckets=%d" % (nA, nB, len(buckets)))

@@ -36,6 +36,7 @@
 """
 
 import math
+import sys
 from array import array
 
 try:
@@ -263,6 +264,37 @@ class SplashBatch:
                 part[0].indices = array("H")
                 part[5] = 0
 
+    def update_bounds_np(self, count, l, b, r, t):
+        """与 `update_bounds` 同语义, 但四个边界是 **numpy 数组** —— 打包也走 numpy。
+
+        颈部颗粒用(`update_arrays` 那套是"读数组算边界", 这里是"边界已经是数组")。
+        分块/索引只增不减/`PAD` 中性化/局部上传全部与 `update_bounds` 一致。
+        """
+        n = count if count <= CHUNK else CHUNK
+        if not self.parts and n == 0:
+            return
+        part = self._ensure_part(0)
+        mesh, _vertices, indices, texture, data, previous = part
+        if n == 0 and previous == 0:
+            return
+        if n:
+            blk = _np.empty((n, 4), dtype=_np.float64)
+            blk[:, 0] = l[:n]
+            blk[:, 1] = b[:n]
+            blk[:, 2] = r[:n]
+            blk[:, 3] = t[:n]
+            data[:n * 16] = blk.astype("<f4").tobytes()
+        _upload = n
+        if n > previous:
+            mesh.indices = indices[:n * len(_INDICES)]
+            part[5] = n
+        elif n < previous:
+            data[n * 16:previous * 16] = PAD * (previous - n)
+            _upload = previous
+        if _upload:
+            texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                colorfmt="rgba", bufferfmt="ubyte")
+
     def update_bounds(self, bounds):
         """`bounds` = 可迭代的 `(left, bottom, right, top)`(颈部颗粒用)。
 
@@ -403,6 +435,64 @@ class _RecLine:
         self.width = 1
 
 
+def _neck_sink_color(widget, k, color, tab):
+    """更新第 k 个批的颜色(色调变了才写)。返回该批的 rgb(没有就 None)。"""
+    rgb = tab[k] if (tab is not None and k < len(tab)) else None
+    if widget._neck_batch_rgb[k] != rgb:
+        # 必须连 alpha 一起写回 —— 下调成 0 之后只写 `.rgb` 是**恢复不了**的
+        color.rgba = ((rgb[0], rgb[1], rgb[2], 1.0) if rgb is not None
+                      else (1.0, 1.0, 1.0, 0.0))
+        widget._neck_batch_rgb[k] = rgb
+    return rgb
+
+
+def _neck_sink(widget, cnt, xs, bs, ts, ji, sz):
+    """`main._NECK_SINK` —— 向量化分支**直通**批处理。
+
+    跳过"写记录器(283 次属性写) + 再收集成桶(283 次 dict 查找/append)"那两步
+    (设备分段实测合计 **~0.35ms/帧**) —— 几何量本来就已经是 numpy 数组了。
+
+    ⚠️ **桶内顺序必须与旧路径一致**: 旧路径按槽位 0.. 顺序 append, 所以同一色调内是
+    槽位升序; 这里用 `argsort(kind="stable")` 同样给出升序 ✓。
+    ⚠️ `cnt == 0`(颈部隐藏 / 没候选)时**也必须把每个批清空**, 否则上一帧的颗粒会留着。
+    """
+    widget._neck_sink_used = True
+    batches = widget._neck_batches
+    tab = widget._neck_tone_tab
+    np = _np
+    if cnt <= 0 or np is None:
+        for k in range(len(batches)):
+            color, batch = batches[k]
+            _neck_sink_color(widget, k, color, tab)
+            batch.update_bounds(())
+        widget._neck_last_rects = []
+        return
+    order = np.argsort(ji, kind="stable")
+    counts = np.bincount(ji, minlength=NECK_TONES)
+    hw = sz * 0.5
+    # 外扩规则: Kivy 的 `Line` 只有 w>1 才带圆头帽, w==1 端头不外扩
+    ext = np.where(sz > 1.0, hw, 0.0)
+    xl = xs - hw
+    xr = xs + hw
+    yb = bs - ext
+    yt = ts + ext
+    pos = 0
+    log = []
+    for k in range(len(batches)):
+        color, batch = batches[k]
+        rgb = _neck_sink_color(widget, k, color, tab)
+        c = int(counts[k]) if k < counts.shape[0] else 0
+        if not c or rgb is None:
+            batch.update_bounds(())
+            continue
+        idx = order[pos:pos + c]
+        pos += c
+        batch.update_bounds_np(c, xl[idx], yb[idx], xr[idx], yt[idx])
+        log.append((rgb, xl[idx], yb[idx], xr[idx], yt[idx]))
+    # 留给 `tools/_probe_neck_batch_equiv.py` 取证(存的是引用, 不拷贝)
+    widget._neck_last_rects = log
+
+
 def install_neck(widget_class):
     """把颈部颗粒从 320 个 `Line` 换成"按色调分桶的批处理"。成功返回 True。
 
@@ -450,9 +540,14 @@ def install_neck(widget_class):
         self._neck_tone_last = [None] * NECK_POOL
 
     def draw_neck_batches(self, side):
-        draw(self, side)                  # 原逻辑照跑, 只是写进了记录器
+        self._neck_sink_used = False
+        draw(self, side)                  # 原逻辑照跑
         if getattr(self, "_neck_batches", None) is None:
             return
+        if self._neck_sink_used:
+            # 向量化分支已经**直通**喂完批处理了(钩子见 `_neck_sink`), 这里不要再收集一遍
+            return
+        # 没直通(函数提前 return / 走了标量兜底分支)时才走记录器 -> 桶的老路
         count = self._neck_grain_count
         pool = self._neck_grain_pool
         buckets = {}
@@ -492,6 +587,12 @@ def install_neck(widget_class):
 
     draw_neck_batches._neck_batched = True
     draw_neck_batches._orig = draw          # 取证脚本要拿它跑"原路径"做对照
+    # ★ 装上**直通**钩子: 向量化分支从此不再走记录器 + 桶收集(省 ~0.35ms/帧)。
+    #   ⚠️ 钩子挂在 `main` 模块上, 所以它只对**装了批处理**的进程生效;
+    #      没装时 `_NECK_SINK is None`, 老路径原样保留(逐位不变)。
+    mod = sys.modules.get(widget_class.__module__)
+    if mod is not None and hasattr(mod, "_NECK_SINK"):
+        mod._NECK_SINK = _neck_sink
     widget_class._build_dynamic_canvas = build_neck_batches
     widget_class._draw_neck_grains = draw_neck_batches
     widget_class.neck_renderer = "batch"

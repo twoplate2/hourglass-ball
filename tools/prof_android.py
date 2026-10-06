@@ -74,6 +74,8 @@ METHODS = (
     "_sync_mound_frame",
     "_upper_level_for",
     "_neck_sand_side",
+    "_replay_hits",
+    "_p_refresh_view",
     "_neck_solid_rect",          # 不存在也没关系, 用来演示"跳过"
 )
 
