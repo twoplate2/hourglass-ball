@@ -352,7 +352,9 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 # 不是 splash 不工作, 是**它只在一个点上工作** —— 沙流落在一个点, 斜坡上没有生成源。
 # 这一层按"离落点越远越稀"补, 是**纯装饰**(不反向影响 elapsed)。
 # ⚠️ 会改变随机数调用序列 ⇒ 旧的"同 seed 逐像素对照"基线作废(有意的视觉改动)。
-SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "520"))   # 颗/秒(定率兜底, 见下)
+# ★ 与周期无关的**水位**(用户 2026-10-06: 「和周期没有关系」)—— 这就是唯一那个数。
+#   520 = 用户说"有点少了"时的量; 现取 **700(+35%)**。要更多/更少只改这一个数。
+SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "700"))
 # ★ 2026-10-06 用户定的**数量口径**: 「飞溅理论上等于**下落的沙子的总数**的一个比例」。
 #   实测(新探针 `tools/_probe_splash_ratio.py`)改前**比例跨 14 倍**:
 #       周期   1s    5s    15s   60s   120s
@@ -364,7 +366,12 @@ SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "520"))   # 颗/秒(定率
 #           1s ×1.5 / 5s ×1.1 / 15s ×1.0 / 60s ×0.39 / 120s ×0.19
 #   ⚠️ **本项是"改前/改后"要交回用户判的那一类**(观感决定) —— 置 0 即退回定率 520/s,
 #      便于出并排图(`HG_SPLASH_PER_PARTICLE=0`)。
-SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.63"))
+SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.0"))
+# 🔴 **2026-10-06 用户裁决: 「这个实际上和周期没有关系」** ⇒ 飞溅**不随周期变**。
+#   上面那条 `∝ 在途主流粒子数` 的规则**作废**(它必然让长周期变少: 50s 只剩 45%)。
+#   默认置 0 ⇒ 走定率 `SPLASH_BG_RATE`。想恢复"按比例"再改回非 0(留作对照臂)。
+#   ⚠️ 1号专家实测过的分解(相对用户抱怨那一版): **分布轴** 1s ×1.25 / 15s ×0.97 / 50s ×0.97;
+#      **数量轴** 1s ×1.12 / 15s ×0.93 / 50s ×0.449 ⇒ 关掉数量轴 = 只留分布轴的改善。
 # ⚠️ 第一版用 `|u|^1.6 × (0.42·R)` —— **上限被钉在 42% 半宽处**, 实测 >50%R 恒 0%。
 #    改成"**铺满整个半宽, 密度往外衰减**": mag = 0.96·R·u^POW, POW 越大小越往中心堆。
 #    POW=2.4 时: 中位落在 ~0.18R, p90 落在 ~0.75R —— 正是"由强到弱"。
@@ -388,6 +395,10 @@ SPLASH_BG_VY = float(os.environ.get("HG_SPLASH_VY", "1.0"))
 #   改前(`SPLASH_BG_POW` 那条 u^0.9 路线)实测**边缘/σ = 3.24**(15s: σ=31.2px, 边缘=101px)
 #   —— 近似均匀 + 硬截断, 读起来是"中间一坨 + 一路稀到边上", 不是钟形。
 SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))
+# ★ 喷溅在**落点处**的初始尺度 = 球内半径的这个比例(**与沙堆宽度无关**)。
+#   用户口径「最末端最边缘差不多是 1.5 个标准差」= 喷溅外沿 = `1.5 × 它`。
+#   ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为不物理的做法。
+SPLASH_BG_SPRAY_FRAC = float(os.environ.get("HG_SPLASH_SPRAY", "0.045"))
 # splash 重力对 `motion_scale` 的指数 —— **只给对照实验用, 默认 1.0 = 现状逐位不变**。
 #   1.0 ⇒ `g_splash = -450·motion_scale²`(现状); 0.0 ⇒ `-450`(不随周期缩放)。
 #   见 `update_particles` 里 splash 更新段的长注释。
@@ -401,7 +412,13 @@ SPLASH_LIFT = float(os.environ.get("HG_SPLASH_LIFT", "1.0"))
 #   ⇒ 中心 vy 大 ⇒ 掉得快 ⇒ **平均离地反而比边缘低**(实测 15s: 中心 5.81 vs 边缘 6.79px)。
 #   口径反了。改成 `lift × (1 − K·f)`: f=0(中轴) 保持原高度, f=1(沙堆边缘) 只剩 `1−K`。
 #   ⚠️ 乘在 `rand_uniform(...)` **之后** ⇒ 随机数流的调用次数与顺序一字不动。
-SPLASH_LIFT_FALLOFF = float(os.environ.get("HG_SPLASH_LIFT_F", "0.0"))
+# ★ `5/6` —— 用户 2026-10-06 口径: 「末端弹射的高度 ≈ **顶端的中心的 1/6**」。
+#   ⚠️ **主持人读错过一次**: 我把"中心"当成了**沙堆峰高**, 于是按 `apex/6 = 22px` 反推
+#      `LIFT_APEX = apex/3` 去定标, 结果**出生点被抬到离沙面 ~45px** —— 用户实拍的判词是
+#      「**空中都开始掉了**…本来是他妈的**溅到沙子上才开始掉的**」。
+#      正解: 这是**边缘的弹射高度 ÷ 中心的弹射高度 = 1/6**, 与沙堆高矮无关。
+#      ⇒ `FALLOFF = 1 − 1/6 = 5/6`: 中心 6~14px、边缘只剩 **1.0~2.3px**(基本贴着沙面)。
+SPLASH_LIFT_FALLOFF = float(os.environ.get("HG_SPLASH_LIFT_F", "0.8333"))
 
 
 def _autofit_font(btn, base_size, pad=6.0, floor=0.6):
@@ -3035,9 +3052,17 @@ class HourglassWidget(Widget):
         # 本帧的锥面与锥顶只取一次(与下面 h 用的必须是同一份)
         _prof = self._mound_profile
         _apex = self._mound_apex()
-        # 数量轴(见 `SPLASH_BG_PER_PARTICLE` 处注释): 默认**跟着在途主流粒子数走**,
-        # 比例恒定; 置 0 退回定率 `SPLASH_BG_RATE`(出并排图用)。
-        # ⚠️ `self.pn` 在 `update_particles` 里刚更新完(本函数是它的尾段), 是**在途**数。
+        # 数量轴见 `SPLASH_BG_RATE` / `SPLASH_BG_PER_PARTICLE` 两处注释。
+        # **默认是与周期无关的定率**(用户 2026-10-06 裁决); 非 0 时才会去乘在途粒子数。
+        _edge = self._mound_edge()
+        if _edge <= 1.0:                 # 沙堆还没成形(开局/刚重置) —— 没有沙面可打
+            # 🔴 **2026-10-06 修 burn**: 这一段原来是"先 `acc += dt*rate` 再 `acc -= k`
+            #    然后才 early-return" ⇒ 沙堆没成形那段时间**预算被扣掉丢掉**(不是攒着),
+            #    等于**变相让短周期变少** —— 实测烧掉 1s **29.6%** / 5s 19% / 15s 6.2%。
+            #    这与用户「和周期没有关系」直接冲突, 所以清零并**不累加**。
+            self._bg_splash_acc = 0.0
+            return
+        # 水位(与周期无关): 见 `SPLASH_BG_RATE` / `SPLASH_BG_PER_PARTICLE` 处注释。
         _rate = SPLASH_BG_PER_PARTICLE * self.pn if SPLASH_BG_PER_PARTICLE > 0 else SPLASH_BG_RATE
         self._bg_splash_acc += dt * _rate
         k = int(self._bg_splash_acc)
@@ -3047,16 +3072,17 @@ class HourglassWidget(Widget):
             k = 24
         self._bg_splash_acc -= k
         append = self.splashes.append
-        # ★ 2026-10-06 用户定的横向分布(见 `SPLASH_BG_EDGE_SIGMA` 处的注释):
-        #   σ = 边缘 / 1.5 ⇒ **中轴最密、到沙堆边缘落干净**的钟形。
-        #   改前 `u^0.9 × 0.96Ri` 实测 边缘/σ = **3.24**, 近似均匀 + 硬截断。
-        _edge = self._mound_edge()
-        if _edge <= 1.0:                 # 沙堆还没成形(开局/刚重置) —— 没有沙面可打
-            return
-        _sigma = _edge / SPLASH_BG_EDGE_SIGMA
+        # 🔴🔴 **2026-10-06 用户实测: 「空中都开始掉了…本来是他妈的**溅到沙子上才开始掉的**」
+        #    ⇒ 「符合直觉 = 基础物理学」。**这一条是根本性的**:
+        #    改前 σ = `沙堆边缘/1.5`(实测 229px ⇒ σ=153px) ⇒ 飞溅被**沿整个沙堆表面**撒开,
+        #    **与"沙流打在哪里"没有任何因果关系** ⇒ 颗粒在远离落点的坡上凭空出现。
+        #    正解: **只在落点附近生成, 靠速度往外散** —— 沙是先砸到沙堆上才溅起来的。
+        #    σ 现在只跟**落点的尺度**走(取球内半径的一小部分), 与沙堆有多宽无关。
+        _sigma = max(2.0, self._R_inner * SPLASH_BG_SPRAY_FRAC)
+        _sig_max = _sigma * SPLASH_BG_EDGE_SIGMA      # 喷溅外沿 = 1.5σ(用户口径)
         for _ in range(k):
             mag = _inv_norm(rand_uniform(0.0, 1.0)) * _sigma
-            if abs(mag) > _edge:         # 沙堆之外没沙(高斯的尾巴, ≈13%)
+            if abs(mag) > _sig_max:      # 喷溅外沿之外: 那颗沙没砸在这儿
                 continue
             h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
             # 🔴🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
@@ -3068,7 +3094,7 @@ class HourglassWidget(Widget):
             #    "该列有没有沙 … P ≤ B 才是裸露球底"), **别自己再写一套判据**。
             if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
                 continue
-            f = abs(mag) / _edge        # 0 = 中轴, 1 = 沙堆边缘(速度衰减的口径)
+            f = abs(mag) / _sig_max     # 0 = 落点正中, 1 = 喷溅外沿(能量衰减的口径)
             # 🔴 **2026-10-06 用户实测反馈: 「完全是随机运动 … 甚至从下往上跳动」**
             #    ⇒ 旧版 `vy = +90~180`(Kivy y 向上 = **往上弹**) + `vx` 随机正负
             #      = 一撮在原地乱蹦的东西。**改成"从落点往外、往下斜着走"**:
@@ -3087,7 +3113,11 @@ class HourglassWidget(Widget):
                 #    原来是 `(1-0.40f)` / `(1-0.30f)` —— 边缘只掉三四成, 读起来是**均匀一片**。
                 #    改成**从落点往外明显递减**: 中心最强、到沙堆边缘只剩一成多。
                 #    (`f = |dx| / 沙堆半宽 ∈ [0,1]`)
-                "vx": _outw * rand_uniform(25.0, 70.0) * (1.0 - 0.75 * f),
+                # ⚠️ **2026-10-06 配对改动**: 生成点收窄到落点之后, 铺开的责任就全在**速度**上
+                #    (旧版是靠"沿整个沙堆撒"来铺的, 那不物理)。
+                #    实测: 25~70px/s × 寿命 ~0.2s ≈ 10px ⇒ 收窄后**肉眼几乎看不见**。
+                #    按物理取入射速度(≈740px/s)的 10~30% ⇒ 80~220px/s, 斜着飞出去。
+                "vx": _outw * rand_uniform(80.0, 220.0) * (1.0 - 0.75 * f),
                 # ⚠️ **2026-10-06 回归修正**: 方向改对外向往下之后, 忘了处理"落回沙面即删" ⇒
                 #    出生就在沙面上方 3~10px 且 vy<0 ⇒ **3~7 帧就被删**。
                 #    实测寿命 p50 0.150s→**0.058s**、净上升 3.91px→**0.00px**、在途 246→**88**。
