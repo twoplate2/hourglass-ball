@@ -424,6 +424,17 @@ SPLASH_LIFT_FALLOFF = float(os.environ.get("HG_SPLASH_LIFT_F", "0.8333"))
 #   你得想一想, 我们**简化一个模型**」。旧判据是"触面即删" ⇒ **永远不会出现停在坡上的颗粒**,
 #   也就没有那层顺着坡面往下流的沙。现改成: 触面 ⇒ 把 y 贴到沙面、纵向速度清零、
 #   横向速度按摩擦衰减, 滑到**停住**(或超时)才消失。
+# ★ **弹道扇**(用户 2026-10-06: 「他是通过沙柱落在沙面上, 然后通过重力、各种速度往外溅…
+#   **实际它是一个先喷射再抛物线**」)。
+#   改前是"在尖顶上方某个区域**均匀喷射**, 像打农药一样" ⇒ 出生点有高度、初速一律朝下,
+#   读起来是一层飘下来的浮尘。现在: 出生点**就在沙面上**, 给一个**仰角**初速,
+#   之后**重力自己做抛物线** —— 仰角大切向陡(打不高也走不远)、仰角小贴坡飞得远。
+#   ⚠️ **不是**回退到"从下往上乱跳"(那条用户明确否过): 那是**随机上下抖动**;
+#      这里是**从落点出发的一束定向抛物线**, 方向完全由弹道决定。
+SPLASH_ANG_LO = float(os.environ.get("HG_SPLASH_ANG_LO", "0.18"))   # 仰角下限 ≈10°
+SPLASH_ANG_HI = float(os.environ.get("HG_SPLASH_ANG_HI", "1.25"))   # 仰角上限 ≈72°
+SPLASH_ARC_FRAC = float(os.environ.get("HG_SPLASH_ARC", "0.30"))    # 最高那道弧 ≈ 峰高的这个比例
+SPLASH_SPD_LO = float(os.environ.get("HG_SPLASH_SPD_LO", "0.30"))   # 出射速度下限(× _vmax)
 SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "3.0"))   # 坡面摩擦(1/秒)
 SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.45"))    # 落地后最多再活多久(s)
 SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
@@ -3088,6 +3099,10 @@ class HourglassWidget(Widget):
         #    σ 现在只跟**落点的尺度**走(取球内半径的一小部分), 与沙堆有多宽无关。
         _sigma = max(2.0, self._R_inner * SPLASH_BG_SPRAY_FRAC)
         _sig_max = _sigma * SPLASH_BG_EDGE_SIGMA      # 喷溅外沿 = 1.5σ(用户口径)
+        # 速度尺度: 让**最高那道弧** ≈ 沙堆峰高的 `SPLASH_ARC_FRAC`
+        # (`v = sqrt(2·g·h)` 是竖直上抛最高点的公式) ⇒ **与窗口/球的大小无关**。
+        _g_abs = 450.0 * (self._particle_motion_scale ** 2)
+        _vmax = math.sqrt(2.0 * _g_abs * max(1.0, _apex * SPLASH_ARC_FRAC))
         for _ in range(k):
             mag = _inv_norm(rand_uniform(0.0, 1.0)) * _sigma
             if abs(mag) > _sig_max:      # 喷溅外沿之外: 那颗沙没砸在这儿
@@ -3102,35 +3117,15 @@ class HourglassWidget(Widget):
             #    "该列有没有沙 … P ≤ B 才是裸露球底"), **别自己再写一套判据**。
             if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
                 continue
-            f = abs(mag) / _sig_max     # 0 = 落点正中, 1 = 喷溅外沿(能量衰减的口径)
-            # 🔴 **2026-10-06 用户实测反馈: 「完全是随机运动 … 甚至从下往上跳动」**
-            #    ⇒ 旧版 `vy = +90~180`(Kivy y 向上 = **往上弹**) + `vx` 随机正负
-            #      = 一撮在原地乱蹦的东西。**改成"从落点往外、往下斜着走"**:
-            #      · `vx` **取坡的外向**(不再随机正负) —— 一粒打在堆上的沙是往坡下走的
-            #      · `vy` **向下**(负) —— 不再往上跳
-            #      · 生成点抬高 3~10px —— 否则一出生就沉进沙面、下一帧被接触判定删掉
-            #        (当年就是因为这个才改成往上弹的; 抬高之后斜抛能跑完一段)
-            #    ⚠️ 横向**铺满半宽**的密度分布不动 —— 那是用户 10-05 定的("两边再多一些")。
+            _ang = rand_uniform(SPLASH_ANG_LO, SPLASH_ANG_HI)     # 仰角
+            _spd = _vmax * rand_uniform(SPLASH_SPD_LO, 1.0)
             _outw = 1.0 if mag >= 0.0 else -1.0
             append({
                 "x": self._cx + mag,
-                "y": (self._lower_sand_bot + h
-                      + rand_uniform(6.0, 14.0) * SPLASH_LIFT
-                      * (1.0 - SPLASH_LIFT_FALLOFF * f)),
-                # 🔴 2026-10-06 用户: 「飞溅的高度应该也是变化的, **越在中心越高**」
-                #    原来是 `(1-0.40f)` / `(1-0.30f)` —— 边缘只掉三四成, 读起来是**均匀一片**。
-                #    改成**从落点往外明显递减**: 中心最强、到沙堆边缘只剩一成多。
-                #    (`f = |dx| / 沙堆半宽 ∈ [0,1]`)
-                # ⚠️ **2026-10-06 配对改动**: 生成点收窄到落点之后, 铺开的责任就全在**速度**上
-                #    (旧版是靠"沿整个沙堆撒"来铺的, 那不物理)。
-                #    实测: 25~70px/s × 寿命 ~0.2s ≈ 10px ⇒ 收窄后**肉眼几乎看不见**。
-                #    按物理取入射速度(≈740px/s)的 10~30% ⇒ 80~220px/s, 斜着飞出去。
-                "vx": _outw * rand_uniform(80.0, 220.0) * (1.0 - 0.75 * f),
-                # ⚠️ **2026-10-06 回归修正**: 方向改对外向往下之后, 忘了处理"落回沙面即删" ⇒
-                #    出生就在沙面上方 3~10px 且 vy<0 ⇒ **3~7 帧就被删**。
-                #    实测寿命 p50 0.150s→**0.058s**、净上升 3.91px→**0.00px**、在途 246→**88**。
-                #    把下滑速率降到 6~22(位移够看、但不会一头扎进沙里), 出生点抬到 6~14。
-                "vy": -rand_uniform(6.0, 22.0) * SPLASH_BG_VY * (1.0 - 0.85 * f),
+                # 出生点**就在沙面上**(抬 0~2px, 只为不让它一出生就沉进面里)
+                "y": self._lower_sand_bot + h + rand_uniform(0.0, 2.0),
+                "vx": _outw * math.cos(_ang) * _spd,     # 往外
+                "vy": math.sin(_ang) * _spd,             # **向上** → 重力做抛物线
                 "size": 2 if rand_uniform(0.0, 1.0) < 0.7 else 1,
             })
 
