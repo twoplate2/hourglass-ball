@@ -186,13 +186,17 @@ class SplashBatch:
                     hh = h * 0.5
                     pack(data, offset, x - hw, y - hh, x + hw, y + hh)
                     offset += 16
+            _upload = count
             if count > previous:
                 mesh.indices = indices[:count * len(_INDICES)]
                 part[5] = count
             elif count < previous:
                 # 缩了: **不动索引**(动了要整块重建顶点), 把多余槽位在纹理里推出画面。
                 data[count * 16:previous * 16] = PAD * (previous - count)
-            texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
+                _upload = previous
+            # **只传用到的纹素**(同上: 整块传 8KB 而每块常只用到几百颗)
+            texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                colorfmt="rgba", bufferfmt="ubyte")
         for part in self.parts[chunks:]:
             if part[5]:
                 part[0].indices = array("H")

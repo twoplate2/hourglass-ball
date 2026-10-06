@@ -41,17 +41,58 @@ class _FlowView:
     合计约 0.08ms), 循环里读到的就是普通 float。字段对应见 `_p_refresh_view`。
     """
 
-    __slots__ = ("n", "x", "y", "vy", "tl", "sz", "light", "wp",
-                 "nx", "ny", "nvy", "ntl", "nwp", "nsz", "nli", "use_np")
+    __slots__ = ("n", "nx", "ny", "nvy", "ntl", "nwp", "nsz", "nli", "use_np",
+                 "_x", "_y", "_vy", "_tl", "_sz", "_light", "_wp")
 
     def __init__(self):
         self.n = 0
-        self.x = self.y = self.vy = self.tl = self.sz = self.light = self.wp = []
+        # 🔴 **list 快照是惰性的**(2026-10-07): 六个字段每帧 `tolist()` 实测 **0.11ms**
+        #    (桌面; 设备更贵), 而**安卓上一条读它的路径都走不到** —— 三个读点
+        #    (`_group_stream_particles` / `_draw_stream` / `_draw_neck_grains`)
+        #    都只在**标量兜底分支**里读, 而沙流走纹理渲染器、`use_np` 在安卓恒为真。
+        #    改成属性: **谁要谁建, 建一次缓存一帧**。逐位不变(还是同一个 `tolist()`)。
+        self._x = self._y = self._vy = self._tl = None
+        self._sz = self._light = self._wp = None
         # numpy 零拷贝切片, 只给向量化打包用(见 tools/flow_texture_experiment.py)。
         # `nwp/nsz/nli` 另供 `_draw_neck_grains` 的向量化分支(颈部颗粒的相位/尺寸/亮标)。
         self.nx = self.ny = self.nvy = self.ntl = None
         self.nwp = self.nsz = self.nli = None
         self.use_np = False
+
+    def _lazy(self, slot, src):
+        v = getattr(self, slot)
+        if v is None:
+            v = src.tolist() if src is not None else []
+            setattr(self, slot, v)
+        return v
+
+    @property
+    def x(self):
+        return self._lazy("_x", self.nx)
+
+    @property
+    def y(self):
+        return self._lazy("_y", self.ny)
+
+    @property
+    def vy(self):
+        return self._lazy("_vy", self.nvy)
+
+    @property
+    def tl(self):
+        return self._lazy("_tl", self.ntl)
+
+    @property
+    def sz(self):
+        return self._lazy("_sz", self.nsz)
+
+    @property
+    def light(self):
+        return self._lazy("_light", self.nli)
+
+    @property
+    def wp(self):
+        return self._lazy("_wp", self.nwp)
 
 
 _TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
@@ -438,6 +479,12 @@ SPLASH_PX_BASE = float(os.environ.get("HG_SPLASH_PX", "1.0"))   # 基准像素(�
 # 颈部颗粒的**标量兜底路径**开关 —— **只为对照**。`HG_NECK_SCALAR=1` 强制走老的单颗循环:
 # 向量化那版必须与它在 `random.seed(23)` 下**逐像素 0 差异**(否则量出来的加速是拿画面对错的)。
 NECK_SCALAR = os.environ.get("HG_NECK_SCALAR") == "1"
+
+# **区间打点**钩子 —— 由 `tools/prof_android.py` 在装上时填一个 callable, 平时是 `None`。
+# 用来把 `update_particles` 这个整体拆成"主粒子 / 飞溅"两段(它内部没有可单独包的方法)。
+# ⚠️ 读它的写法必须是 `_m = _PROF_MARK` 一次 + `if _m:` —— **别直接 `if _PROF_MARK:`**,
+#    那会在热路径上多一次全局查表。
+_PROF_MARK = None
 
 # 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
 # ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为"打农药"的做法。
@@ -3115,16 +3162,20 @@ class HourglassWidget(Widget):
         n = self.pn
         pv.n = n
         pv.use_np = _np is not None and n >= _NUMPY_MIN
+        # **作废上一帧的 list 缓存** —— 数组在这一帧可能已被物理改写。
+        pv._x = pv._y = pv._vy = pv._tl = None
+        pv._sz = pv._light = pv._wp = None
         if _np is None:
             pv.nx = pv.ny = pv.nvy = pv.ntl = None
+            pv.nwp = pv.nsz = pv.nli = None
             # 兜底后端本身就是 Python list, 切片即得原生 float。
-            pv.x = self.px[:n]
-            pv.y = self.py[:n]
-            pv.vy = self.pvy[:n]
-            pv.tl = self.ptl[:n]
-            pv.sz = self.psz[:n]
-            pv.light = self.pli[:n]
-            pv.wp = self.pwp[:n]
+            pv._x = self.px[:n]
+            pv._y = self.py[:n]
+            pv._vy = self.pvy[:n]
+            pv._tl = self.ptl[:n]
+            pv._sz = self.psz[:n]
+            pv._light = self.pli[:n]
+            pv._wp = self.pwp[:n]
         else:
             # 零拷贝切片(数组视图, 不分配): 供纹理渲染器向量化打包。
             # 逐颗粒循环仍用下面的 list 快照 —— 两种读法各有各的便宜处。
@@ -3135,16 +3186,8 @@ class HourglassWidget(Widget):
             pv.nwp = self.pwp[:n]
             pv.nsz = self.psz[:n]
             pv.nli = self.pli[:n]
-            pv.x = self.px[:n].tolist()
-            pv.y = self.py[:n].tolist()
-            pv.vy = self.pvy[:n].tolist()
-            # pv.tl 只在纹理渲染器的**非 numpy 分支**被读(flow_texture_experiment.py:156,
-            # 在 else 里)。安卓 use_np 恒为真 ⇒ 这份 ~2000 个 float 的 tolist 每帧白建。
-            # 给数组视图即可: 该分支走不到, 而真走到的 numpy 分支读的是 ntl。
-            pv.tl = self.ptl[:n]
-            pv.sz = self.psz[:n].tolist()
-            pv.light = self.pli[:n].tolist()
-            pv.wp = self.pwp[:n].tolist()
+            # x/y/vy/tl/sz/light/wp 这七份 list **不再在这里建** —— 改成惰性属性
+            # (见 `_FlowView` 顶部注释)。读端自己 `pv.x` 就会拿到, 行为逐位不变。
         self._p_dict_cache = None
         return pv
 
@@ -3392,6 +3435,7 @@ class HourglassWidget(Widget):
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
+        _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
         # ⚠️ 本帧步长必须在这里铺满, **不能**在帧尾存"上一帧的 dt"。
         #    闸门用 step = min(1/120, target-elapsed), 到采样点附近会产生偏步长;
         #    存上一帧的 dt 会让下一帧的粒子落得更远、提前触底(实测每周期末 2% 分叉)。
@@ -3638,6 +3682,8 @@ class HourglassWidget(Widget):
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
         self._p_refresh_view()
 
+        if _pm:
+            _pm("phys_main")
         # 平台之外只有 splash/尘埃会落 ⇒ 它们按**接触高度 H(x)** 判定(与绘制同一份定义,
         # 专家 §2.4); 主流落在平台上, 继续用标量 mound_top, 热循环一个字不改(路线 A)。
         _mound_bot = self._lower_sand_bot
@@ -3661,6 +3707,8 @@ class HourglassWidget(Widget):
         #   ⚠️ 定义仍然只有 `_MoundProfile.contact` 一份 —— 建表就是调它, 没有第二套公式。
         _ctab = _ctab_r = _ctab_inv = None
         _ctab_n = 0
+        if _pm:
+            _pm("ctab_before")
         if _profile is not None and _apex > 0.0:
             _ctab_n = CONTACT_TABLE_N
             _ctab_r = _profile.radius
@@ -3670,6 +3718,8 @@ class HourglassWidget(Widget):
                 _ctab = self._contact_table = [0.0] * _ctab_n
             for _k in range(_ctab_n):
                 _ctab[_k] = _profile.contact(-_ctab_r + _k / _ctab_inv, _apex)
+        if _pm:
+            _pm("ctab")
         for s in self.splashes:
             step_dt = s.pop("_step_dt", dt)
             # ★ **已停稳的直接跳过整段积分与接触判定**(它们 x/y/v 都不再变, 只推进计时)。
@@ -3757,7 +3807,11 @@ class HourglassWidget(Widget):
             if y < lower_bot or y > lower_top - 5:
                 continue
             append_splash_keep(s)
+        if _pm:
+            _pm("splash_loop")
         self.splashes = new_splashes
+        if _pm:
+            _pm("phys_splash")
         if self.running:
             self._spawn_bg_splashes(dt)
 
@@ -5088,8 +5142,6 @@ class HourglassWidget(Widget):
         # (distance, particle) 元组(峰值约 1800 次/帧)。两趟的候选顺序与 depth
         # 都与原实现一致, 所以 128 上限的截断结果也相同。按下标遍历 `_pv` 快照。
         pv = self._pv
-        ys_p = pv.y
-        vys_p = pv.vy
         depth = 1e-6
         if pv.use_np:
             # 向量化这一趟: 它每帧都要扫全部 pn 颗粒(第二趟本来就 break 在 128, 不是 O(pn))。
@@ -5108,6 +5160,11 @@ class HourglassWidget(Widget):
                 if _mx > depth:
                     depth = _mx
         else:
+            # ⚠️ **第一趟的兜底分支也要自己取 list** —— 原来 `ys_p/vys_p` 在函数开头无条件绑定,
+            #    改成惰性属性后必须在**每个**要读的分支里取(2026-10-07 漏了这一处,
+            #    闸门直接 `UnboundLocalError`)。第二趟的兜底分支另有一份, 别只补一处。
+            ys_p = pv.y
+            vys_p = pv.vy
             for i in range(pv.n):
                 distance = outlet - ys_p[i]
                 if distance < 0 or distance > length + 1e-6:
@@ -5155,10 +5212,6 @@ class HourglassWidget(Widget):
         cx = self._cx
         base_r, base_g, base_b = self.sand_base
         light_r, light_g, light_b = self.sand_light
-        sizes_p = pv.sz
-        phases_p = pv.wp
-        lights_p = pv.light
-        xs_p = pv.x
         count = 0
         if _cand is not None and pv.nwp is not None and not NECK_SCALAR:
             # ★ **向量化**(2026-10-07 性能): 池子 320 ⇒ 实测这一段的纯 Python 循环 **1.07ms/帧**。
@@ -5219,6 +5272,15 @@ class HourglassWidget(Widget):
             count = _cnt
         else:
             # use_np 时只遍历候选(第一趟已算好); 标量兜底路径保持原样。
+            # ⚠️ 六个 list 快照**只能在标量分支里取** —— `pv.x/y/...` 现在是**惰性属性**
+            #    (见 `_FlowView` 顶部), 写在分支外会无条件把 list 建出来, 惰性就白做了
+            #    (而那条路在安卓上根本走不到)。
+            ys_p = pv.y
+            vys_p = pv.vy
+            sizes_p = pv.sz
+            phases_p = pv.wp
+            lights_p = pv.light
+            xs_p = pv.x
             for i in range(pv.n):
                 distance = outlet - ys_p[i]
                 if distance < 0 or distance > length + 1e-6:

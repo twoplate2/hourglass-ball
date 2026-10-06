@@ -37,6 +37,7 @@
 """
 
 import os
+import sys
 import time
 
 from kivy.clock import Clock
@@ -85,6 +86,11 @@ def _wrap(cls, name, count_frame=False):
 
     def wrapper(self, *args, _orig=orig, _name=name, **kwargs):
         t0 = time.perf_counter()
+        if _count and _ENABLED:
+            # ⚠️ 打点基准必须在**帧首**置位。写在 finally(帧尾)会把"帧与帧之间的等待"
+            #    算进第一个区间 —— 实测 `@phys_main` 印出 10~12ms 而整帧 `tick` 只有 8ms,
+            #    那个自相矛盾就是这个错。
+            _LAST[0] = t0
         try:
             return _orig(self, *args, **kwargs)
         finally:
@@ -98,6 +104,22 @@ def _wrap(cls, name, count_frame=False):
     wrapper.__doc__ = orig.__doc__
     setattr(cls, name, wrapper)
     return True
+
+
+_LAST = [0.0]
+
+
+def _mark(name):
+    """区间打点: 把"距上一次打点"的时间记到 `name` 上。
+
+    ⚠️ 与 `_wrap` 的时间**不重叠也不重复计数**: `_wrap` 记的是被包函数自己的耗时段,
+    打点记的是两个打点之间的整段(含其间调用的被包函数)。⇒ **读的时候不要把它们相加**。
+    """
+    if not _ENABLED:
+        return
+    t = time.perf_counter()
+    _ACC["@" + name] = _ACC.get("@" + name, 0.0) + (t - _LAST[0])
+    _LAST[0] = t
 
 
 def _dump(_dt=None):
@@ -136,6 +158,10 @@ def install(widget_class, marker_path):
     for name in METHODS:
         (hooked if _wrap(widget_class, name, count_frame=(name == "tick"))
          else skipped).append(name)
+    # 把区间打点钩子挂进 main(默认是 None ⇒ 不打点时零开销)
+    mod = sys.modules.get(widget_class.__module__)
+    if mod is not None and hasattr(mod, "_PROF_MARK"):
+        mod._PROF_MARK = _mark
     Clock.schedule_interval(_dump, DUMP_INTERVAL)
     Logger.info("%s installed hooked=%s skipped=%s marker=%s"
                 % (TAG, ",".join(hooked), ",".join(skipped) or "-", marker_path))

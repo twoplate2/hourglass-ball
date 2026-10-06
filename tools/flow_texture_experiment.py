@@ -183,6 +183,7 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     pack(data, offset, xs[i], bottom, top)
                     offset += 12
             # ⚠️ 顺序要紧: 先把纹理内容(含下面的"中性化")写完, 再上传。
+            _upload = count
             if count > previous:
                 # **只在这里赋值** —— 每块的索引只增不减, 暖机之后基本不再发生。
                 # 旧写法是 `previous != count` 就赋值 ⇒ 粒子数一变, 整块 160 KiB 顶点
@@ -198,7 +199,13 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 # 代价是每帧多处理"历史最大 − 当前"那几个顶点, 换来不重走顶点表。
                 data[count * 12:previous * 12] = PAD_ENDPOINT * (previous - count)
                 STATS["neutralized"] += previous - count
-            texture.blit_buffer(data, colorfmt="rgba", bufferfmt="ubyte")
+                # ⚠️ 缩的时候要传到 `previous` —— 索引只增不减, 那些槽位仍在被画
+                _upload = previous
+            # **只传用到的纹素**。原来一律整块 `CHUNK*3` 纹素(6KB/块) —— 而每块实际常只有
+            # 几百颗 ⇒ 白传的部分比用到的还多。MuMu 上 `glTexSubImage2D` 实测 ~80µs/次,
+            # 8 块就是 ~0.6ms/帧, 这是"只传用到那点"最直接的一笔。
+            texture.blit_buffer(data, size=(_upload * TEXELS_PER_PARTICLE, 1),
+                                colorfmt="rgba", bufferfmt="ubyte")
             STATS["chunks"] += 1
         for part in self.parts[chunks:]:
             if part[4]:
