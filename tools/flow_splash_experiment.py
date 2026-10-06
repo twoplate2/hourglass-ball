@@ -476,6 +476,15 @@ def _neck_sink(widget, cnt, xs, bs, ts, ji, sz):
     xr = xs + hw
     yb = bs - ext
     yt = ts + ext
+    # ★ **四列一次排好, 桶内只切片**(2026-10-07 性能): 原来每个非空桶各做 4 次花式索引,
+    #   实测 ~11 个非空桶 ⇒ **每帧 44 次 gather**, 而每次只搬 ~30 个元素 ——
+    #   固定开销(每次 2~5µs)盖过数据本身。按 `order` 排一次是 4 次 gather,
+    #   之后 `xlo[pos:pos+c]` 是**视图**(不拷贝)。逐位等价: `xl[order[a:b]]` 与
+    #   `xl[order][a:b]` 是同一组元素、同一顺序。
+    xlo = xl[order]
+    ybo = yb[order]
+    xro = xr[order]
+    yto = yt[order]
     pos = 0
     log = []
     for k in range(len(batches)):
@@ -485,10 +494,10 @@ def _neck_sink(widget, cnt, xs, bs, ts, ji, sz):
         if not c or rgb is None:
             batch.update_bounds(())
             continue
-        idx = order[pos:pos + c]
+        sl = slice(pos, pos + c)
         pos += c
-        batch.update_bounds_np(c, xl[idx], yb[idx], xr[idx], yt[idx])
-        log.append((rgb, xl[idx], yb[idx], xr[idx], yt[idx]))
+        batch.update_bounds_np(c, xlo[sl], ybo[sl], xro[sl], yto[sl])
+        log.append((rgb, xlo[sl], ybo[sl], xro[sl], yto[sl]))
     # 留给 `tools/_probe_neck_batch_equiv.py` 取证(存的是引用, 不拷贝)
     widget._neck_last_rects = log
 

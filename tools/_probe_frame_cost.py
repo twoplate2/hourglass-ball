@@ -33,6 +33,13 @@ def run():
     m.HourglassWidget.save_config = lambda *_: None
 
     stats = {"phys": [], "redraw": [], "pn": [], "sp": []}
+    # ⚠️ 桌面窗口比真机矮 ⇒ 15s 档只有 ~580 颗, **低于 `_NUMPY_MIN=800`**,
+    #    于是渲染向量化路径一次都走不到, A/B 两个臂会量成完全一样(踩过)。
+    #    要量向量化路径就把它压下来 —— 两条臂都压, 相对比较仍然有效。
+    _nmin = os.environ.get("HG_NUMPY_MIN")
+    if _nmin:
+        m._NUMPY_MIN = int(_nmin)
+        print("  (已把 _NUMPY_MIN 覆写成 %s)" % _nmin)
     orig_phys = m.HourglassWidget.update_particles
     orig_redraw = m.HourglassWidget.redraw
 

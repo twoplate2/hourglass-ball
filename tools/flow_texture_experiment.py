@@ -2,6 +2,7 @@
 
 from array import array
 import math
+import os
 from struct import Struct
 
 try:
@@ -39,6 +40,20 @@ STATS = {"index_assigns": 0, "vertex_bytes": 0, "chunk_clears": 0, "chunks": 0,
 # 中性化用的端点: x 推到画面外, 该槽位的线整条被裁掉(出不了像素)。
 # shader: position = vec2(x, mix(bottom, top, vTexCoords0.y)) + vPosition
 PAD_ENDPOINT = FLOAT3.pack(-1e5, 0.0, 0.0)
+
+# 诊断开关: **只跳过端点纹理上传**。画面会停在上一帧的沙流上(其余一切照旧),
+# 所以**只能用来量"这一笔上传值多少毫秒"**, 不许当出货配置。用法:
+#     HG_NO_BLIT=1 tools/_one_bench.sh noblit
+# 实测(2026-10-07, MuMu): 15s 图元 2.89 → 2.83 / 5s 2.86 → 2.70 / 1s 3.76 → 3.60
+# ⇒ **上传只值 0.06~0.16ms, 远不是 `update()` 那 0.81ms 的大头** —— 钱在 numpy 上。
+SKIP_BLIT = bool(os.environ.get("HG_NO_BLIT"))
+
+# ★ **把所有桶拼成一条再算**(2026-10-07 性能)。
+# 原写法每桶各跑一遍算式: 每帧 9 桶 × ~15 次 numpy 调用 = ~135 次**固定开销**
+# (每次 2~5µs, 与数组长度无关), 而每桶只有一百多颗 ⇒ 开销盖过数据本身。
+# 拼起来后同一段算式只对 ~1600 个元素跑一遍, 调用数塌到 ~15 次。
+# 置 0 退回逐桶老路(A/B 用, 两边必须逐像素相同)。
+FUSE_BUCKETS = os.environ.get("HG_FLOW_FUSE", "1") != "0"
 
 
 def stats_reset():
@@ -208,13 +223,51 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             # **只传用到的纹素**。原来一律整块 `CHUNK*3` 纹素(6KB/块) —— 而每块实际常只有
             # 几百颗 ⇒ 白传的部分比用到的还多。MuMu 上 `glTexSubImage2D` 实测 ~80µs/次,
             # 8 块就是 ~0.6ms/帧, 这是"只传用到那点"最直接的一笔。
-            texture.blit_buffer(data, size=(_upload * TEXELS_PER_PARTICLE, 1),
-                                colorfmt="rgba", bufferfmt="ubyte")
+            if not SKIP_BLIT:
+                texture.blit_buffer(data, size=(_upload * TEXELS_PER_PARTICLE, 1),
+                                    colorfmt="rgba", bufferfmt="ubyte")
             STATS["chunks"] += 1
         for part in self.parts[chunks:]:
             if part[4]:
                 # 整块不用了: 这里仍清空索引 —— icount==0 时 build() 直接 clear_data(),
                 # **不会**重走顶点表, 而且实测只有 0~4 次/帧。
+                part[0].indices = array("H")
+                part[4] = 0
+                STATS["chunk_clears"] += 1
+
+    def write_raw(self, raw, off, total):
+        """把**已经算好**的端点字节(`raw`, 每条 12 字节)从第 `off` 条起写 `total` 条。
+
+        `raw` 由 `draw_texture_batches` 对所有桶**一次算完**(见那里的注释)。
+        这里只剩"切片 + 索引 + 上传", 与 `update()` 的尾部逐字相同 ——
+        唯一的差别是字节从 `raw` 的对应区间 memcpy 过来, 而不是现算。
+        """
+        src = off * 12
+        chunks = -(-total // self.CHUNK)
+        for chunk in range(chunks):
+            start = chunk * self.CHUNK
+            count = total - start
+            if count > self.CHUNK:
+                count = self.CHUNK
+            part = self._ensure_part(chunk, count)
+            mesh, _vertices, _indices, _capacity, previous, texture, data, _binding = part
+            data[:count * 12] = raw[src + start * 12:src + (start + count) * 12]
+            _upload = count
+            if count > previous:
+                mesh.indices = _indices[:count * len(self.indices)]
+                part[4] = count
+                STATS["index_assigns"] += 1
+                STATS["vertex_bytes"] += len(_vertices) * 4
+            elif count < previous:
+                data[count * 12:previous * 12] = PAD_ENDPOINT * (previous - count)
+                STATS["neutralized"] += previous - count
+                _upload = previous
+            if not SKIP_BLIT:
+                texture.blit_buffer(data, size=(_upload * TEXELS_PER_PARTICLE, 1),
+                                    colorfmt="rgba", bufferfmt="ubyte")
+            STATS["chunks"] += 1
+        for part in self.parts[chunks:]:
+            if part[4]:
                 part[0].indices = array("H")
                 part[4] = 0
                 STATS["chunk_clears"] += 1
@@ -259,8 +312,45 @@ def install(widget_class):
         view = self._pv
         top_limit = self._taper["y_bot"]
         motion = self._particle_motion_scale
-        for key, bucket in self._group_stream_particles().items():
-            self._flow_batches[key].update(view, bucket, top_limit, motion)
+        buckets = self._group_stream_particles()
+        batches = self._flow_batches
+        if np is None or not view.use_np or not FUSE_BUCKETS:
+            for key, bucket in buckets.items():
+                batches[key].update(view, bucket, top_limit, motion)
+            return
+        # ---- 融合路径: 所有桶拼成一条, 算式只跑一遍(见模块头 FUSE_BUCKETS) ----
+        # ⚠️ 桶的**顺序**就是 dict 的插入序(`_group_stream_particles` 按桶码升序填),
+        #    与逐桶调用完全一致; 桶内顺序仍是 `order` 的升序切片。
+        keys = [k for k in buckets if len(buckets[k])]
+        for key in buckets:
+            if not len(buckets[key]):
+                # 空桶: 走老路把它的块清掉(update 里 chunks=0 那段), 与原来逐字相同
+                batches[key].update(view, [], top_limit, motion)
+        if not keys:
+            return
+        if len(keys) == 1:
+            allidx = np.asarray(buckets[keys[0]], dtype=np.intp)
+        else:
+            allidx = np.concatenate([np.asarray(buckets[k], dtype=np.intp)
+                                     for k in keys])
+        # 以下算式与 `update()` 的 numpy 分支**逐字相同**, 只是作用在拼接后的长数组上
+        # (逐元素运算与数组长度无关 ⇒ 每位相同)。
+        bottom = view.ny[allidx]
+        vy = np.abs(view.nvy[allidx])
+        trail = vy * view.ntl[allidx] / motion
+        np.maximum(trail, 2.0, out=trail)
+        top = bottom + trail
+        np.minimum(top, top_limit, out=top)
+        blk = np.empty((allidx.size, 3), dtype="<f4")
+        blk[:, 0] = view.nx[allidx]
+        blk[:, 1] = bottom
+        blk[:, 2] = top
+        raw = blk.tobytes()
+        off = 0
+        for key in keys:
+            c = len(buckets[key])
+            batches[key].write_raw(raw, off, c)
+            off += c
 
     widget_class._build_dynamic_canvas = build_texture_batches
     widget_class._draw_stream = draw_texture_batches

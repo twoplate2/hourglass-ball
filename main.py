@@ -145,7 +145,7 @@ from kivy.clock import Clock
 from kivy.core.text import LabelBase, Label as CoreLabel
 from kivy.core.window import Window
 from kivy.graphics.texture import Texture           # 沙体材质要用(见 _SandMaterial)
-from kivy.graphics import (Color, Rectangle, Line, Ellipse, Quad,
+from kivy.graphics import (BindTexture, Color, Mesh, Rectangle, Line, Ellipse, Quad,
                            StencilPush, StencilUse, StencilUnUse, StencilPop,
                            PushMatrix, PopMatrix, Rotate, InstructionGroup)
 from kivy.metrics import dp, sp
@@ -1360,6 +1360,75 @@ class _SandMaterial:
         texture.blit_buffer(self.rgba, colorfmt="rgba", bufferfmt="ubyte")
 
 
+class _QuadBand:
+    """N 个四边形 = **一个 `Mesh`** —— 逐像素等价, 指令数却从 2N 掉到 2。
+
+    ## 为什么(2026-10-07)
+
+    画布普查 + 消融(`tools/_probe_canvas_cost.py`): 每条指令每帧都要走一次 `apply()`,
+    桌面实测 **~1.0~1.4µs/条**; 而且**每条带纹理的顶点指令还跟着一条自己的 `BindTexture`**
+    ⇒ 真实开销要按 2 条算。`_mound_carve`/`_mound_band` 各 200+ 条、`_upper_*` 各 65 条,
+    四族合计 548 条 `Quad` ≈ 1100 条指令, 占画布总指令数(1669)的三分之二。
+    合成 4 个 `Mesh` 之后这一整族消失。
+
+    ## 逐像素等价的依据(`_qa/quadmesh_ab.py`, 同机实测)
+
+    ① 同一组 `points`, 逐 `Quad` 与单 `Mesh`(`vertices=[x,y,u,v]×4n`,
+       `indices=[b,b+1,b+2, b,b+2,b+3]`)画出来**逐像素 0 差异** —— 用例里**含一个凹四边形**,
+       因为凹角处两种三角剖分本来就会给出不同结果, 不验它等于没验;
+    ② **预分配 list 原地改、再重新赋值**照样生效(Kivy 的 list 属性不按同一性短路)。
+       这一条是必须的: 否则为了"让属性认得出变化", 每帧都得白复制一份三千多个 float。
+
+    ⚠️ **`flush()` 每帧必须调一次** —— 顶点是在**赋值那一刻**才标脏上传的, 只改 list 不赋值
+       等于什么都没发生(静默失效: 画面冻住, 一行报错都没有)。
+    """
+
+    __slots__ = ("mesh", "bind", "_v", "_uv", "_n", "_zero", "_zeros")
+
+    def __init__(self, n, texture=None):
+        # uv 与默认纹理**向一个空 `Quad` 要**, 不猜 Kivy 的默认值(猜错就是整条带偏色)
+        probe = Quad(points=[0] * 8, texture=texture)
+        self._n = n
+        self._uv = [float(x) for x in probe.tex_coords]
+        self._zero = (0.0,) * 16
+        self._v = [0.0] * (n * 16)
+        self._zeros = [0.0] * (n * 16)
+        idx = []
+        for i in range(n):
+            b = i * 4
+            idx += [b, b + 1, b + 2, b, b + 2, b + 3]
+        # ⚠️ `BindTexture` 必须**写进指令流**(与逐 `Quad` 时 Kivy 自动加的那条同义);
+        #    只给 `Mesh.texture` 赋值**不等于**绑上了纹理。见 `flow_splash_experiment` 里
+        #    同一条教训("建了 BindTexture 不等于绑了这张纹理")。
+        self.bind = BindTexture(texture=probe.texture)
+        self.mesh = Mesh(mode="triangles", vertices=self._v, indices=idx,
+                         texture=probe.texture)
+
+    def __len__(self):
+        return self._n
+
+    def set(self, i, pts, uvs=None):
+        """`pts` 的顺序与 `Quad.points` 一致(4 组 x,y); `uvs` 省略时用默认 uv。"""
+        u = self._uv if uvs is None else uvs
+        v = self._v
+        o = i * 16
+        v[o:o + 16] = (pts[0], pts[1], u[0], u[1],
+                       pts[2], pts[3], u[2], u[3],
+                       pts[4], pts[5], u[4], u[5],
+                       pts[6], pts[7], u[6], u[7])
+
+    def zero(self, i):
+        """单条退化 —— 等价于 `quad.points = [0] * 8`。"""
+        self._v[i * 16:i * 16 + 16] = self._zero
+
+    def clear(self):
+        """整条退化(一次 C 级切片赋值, 不是 N 次 Python 循环)。"""
+        self._v[:] = self._zeros
+
+    def flush(self):
+        self.mesh.vertices = self._v
+
+
 def sand_material(base, dark, light, size=None, grain=None, shade=None):
     """按配色取/建材质(带缓存)。任何一步失败返回 None ⇒ 上层退回平色填充。"""
     if SAND_MATERIAL == "flat":
@@ -2490,8 +2559,12 @@ class HourglassWidget(Widget):
         self._knots_fixed = None             # `_mound_knots` 的几何固定部分(按几何代缓存)
         self._mound_profile = None           # 下球沙堆形状解(见 _MoundProfile), 几何重建时换新
         self._mound_shape = ()               # 65 点轮廓(绝对值): 绘制节点/接触查表都用它
-        self._upper_carve = []               # 上球漏斗 carve(§4)
-        self._upper_band = []
+        # 四条沙面 carve/亮带 —— 由 `_build_dynamic_canvas` 建(见 `_QuadBand`);
+        # 在那之前是 None(原来的初值是 `[]`, 换成对象之后必须有哨兵值)。
+        self._upper_carve = None             # 上球漏斗 carve(§4)
+        self._upper_band = None
+        self._mound_carve = None
+        self._mound_band = None
         self._upper_band_color = None
         self._surface_marker_pool = []
         self._surface_marker_n = 0
@@ -4404,30 +4477,53 @@ class HourglassWidget(Widget):
             def _pts(key, flip):
                 return [(x, (mir - y) if flip else y) for x, y in tp[key]]
 
-            def _band(pts, color):
-                """沿曲线逐段画横跨左右的四边形(Kivy 无多边形图元)"""
-                Color(*color)
+            # ⚠️ 这里原来是"沿曲线逐段画 `Quad`"(Kivy 无多边形图元) —— 一共 **192 条**,
+            #    每条还各拖一条 `BindTexture`。换成 `_QuadBand`(一个 `Mesh`)之后整族消失,
+            #    顶点一个字节没变(逐像素等价见 `_qa/quadmesh_ab.py`)。这段是**静态**的,
+            #    只在几何变化时重建, 所以省下的是**每帧的指令遍历**, 不是构建时间。
+            def _put(band, i, pts, sx=None):
+                """把一条曲线折线连续写成四边形, 返回下一个空槽位下标。"""
                 for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-                    Quad(points=[cx - x0, y0, cx + x0, y0, cx + x1, y1, cx - x1, y1])
+                    if sx is None:
+                        band.set(i, [cx - x0, y0, cx + x0, y0,
+                                     cx + x1, y1, cx - x1, y1])
+                    else:
+                        band.set(i, [cx + sx * x0, y0, cx + sx * (R + pad), y0,
+                                     cx + sx * (R + pad), y1, cx + sx * x1, y1])
+                    i += 1
+                return i
 
-            # ① 擦掉曲线以外的球极冠(用背景色覆盖)
+            n_out = max(0, len(tp['out_pts']) - 1)
+            n_in = max(0, len(tp['in_pts']) - 1)
+            # ① 擦掉曲线以外的球极冠(用背景色覆盖): 2 个 flip × 2 个 sgn
             bg = hex_rgb(BG_COLOR)
+            Color(*bg)
+            cap = _QuadBand(4 * n_out)
+            i = 0
             for flip in (False, True):
                 op = _pts('out_pts', flip)
-                Color(*bg)
                 for sgn in (1, -1):
-                    for (x0, y0), (x1, y1) in zip(op, op[1:]):
-                        Quad(points=[cx + sgn * x0, y0, cx + sgn * (R + pad), y0,
-                                     cx + sgn * (R + pad), y1, cx + sgn * x1, y1])
+                    i = _put(cap, i, op, sx=sgn)
+            cap.flush()
             # ② 直筒段
             Color(*glass_out)
             Rectangle(pos=(cx - t_out, yb_l), size=(2 * t_out, yb_u - yb_l))
             Color(*glass_fill)
             Rectangle(pos=(cx - t_in, yb_l), size=(2 * t_in, yb_u - yb_l))
             # ③ 曲线过渡: 外轮廓(壁) + 内轮廓(腔)
+            #    (原来 `_band()` 每调一次都插一条 `Color`, 两个 flip 同色 ⇒ 合成一条色 + 一条带)
+            Color(*glass_out)
+            wall = _QuadBand(2 * n_out)
+            i = 0
             for flip in (False, True):
-                _band(_pts('out_pts', flip), glass_out)
-                _band(_pts('in_pts', flip), glass_fill)
+                i = _put(wall, i, _pts('out_pts', flip))
+            wall.flush()
+            Color(*glass_fill)
+            cavity = _QuadBand(2 * n_in)
+            i = 0
+            for flip in (False, True):
+                i = _put(cavity, i, _pts('in_pts', flip))
+            cavity.flush()
 
     # ---------- 渲染 ----------
 
@@ -5033,9 +5129,13 @@ class HourglassWidget(Widget):
         弦外由球面 stencil 自己裁(出到弦外会画出反向四边形, 把玻璃色糊到沙上)。
         """
         carve, band = self._upper_carve, self._upper_band
+        if carve is None:                    # 画布还没建(见 `__init__` 的哨兵值)
+            return
         if upper_height <= 0.0:
-            for q in carve + band:
-                q.points = [0] * 8
+            carve.clear()
+            band.clear()
+            carve.flush()
+            band.flush()
             self._upper_band_color.a = 0.0
             return
         p = 0.0 if self.duration <= 0 else min(1.0, self.elapsed / self.duration)
@@ -5081,12 +5181,14 @@ class HourglassWidget(Widget):
             if i + 1 < len(cols):
                 x0, y0 = cols[i]
                 x1, y1 = cols[i + 1]
-                carve[i].points = [x0, y0, x1, y1, x1, limit, x0, limit]
-                band[i].points = [x0, y0, x1, y1, x1, y1 - band_w, x0, y0 - band_w]
+                carve.set(i, [x0, y0, x1, y1, x1, limit, x0, limit])
+                band.set(i, [x0, y0, x1, y1, x1, y1 - band_w, x0, y0 - band_w])
             else:
-                carve[i].points = [0] * 8
+                carve.zero(i)
                 if i < len(band):
-                    band[i].points = [0] * 8
+                    band.zero(i)
+        carve.flush()
+        band.flush()
 
     def _draw_mound_shape(self, h_mound):
         """下球沙堆的**锥面**轮廓 —— carve 抠掉轮廓以上的沙, band 只画在真正的自由表面上。
@@ -5100,9 +5202,13 @@ class HourglassWidget(Widget):
         """
         carve, band = self._mound_carve, self._mound_band
         profile = self._mound_profile
+        if carve is None:                    # 画布还没建(见 `__init__` 的哨兵值)
+            return
         if h_mound <= 0 or profile is None:
-            for q in carve + band:
-                q.points = [0] * 8
+            carve.clear()
+            band.clear()
+            carve.flush()
+            band.flush()
             return
         cx = self._cx
         bottom = self._lower_sand_bot
@@ -5123,20 +5229,22 @@ class HourglassWidget(Widget):
             cols.append((cx + dx, bottom + y, free, thick))
         for i in range(len(carve)):
             if i + 1 >= len(cols):
-                carve[i].points = [0] * 8
+                carve.zero(i)
                 if i < len(band):
-                    band[i].points = [0] * 8
+                    band.zero(i)
                 continue
             x0, y0, free0, th0 = cols[i]
             x1, y1, free1, th1 = cols[i + 1]
-            carve[i].points = [x0, y0, x1, y1, x1, top, x0, top]
+            carve.set(i, [x0, y0, x1, y1, x1, top, x0, top])
             if i >= len(band):
                 continue
             if free0 and free1:
                 w = min(SAND_SURFACE_BAND, th0, th1)
-                band[i].points = [x0, y0, x1, y1, x1, y1 - w, x0, y0 - w]
+                band.set(i, [x0, y0, x1, y1, x1, y1 - w, x0, y0 - w])
             else:
-                band[i].points = [0] * 8
+                band.zero(i)
+        carve.flush()
+        band.flush()
 
     def _build_dynamic_canvas(self):
         """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
@@ -5164,17 +5272,17 @@ class HourglassWidget(Widget):
                     # 上球: 漏斗 carve(专家 dingbu.md §4) —— 与下球同一套写法, 段数同样按节点数定
                     n_seg_u = max(1, MOUND_SHAPE_NODES)
                     Color(*hex_rgb(GLASS_FILL), 1)
-                    self._upper_carve = [Quad(points=[0] * 8) for _ in range(n_seg_u)]
+                    self._upper_carve = _QuadBand(n_seg_u)
                     self._upper_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
-                    self._upper_band = [Quad(points=[0] * 8) for _ in range(n_seg_u)]
+                    self._upper_band = _QuadBand(n_seg_u)
                 if yc == self._lower_y_c:
                     # 下球: carve 按**真转折点**折线抠掉轮廓以上的沙(见 _draw_mound_shape)。
                     # 段数 = 节点数-1(含 ±R/±b/0), 在几何重建时定下来。
                     n_seg = max(1, len(self._mound_knots()) - 1 + 4)   # +4: 逐帧的壁交点
                     Color(*hex_rgb(GLASS_FILL), 1)
-                    self._mound_carve = [Quad(points=[0] * 8) for _ in range(n_seg)]
+                    self._mound_carve = _QuadBand(n_seg)
                     self._mound_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
-                    self._mound_band = [Quad(points=[0] * 8) for _ in range(n_seg)]
+                    self._mound_band = _QuadBand(n_seg)
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
@@ -5813,17 +5921,20 @@ class HourglassWidget(Widget):
             _ji = (_m * 31.0 + 0.5).astype(_np.int64)
             # ⚠️ `pli` 是 **float** 数组, 直接当索引会 IndexError —— 先转布尔掩码
             _ji[pv.nli[_idx] != 0.0] = 26      # 0.85 * 31 ≈ 26.35 ⇒ 最近的量化档
-            _xl = _x.tolist()
-            _bl = _np.maximum(_y - 1.0, bottom_y).tolist()
-            _tl = _np.minimum(_y + 1.0, top_y).tolist()
             _sink = _NECK_SINK
             if _sink is not None:
                 # ★ **直通**: 不写记录器、也不再来一趟 283 颗的桶收集。
                 #   几何量本来就是数组, 直接喂批处理。
+                #   ⚠️ **不要在这条路上先 `tolist()`** —— 那三个 Python list 只有下面的
+                #      else 分支会读, 而安卓走的就是这条路(每帧白建 3×320 个 float,
+                #      另外还白算两遍 maximum/minimum)。见 `_probe_neck_equiv`。
                 _sink(self, _cnt, _x,
                       _np.maximum(_y - 1.0, bottom_y), _np.minimum(_y + 1.0, top_y),
                       _ji, _sz)
             else:
+                _xl = _x.tolist()
+                _bl = _np.maximum(_y - 1.0, bottom_y).tolist()
+                _tl = _np.minimum(_y + 1.0, top_y).tolist()
                 _jl = _ji.tolist()
                 _sl = _sz.tolist()
                 for _c in range(_cnt):

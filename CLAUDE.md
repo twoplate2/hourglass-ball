@@ -271,6 +271,51 @@ python main.py
 
 （完成闪烁 **2026-10-04 已删除**，见上。）
 
+### 🔴 画布指令的**单价**与 `_QuadBand`(2026-10-07)
+
+**一条画布指令 = 每帧一次 `apply()`。** 桌面实测 **~1.0~1.4µs/条**
+(`tools/_probe_canvas_cost.py`: 把某一族指令从 `canvas` 上摘掉, 量 `Window.on_draw` 的差;
+`none` 对照组证明量具本身的漂移只有 ±0.045ms)。
+
+| 消融族 | 指令数 | Δ on_draw |
+|---|---|---|
+| 对照(不摘) | 0 | −0.045 ms(噪声) |
+| `_mound_carve` + `_mound_band` | 226 | **+0.249 ms** |
+| `_upper_carve` + `_upper_band` | 130 | **+0.183 ms** |
+| `_neck_quads` | 25 | +0.084 ms |
+
+⚠️ **Kivy 给每条"带纹理的顶点指令"自动插一条 `BindTexture`** —— 实测
+`InstructionGroup` 里放 3 个 `Rectangle` 会变成 `{Color:1, BindTexture:3, Rectangle:3}`。
+**所以一条 `Quad`/`Rectangle`/`Line` 的真实代价是 2 条指令, 不是 1 条。**
+
+⇒ 静态几何那 548 条 `Quad`(carve/band/玻璃壳过渡)= **~1100 条指令**, 占画布总指令数
+(1669)的三分之二。**把它们换成 `_QuadBand`(N 个四边形 = 一个 `Mesh`)**:
+
+- 画布指令 **1669 → 689(−59%)**; 设备 Canvas 栏 **1.41 → 0.83ms(15s 档)**、
+  **1.88 → 1.21ms(1s 档)**; 设备三档合计 **8.32/6.33/6.41 → 7.35/5.46/5.50ms**。
+- 图元栏也降了 0.24~0.28ms(维护 548 个属性 → 4 次 `flush`)。
+
+**逐像素等价不是推出来的, 是量出来的**: `tools/_probe_quadmesh_equiv.py` 要求
+① 同一组 `points`, 逐 `Quad` 与单 `Mesh` 画出来**逐像素 0 差异**(用例里**必须含凹四边形**
+—— 凹角处两种三角剖分本来就不同, 不验它等于没验);
+② **预分配 list 原地改再重新赋值**照样生效(Kivy 的 list 属性不按同一性短路),
+否则每帧得白复制一份三千多个 float。**两条都过, 正向对照也过**(A 段原图 vs B 段结果
+差 5034 px, 证明那次赋值真的生效了, 不是"冻住了所以看起来一样")。
+
+⚠️ 换 `Mesh` 时**三件事必须一起做**: ① 顶点是 `[x, y, u, v] × 4`, uv **向一个空 `Quad`
+要**(`probe.tex_coords`), 不要猜默认值; ② 索引 `[b, b+1, b+2, b, b+2, b+3]`;
+③ **`BindTexture` 要显式写进指令流**(只给 `Mesh.texture` 赋值不等于绑上了)。
+⚠️ **`flush()` 每帧必须调** —— 顶点是**赋值那一刻**才标脏上传的, 只改 list 不赋值
+等于什么都没发生(静默失效: 画面冻住, 一行报错都没有)。
+
+**当前画布指令的剩余分布**(593 条, 按族): `_flare_group` **141** / `_flow_texture_context` 123 /
+`_neck_context` 97 / `_surface_marker_group` 60 / `canvas.before` 36(玻璃壳) / 其余零散。
+`_flare_group` 现在最大: 47 个 flare 各占 `Color + BindTexture + Rectangle` 三条 ——
+**per-flare 的 alpha 逼出 per-flare 的 `Color`**, 想再压只能走批处理(那会动到 stipple)。
+
+**量具**: `tools/_probe_canvas_cost.py`(指令单价) · `tools/_probe_quadmesh_equiv.py`(Quad↔Mesh
+等价) · `tools/_hot_desktop.py`(cProfile 热点排名, **只信排名不信量级**)。
+
 ### 沙流渲染器：安卓走批处理(2026-10-02)
 
 `Line` 在 **`width>1` 时不用 `glLineWidth`**，而是**每条线**自建一个带 10 段圆头帽的三角网格。
