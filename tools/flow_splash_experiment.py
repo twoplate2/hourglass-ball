@@ -295,6 +295,35 @@ class SplashBatch:
             texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
                                 colorfmt="rgba", bufferfmt="ubyte")
 
+    def write_bounds_raw(self, raw, off, count):
+        """把**已经算好**的边界字节(`raw`, 每条 16 字节)从第 `off` 条起写 `count` 条。
+
+        与 `update_bounds_np` 同语义, 只是四个边界由调用方**一次算完**。
+        理由与沙流那边一样: 颈部每帧有 ~11 个非空色调桶, 逐桶各建一个 `(n,4)` 数组、
+        各做 4 次列赋值、各 `tobytes()` 一遍 —— 而这四列本来就是同一次算出来的。
+        实测(桌面)这一段的省下量见 `_neck_sink` 的注释。
+        """
+        n = count if count <= CHUNK else CHUNK
+        if not self.parts and n == 0:
+            return
+        part = self._ensure_part(0)
+        mesh, _vertices, indices, texture, data, previous = part
+        if n == 0 and previous == 0:
+            return
+        if n:
+            src = off * 16
+            data[:n * 16] = raw[src:src + n * 16]
+        _upload = n
+        if n > previous:
+            mesh.indices = indices[:n * len(_INDICES)]
+            part[5] = n
+        elif n < previous:
+            data[n * 16:previous * 16] = PAD * (previous - n)
+            _upload = previous
+        if _upload:
+            texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
+                                colorfmt="rgba", bufferfmt="ubyte")
+
     def update_bounds(self, bounds):
         """`bounds` = 可迭代的 `(left, bottom, right, top)`(颈部颗粒用)。
 
@@ -485,6 +514,18 @@ def _neck_sink(widget, cnt, xs, bs, ts, ji, sz):
     ybo = yb[order]
     xro = xr[order]
     yto = yt[order]
+    # ★ **四列一次写成整块字节, 桶内只切片**(2026-10-07 性能, 手法与沙流端相同)。
+    #   原来 ~11 个非空桶各建一个 `(n,4)` float32 数组、各做 4 次列赋值、各 `tobytes()`
+    #   一遍 —— 而这四列本来就已经在同一次运算里算好了。现在 4 次列赋值 + 1 次
+    #   `tobytes()`, 每桶只做一次**字节切片**(memcpy)。逐位不变: 同样的 float64 值
+    #   写进同样的 float32 位置。
+    total = xlo.size
+    blk = np.empty((total, 4), dtype="<f4")
+    blk[:, 0] = xlo
+    blk[:, 1] = ybo
+    blk[:, 2] = xro
+    blk[:, 3] = yto
+    raw = blk.tobytes()
     pos = 0
     log = []
     for k in range(len(batches)):
@@ -494,10 +535,11 @@ def _neck_sink(widget, cnt, xs, bs, ts, ji, sz):
         if not c or rgb is None:
             batch.update_bounds(())
             continue
-        sl = slice(pos, pos + c)
+        batch.write_bounds_raw(raw, pos, c)
+        # 留给 `tools/_probe_neck_batch_equiv.py` 取证(几何量仍以数组形式存引用)
+        log.append((rgb, xlo[pos:pos + c], ybo[pos:pos + c],
+                    xro[pos:pos + c], yto[pos:pos + c]))
         pos += c
-        batch.update_bounds_np(c, xlo[sl], ybo[sl], xro[sl], yto[sl])
-        log.append((rgb, xlo[sl], ybo[sl], xro[sl], yto[sl]))
     # 留给 `tools/_probe_neck_batch_equiv.py` 取证(存的是引用, 不拷贝)
     widget._neck_last_rects = log
 
