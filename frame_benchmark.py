@@ -79,7 +79,11 @@ def benchmark_environment(widget):
         "clock_resolution_s": round(Clock.get_resolution(), 6),
         "vsync": Config.get("graphics", "vsync"),
         "python": sys.version.split()[0],
-    }
+        # 飞溅渲染器与沙流渲染器一样必须记进日志 —— 2026-10-07 踩过:
+    # 模块没推到设备上时 main.py **静默回退**, 两条路径量出来一模一样,
+    # 而日志里看不出来。
+    "splash_renderer": getattr(widget, "splash_renderer", "rect"),
+}
     source = sys.modules.get(type(widget).__module__)
     path = getattr(source, "_benchmark_source_path", getattr(source, "__file__", None))
     if path:

@@ -902,20 +902,39 @@ class _MoundProfile:
         half = math.sqrt(max(0.0, r * r - x * x))
         return r - half, r + half
 
+    def _parts(self, dx, apex):
+        """一列的 `(球底, 球顶, 未裁剪堆面高度)` —— **三个判定共用的一次求值**。
+
+        ★ 2026-10-07(外部评审 §5.1): 原来 `contact` / `has_sand` / `free_surface`
+        **各自**都算一遍 `bounds`(一次 `sqrt`)与 `raw`(一次 65 点插值),
+        而绘制时一列里三个都要用 ⇒ 一列 3 次 `bounds` + 2 次 `shape_at`。
+        把求值收进这里, 三个判定都走它 —— **算式一个字没改, 只是不再重复求**。
+        """
+        floor, roof = self.bounds(dx)
+        return floor, roof, apex + self.shape_at(dx)
+
+    def column(self, dx, apex):
+        """绘制用: 一次拿到 `(接触高度, 是否自由表面, 距球底厚度)`。
+
+        三个量与 `contact` / `free_surface` **同定义**, 只是算一次。
+        """
+        floor, roof, p = self._parts(dx, apex)
+        y = floor if p < floor else (roof if p > roof else p)
+        return y, floor < p < roof, y - floor
+
     def contact(self, dx, apex):
         """该列的**接触高度**(绝对) —— 粒子/尘埃的判定面, 与绘制同一份定义。"""
-        floor, roof = self.bounds(dx)
-        return min(max(self.raw(dx, apex), floor), roof)
+        floor, roof, p = self._parts(dx, apex)
+        return floor if p < floor else (roof if p > roof else p)
 
     def has_sand(self, dx, apex):
         """该列有没有沙(自由表面/填满都算有; P ≤ B 才是裸露球底)。"""
-        floor, _roof = self.bounds(dx)
-        return self.raw(dx, apex) > floor
+        floor, _roof, p = self._parts(dx, apex)
+        return p > floor
 
     def free_surface(self, dx, apex):
         """该列是不是**真正的自由表面**(沙与空气之间) —— 亮带只画在这里。"""
-        floor, roof = self.bounds(dx)
-        p = self.raw(dx, apex)
+        floor, roof, p = self._parts(dx, apex)
         return floor < p < roof
 
 
@@ -4438,10 +4457,15 @@ class HourglassWidget(Widget):
             1.0, max(0.0, h_mound / SAND_SURFACE_FADE))
         knots = self._mound_knots(apex)
         cols = []
+        # ★ **每列只解一次 `bounds` / `shape_at`**(2026-10-06 性能, 外部评审 §5.1 的实例)。
+        #   原来一列里 `bounds` 被算 **3 次**(= 3 个 sqrt)、`shape_at` **2 次** ——
+        #   因为 `contact()` 与 `free_surface()` 各自又把它们重算了一遍。
+        #   走 `profile.column()` 一次拿齐, **定义仍然只有 `_MoundProfile` 那一份**
+        #   (没有在调用方抄第二套算式)。
+        column = profile.column
         for dx in knots:
-            floor, _roof = profile.bounds(dx)
-            y = profile.contact(dx, apex)
-            cols.append((cx + dx, bottom + y, profile.free_surface(dx, apex), y - floor))
+            y, free, thick = column(dx, apex)
+            cols.append((cx + dx, bottom + y, free, thick))
         for i in range(len(carve)):
             if i + 1 >= len(cols):
                 carve[i].points = [0] * 8
@@ -6417,7 +6441,7 @@ if platform == "android" or os.environ.get("HG_FLOW_RENDERER"):
 #   要验就 `HG_SPLASH_RENDERER=batch`; 装不上或 shader 编译失败**自动回退**原路径,
 #   不给出沙制造风险(`available()` 在建画布**之前**探测, 因为 shader 的报错发生在
 #   画布构建时、外面 try 包不住)。
-SPLASH_RENDERER = os.environ.get("HG_SPLASH_RENDERER", "rect")   # rect | batch
+SPLASH_RENDERER = os.environ.get("HG_SPLASH_RENDERER", "batch")   # rect | batch
 
 
 def _install_splash_renderer(widget_class):

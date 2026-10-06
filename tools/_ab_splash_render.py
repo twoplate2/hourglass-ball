@@ -74,6 +74,14 @@ def run():
 
         def shot_batch2(self, _dt):
             got["batch"] = grab()
+            # A/A 对照: 同一路径再抓一张 —— 量具本身抖不抖(外部评审 §7.2「先用 A/A 估噪声」)
+            Window.canvas.ask_update()
+            Clock.schedule_once(self.shot_batch3, 0.0)
+
+        def shot_batch3(self, _dt):
+            got["batch2"] = grab()
+            self.rect_pass()
+        def rect_pass(self):
             # 清空批处理索引 ⇒ 该层不出像素, 再把原 `_sync_rects` 画上去
             b = getattr(self.hg, "_splash_batch", None)
             saved = []
@@ -84,6 +92,7 @@ def run():
             Window.canvas.ask_update()
             Clock.schedule_once(self.shot_rect, 0.0)
 
+
         def shot_rect(self, _dt):
             hg = self.hg
             hg._splash_rects = []
@@ -93,6 +102,11 @@ def run():
 
         def shot_rect2(self, _dt):
             got["rect"] = grab()
+            Window.canvas.ask_update()
+            Clock.schedule_once(self.shot_rect3, 0.0)
+
+        def shot_rect3(self, _dt):
+            got["rect2"] = grab()
             print("ABSPLASH splashes=%d" % len(self.hg.splashes))
             for mesh, idx in self._saved:
                 mesh.indices = idx
@@ -111,12 +125,19 @@ if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     Image.fromarray(g["rect"]).save(OUT / "rect.png")
     Image.fromarray(g["batch"]).save(OUT / "batch.png")
-    a, b = g["rect"].astype(int), g["batch"].astype(int)
-    d = np.abs(a - b).max(axis=2)
+    def pair(x, y, label):
+        d = np.abs(g[x].astype(int) - g[y].astype(int)).max(axis=2)
+        print("  %-16s 最大差 %3d ; 差异像素 %6d (%.4f%%)"
+              % (label, d.max(), int((d > 0).sum()), 100.0 * (d > 0).mean()))
+        return d
+
+    print("")
+    print("  === 量具 A/A 对照(同一路径抓两张) ===")
+    pair("rect", "rect2", "rect vs rect")
+    pair("batch", "batch2", "batch vs batch")
     print("")
     print("  === 飞溅: 固定状态下 rect vs batch 逐像素 ===")
-    print("  最大通道差 = %d ; 差异像素 %d (%.4f%%)"
-          % (d.max(), int((d > 0).sum()), 100.0 * (d > 0).mean()))
+    d = pair("rect", "batch", "rect vs batch")
     for lo, hi in ((1, 2), (3, 8), (9, 32), (33, 255)):
         print("    差 %3d..%-3d : %6d px" % (lo, hi, int(((d >= lo) & (d <= hi)).sum())))
     print("  并排/差分图: _shot/splash_ab/")

@@ -29,7 +29,11 @@ W=$(cd "$ROOT" && pwd -W)
 
 # main.py 运行时**按名字 import** 的 tools 模块(见 main.py:60 与 :5459-5469)。
 # 改了其中任何一个, 或改了 main.py 里与它们交换的键, 都必须一起推 —— 否则设备上是错配的一对。
-TOOLS_MODULES="flow_numpy.py flow_texture_experiment.py flow_batch_experiment.py flow_gpu_experiment.py"
+TOOLS_MODULES="flow_numpy.py flow_texture_experiment.py flow_batch_experiment.py flow_gpu_experiment.py flow_splash_experiment.py"
+# ⚠️ **新增一个被 main.py 运行时 import 的 tools 模块, 必须加进这一行** ——
+#   2026-10-07 踩过: 漏加 `flow_splash_experiment.py` ⇒ 设备上 `import` 失败 ⇒
+#   main.py 的 except 捕获后**静默回退**原路径 ⇒ 设备 A/B 量出来"两条路径一模一样"
+#   (实际是根本没装上)。报错在 logcat 里, 但**默认不会去看**。
 TOP_FILES="main.py app_version.py frame_benchmark.py"
 
 "$ADB" -s "$SER" shell id -u | tr -d '\r' | grep -qx 0 || { echo "!! 需要 adb root"; "$ADB" -s "$SER" root; sleep 3; }
