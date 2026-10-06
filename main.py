@@ -2773,6 +2773,16 @@ class HourglassWidget(Widget):
             self._upper_rough_cache_t = None
             self._upper_env_h = None          # `_upper_rough_at` 的包络 memo(见那里)
             self._upper_env = 0.0
+            # 🔴 **`_upper_cols` 也要在这里失效**(2026-10-07 2号专家查出, E1 正负对照):
+            #    它是**几何**缓存(`dx`/`floor`/`roof`, 含一个 `sqrt`), 但 `_upper_area` 里的
+            #    守卫只有 `cols is None or len(cols) != n+1`, 而 `n = MOUND_SHAPE_NODES-1`
+            #    是**常量** ⇒ 建过一次**永不重建**。`_reset_run_state` 里清过它, 但
+            #    **转屏 / 分屏 / 拖窗**走的是 `_on_size → _rebuild_height_table` 这条路,
+            #    那条路上它没被清 ⇒ 上球沙面的 `level` 一直用旧 `Ri` 的几何算。
+            #    实测(resize 720×900, Ri 112.96→130.85): 只清这一个变量, `_upper_level_for`
+            #    由 94.3385 → 94.0232, 差 **0.3153px**(缓存里的 floor 项与当前 Ri 应有的值
+            #    差 **13.45px**)。而 `level` 正是 `_draw_upper_shape` 画沙面用的那个数。
+            self._upper_cols = None
             self._mound_shape = tuple(shape)
             # ---- 下球轮廓的**演化帧**（用户 2026-10-05: "下球斜面也应该有起伏" + "要动"）----
             # ⚠️ 每帧扰动**减掉自己的均值** ⇒ 面积精确不变（用户原话"有高就有低"），

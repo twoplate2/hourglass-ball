@@ -328,6 +328,26 @@ argsort 排的都是**小整数桶码**(沙流的 `code = key*2+slot` 恒 < 24, 
 (实测三种 dtype 两两相等)。⇒ 排之前先 `.astype(np.uint8)`。
 ⚠️ `np.bincount` 相反: int64 1.26µs 比 uint8 1.81µs **快**, 所以只压 argsort 的输入。
 
+### 🔴 几何缓存漏失效 ⇒ 转屏/分屏后上球沙面高度是错的(2026-10-07, 1.211, 2号专家查出)
+
+`_upper_area` 里那份 `_upper_cols`(每列的 `dx/floor/roof`, 含一个 `sqrt`)是**几何**缓存,
+但守卫写的是 `cols is None or len(cols) != n + 1`, 而 `n = MOUND_SHAPE_NODES-1` 是**常量**
+⇒ **建过一次永不重建**。`_reset_run_state` 里清过它, 可 **`_on_size → _rebuild_height_table`**
+(转屏 / 分屏 / 拖窗)那条路上**没清**(同一处的 `_upper_env_h` 却清了)。
+⇒ 上球沙面的 `level` 一直用**旧 `Ri`** 的几何算, 实测差 **0.50 ~ 0.98 px**(三个尺寸)。
+修: `_rebuild_height_table` 里补一行 `self._upper_cols = None`。
+
+**量具**: `tools/_probe_upper_cols_gen.py`。判据 = **几何重建后清掉缓存再算, 结果必须一模一样**
+(自带正负对照: 删掉那行必须翻红 —— 实测 0.4966 / 0.9792px)。
+⚠️ **这条判据头两版都是废的**, 两次都栽在"判据自己把被测对象排除了":
+① 第一版用 `Window.size = ...` 改尺寸, 而 widget 在布局里 ⇒ 三个尺寸下 `Ri` **全是 139.4156**,
+几何从没换过(现在加了"`Ri` 必须真的变"的断言);
+② 第二版每个尺寸都 `w.reset()`, 而 `_reset_run_state` 里**正好也清 `_upper_cols`**
+⇒ 每次都替被测对象擦干净了; 而且 `_upper_level_for` **自己还有一层每帧 memo**,
+只清 `_upper_cols` 不清 `_upper_level_key` ⇒ 差恒为 0。
+**一般形式: 写"清掉 X 再算一遍应当不变"这类判据之前, 先确认 ① X 真的会被读到 ② 没有别的
+缓存把这次读取挡在外面 ③ 负对照真的会红。**
+
 ### 🔴 兜底路径必须**自己走出来对一遍**(2026-10-07, 1.210)
 
 装配失败会走**另一条分支**, 而那条分支平时没人走。这一天在 `FlareBatch` 的回退上
