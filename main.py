@@ -932,6 +932,10 @@ FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
 #   把中点下移到 2 恰好抵消这个可见性偏差(每档 ≈ +2.5R/+3.5G/+3.6B)。
 #   ⚠️ 改它之前先重量一次直方图 —— 这个数是**量出来的**, 不是推出来的。
 FLOW_TONE_CENTER = 2
+# 调色板**每档多少 R 级**(等距, 见 `_flow_tone`)。整条 R 跨度 = 2×5×STEP。
+# 2.0 ⇒ 跨 20 级; 配合中点 2 之后实际用到第 0~6 档 = **R 207~219**,
+# 与**沙堆实测的 208~219** 基本重合(这是"不发黑"的判据)。
+FLOW_TONE_STEP = 2.0
 
 # 🔴 沙流的**基础生成率**(颗/秒) —— **与周期无关**(2026-10-06, 用户报「沙流和沙堆差距过大」)。
 #
@@ -2735,6 +2739,25 @@ class HourglassWidget(Widget):
         self._preview_material = None
         self._rebuild_color_table()
 
+    def _flow_tone(self, k):
+        """沙流调色板第 `k` 档(k=5 == `sand_base`)。
+
+        🔴 **按"R 级数"等距, 不是"往 sand_dark/sand_light 走百分之几"**(2026-10-06 修)。
+        后者踩过一次: `sand_dark` 离 base 有 **−33 级**, 而 `sand_light` 只有 **+13 级**
+        ⇒ 同一个百分比在暗端是**两倍半的落差** ⇒ 只要暗半段露出来就**发黑**。
+        设备实测(用户:「颈部的沙流颜色好像**发黑的沙子**」): 出口下方的 P5 到 (200,145,80),
+        而**沙堆的 P5 是 (208,154,88)** —— 沙堆整条只跨 R 208~219(**很紧**),
+        沙流却两头都超(暗尾 200 / 亮头 221)。
+        现在每档固定 `FLOW_TONE_STEP` 级 ⇒ 整条 R 跨度 = 2×5×STEP。
+        ⚠️ 每档**下限到 `sand_dark`/`sand_light` 为止**(不越界)。
+        """
+        d = (k - 5) * FLOW_TONE_STEP
+        if d == 0.0:
+            return self.sand_base
+        end = self.sand_light if d > 0 else self.sand_dark
+        span = abs(end[0] - self.sand_base[0]) * 255.0
+        return lerp_rgb(self.sand_base, end, min(1.0, abs(d) / max(1e-6, span)))
+
     def _rebuild_color_table(self):
         self._color_table = [lerp_rgb(self.sand_base, self.sand_light, i / 10.0)
                              for i in range(11)]
@@ -2747,11 +2770,7 @@ class HourglassWidget(Widget):
         #     沙层 (206,163,103) / 沙流底部 **(219,183,123)** —— 亮 13R 21G 20B。
         #   改成居中之后: **均值 == 沙层色**, 抖动只负责给出与沙堆同性质的颗粒感,
         #   不再有系统性的偏亮。暗端取 `sand_dark` ⇒ 与沙堆材质的暗颗粒同源。
-        self._flow_table = (
-            [lerp_rgb(self.sand_dark, self.sand_base, i / 5.0) for i in range(5)]
-            + [self.sand_base]
-            + [lerp_rgb(self.sand_base, self.sand_light, i / 5.0)
-               for i in range(1, 6)])
+        self._flow_table = [self._flow_tone(k) for k in range(11)]
         # 「高光组」= 刚出孔口的新生颗粒(trail_time 短)。它原来直接用 sand_light,
         # 而**出口正上方就是颈部沙柱**, 那里是材质色(≈base, tone 中位 -0.04)。
         # 于是出口处出现一道**15 级的亮度阶跃**(实测 215 → 230 @ 屏幕 y=426 = outlet),
