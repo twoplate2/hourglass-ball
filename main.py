@@ -4214,6 +4214,12 @@ class HourglassWidget(Widget):
                     "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
                     "source_speed": source_speed,
                     "shrink_min": FLOW_SHRINK_MIN,
+                    # ★ 把**饱和阈值**也交给向量化路径(2026-10-07)。标量路径早就在
+                    #   `below_tube >= b_sat + SAT_GUARD` 时短路成 `FLOW_SHRINK_MIN`
+                    #   (省两次 sqrt), 而向量化路径**一直在对全部粒子算两次 `np.power`**
+                    #   —— 两条路径对同一件事不一致, 而且 15s 稳态实测 **99.9% 的粒子已在
+                    #   饱和区** ⇒ 那两次 power 几乎全是白算(`np.power` 比逐元素加乘贵一个量级)。
+                    "shrink_sat": b_sat + SAT_GUARD,
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
                     "curve": (_cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1),

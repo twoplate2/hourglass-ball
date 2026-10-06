@@ -498,7 +498,9 @@ class BenchmarkRunner:
         ⚠️ **不能只看 `running`** —— 计时归零那一刻它们全都还在。
         """
         w = self.widget
-        if w.pn or w.splashes or w.dusts or w.flares:
+        # ⚠️ 同理: `w.splashes` 是 property, 每帧重建 ~1700 个 dict。这里每帧都调
+        #    (静止等待可能持续好几秒) ⇒ 改成真值 `_sn`。
+        if w.pn or w._sn or w.dusts or w.flares:
             return False
         return not w._neck_sand_side()
 
@@ -573,7 +575,15 @@ class BenchmarkRunner:
             # 粒子的真值是并行数组, pn 就是存活数 —— 不要读 `widget.particles`
             # (那是按需构建的 dict 列表视图, 每帧读会把兼容层开销算进基准)。
             "particles": self.widget.pn,
-            "splashes": len(self.widget.splashes),
+            # 🔴 **必须是 `_sn`, 不能是 `len(self.widget.splashes)`**(2026-10-07 4号专家
+            #    实测查出)。`splashes` 是**每次访问都重建一批 dict** 的取证视图, 它自己的
+            #    docstring 就写着「**别再往热路径上加它的读者**」—— 而这里每帧读一次。
+            #    设备实测代价 = **0.30ms + 2.2µs × 飞溅数**, 15s 档均值 **2.74 ms/帧**
+            #    (比 `物理 2.00` 或 `图元 2.48` 单独一项都大), 全部落进四栏**之外**的
+            #    阶段残差里, 把"残差"这一栏彻底带偏。
+            #    ⚠️ 上一行刚写着"不要读 `widget.particles`(按需构建的 dict 视图)",
+            #       下一行就犯了同一个错 —— 这条注释就是为此留的。
+            "splashes": self.widget._sn,
             "mound_px": self.widget._mound_height_px(),
             "neck_filling": int(self.widget.elapsed < self.widget._neck_fill_time),
             "gc_ms": self._gc_ms,

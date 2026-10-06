@@ -123,11 +123,26 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     # 底数夹到 1.0 只影响本来就被 np.where 丢弃的那批(y > lower_cut), 在用到的分支上
     # 底数恒 ≥ source_speed_squared(3600), 夹取不改变任何数值。
     below_tube = c["lower_cut"] - y
-    v_at_y = np.power(np.maximum(c["source_speed_squared"] + 2 * g_abs * below_tube, 1.0), 0.5)
-    target = np.power(c["source_speed"] / v_at_y, 0.5)
     # ⚠️ 下限从 `consts` 读(由 main.py 的 `FLOW_SHRINK_MIN` 传入) —— 两条路径**不可能**再各写各的
     _smin = c["shrink_min"]
-    target = np.where(target <= _smin, _smin, target)
+    # ★ **饱和区短路**(2026-10-07): 标量路径早就这么做了(见 main.py 里 `b_sat` 那段推导),
+    #   而这里一直在对**全部**粒子算两次 `np.power` —— 15s 稳态实测 **99.9% 的粒子已在
+    #   饱和区**, 那两次 power 全是白算(`np.power` 比逐元素加乘贵一个量级, 实测 n=1560
+    #   一次 14µs, 而 `np.sqrt` 只要 1.25µs)。
+    #   **逐位不变**: `below_tube >= b_sat + SAT_GUARD` 时原式结果已 ≤ `_smin`、随即被钳到
+    #   `_smin`(推导见 main.py 那段); `SAT_GUARD=1px` 的缓冲带把阈值附近的舍入差挡在外面
+    #   —— 这条路**标量版已经跑了很久**, 这里只是把同一条搬到向量化侧。
+    #   守卫: `tools/test_physics_equiv.py`(标量↔向量化逐位) + 多帧逐像素。
+    sat = below_tube >= c["shrink_sat"]
+    if sat.all():
+        target = np.full(n, _smin)
+    else:
+        v_at_y = np.power(
+            np.maximum(c["source_speed_squared"] + 2 * g_abs * below_tube, 1.0), 0.5)
+        target = np.power(c["source_speed"] / v_at_y, 0.5)
+        target = np.where(target <= _smin, _smin, target)
+        if sat.any():                     # 只把饱和那批覆写成下限(其余原样)
+            np.copyto(target, _smin, where=sat)
     shrink_body = np.where(below_tube < 40.0,
                            1.0 + (target - 1.0) * (below_tube / 40.0),
                            target)
