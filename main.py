@@ -352,7 +352,19 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 # 不是 splash 不工作, 是**它只在一个点上工作** —— 沙流落在一个点, 斜坡上没有生成源。
 # 这一层按"离落点越远越稀"补, 是**纯装饰**(不反向影响 elapsed)。
 # ⚠️ 会改变随机数调用序列 ⇒ 旧的"同 seed 逐像素对照"基线作废(有意的视觉改动)。
-SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "520"))   # 颗/秒(满速率)
+SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "520"))   # 颗/秒(定率兜底, 见下)
+# ★ 2026-10-06 用户定的**数量口径**: 「飞溅理论上等于**下落的沙子的总数**的一个比例」。
+#   实测(新探针 `tools/_probe_splash_ratio.py`)改前**比例跨 14 倍**:
+#       周期   1s    5s    15s   60s   120s
+#       比值  0.065 0.186 0.286 0.543 0.931     (在途飞溅 / 在途主流)
+#   根因: 上游 `SPLASH_BG_RATE` 是**常量**, 而主流在途数随周期从 1258 掉到 160。
+#   改法: `飞溅率 = SPLASH_BG_PER_PARTICLE × self.pn`(在途主流数), 比例即恒定。
+#   定标: 0.63 = 原 520/s ÷ 15s 档实测在途 828 —— **锚在用户说过"基本对了"的 15s**,
+#         不改变那一档的样子。逐档效果(算出来的, 未逐档实测):
+#           1s ×1.5 / 5s ×1.1 / 15s ×1.0 / 60s ×0.39 / 120s ×0.19
+#   ⚠️ **本项是"改前/改后"要交回用户判的那一类**(观感决定) —— 置 0 即退回定率 520/s,
+#      便于出并排图(`HG_SPLASH_PER_PARTICLE=0`)。
+SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.63"))
 # ⚠️ 第一版用 `|u|^1.6 × (0.42·R)` —— **上限被钉在 42% 半宽处**, 实测 >50%R 恒 0%。
 #    改成"**铺满整个半宽, 密度往外衰减**": mag = 0.96·R·u^POW, POW 越大小越往中心堆。
 #    POW=2.4 时: 中位落在 ~0.18R, p90 落在 ~0.75R —— 正是"由强到弱"。
@@ -2967,7 +2979,11 @@ class HourglassWidget(Widget):
         # 本帧的锥面与锥顶只取一次(与下面 h 用的必须是同一份)
         _prof = self._mound_profile
         _apex = self._mound_apex()
-        self._bg_splash_acc += dt * SPLASH_BG_RATE
+        # 数量轴(见 `SPLASH_BG_PER_PARTICLE` 处注释): 默认**跟着在途主流粒子数走**,
+        # 比例恒定; 置 0 退回定率 `SPLASH_BG_RATE`(出并排图用)。
+        # ⚠️ `self.pn` 在 `update_particles` 里刚更新完(本函数是它的尾段), 是**在途**数。
+        _rate = SPLASH_BG_PER_PARTICLE * self.pn if SPLASH_BG_PER_PARTICLE > 0 else SPLASH_BG_RATE
+        self._bg_splash_acc += dt * _rate
         k = int(self._bg_splash_acc)
         if k <= 0:
             return
