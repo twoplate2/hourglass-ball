@@ -308,6 +308,16 @@ def main():
                     reference = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(reference)
                     reference.HourglassWidget._make_sound_proxy = lambda *_: None
+                    # ⚠️ **2026-10-06: 沙面起伏的生成函数也要对齐**(与上面"对齐高度函数"同一手法)。
+                    #    用户当天要求把起伏从"白噪声 + 一次 3 抽头平滑"(线性插值下档 6 是**三角锯齿**)
+                    #    换成**带限噪声**(圆滑曲线) —— 那必然改**沙面轮廓**的像素。
+                    #    而这条检查的名字与注释都写明它守的是**玻璃壳 + 真圆沙体**,
+                    #    不是起伏曲线 ⇒ 把生成函数也对齐, 让两边"同样的起伏进、同样的像素出"。
+                    #    **这同时是一次标定**: 对齐后若逐像素归零, 就证明 `mid/paused` 的差异
+                    #    **确实只来自起伏**, 不是别的渲染回归。
+                    #    (加宽 `high` 之前先看这里 —— 不对齐的话, 档位一改这条就红,
+                    #     而它红的根本不是"渲染器变了"。)
+                    reference._surface_roughness = app_module._surface_roughness
                     old = reference.HourglassWidget(size=widget.size, pos=widget.pos)
                     Clock.unschedule(old.tick)
                     for obj in (old, widget):

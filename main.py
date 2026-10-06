@@ -664,9 +664,20 @@ def _surface_roughness(radius, amp_frac, seed, limit):
     """
     n = MOUND_SHAPE_NODES
     rng = random.Random(seed)
-    raw = [rng.uniform(-1.0, 1.0) for _ in range(n)]
-    sm = [(raw[max(0, i - 1)] + 2.0 * raw[i] + raw[min(n - 1, i + 1)]) / 4.0
-          for i in range(n)]
+    # 🔴 **带限噪声**(2026-10-06 用户实测: 「起伏调到最大的时候会出现**锐角的、三角形的、
+    #   尖尖的**」)。
+    #   旧版 = **白噪声 + 一次 3 抽头平滑**, 而 `shape_at` 是**线性插值**
+    #   ⇒ 相邻两个控制点之间就是一个**折角**, 幅度一大(档 6)整条沙面就读成一排**锯齿**。
+    #   改成 **最低 K 个谐波之和**: 波长 ≥ n/K 个节点 ⇒ 转折天生是**圆滑**的,
+    #   幅度再大也只是"起伏更强", 不会变成三角形。
+    #   ⚠️ **别再退回白噪声** —— 那条路 2026-10-06 被用户实拍判死。
+    K = 5
+    sm = [0.0] * n
+    for h in range(1, K + 1):
+        a = rng.uniform(-1.0, 1.0) / h            # 振幅 ~1/h ⇒ 以低频为主
+        ph = rng.uniform(0.0, 2.0 * math.pi)
+        for i in range(n):
+            sm[i] += a * math.sin(2.0 * math.pi * h * i / n + ph)
     peak = max(abs(v) for v in sm) or 1.0
     vals = [v / peak * (amp_frac * 2.0 * radius) for v in sm]
     dif = max(abs(vals[i + 1] - vals[i]) for i in range(n - 1)) or 1.0
