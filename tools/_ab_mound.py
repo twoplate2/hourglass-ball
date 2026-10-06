@@ -75,7 +75,8 @@ def main():
 
     class P(m.HourglassApp):
         def on_start(self):
-            Window.size = (400, 800)
+            _ws = os.environ.get("HG_WSIZE", "400x800").split("x")
+            Window.size = (int(_ws[0]), int(_ws[1]))
             Clock.schedule_once(self.go, 1.2)
 
         def go(self, _dt):

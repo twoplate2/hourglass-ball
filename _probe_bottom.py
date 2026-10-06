@@ -75,14 +75,16 @@ class P(m.HourglassApp):
             print("  !! 找不到底栏")
             Clock.schedule_once(lambda d: self.stop(), 0.2)
             return
-        print("  底栏 width=%.0f  x=%.0f..%.0f" % (bar.width, bar.x, bar.right))
+        print("  底栏 width=%.0f  x=%.0f..%.0f  **height=%.1f  y=%.1f..%.1f**"
+              % (bar.width, bar.x, bar.right, bar.height, bar.y, bar.top))
         tot = 0.0
         for c in bar.children:
             tot += c.width
             off = "  **出屏**" if (c.x < -0.5 or c.right > Window.width + 0.5) else ""
             txt = getattr(c, "text", "")
             print("    %-10s x %7.1f..%7.1f  w %6.1f  text=%r%s"
-                  % (type(c).__name__, c.x, c.right, c.width, txt, off))
+                  % (type(c).__name__, c.x, c.right, c.width, txt,
+                     off + ("  h=%.1f y=%.1f..%.1f" % (c.height, c.y, c.top))))
         print("  子控件合计 %.1f / 窗宽 %d (%.1f%%)" % (tot, int(Window.width),
                                                    100.0 * tot / Window.width))
         # 顶部色块行: 每个按钮的**文字自然宽** vs 按钮宽
@@ -95,7 +97,9 @@ class P(m.HourglassApp):
                 row = wd
                 break
         if row is not None:
-            print("  色块行 width=%.0f" % row.width)
+            print("  色块行 width=%.0f  **height=%.1f  y=%.1f..%.1f**  子控件高=%s"
+                  % (row.width, row.height, row.y, row.top,
+                     [round(c.height, 1) for c in row.children[:3]]))
             from kivy.core.text import Label as _CL
             for c in row.children:
                 if not getattr(c, "text", ""):

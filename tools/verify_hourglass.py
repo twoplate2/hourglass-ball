@@ -679,7 +679,14 @@ def main():
                     widget.update_particles(0.02)
                 check(not widget.particles and len(widget.splashes) == 1,
                       "crossing the actual surface produces one impact")
-                check(widget.flares[-1]["y"] == surface, "impact highlight does not float")
+                # ⚠️ **不能写精确相等** —— 这条 2026-10-06 因一次纯布局改动(底栏 58->46px,
+                #    画布高 +12px)翻红, 实测差值恒为 **2.84e-14 px**(四个周期完全相同)
+                #    ⇒ 是**浮点末位**, 不是"悬空"。精确相等一直是**靠巧合逐位相同**通过的。
+                #    判据要按**它自己的名字**写: "does not float" = 不在沙面上方 ⇒ 用容差。
+                #    容差取**上面那条同类检查的同一个**(epsilon), 不放宽。
+                check(abs(widget.flares[-1]["y"] - surface) <= epsilon,
+                      "impact highlight does not float (%.3e px)"
+                      % (widget.flares[-1]["y"] - surface))
                 splash = widget.splashes[0]
                 check(math.hypot(splash["vx"], splash["vy"]) < 200 * 0.30,
                       "rebound cannot gain energy over the incoming grain")

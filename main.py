@@ -396,6 +396,12 @@ SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
 #   用来判别「1s 档寿命短」是不是**被上涌的沙面埋掉**(1s 档沙堆 0.55s 内从 0 涨到满,
 #   面上升 ~180px/s ⇒ 出生在面上 6~14px 的颗粒 ~0.05s 就被追上)。
 SPLASH_LIFT = float(os.environ.get("HG_SPLASH_LIFT", "1.0"))
+# ★ 出生高度**随中心距离衰减** —— 用户口径「沙子飞溅的高度应该也是变化的, **越在中心 越高**」。
+#   改前: 出生高度 `U(6,14)` **不含 f**; 含 f 的只有 vx/vy, 而 vy 是**向下**的
+#   ⇒ 中心 vy 大 ⇒ 掉得快 ⇒ **平均离地反而比边缘低**(实测 15s: 中心 5.81 vs 边缘 6.79px)。
+#   口径反了。改成 `lift × (1 − K·f)`: f=0(中轴) 保持原高度, f=1(沙堆边缘) 只剩 `1−K`。
+#   ⚠️ 乘在 `rand_uniform(...)` **之后** ⇒ 随机数流的调用次数与顺序一字不动。
+SPLASH_LIFT_FALLOFF = float(os.environ.get("HG_SPLASH_LIFT_F", "0.0"))
 
 
 def _autofit_font(btn, base_size, pad=6.0, floor=0.6):
@@ -3074,7 +3080,9 @@ class HourglassWidget(Widget):
             _outw = 1.0 if mag >= 0.0 else -1.0
             append({
                 "x": self._cx + mag,
-                "y": self._lower_sand_bot + h + rand_uniform(6.0, 14.0) * SPLASH_LIFT,
+                "y": (self._lower_sand_bot + h
+                      + rand_uniform(6.0, 14.0) * SPLASH_LIFT
+                      * (1.0 - SPLASH_LIFT_FALLOFF * f)),
                 # 🔴 2026-10-06 用户: 「飞溅的高度应该也是变化的, **越在中心越高**」
                 #    原来是 `(1-0.40f)` / `(1-0.30f)` —— 边缘只掉三四成, 读起来是**均匀一片**。
                 #    改成**从落点往外明显递减**: 中心最强、到沙堆边缘只剩一成多。
@@ -4844,16 +4852,19 @@ class HourglassApp(App):
                          padding=[dp(8), dp(6), dp(8), dp(6)])
 
         # 顶部色块
+        # ★ 高度(用户 2026-10-06: 「还能继续压缩下高度」): 50 -> 42
+        #   口径是"**字要占满按钮**" —— 改前文字墨迹只占按钮高的 24~28%, 框里空。
+        #   dp(42) 配 sp(18) ⇒ 墨迹 ~16px = 38%(正常按钮区间 35~45%)。
         top_colors = BoxLayout(orientation="horizontal", size_hint=(1, None),
-                               height=dp(50), spacing=dp(4))
+                               height=dp(46), spacing=dp(4))
         self.color_btns = []
         for name, base, dark, light in SAND_PRESETS:
-            btn = Button(text=name, font_size=sp(15), background_normal="",
+            btn = Button(text=name, font_size=sp(16), background_normal="",
                          background_color=(*hex_rgb(base), 1), color=fg_for(base))
             btn.bind(on_press=lambda inst, b=base, d=dark, l=light, n=name:
                      self.on_color(b, d, l, n))
             top_colors.add_widget(btn)
-            _autofit_font(btn, sp(15))
+            _autofit_font(btn, sp(16))
             self.color_btns.append((name, btn))
         root.add_widget(top_colors)
 
@@ -4868,23 +4879,24 @@ class HourglassApp(App):
         root.add_widget(self.hourglass)
 
         # 底部控件
+        # ★ 高度: 58 -> 46(同上口径)。dp(46) 在设备上 ≈7.3mm, 触摸区仍合理。
         bottom = BoxLayout(orientation="horizontal", size_hint=(1, None),
-                           height=dp(58), spacing=dp(6))
+                           height=dp(50), spacing=dp(6))
         self.duration_btn = Button(text=_fmt_duration(self.hourglass.duration),
                                    size_hint=(None, 1), width=dp(82),
-                                   font_size=sp(16), bold=True,
+                                   font_size=sp(17), bold=True,
                                    background_normal="",
                                    background_color=(0.769, 0.682, 0.557, 1),
                                    color=POPUP_TEXT)
-        _autofit_font(self.duration_btn, sp(16), pad=10.0)
+        _autofit_font(self.duration_btn, sp(17), pad=10.0)
         self.duration_btn.bind(on_press=self.on_duration_picker)
         bottom.add_widget(self.duration_btn)
         self.sound_btn = Button(text="沙沙声",
-                                size_hint=(None, 1), width=dp(74), font_size=sp(15),
+                                size_hint=(None, 1), width=dp(74), font_size=sp(17),
                                 background_normal="",
                                 background_color=(*POPUP_GOLD_SEL[:3], 0.92),
                                 color=POPUP_TEXT)
-        _autofit_font(self.sound_btn, sp(15), pad=10.0)
+        _autofit_font(self.sound_btn, sp(17), pad=10.0)
         self.sound_btn.bind(on_press=self.on_sound_picker)
         bottom.add_widget(self.sound_btn)
         self._benchmark_runner = None
@@ -4898,7 +4910,7 @@ class HourglassApp(App):
         #    当前太小了」)。这不是美化: 它是**隐藏入口唯一的可见提示**(长按 3 秒进开发者
         #    菜单), sp(11) 在 360dp 机型上小到看不见、还会被挤成三行。**α 保持 0.38 不动**
         #    (调淡/调深是另一个决定, 归用户)。
-        hold_label = Label(text=f"v{APP_VERSION}", font_size=sp(22),
+        hold_label = Label(text=f"v{APP_VERSION}", font_size=sp(15),
                            color=(*POPUP_TEXT[:3], 0.38), halign="center",
                            valign="middle")
 
@@ -4912,14 +4924,14 @@ class HourglassApp(App):
         self._benchmark_area.add_widget(hold_label)
         bottom.add_widget(self._benchmark_area)
         self.start_btn = Button(text="开始", size_hint=(None, 1), width=dp(74),
-                                font_size=sp(16), bold=True,
+                                font_size=sp(17), bold=True,
                                 background_normal="",
                                 background_color=(0.353, 0.620, 0.243, 1), color=(1, 1, 1, 1))
         self.start_btn.bind(on_press=self.on_toggle)
-        _autofit_font(self.start_btn, sp(16), pad=6.0)
+        _autofit_font(self.start_btn, sp(17), pad=6.0)
         bottom.add_widget(self.start_btn)
-        reset_btn = Button(text="重置", size_hint=(None, 1), width=dp(74), font_size=sp(16))
-        _autofit_font(reset_btn, sp(16), pad=6.0)
+        reset_btn = Button(text="重置", size_hint=(None, 1), width=dp(74), font_size=sp(20))
+        _autofit_font(reset_btn, sp(17), pad=6.0)
         reset_btn.bind(on_press=self.on_reset)
         self._reset_btn = reset_btn
         bottom.add_widget(reset_btn)
