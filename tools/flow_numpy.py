@@ -77,13 +77,28 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
         # 曲线由 main.py 以 Python list 传入(标量路径直接下标读) ⇒ 这里转一次 ndarray
         # 才能做花式索引。129 个 float 的拷贝, 每帧一次, 可忽略。
         _cy = np.asarray(_cy, dtype=np.float64)
-        z = np.clip((pxv - _x0) * _scale, 0.0, _n1)
-        idx = np.minimum(z.astype(np.intp), _n1 - 1)
-        hy = _cy[idx] + (_cy[idx + 1] - _cy[idx]) * (z - idx)
-        # ⚠️ 下面所有用到 mound_top 的**形状**项(近底喇叭口/落点判定)仍走标量参考高度 ——
-        #    它只管流束外形, 不再负责碰撞(专家 §7.1)。
-        hit = (y <= mound_top) & (y <= hy)
-        hy_eff = np.where(y <= mound_top, hy, mound_top)
+        # ★ **只在"够得着沙堆"的那一小撮上查曲线**(2026-10-07 性能)。
+        #   原式对**全部 n 颗**都算: `(pxv-_x0)*_scale` / clip / astype(intp) / minimum /
+        #   两次 `_cy[...]` **花式索引**(随机访问, ~20ns/元素) / 四五步插值 ——
+        #   十来次 n 长度运算, 而每帧真正落到沙面上的只有几十颗。
+        #   `hy` 的下游只有两处, 且**都只在 `y <= mound_top` 时读它**:
+        #       hit   = (y <= mound_top) & (y <= hy)
+        #       hy_eff= np.where(y <= mound_top, hy, mound_top)
+        #   ⇒ 先把 `hy` 用 `mound_top` 铺满(这正是"够不着"那批该拿到的值),
+        #     子集上算完再散写回去。**逐位不变**: 同一个算式、同一批输入, 一个数都没动。
+        near = y <= mound_top
+        hy = np.full(n, mound_top) if n else y
+        m = np.flatnonzero(near)
+        if m.size:
+            p = pxv[m]
+            z = np.clip((p - _x0) * _scale, 0.0, _n1)
+            ii = np.minimum(z.astype(np.intp), _n1 - 1)
+            hy[m] = _cy[ii] + (_cy[ii + 1] - _cy[ii]) * (z - ii)
+        hit = near & (y <= hy)
+        # ⚠️ 原来这里还有一次 `np.where(y <= mound_top, hy, mound_top)` ——
+        #    因为上面已把"够不着"的位置填成 `mound_top` ⇒ 那个 where **恒等于 hy**
+        #    (含 NaN: 两边都取 mound_top)。省掉一次 n 长度的 where 与一份临时数组。
+        hy_eff = hy
     else:
         hit = y <= mound_top
         hy_eff = mound_top

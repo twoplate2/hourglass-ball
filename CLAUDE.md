@@ -308,6 +308,11 @@ python main.py
 ⚠️ **`flush()` 每帧必须调** —— 顶点是**赋值那一刻**才标脏上传的, 只改 list 不赋值
 等于什么都没发生(静默失效: 画面冻住, 一行报错都没有)。
 
+**还顺手做了两件小事**: 颈部沙柱那 25 条四边形也并进一个 `_QuadBand`(它有**逐条自定义
+uv**, 所以走 `set_uv`; 换材质走 `set_texture`——**`BindTexture` 与 `Mesh` 两边都要写**);
+`_QuadBand.set` 只写 **8 个位置**(x/y 落在下标 ≡0,1 mod 4, uv 落在 ≡2,3 ⇒ 互不重叠,
+uv 是常量, `__init__` 里铺一次就够), 用**两条步长 4 的切片赋值**而不是 16 个下标写。
+
 **当前画布指令的剩余分布**(593 条, 按族): `_flare_group` **141** / `_flow_texture_context` 123 /
 `_neck_context` 97 / `_surface_marker_group` 60 / `canvas.before` 36(玻璃壳) / 其余零散。
 `_flare_group` 现在最大: 47 个 flare 各占 `Color + BindTexture + Rectangle` 三条 ——

@@ -1383,20 +1383,20 @@ class _QuadBand:
        等于什么都没发生(静默失效: 画面冻住, 一行报错都没有)。
     """
 
-    __slots__ = ("mesh", "bind", "_v", "_uv", "_n", "_zero", "_zeros")
+    __slots__ = ("mesh", "bind", "_v", "_uv", "_n", "_zx")
 
     def __init__(self, n, texture=None):
         # uv 与默认纹理**向一个空 `Quad` 要**, 不猜 Kivy 的默认值(猜错就是整条带偏色)
         probe = Quad(points=[0] * 8, texture=texture)
         self._n = n
         self._uv = [float(x) for x in probe.tex_coords]
-        self._zero = (0.0,) * 16
         self._v = [0.0] * (n * 16)
-        self._zeros = [0.0] * (n * 16)
+        self._zx = (0.0,) * (n * 4)
         idx = []
         for i in range(n):
             b = i * 4
             idx += [b, b + 1, b + 2, b, b + 2, b + 3]
+        self._uv_fill()
         # ⚠️ `BindTexture` 必须**写进指令流**(与逐 `Quad` 时 Kivy 自动加的那条同义);
         #    只给 `Mesh.texture` 赋值**不等于**绑上了纹理。见 `flow_splash_experiment` 里
         #    同一条教训("建了 BindTexture 不等于绑了这张纹理")。
@@ -1407,26 +1407,64 @@ class _QuadBand:
     def __len__(self):
         return self._n
 
-    def set(self, i, pts, uvs=None):
-        """`pts` 的顺序与 `Quad.points` 一致(4 组 x,y); `uvs` 省略时用默认 uv。"""
-        u = self._uv if uvs is None else uvs
-        v = self._v
+    def _uv_fill(self):
+        """把 uv 写满一次 —— **顶点布局是 `[x, y, u, v]`**, 所以 uv 落在下标 ≡2,3 (mod 4),
+        而 x/y 落在 ≡0,1。两者互不重叠 ⇒ 更新位置时**根本不必碰 uv**, 它在
+        `__init__` / `set_texture` 之后就是常量。"""
+        v, u, n = self._v, self._uv, self._n
+        v[2::16] = [u[0]] * n
+        v[3::16] = [u[1]] * n
+        v[6::16] = [u[2]] * n
+        v[7::16] = [u[3]] * n
+        v[10::16] = [u[4]] * n
+        v[11::16] = [u[5]] * n
+        v[14::16] = [u[6]] * n
+        v[15::16] = [u[7]] * n
+
+    def set(self, i, pts):
+        """只写 8 个位置 —— 两条**步长 4 的切片赋值**(C 级), 不是 16 个下标写。
+
+        `pts` 的顺序与 `Quad.points` 一致(4 组 x,y)。
+        """
         o = i * 16
-        v[o:o + 16] = (pts[0], pts[1], u[0], u[1],
-                       pts[2], pts[3], u[2], u[3],
-                       pts[4], pts[5], u[4], u[5],
-                       pts[6], pts[7], u[6], u[7])
+        v = self._v
+        v[o:o + 16:4] = (pts[0], pts[2], pts[4], pts[6])
+        v[o + 1:o + 17:4] = (pts[1], pts[3], pts[5], pts[7])
+
+    def set_uv(self, i, pts, uvs):
+        """位置 + **逐条 uv**(颈部沙柱要按实际半宽/直径取纹理坐标 ⇒ 每帧都变)。"""
+        o = i * 16
+        self._v[o:o + 16] = (pts[0], pts[1], uvs[0], uvs[1],
+                             pts[2], pts[3], uvs[2], uvs[3],
+                             pts[4], pts[5], uvs[4], uvs[5],
+                             pts[6], pts[7], uvs[6], uvs[7])
 
     def zero(self, i):
-        """单条退化 —— 等价于 `quad.points = [0] * 8`。"""
-        self._v[i * 16:i * 16 + 16] = self._zero
+        """单条退化 —— 等价于 `quad.points = [0] * 8`(uv 留着, 退化三角形出不了像素)。"""
+        o = i * 16
+        v = self._v
+        v[o:o + 16:4] = _ZERO4
+        v[o + 1:o + 17:4] = _ZERO4
 
     def clear(self):
-        """整条退化(一次 C 级切片赋值, 不是 N 次 Python 循环)。"""
-        self._v[:] = self._zeros
+        """整条退化 —— 两条**整表步长 4** 的切片赋值, 一次 C 级循环, 没有 Python 逐条。"""
+        self._v[0::4] = self._zx
+        self._v[1::4] = self._zx
+
+    def set_texture(self, tex):
+        """换纹理 —— **两边都要写**: 只改 `Mesh.texture` 不会动那条 `BindTexture`
+        (真正生效的是后者), 只改 `BindTexture` 又会与 `Mesh` 自己的记录不一致。
+        uv 也按新纹理的默认值重铺一遍(`Quad` 的 `tex_coords` 就是这么来的)。"""
+        self.bind.texture = tex
+        self.mesh.texture = tex
+        self._uv = [float(x) for x in Quad(points=[0] * 8, texture=tex).tex_coords]
+        self._uv_fill()
 
     def flush(self):
         self.mesh.vertices = self._v
+
+
+_ZERO4 = (0.0, 0.0, 0.0, 0.0)
 
 
 def sand_material(base, dark, light, size=None, grain=None, shade=None):
@@ -4546,8 +4584,7 @@ class HourglassWidget(Widget):
         for color, rect in self._sand_chords:
             rect.texture = tex
             color.rgb = (1, 1, 1) if white else self.sand_base
-        for quad in self._neck_quads:
-            quad.texture = tex
+        self._neck_quads.set_texture(tex)
         self._neck_solid_rect.texture = self._neck_fade_rect.texture = tex
         if white:
             # 材质烘的就是 albedo ⇒ 前面必须保持白色, 再染一层沙色会明显发暗
@@ -5289,8 +5326,10 @@ class HourglassWidget(Widget):
                 self._sand_chords.append((color, rect))
             neck_tex = None if material is None else material.texture
             self._neck_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
-            self._neck_quads = [
-                Quad(points=[0] * 8, texture=neck_tex) for _ in range(TAPER_SEGS + 1)]
+            # 颈部沙柱那 25 条逐段四边形 —— 同样是静态的一段折线, 合成一个 `Mesh`
+            # (逐帧只更新顶点, 指令数 25×2 → 2)。它有**逐条自定义 uv**(见 `_neck_sand_side`),
+            # 所以走 `set(i, pts, uvs)`; 换材质时走 `set_texture()`。
+            self._neck_quads = _QuadBand(TAPER_SEGS + 1, texture=neck_tex)
             self._neck_solid_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_solid_rect = Rectangle(size=(0, 0), texture=neck_tex)
             # 沙柱下段(孔口往上 transition 那段): 直接画不透明的沙色矩形。
@@ -5494,8 +5533,7 @@ class HourglassWidget(Widget):
                     for _color, rect in self._sand_chords:
                         rect.texture = material.texture
                     # 颈部沙柱/出口段用**同一张材质**, 否则沙体有颗粒而颈部是平色, 读成两种材料
-                    for quad in self._neck_quads:
-                        quad.texture = material.texture
+                    self._neck_quads.set_texture(material.texture)
                     self._neck_solid_rect.texture = material.texture
                     self._neck_fade_rect.texture = material.texture
             if self._sand_material is None:
@@ -5573,13 +5611,14 @@ class HourglassWidget(Widget):
         connected = bool(side and side[-1][1] <= outlet + 1e-6)
         fade_top = outlet + transition
         neck_uv_scale = None if self._sand_material is None else 1.0 / diameter
-        for i, quad in enumerate(self._neck_quads):
+        quads = self._neck_quads
+        for i in range(len(quads)):
             if i < len(side) - 1:
                 (x0, y0), (x1, y1) = side[i], side[i + 1]
                 if connected and i == len(side) - 2:
                     y1 = fade_top
-                quad.points = [self._cx - x0, y0, self._cx + x0, y0,
-                               self._cx + x1, y1, self._cx - x1, y1]
+                pts = [self._cx - x0, y0, self._cx + x0, y0,
+                       self._cx + x1, y1, self._cx - x1, y1]
                 if neck_uv_scale is not None:
                     # 与沙体**同一张材质、同一颗粒尺度**: u 按**实际半宽/直径**取,
                     # v 从球底那一段起、沿颈部向下递增走进纹理内部。
@@ -5588,10 +5627,13 @@ class HourglassWidget(Widget):
                     su = neck_uv_scale
                     vb = NECK_UV_ANCHOR + (self._upper_sand_bot - y0) * su
                     vt = NECK_UV_ANCHOR + (self._upper_sand_bot - y1) * su
-                    quad.tex_coords = (0.5 - x0 * su, vb, 0.5 + x0 * su, vb,
-                                       0.5 + x1 * su, vt, 0.5 - x1 * su, vt)
+                    quads.set_uv(i, pts, (0.5 - x0 * su, vb, 0.5 + x0 * su, vb,
+                                          0.5 + x1 * su, vt, 0.5 - x1 * su, vt))
+                else:
+                    quads.set(i, pts)          # 无材质 ⇒ 回默认 uv
             else:
-                quad.points = [0] * 8
+                quads.zero(i)
+        quads.flush()
         if connected:
             pos = (self._cx - self._taper["t_in"], outlet)
             size = (2 * self._taper["t_in"], transition)
