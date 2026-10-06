@@ -5239,6 +5239,43 @@ class HourglassWidget(Widget):
             if rect.size[0] or rect.size[1]:
                 rect.size = (0, 0)
 
+    @staticmethod
+    def _sync_rects_arrays(group, pool, count, xs, ys, hws, hhs):
+        """`_sync_rects` 的**数组版** —— 与它同语义, 但直接从并行数组读。
+
+        ## 为什么必须有它
+
+        飞溅换成并行数组之后, `splashes` 成了**只给取证工具的 property**(每次访问重建
+        一批 dict)。桌面**默认不装**批处理渲染器, 于是 `redraw` 会走
+        `_sync_rects(..., self.splashes)` —— 实测在桌面 cProfile 里那一行占
+        **0.287s / 1.584s = 18%**, 比任何真实热点都大。
+
+        ⇒ 两个后果: ①桌面跑起来白白慢一大截; ②**所有桌面测量被污染** ——
+        连"桌面→设备 ×2.1"那个换算系数在飞溅这一层都失真了。
+        **热路径不许碰 `splashes` 这个 property**(它自己的 docstring 就这么写的)。
+
+        ⚠️ 半宽半高已经是**存好的**(`shw`/`shh`), 不用再除 2 —— 与 `update_arrays` 一致。
+        ⚠️ "值没变就别写"那条守卫照抄(停稳的飞溅约占四成, 一帧到一帧完全一样)。
+        """
+        for i in range(count):
+            hw = hws[i]
+            hh = hhs[i]
+            pos = (xs[i] - hw, ys[i] - hh)
+            size = (hw * 2.0, hh * 2.0)
+            if i == len(pool):
+                rect = Rectangle(pos=pos, size=size)
+                group.add(rect)
+                pool.append(rect)
+            else:
+                rect = pool[i]
+                if rect.pos != pos:
+                    rect.pos = pos
+                if rect.size != size:
+                    rect.size = size
+        for rect in pool[count:]:
+            if rect.size[0] or rect.size[1]:
+                rect.size = (0, 0)
+
     def redraw(self):
         if not self._geom_ready:
             return
@@ -5384,9 +5421,10 @@ class HourglassWidget(Widget):
         # (见文件尾 `_install_splash_renderer` 与 `tools/flow_splash_experiment.py`)
         _batch = getattr(self, "_splash_batch", None)
         if _batch is None:
-            # 非批处理路径(桌面默认)走 dict 视图 —— 慢, 但那条路本来就不是目标平台。
-            # ⚠️ 别把它接到热路径上: `splashes` 是 property, **每取一次都重建整个列表**。
-            self._sync_rects(self._splash_group, self._splash_rects, self.splashes)
+            # 非批处理路径(桌面默认)也走**数组** —— 原先这里传的是 `self.splashes`,
+            # 而那是个 property, 每帧重建 1403 个 dict(桌面 cProfile 实测占 **18%**)。
+            self._sync_rects_arrays(self._splash_group, self._splash_rects, self._sn,
+                                    self.sx, self.sy, self.shw, self.shh)
         else:
             # 并行数组直通(每颗省掉 3 次 dict 查找)。
             _batch.update_arrays(self._sn, self.sx, self.sy, self.shw, self.shh)
