@@ -2623,7 +2623,11 @@ class HourglassWidget(Widget):
                 "x": cx + random.uniform(-w * 0.7, w * 0.7),
                 "y": mound_top + random.uniform(0, 5),
                 "vx": random.uniform(-25, 25),
-                "vy": random.uniform(20, 60),   # 向上喷(Kivy y 向上为正)
+                # 🔴 2026-10-06: 原 20~60 配 g=450 ⇒ 最高只升 `vy²/900` = **0.44~4px**, 而颗粒自己就 3.6px;
+                #    落回 `2vy/450` = 0.089~0.267s ⇒ 实测寿命 p50 0.24s、净上升 1.2px ⇒ **读不出"扬起"**。
+                #    这是**重力用错对象**(450 是为"颈部→球底 600px"定的), 不是"该多淡"的取舍。
+                #    改 120~220 ⇒ 升 16~54px、滞空 0.53~0.98s, 与 DUST_LIFETIME=1.0 自然咬合。
+                "vy": random.uniform(120, 220),   # 向上喷(Kivy y 向上为正)
                 "end": now + DUST_LIFETIME,
             })
 
@@ -2814,9 +2818,9 @@ class HourglassWidget(Widget):
                 angle = rand_uniform(-1.15, 1.15)
                 step_left = step_dt - float(hit_dt[k])
                 append_splash({
-                    "x": x, "y": hy + rand_uniform(2.0, 8.0),
+                    "x": x, "y": hy + rand_uniform(5.0, 12.0),
                     "vx": sin(angle) * bounce,
-                    "vy": -abs(cos(angle)) * bounce,
+                    "vy": -abs(cos(angle)) * bounce * 0.2,   # ⚠️ 同上: 下滑别太快, 否则一帧就被删
                     "size": rand_choice([1, 1, 2]),
                     "_step_dt": step_left if step_left > 0 else 0,
                 })
@@ -2872,13 +2876,17 @@ class HourglassWidget(Widget):
             _outw = 1.0 if mag >= 0.0 else -1.0
             append({
                 "x": self._cx + mag,
-                "y": self._lower_sand_bot + h + rand_uniform(3.0, 10.0),
+                "y": self._lower_sand_bot + h + rand_uniform(6.0, 14.0),
                 # 🔴 2026-10-06 用户: 「飞溅的高度应该也是变化的, **越在中心越高**」
                 #    原来是 `(1-0.40f)` / `(1-0.30f)` —— 边缘只掉三四成, 读起来是**均匀一片**。
                 #    改成**从落点往外明显递减**: 中心最强、到沙堆边缘只剩一成多。
                 #    (`f = |dx| / 沙堆半宽 ∈ [0,1]`)
                 "vx": _outw * rand_uniform(25.0, 70.0) * (1.0 - 0.75 * f),
-                "vy": -rand_uniform(30.0, 110.0) * SPLASH_BG_VY * (1.0 - 0.85 * f),
+                # ⚠️ **2026-10-06 回归修正**: 方向改对外向往下之后, 忘了处理"落回沙面即删" ⇒
+                #    出生就在沙面上方 3~10px 且 vy<0 ⇒ **3~7 帧就被删**。
+                #    实测寿命 p50 0.150s→**0.058s**、净上升 3.91px→**0.00px**、在途 246→**88**。
+                #    把下滑速率降到 6~22(位移够看、但不会一头扎进沙里), 出生点抬到 6~14。
+                "vy": -rand_uniform(6.0, 22.0) * SPLASH_BG_VY * (1.0 - 0.85 * f),
                 "size": 2 if rand_uniform(0.0, 1.0) < 0.7 else 1,
             })
 
@@ -3112,9 +3120,9 @@ class HourglassWidget(Widget):
                         angle = rand_uniform(-1.15, 1.15)
                         step_left = step_dt - hit_dt
                         append_splash({
-                            "x": x, "y": hy + rand_uniform(2.0, 8.0),
+                            "x": x, "y": hy + rand_uniform(5.0, 12.0),
                             "vx": sin(angle) * bounce,
-                            "vy": -abs(math.cos(angle)) * bounce,
+                            "vy": -abs(math.cos(angle)) * bounce * 0.2,   # ⚠️ 同 hit 路径
                             "size": rand_choice([1, 1, 2]),
                             "_step_dt": step_left if step_left > 0 else 0,
                         })
@@ -3984,7 +3992,7 @@ class HourglassWidget(Widget):
         self._neck_grain_pool = []
         self._neck_grain_count = 0
         # Project existing grains upstream; they do not add physics particles.
-        for _ in range(128):
+        for _ in range(320):   # 🔴 128→320: 15s 档候选 281 ⇒ 原池丢 54%(丢的是喇叭口那批)
             color = Color(*self.sand_base)
             line = Line(points=[], width=1)
             self._neck_grain_group.add(color)
