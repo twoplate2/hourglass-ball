@@ -75,6 +75,10 @@ METHODS = (
     "_upper_level_for",
     "_neck_sand_side",
     "_replay_hits",
+    "_mound_edge",
+    "_mound_contact_h",
+    "_mound_apex",
+    "_eject_splash",
     "_p_refresh_view",
     "_neck_solid_rect",          # 不存在也没关系, 用来演示"跳过"
 )

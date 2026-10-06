@@ -995,6 +995,48 @@ class _MoundProfile:
         floor, roof = self.bounds(dx)
         return floor, roof, apex + self.shape_at(dx)
 
+    def contact_np(self, dxs, apex):
+        """`contact()` 的**向量版** —— 对一批 `dx` 一次算完, 算式逐字照抄。
+
+        ## 为什么需要它
+
+        `_replay_hits` 对**每一颗命中粒子**按它自己的 x 调一次 `contact`(口径必须与标量
+        路径一致, 见那里的注释)。而粒子 x 每帧都不同 ⇒ 那些调用在 `geometry_at` 的缓存里
+        **全是 miss**, 每帧几十上百次完整的 `sqrt` + 插值; 还会把缓存冲得定期整体清空
+        (8192 上限)。设备分段实测 `_mound_contact_h` **0.183ms/帧**。
+
+        ## 逐位等价
+
+        每个算子次序都照抄 `contact` / `bounds` / `shape_at`:
+        - `max(0.0, r*r-x*x)` 那条要写成 `where(d2 > 0, sqrt(max(d2,0)), 0.0)` ——
+          直接 `sqrt(maximum(d2,0))` 在 **d2 = NaN** 时给 NaN, 而标量给 0.0(`d2 > 0.0` 为假)。
+        - `(dx + r) / (2.0 * r) * (n - 1)` 的分组不许化简。
+        - `int(z)` 是**向零截断** ⇒ `np.trunc`, 且只在 `z ∈ [0, n-1)` 那一支被用到
+          (越界两支由 `where` 覆盖)。
+        - 钳位**先判 `p < floor`**。
+        ⚠️ 守卫: `tools/_probe_ctab_equiv.py`(逐位) + `tools/_splash_golden.py`
+        (hy 直接进 flare/splash 的坐标 ⇒ 差 1 ULP 就翻红)。
+        """
+        np = _np
+        r = self.radius
+        shape = self.shape
+        sn = len(shape) - 1
+        x = np.clip(dxs, -r, r)
+        d2 = r * r - x * x
+        half = np.where(d2 > 0.0, np.sqrt(np.maximum(d2, 0.0)), 0.0)
+        floor = r - half
+        roof = r + half
+        z = (dxs + r) / (2.0 * r) * sn
+        zi = np.trunc(np.clip(z, -1099511627776.0, 1099511627776.0)).astype(np.int64)
+        ic = np.clip(zi, 0, sn - 1)
+        shp = np.asarray(shape)
+        a0 = shp[ic]
+        a1 = shp[ic + 1]
+        off = a0 + (a1 - a0) * (z - ic.astype(np.float64))
+        off = np.where(z <= 0.0, shape[0], np.where(z >= sn, shape[-1], off))
+        p = apex + off
+        return np.where(p < floor, floor, np.where(p > roof, roof, p))
+
     def geometry_at(self, dx):
         """`(球内底, 球内顶, 轮廓偏移)` —— **只跟几何有关**(与 `apex` 无关), 按 `dx` 缓存。
 
@@ -3549,6 +3591,20 @@ class HourglassWidget(Widget):
         pdt = self.pdt
         rand = random.random
         append_flare = self.flares.append
+        # ★ **全部命中的 hy 一次算完**(向量化)。原来每颗现调一次 `_mound_contact_h`,
+        #   而它按**该颗粒的 x**(每帧都不同)走 `geometry_at` ⇒ 每帧几十上百次全 miss,
+        #   还把那个缓存冲得定期整体清空 —— 设备分段实测这一族 **0.183ms/帧**。
+        #   算式与 `_mound_contact_h` 逐字相同(见 `contact_np`), 由金标准轨迹兜底。
+        _prof = self._mound_profile
+        _apex = self._mound_apex()
+        hy_all = None
+        # ⚠️ **阈值是量出来的, 不是推出来的**(与 `_NUMPY_MIN` 同一条教训):
+        #    `contact_np` 有 ~28 次 numpy 调用(每次 2~4µs 固定开销), nhit ≈ 50 时那笔开销
+        #    几乎吃掉逐颗省下的。设备实测 nhit≈50 净 **−0.05ms**; 更少时可能转负。
+        #    交叉点估计在 **nhit ≈ 24** 附近, 所以低于它就退回逐颗。
+        if _np is not None and _prof is not None and _apex > 0.0 and len(hit_idx) >= 24:
+            hy_all = self._lower_sand_bot + _prof.contact_np(
+                px[hit_idx] - self._cx, _apex)
         for k in range(len(hit_idx)):
             i = int(hit_idx[k])
             x = float(px[i])
@@ -3556,7 +3612,10 @@ class HourglassWidget(Widget):
             step_dt = float(pdt[i])
             # ⚠️ 与 scalar 路径同源: 出生点用**该颗粒自己的接触高度**(dingbu.md §7.1 第 6 条)。
             #    numpy 路径拿不到 scalar 的 hy, 就地按 x 查一次 —— 两条路径必须同口径。
-            hy = self._lower_sand_bot + self._mound_contact_h(x - self._cx)
+            if hy_all is not None:
+                hy = float(hy_all[k])
+            else:
+                hy = self._lower_sand_bot + self._mound_contact_h(x - self._cx)
             if rand() < 0.25:
                 append_flare({"x": x, "y": hy, "end": now + 0.08})
             if rand() < 0.50:

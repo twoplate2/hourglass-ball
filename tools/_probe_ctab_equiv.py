@@ -144,3 +144,31 @@ for case in range(300):
             break
 print("geometry_at 缓存路径守卫: 300 组 x 12 点, 不一致 %d 组" % bad2)
 bad += bad2
+
+# ---- `contact_np`: 一批 dx 一次算完 —— 必须与逐点 `contact()` **逐位相同**
+#      (`_replay_hits` 用它替掉每颗一次的 `_mound_contact_h`, 那里占 0.183ms/帧)
+import numpy as _np
+bad3 = 0
+for case in range(300):
+    r_ = _rnd.uniform(20.0, 400.0)
+    n_ = _rnd.choice((5, 9, 17, 33, 65))
+    shp_ = tuple(_rnd.uniform(-r_ * 0.2, r_ * 0.2) for _ in range(n_))
+    if not any(abs(v) > 1e-9 for v in shp_):
+        shp_ = (0.0,) * (n_ - 1) + (1.0,)
+    pr = m._MoundProfile(radius=r_, shape=shp_)
+    ap_ = _rnd.uniform(0.0, r_ * 1.2)
+    # 覆盖: 球内 / 越界 / 恰在 ±r / 恰在控制点 / 随机
+    dxs = [_rnd.uniform(-r_ * 1.6, r_ * 1.6) for _ in range(40)]
+    dxs += [-r_, r_, 0.0, -r_ * 0.999, r_ * 0.999]
+    dxs += [(-r_ + 2.0 * r_ * i / (n_ - 1)) for i in range(n_)]
+    got = pr.contact_np(_np.asarray(dxs, dtype=_np.float64), ap_)
+    for j, dx in enumerate(dxs):
+        want = pr.contact(dx, ap_)
+        if float(got[j]) != want:
+            bad3 += 1
+            if bad3 <= 3:
+                print("!! contact_np 第 %d 组 第 %d 点: dx=%.17g np=%.17g scalar=%.17g"
+                      % (case, j, dx, float(got[j]), want))
+            break
+print("contact_np 守卫: 300 组 x %d 点, 不一致 %d 组" % (len(dxs), bad3))
+bad += bad3
