@@ -4784,7 +4784,13 @@ class HourglassWidget(Widget):
 
         self._draw_stream()
         self._draw_neck_grains(side)
-        self._sync_rects(self._splash_group, self._splash_rects, self.splashes)
+        # 飞溅层: 装了批处理渲染器就走批处理, 否则走原来的**逐 `Rectangle`**。
+        # (见文件尾 `_install_splash_renderer` 与 `tools/flow_splash_experiment.py`)
+        _batch = getattr(self, "_splash_batch", None)
+        if _batch is None:
+            self._sync_rects(self._splash_group, self._splash_rects, self.splashes)
+        else:
+            _batch.update(self.splashes)
         for i, f in enumerate(self.flares):
             if i == len(self._flare_rects):
                 color, rect = Color(), Rectangle()
@@ -6404,6 +6410,36 @@ if platform == "android" or os.environ.get("HG_FLOW_RENDERER"):
         _install_flow_renderer(HourglassWidget)
     except Exception as exc:
         print(f"flow renderer {FLOW_RENDERER} unavailable, using line pool: {exc}")
+
+
+# ---- 飞溅层批处理渲染器(外部评审 youhua1.md §3.1) -----------------------------
+# ⚠️ 与沙流那套一样: **默认不装**(桌面 GL 余量大、测不出; 且这是新东西, 要能随时退回)。
+#   要验就 `HG_SPLASH_RENDERER=batch`; 装不上或 shader 编译失败**自动回退**原路径,
+#   不给出沙制造风险(`available()` 在建画布**之前**探测, 因为 shader 的报错发生在
+#   画布构建时、外面 try 包不住)。
+SPLASH_RENDERER = os.environ.get("HG_SPLASH_RENDERER", "rect")   # rect | batch
+
+
+def _install_splash_renderer(widget_class):
+    if SPLASH_RENDERER != "batch":
+        return
+    import importlib
+    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    mod = importlib.import_module("flow_splash_experiment")
+    ok, why = mod.available()
+    if not ok:
+        print("splash batch unavailable (%s); keeping per-Rectangle" % why)
+        return
+    mod.install(widget_class)
+
+
+if platform == "android" or os.environ.get("HG_SPLASH_RENDERER"):
+    try:
+        _install_splash_renderer(HourglassWidget)
+    except Exception as exc:
+        print(f"splash renderer {SPLASH_RENDERER} unavailable, using per-Rectangle: {exc}")
 
 
 if __name__ == "__main__":
