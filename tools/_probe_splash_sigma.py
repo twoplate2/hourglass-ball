@@ -141,16 +141,22 @@ def main():
     _q50z = _phi_inv(0.5 * (1.0 + 0.50 * _pz))     # 截断后 |z| 的中位
     _q90z = _phi_inv(0.5 * (1.0 + 0.90 * _pz))
 
-    def stat(name, dx, note=""):
+    def stat(name, dx, note="", sigma_meaningful=False):
         if not dx:
             print("  %-6s (无)" % name); return
         d = sorted(dx); n = len(d)
         q = lambda p: d[min(n - 1, int(p * n))]
         sd = statistics.pstdev(d)
         sig = q(.50) / _q50z if _q50z > 0 else float("nan")
-        print("  %-6s n=%-6d p50=%6.1f p90=%6.1f p99=%6.1f max=%6.1f | "
-              "反推σ=%5.1f | 边缘/σ=%4.2f  %s"
-              % (name, n, q(.50), q(.90), q(.99), d[-1], sig, edge / sig, note))
+        # 🔴 「反推 σ / 边缘÷σ」这两列**只对"生成端(单峰截断高斯)"有分布含义**
+        #    (1号专家 2026-10-06 指出): 命中层是**被沙柱宽度限死的有界分布**、全场是
+        #    "单峰+重肩"的混合 —— 把截断半正态的分位常数套上去算出来的"σ"没有意义,
+        #    **不能拿来跟 1.5 比**。旧版把它印在每一行、末尾还写"边缘/σ=6.42",
+        #    与上一行「按定义成立」**自相矛盾**, 只看最后一行会得出相反结论。
+        cols = ("反推σ=%5.1f | 边缘/σ=%4.2f" % (sig, edge / sig) if sigma_meaningful
+                else "反推σ=  n/a | 边缘/σ= n/a (非单峰/有界分布, σ 无分布含义)")
+        print("  %-6s n=%-6d p50=%6.1f p90=%6.1f p99=%6.1f max=%6.1f | %s  %s"
+              % (name, n, q(.50), q(.90), q(.99), d[-1], cols, note))
 
     print("")
     print("  === 周期 %.0fs  在途飞溅横向分布 ===" % d)
@@ -161,17 +167,19 @@ def main():
     print("  === 周期 %.0fs  在途飞溅横向分布 ===" % d)
     print("  沙堆峰值 apex = %.1f px   沙堆边缘 |dx| = %.1f px  <- 「最边缘」" % (apex, edge))
     print("")
-    stat("全部", acc["hit"] + acc["bg"], "<- 眼睛看到的场")
+    stat("全部", acc["hit"] + acc["bg"], "<- 眼睛看到的场(混合, 非高斯)")
     stat("命中", acc["hit"])
     stat("背景", acc["bg"])
     tot = len(acc["hit"]) + len(acc["bg"])
     print("")
     print("  --- 背景层**生成瞬间**(无存活偏置) ---")
-    stat("生成", spawn, "<- 无存活偏置")
+    stat("生成", spawn, "<- 无存活偏置; **只有这一行** σ 有分布含义",
+         sigma_meaningful=True)
     print("")
     print("  命中占 %.0f%% / 背景占 %.0f%%" % (100.0*len(acc["hit"])/tot, 100.0*len(acc["bg"])/tot))
     print("")
-    print("  ⚠️ 「边缘/σ」按**全部可见飞溅**算 —— 那才是用户眼睛看到的场。")
+    print("  ⚠️ 「边缘/σ」**只对『生成』那一行有意义** —— 它按定义就是 边缘/1.5。")
+    print("     其余行的 σ 是把截断半正态的分位常数硬套在别的形状上算的, **不可比 1.5**。")
     return 0
 
 

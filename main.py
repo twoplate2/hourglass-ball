@@ -388,6 +388,14 @@ SPLASH_BG_VY = float(os.environ.get("HG_SPLASH_VY", "1.0"))
 #   改前(`SPLASH_BG_POW` 那条 u^0.9 路线)实测**边缘/σ = 3.24**(15s: σ=31.2px, 边缘=101px)
 #   —— 近似均匀 + 硬截断, 读起来是"中间一坨 + 一路稀到边上", 不是钟形。
 SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))
+# splash 重力对 `motion_scale` 的指数 —— **只给对照实验用, 默认 1.0 = 现状逐位不变**。
+#   1.0 ⇒ `g_splash = -450·motion_scale²`(现状); 0.0 ⇒ `-450`(不随周期缩放)。
+#   见 `update_particles` 里 splash 更新段的长注释。
+SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
+# splash **出生高度**的倍率(只给对照实验用, 默认 1.0 = 现状逐位不变)。
+#   用来判别「1s 档寿命短」是不是**被上涌的沙面埋掉**(1s 档沙堆 0.55s 内从 0 涨到满,
+#   面上升 ~180px/s ⇒ 出生在面上 6~14px 的颗粒 ~0.05s 就被追上)。
+SPLASH_LIFT = float(os.environ.get("HG_SPLASH_LIFT", "1.0"))
 
 
 def _autofit_font(btn, base_size, pad=6.0, floor=0.6):
@@ -3066,7 +3074,7 @@ class HourglassWidget(Widget):
             _outw = 1.0 if mag >= 0.0 else -1.0
             append({
                 "x": self._cx + mag,
-                "y": self._lower_sand_bot + h + rand_uniform(6.0, 14.0),
+                "y": self._lower_sand_bot + h + rand_uniform(6.0, 14.0) * SPLASH_LIFT,
                 # 🔴 2026-10-06 用户: 「飞溅的高度应该也是变化的, **越在中心越高**」
                 #    原来是 `(1-0.40f)` / `(1-0.30f)` —— 边缘只掉三四成, 读起来是**均匀一片**。
                 #    改成**从落点往外明显递减**: 中心最强、到沙堆边缘只剩一成多。
@@ -3333,10 +3341,17 @@ class HourglassWidget(Widget):
         _apex = self._mound_apex()
         new_splashes = []
         append_splash_keep = new_splashes.append
+        # ⚠️ **splash 的重力是否跟着 `motion_scale²` 走 —— 这是可怀疑项(2026-10-06, 1号专家)**。
+        #    粒子需要 `motion_scale` 才能在极短周期里飞完那段路; 但 splash 是**沙堆上的装饰**,
+        #    理论上该与周期无关。现状是它直接吃粒子的 `g` ⇒ 1s 档重力被放大 `3²=9` 倍。
+        #    1号实测: 在途寿命 1s **0.032s** vs 15s **0.202s**(6.3×), 而"沙堆没成形"那条
+        #    归因已被他证伪(判别性实验: 几何与分母都对齐后仍差 ~10×)。
+        #    `HG_SPLASH_G=0` ⇒ 用不缩放的 g(对照组); 默认 1.0 = 现状(逐位不变)。
+        g_splash = g if SPLASH_G_SCALE >= 1.0 else -450.0 * (motion_scale ** SPLASH_G_SCALE)
         for s in self.splashes:
             step_dt = s.pop("_step_dt", dt)
-            y = s["y"] + s["vy"] * step_dt + 0.5 * g * step_dt * step_dt
-            vy = s["vy"] + g * step_dt
+            y = s["y"] + s["vy"] * step_dt + 0.5 * g_splash * step_dt * step_dt
+            vy = s["vy"] + g_splash * step_dt
             x = s["x"] + s["vx"] * step_dt
             s["y"] = y
             s["vy"] = vy
