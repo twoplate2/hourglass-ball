@@ -4707,8 +4707,12 @@ class HourglassWidget(Widget):
                 out = list(fixed)
             # ⚠️ 原实现走的是 **set** ⇒ 重复的 dx 会被并掉。这里必须**先查重再插入** ——
             #    插进重复值会让 `cols` 里出现零长线段, carve/band 的 Quad 退化。
-            if dx not in out:
-                _insort(out, dx)
+            # ★ **一次二分代替"线性查重 + insort 再二分"**(2026-10-07 性能): 原来
+            #   `dx not in out` 是**逐元素 Python 扫描**(~200 项 × 至多 4 个交点 ≈ 800 次
+            #   比较/帧)。`out` 本来就是升序的, 二分一次就能同时回答"在不在"和"插哪儿"。
+            i = _bisect_left(out, dx)
+            if i >= len(out) or out[i] != dx:
+                out.insert(i, dx)
         return out if out is not None else list(fixed)
 
     def _mound_knots_fixed(self):
@@ -5715,9 +5719,8 @@ class HourglassWidget(Widget):
         tone_scale = 9 / math.tau
         # 预先摊平成二维表: 原来每颗粒都要现造一个 (index, size) 元组再查字典,
         # 这里换成两次列表下标。分组结果与原来逐字相同。
-        by_key = [[buckets.get((i, s)) for s in (1, 2)]
-                  for i in list(range(n_colors)) + [-1]]
-        light_row = by_key[n_colors]
+        # ⚠️ **`by_key` 只给下面的标量兜底分支用** —— 安卓走 `_stream_np_only`,
+        #    那份表建了从来没人读(24 次字典查找 + 12 个 list/帧)。挪到用处再建。
         last = n_colors - 1
         pv = self._pv
         if pv.use_np:
@@ -5741,7 +5744,15 @@ class HourglassWidget(Widget):
                 key = np.where(self.pli[:n][sel] != 0.0, n_colors, idx)
                 slot = np.where(self.psz[:n][sel] == 1.0, 0, 1)
                 code = key * 2 + slot
-                order = np.argsort(code, kind="stable")
+                # ★ **先把桶码压到 `uint8` 再排**(2026-10-07 性能)。`np.argsort(kind="stable")`
+                #   对整数走**基数排序**, 轮数正比于 dtype 宽度: 实测 n=1560 时
+                #   int64 **33.6µs** / int16 4.5µs / **uint8 2.8µs** —— 快 12 倍。
+                #   桶码 `key*2+slot` 的取值域是 `[0, 2*(n_colors+1))`, 本项目 n_colors=11
+                #   ⇒ 恒 < 24, 一个字节绰绰有余。
+                #   ⚠️ **稳定排序的排列由键唯一确定** ⇒ 换 dtype 得到的 `order` 与原来
+                #      逐位相同(实测三种 dtype 两两相同)。`bincount` 仍吃原来的 int64
+                #      (它反而更快: 1.26 vs 1.81µs)。
+                order = np.argsort(code.astype(_np.uint8), kind="stable")
                 counts = np.bincount(code, minlength=(n_colors + 1) * 2)
                 pos = 0
                 if self._stream_np_only:
@@ -5761,6 +5772,9 @@ class HourglassWidget(Widget):
                              1 if (k & 1) == 0 else 2)] = order[pos:pos + c]
                         pos += c
                     return npb
+                by_key = [[buckets.get((i, s)) for s in (1, 2)]
+                          for i in list(range(n_colors)) + [-1]]
+                light_row = by_key[n_colors]
                 for k in range(counts.shape[0]):
                     c = int(counts[k])
                     if not c:
@@ -5774,6 +5788,10 @@ class HourglassWidget(Widget):
         phases = pv.wp
         sizes = pv.sz
         lights = pv.light
+        # 标量兜底路径要的那份 "桶码 -> 桶" 表(见上面 `pv.use_np` 分支里的同一条)
+        by_key = [[buckets.get((i, s)) for s in (1, 2)]
+                  for i in list(range(n_colors)) + [-1]]
+        light_row = by_key[n_colors]
         for i in range(pv.n):
             y = ys[i]
             if y >= outlet:

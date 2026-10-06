@@ -496,7 +496,10 @@ def _neck_sink(widget, cnt, xs, bs, ts, ji, sz):
             batch.update_bounds(())
         widget._neck_last_rects = []
         return
-    order = np.argsort(ji, kind="stable")
+    # ★ `ji` 是色调档(0..NECK_TONES-1 < 32) —— **先压成 `uint8` 再排**: 整数
+    #   `argsort(kind="stable")` 走基数排序, 轮数正比于 dtype 宽度(见 main.py 里
+    #   `_group_stream_particles` 同一处注释)。稳定排序的排列由键唯一确定 ⇒ 逐位不变。
+    order = np.argsort(ji.astype(np.uint8), kind="stable")
     counts = np.bincount(ji, minlength=NECK_TONES)
     hw = sz * 0.5
     # 外扩规则: Kivy 的 `Line` 只有 w>1 才带圆头帽, w==1 端头不外扩

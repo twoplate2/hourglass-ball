@@ -313,6 +313,21 @@ uv**, 所以走 `set_uv`; 换材质走 `set_texture`——**`BindTexture` 与 `M
 `_QuadBand.set` 只写 **8 个位置**(x/y 落在下标 ≡0,1 mod 4, uv 落在 ≡2,3 ⇒ 互不重叠,
 uv 是常量, `__init__` 里铺一次就够), 用**两条步长 4 的切片赋值**而不是 16 个下标写。
 
+### 🔴 `argsort(kind="stable")` 的代价正比于 **dtype 宽度**(2026-10-07, 1.208)
+
+对整数, numpy 的 `kind="stable"` 走**基数排序**, 轮数 ∝ dtype 字节数。而本项目的所有
+argsort 排的都是**小整数桶码**(沙流的 `code = key*2+slot` 恒 < 24, 颈部的 `ji` < 32):
+
+| dtype | n=1560 的 `argsort(kind="stable")` |
+|---|---|
+| int64 | **33.6 µs** |
+| int16 | 4.5 µs |
+| **uint8** | **2.8 µs** |
+
+**快 12 倍, 而排列逐位相同** —— 稳定排序的排列由键**唯一确定**, 与 dtype 无关
+(实测三种 dtype 两两相等)。⇒ 排之前先 `.astype(np.uint8)`。
+⚠️ `np.bincount` 相反: int64 1.26µs 比 uint8 1.81µs **快**, 所以只压 argsort 的输入。
+
 ### 闪光(flare)层也批处理了(2026-10-07, 1.207)
 
 `_flare_group` 原来是画布上**最大的单族**: 48 个 flare 各占
