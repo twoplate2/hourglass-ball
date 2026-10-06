@@ -355,86 +355,54 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 # ★ 与周期无关的**水位**(用户 2026-10-06: 「和周期没有关系」)—— 这就是唯一那个数。
 #   520 = 用户说"有点少了"时的量; 现取 **700(+35%)**。要更多/更少只改这一个数。
 SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "700"))
-# ★ 2026-10-06 用户定的**数量口径**: 「飞溅理论上等于**下落的沙子的总数**的一个比例」。
-#   实测(新探针 `tools/_probe_splash_ratio.py`)改前**比例跨 14 倍**:
-#       周期   1s    5s    15s   60s   120s
-#       比值  0.065 0.186 0.286 0.543 0.931     (在途飞溅 / 在途主流)
-#   根因: 上游 `SPLASH_BG_RATE` 是**常量**, 而主流在途数随周期从 1258 掉到 160。
-#   改法: `飞溅率 = SPLASH_BG_PER_PARTICLE × self.pn`(在途主流数), 比例即恒定。
-#   定标: 0.63 = 原 520/s ÷ 15s 档实测在途 828 —— **锚在用户说过"基本对了"的 15s**,
-#         不改变那一档的样子。逐档效果(算出来的, 未逐档实测):
-#           1s ×1.5 / 5s ×1.1 / 15s ×1.0 / 60s ×0.39 / 120s ×0.19
-#   ⚠️ **本项是"改前/改后"要交回用户判的那一类**(观感决定) —— 置 0 即退回定率 520/s,
-#      便于出并排图(`HG_SPLASH_PER_PARTICLE=0`)。
-SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.0"))
 # 🔴 **2026-10-06 用户裁决: 「这个实际上和周期没有关系」** ⇒ 飞溅**不随周期变**。
-#   上面那条 `∝ 在途主流粒子数` 的规则**作废**(它必然让长周期变少: 50s 只剩 45%)。
-#   默认置 0 ⇒ 走定率 `SPLASH_BG_RATE`。想恢复"按比例"再改回非 0(留作对照臂)。
-#   ⚠️ 1号专家实测过的分解(相对用户抱怨那一版): **分布轴** 1s ×1.25 / 15s ×0.97 / 50s ×0.97;
-#      **数量轴** 1s ×1.12 / 15s ×0.93 / 50s ×0.449 ⇒ 关掉数量轴 = 只留分布轴的改善。
-# ⚠️ 第一版用 `|u|^1.6 × (0.42·R)` —— **上限被钉在 42% 半宽处**, 实测 >50%R 恒 0%。
-#    改成"**铺满整个半宽, 密度往外衰减**": mag = 0.96·R·u^POW, POW 越大小越往中心堆。
-#    POW=2.4 时: 中位落在 ~0.18R, p90 落在 ~0.75R —— 正是"由强到弱"。
-SPLASH_BG_POW = 0.9         # ☠️ **2026-10-06 起不再被使用**(留名字给存档/对比脚本认)。
-#   横向分布已改成高斯, 见 `SPLASH_BG_EDGE_SIGMA`。按它算出来的"中间稀两边密"那条路线
-#   实测边缘/σ=3.24, 不是用户要的钟形。**改分布时别再来改这个数** —— 它不接线了。
-# 背景飞溅**初速倍率** —— 只给调参/取证用(默认 1.0 = 不动)。
-# 为什么要它: 2026-10-06 查出瓶颈在**两个不同的轴**上 ——
-#   ① **数量轴**(`SPLASH_BG_RATE`): 加到 4 倍只是把"贴着轮廓的绒毛"变密, 性质不变;
-#   ② **高度轴**(这个): 决定这撮东西**离沙面多远**、能不能"跳进空玻璃里"。
-#      实测平均离地只有 **10.5px**, 而堆本身有 ~100px 高 ⇒ 全挤在轮廓线上。
-# 出"改前/改后并排图"给用户判时, 三个档位要在**同一份代码**上跑, 所以做成开关而不是改常量。
-# ⚠️ 倍率乘在 `rand_uniform(...)` **之后** —— 这样随机数流的调用次数与顺序一字不动,
-#    三档之间只有初速不同(否则同 seed 逐像素基线会作废, 也就没法并排比了)。
-SPLASH_BG_VY = float(os.environ.get("HG_SPLASH_VY", "1.0"))
+#   曾按 `∝ 在途主流粒子数` 做过(比例跨 14 倍 → 4.2 倍), 但那必然让长周期变少(50s 只剩 45%)
+#   ⇒ **作废**。默认 0 = 走定率 `SPLASH_BG_RATE`; 非 0 可恢复"按比例"(留作对照臂)。
+SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.0"))
 
-# ★ 2026-10-06 用户定的**横向分布口径**: 「按正态分布来, 最末端最边缘差不多是 1.5 个标准差」。
-#   ⇒ `σ = 沙堆边缘 / SPLASH_BG_EDGE_SIGMA`(边缘 = `has_sand` 为真的最远 |dx|)。
-#   ⚠️ 口径是"**边缘是几个 σ**", 而边缘本身随沙堆长大 ⇒ **σ 是变量、不是常数**
-#      (`_mound_edge()` 每帧算一次)。用户后续调参也用这个刻度说话。
-#   改前(`SPLASH_BG_POW` 那条 u^0.9 路线)实测**边缘/σ = 3.24**(15s: σ=31.2px, 边缘=101px)
-#   —— 近似均匀 + 硬截断, 读起来是"中间一坨 + 一路稀到边上", 不是钟形。
-SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))
-# ★ 喷溅在**落点处**的初始尺度 = 球内半径的这个比例(**与沙堆宽度无关**)。
-#   用户口径「最末端最边缘差不多是 1.5 个标准差」= 喷溅外沿 = `1.5 × 它`。
-#   ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为不物理的做法。
+# ================== 飞溅的**弹道模型** —— 参数逐字取自 PC v4 ==================
+# 🔴 **依据**: `pc/hourglass_v4.py:1109-1118`(项目自定的"唯一真理")。v4 里飞溅**只有一种**,
+#   而且是**从落点向上弹出、走抛物线**:
+#       'x': p['x'](命中处),  'y': mound_top_y - 2,
+#       'vx': U(-35, 35),     'vy': U(-110, -55)      ← tkinter y 向下 ⇒ **负 = 向上**
+#   ⚠️ **v4 里根本没有"背景飞溅层"** —— `_draw_mound_surface` 是死代码, `draw()` 从不调用它。
+#     安卓版历史上加了那一层, 同时把命中层的 `vy` 改成了**朝下**(见 `_replay_hits` 里的旧注释)
+#     ⇒ 抛物线没了 + 一层沿整个坡撒的颗粒 = 用户 2026-10-06 的判词
+#     「**像打农药一样**」「**实际它是一个先喷射再抛物线**」。
+#   ⇒ 现在**两层共用同一个模型**(`_eject_splash`), 只有数量不同。
+#
+# `SPLASH_GAIN` = **唯一的夸张旋钮**。用户 2026-10-06:「有**适度的夸张表演性质**,
+#   看起来**凑合合理**即可, 不是做一个**极端的合理**, 否则这个玩具**完全没有尽头**」。
+#   同时乘在 vx/vy 上 ⇒ **弧高 ∝ GAIN²、射程 ∝ GAIN²**:
+#       1.0 = 逐字 v4(弧高 13px / 射程 17px) | 1.6 = 34 / 44 | 2.4 = 77 / 100
+#   ⚠️ "改前/改后要交回用户判"的那一类(观感决定) —— 出并排图用
+#      `HG_SPLASH_GAIN=1.0 / 1.6 / 2.4`。
+# ⚠️ **要移植的是"比例", 不是 v4 的绝对值** —— 闸门有一条
+#   `rebound cannot gain energy over the incoming grain`(飞溅速度必须 < 0.30 × 入射速度)。
+#   把 v4 的 `vx ±35 / vy 55~110` 换算到它自己的入射速度(≈400~600)正是 **0.09~0.28**
+#   —— 所以比例区间取 `U(0.10, 0.28)`。
+#   旧版真正输在两个地方: ① `vy` 是**朝下**的(抛物线没了); ② `min(110*motion_scale, ...)`
+#   那个**硬上限**(实测 94% 的颗粒被它钳住 ⇒ 不管砸得多狠, 飞溅永远是同一撮)。
+SPLASH_SPEED_LO = float(os.environ.get("HG_SPLASH_SPD_LO", "0.10"))   # × 入射速度
+SPLASH_SPEED_HI = float(os.environ.get("HG_SPLASH_SPD_HI", "0.28"))
+# `SPLASH_GAIN` = **唯一**的夸张旋钮(乘在比例上)。⚠️ 拉到 ~1.07 以上会越过 0.30 的物理界、
+#   闸门会翻红 —— 那是**有意的护栏**, 不要去放宽它。
+SPLASH_GAIN = float(os.environ.get("HG_SPLASH_GAIN", "1.0"))
+SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", "1.15"))   # 出射角 ±66°
+SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))      # v4: 沙面上方 2px
+
+# 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
+# ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为"打农药"的做法。
 SPLASH_BG_SPRAY_FRAC = float(os.environ.get("HG_SPLASH_SPRAY", "0.045"))
+SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))   # 外沿 = 1.5σ
 # splash 重力对 `motion_scale` 的指数 —— **只给对照实验用, 默认 1.0 = 现状逐位不变**。
-#   1.0 ⇒ `g_splash = -450·motion_scale²`(现状); 0.0 ⇒ `-450`(不随周期缩放)。
-#   见 `update_particles` 里 splash 更新段的长注释。
 SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
-# splash **出生高度**的倍率(只给对照实验用, 默认 1.0 = 现状逐位不变)。
-#   用来判别「1s 档寿命短」是不是**被上涌的沙面埋掉**(1s 档沙堆 0.55s 内从 0 涨到满,
-#   面上升 ~180px/s ⇒ 出生在面上 6~14px 的颗粒 ~0.05s 就被追上)。
-SPLASH_LIFT = float(os.environ.get("HG_SPLASH_LIFT", "1.0"))
-# ★ 出生高度**随中心距离衰减** —— 用户口径「沙子飞溅的高度应该也是变化的, **越在中心 越高**」。
-#   改前: 出生高度 `U(6,14)` **不含 f**; 含 f 的只有 vx/vy, 而 vy 是**向下**的
-#   ⇒ 中心 vy 大 ⇒ 掉得快 ⇒ **平均离地反而比边缘低**(实测 15s: 中心 5.81 vs 边缘 6.79px)。
-#   口径反了。改成 `lift × (1 − K·f)`: f=0(中轴) 保持原高度, f=1(沙堆边缘) 只剩 `1−K`。
-#   ⚠️ 乘在 `rand_uniform(...)` **之后** ⇒ 随机数流的调用次数与顺序一字不动。
-# ★ `5/6` —— 用户 2026-10-06 口径: 「末端弹射的高度 ≈ **顶端的中心的 1/6**」。
-#   ⚠️ **主持人读错过一次**: 我把"中心"当成了**沙堆峰高**, 于是按 `apex/6 = 22px` 反推
-#      `LIFT_APEX = apex/3` 去定标, 结果**出生点被抬到离沙面 ~45px** —— 用户实拍的判词是
-#      「**空中都开始掉了**…本来是他妈的**溅到沙子上才开始掉的**」。
-#      正解: 这是**边缘的弹射高度 ÷ 中心的弹射高度 = 1/6**, 与沙堆高矮无关。
-#      ⇒ `FALLOFF = 1 − 1/6 = 5/6`: 中心 6~14px、边缘只剩 **1.0~2.3px**(基本贴着沙面)。
-SPLASH_LIFT_FALLOFF = float(os.environ.get("HG_SPLASH_LIFT_F", "0.8333"))
-# ★ **落到沙面上之后**: 现实里沙粒是**贴着坡面往外滑、最后停住**, 不是凭空消失。
-#   用户 2026-10-06: 「本来是他妈的**溅到沙子上才开始掉的**…现实中他那个珠子应该怎么落,
-#   你得想一想, 我们**简化一个模型**」。旧判据是"触面即删" ⇒ **永远不会出现停在坡上的颗粒**,
-#   也就没有那层顺着坡面往下流的沙。现改成: 触面 ⇒ 把 y 贴到沙面、纵向速度清零、
-#   横向速度按摩擦衰减, 滑到**停住**(或超时)才消失。
-# ★ **弹道扇**(用户 2026-10-06: 「他是通过沙柱落在沙面上, 然后通过重力、各种速度往外溅…
-#   **实际它是一个先喷射再抛物线**」)。
-#   改前是"在尖顶上方某个区域**均匀喷射**, 像打农药一样" ⇒ 出生点有高度、初速一律朝下,
-#   读起来是一层飘下来的浮尘。现在: 出生点**就在沙面上**, 给一个**仰角**初速,
-#   之后**重力自己做抛物线** —— 仰角大切向陡(打不高也走不远)、仰角小贴坡飞得远。
-#   ⚠️ **不是**回退到"从下往上乱跳"(那条用户明确否过): 那是**随机上下抖动**;
-#      这里是**从落点出发的一束定向抛物线**, 方向完全由弹道决定。
-SPLASH_ANG_LO = float(os.environ.get("HG_SPLASH_ANG_LO", "0.18"))   # 仰角下限 ≈10°
-SPLASH_ANG_HI = float(os.environ.get("HG_SPLASH_ANG_HI", "1.25"))   # 仰角上限 ≈72°
-SPLASH_ARC_FRAC = float(os.environ.get("HG_SPLASH_ARC", "0.30"))    # 最高那道弧 ≈ 峰高的这个比例
-SPLASH_SPD_LO = float(os.environ.get("HG_SPLASH_SPD_LO", "0.30"))   # 出射速度下限(× _vmax)
+# ★ **落到沙面上之后** —— 用户 2026-10-06 选定「**贴坡面滑一段再没**」(不是 v4 的"落回即删")。
+#   ⚠️ 这是**有意的偏离**, 不是抄错 v4。贴 y 到面 + `vy` 归零(重力下一帧又把它按回面上
+#      ⇒ 自然沿坡走) + 横向按摩擦衰减, 停住或超时才消失。
+SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "3.0"))   # 坡面摩擦(1/秒)
+SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.45"))    # 落地后最多再活多久(s)
+SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
 SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "3.0"))   # 坡面摩擦(1/秒)
 SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.45"))    # 落地后最多再活多久(s)
 SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
@@ -2591,6 +2559,9 @@ class HourglassWidget(Widget):
         self.pn = 0
         self._p_refresh_view()
         self.particle_acc = 0.0
+        # ⚠️ 背景飞溅的**预算累加器**也要清 —— 原来只在 `__init__` 初始化过一次,
+        #    重置后残留的零头会让新一局头几帧多喷几颗(总量可控但没道理)。
+        self._bg_splash_acc = 0.0
         self.splashes = []
         self.flares = []
         self.dusts = []
@@ -3016,20 +2987,16 @@ class HourglassWidget(Widget):
     def _replay_hits(self, hit_idx, hit_dt, mound_top, motion_scale, now):
         """按下标升序回放命中事件 —— 随机数调用顺序与原标量循环逐字一致。
 
-        ⚠️ 三个随机数只在 splash 成立时才抽, 顺序:
-           rand()<0.25 → rand()<0.50 → uniform(0.14,0.28) → uniform(-0.85,0.85)
-           → choice([1,1,2])。
+        ⚠️ 随机数只在 splash 成立时才抽, 顺序:
+           `rand()<0.25`(flare) → `rand()<0.50`(splash) →
+           `_eject_splash` 内部的 `uniform(vx) → uniform(vy) → choice((1,1,2))`。
+        ⚠️ `mound_top` **未被使用**(出生高度用逐颗粒的 `hy`), 保留只为签名稳定。
         """
         px = self.px
         pvy = self.pvy
         pdt = self.pdt
         rand = random.random
-        rand_uniform = random.uniform
-        rand_choice = random.choice
-        sin = math.sin
-        cos = math.cos
         append_flare = self.flares.append
-        append_splash = self.splashes.append
         for k in range(len(hit_idx)):
             i = int(hit_idx[k])
             x = float(px[i])
@@ -3041,22 +3008,42 @@ class HourglassWidget(Widget):
             if rand() < 0.25:
                 append_flare({"x": x, "y": hy, "end": now + 0.08})
             if rand() < 0.50:
-                v = -vy
-                bounce = min(110 * motion_scale,
-                             (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
-                # 🔴 2026-10-06 用户: 「完全是随机运动 … 甚至从下往上跳动」
-                #    ⇒ 不再往**上**弹; 改成 "从落点往外、往下斜着走"。
-                #    `cos` 那一半取负 = 向下; 出生点抬 2~8px, 否则一出生
-                #    就被接触判定删掉(这就是当年改成往上弹的原因)。
-                angle = rand_uniform(-1.15, 1.15)
+                # ★ 唯一的飞溅模型(参数取自 PC v4) —— 见 `_eject_splash`。
+                #   旧版这里把 v4 的"向上弹"改成了 `vy = -|cos|·bounce·0.2`(**朝下、0.2 倍**)
+                #   ⇒ 抛物线没了, 就是用户说的「实际它是一个**先喷射再抛物线**」。
                 step_left = step_dt - float(hit_dt[k])
-                append_splash({
-                    "x": x, "y": hy + rand_uniform(5.0, 12.0),
-                    "vx": sin(angle) * bounce,
-                    "vy": -abs(cos(angle)) * bounce * 0.2,   # ⚠️ 同上: 下滑别太快, 否则一帧就被删
-                    "size": rand_choice([1, 1, 2]),
-                    "_step_dt": step_left if step_left > 0 else 0,
-                })
+                sp = self._eject_splash(x, hy, -vy)
+                sp["_step_dt"] = step_left if step_left > 0 else 0
+
+    def _eject_splash(self, x, y_surface, v_impact):
+        """从沙面上的一个点**弹出一颗飞溅** —— 全工程**唯一**的飞溅模型。
+
+        参数逐字取自 PC v4(`pc/hourglass_v4.py:1109-1118`, 项目自定的"唯一真理"):
+            `x` = 命中处; `y` = 沙面上方 2px; 速度 = **入射速度的 0.10~0.28 倍**, **方向朝上**
+        之后交给重力做抛物线(`update_particles` 的 splash 段)。
+
+        `SPLASH_GAIN` 是**唯一**的夸张旋钮, 同时乘在 vx/vy 上。
+
+        🔴 **命中层与背景层共用这一个函数** —— 旧版两层各有一套参数(命中层 vy 朝下、
+        背景层是"仰角 U(10°,72°) + 速度 sqrt(2·g·apex·0.3)"), 读起来就是用户说的
+        「**像打农药一样**」。**别再把参数分叉出去**。
+
+        ⚠️ 随机数调用顺序(3 次 uniform/choice)是**两条物理路径共用**的
+        (`_replay_hits` 与标量循环), 改动它要同步改 `tools/test_physics_equiv.py`。
+        """
+        v_impact = v_impact if v_impact > 0.0 else 0.0
+        b = v_impact * random.uniform(SPLASH_SPEED_LO, SPLASH_SPEED_HI) * SPLASH_GAIN
+        ang = random.uniform(-SPLASH_ANGLE_MAX, SPLASH_ANGLE_MAX)
+        d = {
+            "x": x,
+            "y": y_surface + SPLASH_LIFT_PX,
+            "vx": math.sin(ang) * b,
+            "vy": abs(math.cos(ang)) * b,      # 🔴 **向上**(Kivy y 向上) —— v4 的 55~110 就是向上
+            "size": random.choice((1, 1, 2)),
+        }
+        self.splashes.append(d)
+        return d
+
     def _spawn_bg_splashes(self, dt):
         """沿沙面**由强到弱**铺开的背景飞溅 —— 补上"斜坡上根本没有生成源"这一块。
 
@@ -3097,37 +3084,29 @@ class HourglassWidget(Widget):
         #    **与"沙流打在哪里"没有任何因果关系** ⇒ 颗粒在远离落点的坡上凭空出现。
         #    正解: **只在落点附近生成, 靠速度往外散** —— 沙是先砸到沙堆上才溅起来的。
         #    σ 现在只跟**落点的尺度**走(取球内半径的一小部分), 与沙堆有多宽无关。
+        _g_abs = 450.0 * (self._particle_motion_scale ** 2)
+        gen_y = 2 * self._neck_y - self._taper['y_bot']       # 颈口出口
         _sigma = max(2.0, self._R_inner * SPLASH_BG_SPRAY_FRAC)
         _sig_max = _sigma * SPLASH_BG_EDGE_SIGMA      # 喷溅外沿 = 1.5σ(用户口径)
-        # 速度尺度: 让**最高那道弧** ≈ 沙堆峰高的 `SPLASH_ARC_FRAC`
-        # (`v = sqrt(2·g·h)` 是竖直上抛最高点的公式) ⇒ **与窗口/球的大小无关**。
-        _g_abs = 450.0 * (self._particle_motion_scale ** 2)
-        _vmax = math.sqrt(2.0 * _g_abs * max(1.0, _apex * SPLASH_ARC_FRAC))
         for _ in range(k):
             mag = _inv_norm(rand_uniform(0.0, 1.0)) * _sigma
             if abs(mag) > _sig_max:      # 喷溅外沿之外: 那颗沙没砸在这儿
                 continue
             h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
-            # 🔴🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
-            #    —— 这条是真的, 而且**代码里本来就有现成的判据没用上**:
-            #    `h = _mound_contact_h(mag)` 在**没有沙的那几列**返回的是**球内底**
-            #    (profile.contact 会 clamp 到 floor) ⇒ 飞溅被撒在**裸露的玻璃底**上跳,
-            #    而 `mag` 铺到 0.96·Ri 那么远 —— 沙堆根本没那么宽。
-            #    `_MoundProfile.has_sand(dx, apex)` 就是干这个的(注释原文:
-            #    "该列有没有沙 … P ≤ B 才是裸露球底"), **别自己再写一套判据**。
+            # 🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
+            #    `_mound_contact_h` 在**没有沙的那几列**返回的是**球内底** ⇒ 颗粒会被撒在
+            #    裸露玻璃底上。`_MoundProfile.has_sand` 就是干这个的, **别自己再写一套**。
             if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
                 continue
-            _ang = rand_uniform(SPLASH_ANG_LO, SPLASH_ANG_HI)     # 仰角
-            _spd = _vmax * rand_uniform(SPLASH_SPD_LO, 1.0)
-            _outw = 1.0 if mag >= 0.0 else -1.0
-            append({
-                "x": self._cx + mag,
-                # 出生点**就在沙面上**(抬 0~2px, 只为不让它一出生就沉进面里)
-                "y": self._lower_sand_bot + h + rand_uniform(0.0, 2.0),
-                "vx": _outw * math.cos(_ang) * _spd,     # 往外
-                "vy": math.sin(_ang) * _spd,             # **向上** → 重力做抛物线
-                "size": 2 if rand_uniform(0.0, 1.0) < 0.7 else 1,
-            })
+            # ★ **与命中层同一个模型** —— 旧版这里另有一套"仰角 U(10°,72°) +
+            #   速度 sqrt(2·g·apex·0.30)≈190px/s", 凭空发明、没有 v4 依据, 而且比 v4 的
+            #   55~110 大 1.7~3.5 倍 ⇒ 正是"喷射太猛、像打农药"的来源。现在调同一个函数。
+            # 背景层没有"某一颗入射粒子的速度" —— 取**沙流砸到当地沙面时的代表速度**
+            # (`v = sqrt(v0² + 2g·落差)`, 与主流粒子同一套公式), 这样两层同源。
+            _drop = gen_y - (self._lower_sand_bot + h)
+            self._eject_splash(self._cx + mag, self._lower_sand_bot + h,
+                               math.sqrt(max(0.0, _drop) * 2.0 * _g_abs
+                                         + (60.0 * self._particle_motion_scale) ** 2))
 
     def update_particles(self, dt):
         if not self._geom_ready:
@@ -3207,13 +3186,10 @@ class HourglassWidget(Widget):
         new_list = []
         append_particle = new_list.append
         append_flare = self.flares.append
-        append_splash = self.splashes.append
         lower_bot = self._lower_sand_bot
         Ri2 = self._R_inner * self._R_inner      # _sand_half_w 内联用(值与原来一致)
         peak_offset = self.mound_peak_offset
         rand = random.random
-        rand_uniform = random.uniform
-        rand_choice = random.choice
         sin = math.sin
         sqrt = math.sqrt
         mound_top_plus_1 = mound_top + 1
@@ -3349,22 +3325,10 @@ class HourglassWidget(Widget):
                     if rand() < 0.25:
                         append_flare({"x": x, "y": hy, "end": now + 0.08})
                     if rand() < 0.50:
-                        v = -vy
-                        bounce = min(110 * motion_scale,
-                                     (v if v > 0 else 0) * rand_uniform(0.14, 0.28))
-                        # 🔴 2026-10-06 用户: 「完全是随机运动 … 甚至从下往上跳动」
-                        #    ⇒ 不再往**上**弹; 改成 "从落点往外、往下斜着走"。
-                        #    `cos` 那一半取负 = 向下; 出生点抬 2~8px, 否则一出生
-                        #    就被接触判定删掉(这就是当年改成往上弹的原因)。
-                        angle = rand_uniform(-1.15, 1.15)
+                        # ★ 唯一的飞溅模型(与 numpy 路径同一个函数, 随机数顺序一致)
                         step_left = step_dt - hit_dt
-                        append_splash({
-                            "x": x, "y": hy + rand_uniform(5.0, 12.0),
-                            "vx": sin(angle) * bounce,
-                            "vy": -abs(math.cos(angle)) * bounce * 0.2,   # ⚠️ 同 hit 路径
-                            "size": rand_choice([1, 1, 2]),
-                            "_step_dt": step_left if step_left > 0 else 0,
-                        })
+                        sp = self._eject_splash(x, hy, -vy)
+                        sp["_step_dt"] = step_left if step_left > 0 else 0
                     continue
                 p["y"] = y
                 p["vy"] = vy
