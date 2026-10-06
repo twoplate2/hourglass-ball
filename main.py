@@ -2685,12 +2685,24 @@ class HourglassWidget(Widget):
         apex = self._mound_apex()
         if profile is None or apex <= 0.0:
             return 0.0
-        x = self._R_inner - 1.0
-        while x > 0.0:
-            if profile.has_sand(x, apex):
-                return x
-            x -= 2.0
-        return 0.0
+        # 🔴 **二分代替 2px 线性扫**(2026-10-07 性能)。原式从球壁往里 2px 一步扫,
+        #   沙堆小的时候要扫 **~223 步**, 每步 `has_sand` 又是一次 `bounds`(sqrt) + `shape_at`
+        #   ⇒ 设备实测 `_spawn_bg_splashes` **0.33ms/帧**, 而它每帧只生成约 8 颗飞溅
+        #   —— 那 41µs/颗的怪数**全花在这个扫描上**。
+        #   判据的单调性: `has_sand(dx) = raw(dx,apex) > floor(dx)`, 其中 `floor` 随 |dx|
+        #   **单调快速上升**, 而 `raw` 只是缓慢起伏(粗糙度几 px) ⇒ 在"有没有沙"这个尺度上单调。
+        #   二分 12 步 ⇒ 分辨率 2⁻¹²·R ≈ **0.04px**, 比原来的 2px 量化**更准**。
+        hi = self._R_inner - 1.0
+        if profile.has_sand(hi, apex):     # 满到贴壁: 原式也会立刻返回
+            return hi
+        lo = 0.0                            # 中心轴线上 `floor=0` ⇒ 必有沙(apex>0 已判)
+        for _ in range(12):
+            mid = 0.5 * (lo + hi)
+            if profile.has_sand(mid, apex):
+                lo = mid
+            else:
+                hi = mid
+        return lo
 
     def _mound_top_at(self, x):
         """绝对 y 版的接触高度 —— splash / 尘埃用(它们会跑到平台之外)。"""
