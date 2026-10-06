@@ -38,7 +38,7 @@
 import math
 from array import array
 
-from kivy.graphics import BindTexture, Color, Mesh, RenderContext
+from kivy.graphics import BindTexture, Color, InstructionGroup, Mesh, RenderContext
 from kivy.graphics.opengl import glGetIntegerv, GL_MAX_TEXTURE_SIZE
 from kivy.graphics.texture import Texture
 
@@ -140,7 +140,7 @@ class SplashBatch:
         self.parts.append(part)
         return part
 
-    def update(self, splashes):
+    def update(self, splashes, uniform_half=None):
         """`splashes` = widget 的飞溅列表(list of dict)。
 
         每颗只做 **1 次 `pack_into`**(4 个 float 连续 16 字节), 与沙流同法。
@@ -155,25 +155,37 @@ class SplashBatch:
                 count = CHUNK
             part = self._ensure_part(chunk)
             mesh, _vertices, indices, texture, data, previous = part
+            # ★ **单一尺寸时把半宽提到循环外**(2026-10-07 性能, 设备实测本层共 **0.85ms**)。
+            #   `uniform_half` 由**调用方按配置**给出(main.py 的 `_splash_uniform_half`),
+            #   不在这里逐颗验证 —— 实测过: 逐颗验一遍的代价**正好等于省下的**, 白干。
+            #   ⇒ `len(SPLASH_SIZE_MIX) == 1` 时按构造**每颗尺寸必然相同**, O(1) 即可判定。
+            #   混合尺寸(该常量支持多项)时传 None, 自动退回逐颗读 `size`。
             offset = 0
-            for k in range(start, start + count):
-                s = splashes[k]
-                x = s["x"]
-                y = s["y"]
-                sz = s["size"]
-                # ⚠️ 口径必须与 `_sync_rects` **逐字一致**: `isinstance(sz, (tuple, list))`
-                #    —— 用 `type(sz) is tuple` 会漏掉 list, 那时会被当成标量、
-                #    `x - half_w` 直接 TypeError。
-                if isinstance(sz, (tuple, list)):
-                    w = float(sz[0])
-                    h = float(sz[1])
-                else:
-                    w = h = float(sz)
-                half_w = w * 0.5
-                half_h = h * 0.5
-                pack(data, offset, x - half_w, y - half_h,
-                     x + half_w, y + half_h)
-                offset += 16
+            if uniform_half is not None:
+                hw, hh = uniform_half
+                for k in range(start, start + count):
+                    s = splashes[k]
+                    x = s["x"]
+                    y = s["y"]
+                    pack(data, offset, x - hw, y - hh, x + hw, y + hh)
+                    offset += 16
+            else:
+                for k in range(start, start + count):
+                    s = splashes[k]
+                    x = s["x"]
+                    y = s["y"]
+                    sz = s["size"]
+                    # ⚠️ 口径必须与 `_sync_rects` **逐字一致**: `isinstance(sz, (tuple, list))`
+                    #    —— 用 `type(sz) is tuple` 会漏掉 list, 那时会被当成标量、直接 TypeError。
+                    if isinstance(sz, (tuple, list)):
+                        w = float(sz[0])
+                        h = float(sz[1])
+                    else:
+                        w = h = float(sz)
+                    hw = w * 0.5
+                    hh = h * 0.5
+                    pack(data, offset, x - hw, y - hh, x + hw, y + hh)
+                    offset += 16
             if count > previous:
                 mesh.indices = indices[:count * len(_INDICES)]
                 part[5] = count
@@ -185,6 +197,48 @@ class SplashBatch:
             if part[5]:
                 part[0].indices = array("H")
                 part[5] = 0
+
+
+    def update_bounds(self, bounds):
+        """`bounds` = 可迭代的 `(left, bottom, right, top)`(颈部颗粒用)。
+
+        与 `update` 同一套"索引只增不减"的约定, 只是**不经过 dict** —— 颈部那边每帧
+        要喂 ~320 个矩形, 逐个建 dict 是一笔白钱。
+        """
+        total = len(bounds)
+        if total > CHUNK:
+            bounds = bounds[:CHUNK]
+            total = CHUNK
+        # 🔴 **空桶一个 GL 调用都不做**。颈部是按 32 个色调档建的批, 每帧只有 ~11 档非空 ——
+        #    第一版对 32 个批**每个都整块上传 8KB**, 合计 256KB/帧 + 32 次 `glTexSubImage2D`,
+        #    结果 Canvas 是省下来了(1.48ms), **图元却一点没降**(实测 3.97 → 3.94),
+        #    好处被这堆白上传吃掉了一半。
+        if not self.parts and total == 0:
+            return
+        part = self._ensure_part(0)
+        mesh, _vertices, indices, texture, data, previous = part
+        if total == 0 and previous == 0:
+            return
+        offset = 0
+        pack = _FLT.pack_into
+        for left, bottom, right, top in bounds:
+            pack(data, offset, left, bottom, right, top)
+            offset += 16
+        if total > previous:
+            mesh.indices = indices[:total * len(_INDICES)]
+            part[5] = total
+            upload = total
+        elif total < previous:
+            # ⚠️ 缩的时候**必须传到 previous** —— 索引只增不减, 那些槽位仍在被画,
+            #    只把 `total` 之前传上去的话, 后面那些槽位会留着**上一帧的旧矩形**。
+            data[total * 16:previous * 16] = PAD * (previous - total)
+            upload = previous
+        else:
+            upload = total
+        if upload:
+            # 只传用到的纹素(第一版整块 2048 纹素全传, 这里最多 320 颗 × 4)
+            texture.blit_buffer(data, size=(upload * TEXELS_PER_SPLASH, 1),
+                                colorfmt="rgba", bufferfmt="ubyte")
 
 
 def available():
@@ -233,3 +287,148 @@ def install(widget_class):
     widget_class._build_dynamic_canvas = build_splash_batches
     widget_class._sync_splashes = sync_splashes
     widget_class.splash_renderer = "batch"
+
+
+# ======================= 颈部颗粒: 批处理(2026-10-07) =======================
+# ## 为什么要做
+# 颈部颗粒原本是 **320 个独立的 Kivy `Line`**(每帧各自一次 `Color.rgb` / `Line.points`
+# 写属性 + 一次独立的 draw call)。实测(池子 320→1 的消融, 15s 档):
+#
+#   | | 图元 | Canvas |
+#   |---|---|---|
+#   | 池子 320 | 3.97 | **2.85** |
+#   | 池子 1   | 3.19 | **1.37** |
+#
+# ⇒ 这一层值 **~2.3ms/帧**(1.48 在 Canvas 的绘制调用上, 0.78 在 Python 的属性写上),
+#   而它只画了 320 个小矩形。飞溅层同规模只要 0.7ms —— 差别就是"有没有批处理"。
+#
+# ## 怎么做的(关键: **不改 main.py 的热函数**)
+# `_draw_neck_grains` 的逻辑(含两趟候选筛选、二分求半宽、色调量化)是反复调过的,
+# 单为性能重写风险太大。这里只做一件事: **把池子里的 `(Color, Line)` 换成纯 Python
+# 记录器** —— 原函数一字不动地照跑, 只是属性写进记录器(普通属性赋值 ~0.05µs)而不是
+# Kivy 描述符(~1µs, 还要派发事件)。
+#
+# 然后按**色调档**把矩形分桶喂给 `SplashBatch`: 每档一个批(自带一个 `Color`),
+# 320 次绘制塌成"本帧真正用到的档数"次(实测 ~11)。
+#
+# ## 与原来的差异(如实记录)
+# 原来 `Line(width=w, points=(x,b,t,x,t))` 在 **w>1** 时是"带宽 w 的条 + 两端半径 w/2 的
+# **圆头帽**"(Kivy 自建三角网格); 这里画的是**方角**矩形, 但把两端各外扩 w/2
+# ⇒ 只差四个角的圆/方。1px 的颗粒(w=1)两边完全一致。
+NECK_TONES = 32          # 与 main.py 的 `_neck_tone_tab` 同长
+
+# 池子槽位数 —— 必须与 main.py `_build_dynamic_canvas` 里 `for _ in range(320)` 一致,
+# 否则 `_neck_tone_last` 的长度校验会反复重建(功能不受影响, 只是白干)。
+NECK_POOL = 320
+
+
+class _RecColor:
+    """冒充 `Color` —— 只记 rgb。"""
+    __slots__ = ("rgb",)
+
+    def __init__(self):
+        self.rgb = None
+
+
+class _RecLine:
+    """冒充 `Line` —— 只记 points / width。"""
+    __slots__ = ("points", "width")
+
+    def __init__(self):
+        self.points = ()
+        self.width = 1
+
+
+def install_neck(widget_class):
+    """把颈部颗粒从 320 个 `Line` 换成"按色调分桶的批处理"。成功返回 True。
+
+    🔴 **别在类上查 `_neck_grain_group`** —— 那是 `_build_dynamic_canvas` 里建的**实例**
+    属性, 安装这一刻(模块导入期)必然不存在 ⇒ `hasattr` 恒为假 ⇒ **静默什么都不装**,
+    而外面只看到"跑完了"。2026-10-07 我因此比对了 80 帧 0 差异、**全是空转**。
+    ⇒ 判断挪进 wrapper(那时 `build` 已经跑过), 并**回填 `neck_renderer` 供外部断言**。
+    """
+    build = widget_class._build_dynamic_canvas
+    draw = widget_class._draw_neck_grains
+    if getattr(draw, "_neck_batched", False):
+        return False
+
+    def build_neck_batches(self):
+        build(self)
+        group = getattr(self, "_neck_grain_group", None)
+        if group is None:                 # 这个 widget 没有颈部颗粒层 ⇒ 保持原样
+            self._neck_batches = None
+            return
+        position = self.canvas.children.index(group)
+        self.canvas.remove(group)
+        group.clear()                     # 扔掉那 320 对 (Color, Line)
+        context = RenderContext(use_parent_projection=True, use_parent_modelview=True)
+        context.shader.vs = VERTEX_SHADER
+        context.shader.fs = FRAGMENT_SHADER
+        if not context.shader.success:
+            raise RuntimeError("neck batch shader failed to compile")
+        # 与飞溅共用 `TEXEL_STEP`: 一样是 CHUNK 槽 × 4 纹素 ⇒ u 步长相同。
+        context[TEXEL_STEP_UNIFORM] = TEXEL_STEP
+        context["bounds"] = 1
+        batches = []
+        for _k in range(NECK_TONES):
+            slot = InstructionGroup()
+            color = Color(1.0, 1.0, 1.0, 1.0)
+            slot.add(color)
+            context.add(slot)
+            batches.append((color, SplashBatch(slot)))
+        self.canvas.insert(position, context)
+        self._neck_context = context
+        self._neck_batches = batches
+        self._neck_batch_rgb = [None] * NECK_TONES
+        # 池子换成记录器 —— 原 `_draw_neck_grains` 完全不知道这件事。
+        self._neck_grain_pool = [(_RecColor(), _RecLine()) for _ in range(NECK_POOL)]
+        self._neck_grain_count = 0
+        self._neck_tone_last = [None] * NECK_POOL
+
+    def draw_neck_batches(self, side):
+        draw(self, side)                  # 原逻辑照跑, 只是写进了记录器
+        if getattr(self, "_neck_batches", None) is None:
+            return
+        count = self._neck_grain_count
+        pool = self._neck_grain_pool
+        buckets = {}
+        if count:
+            append = None
+            for i in range(count):
+                color, line = pool[i]
+                pts = line.points
+                if not pts:
+                    continue
+                # ⚠️ **只有 `width > 1` 才外扩** —— Kivy 的 `Line` 在 w>1 时**自建三角网格**
+                #    并带两端半径 w/2 的圆头帽; **w==1 走 `glLineWidth`, 端头不外扩**。
+                #    一律按 w/2 外扩的写法**实测错了**(1px 的颗粒被撑高 1px ⇒ 逐像素比对
+                #    满屏单像素点 + 玻璃肩线上一条细线, 最大通道差 133)。
+                w = line.width
+                hw = w * 0.5
+                ext = hw if w > 1.0 else 0.0
+                rgb = color.rgb
+                lst = buckets.get(rgb)
+                if lst is None:
+                    lst = buckets[rgb] = []
+                lst.append((pts[0] - hw, pts[1] - ext, pts[0] + hw, pts[3] + ext))
+        tab = self._neck_tone_tab
+        for k, (color, batch) in enumerate(self._neck_batches):
+            rgb = tab[k] if (tab is not None and k < len(tab)) else None
+            if self._neck_batch_rgb[k] != rgb:
+                # ⚠️ 必须连 alpha 一起写回 —— 下调成 0 之后只写 `.rgb` 是**恢复不了**的
+                #    (Kivy 的 r/g/b 与 a 是各自独立的属性), 那档会永久透明。
+                color.rgba = ((rgb[0], rgb[1], rgb[2], 1.0) if rgb is not None
+                              else (1.0, 1.0, 1.0, 0.0))
+                self._neck_batch_rgb[k] = rgb
+            batch.update_bounds(buckets.get(rgb, ()))
+        # 留给取证 (`tools/_probe_neck_batch_equiv.py`): 本帧各色调桶的矩形
+        self._neck_last_buckets = buckets
+        self._neck_last_tab = tab
+        self._neck_grain_count = 0        # 记录器已消费完, 下一帧从 0 开始
+
+    draw_neck_batches._neck_batched = True
+    draw_neck_batches._orig = draw          # 取证脚本要拿它跑"原路径"做对照
+    widget_class._build_dynamic_canvas = build_neck_batches
+    widget_class._draw_neck_grains = draw_neck_batches
+    widget_class.neck_renderer = "batch"
+    return True

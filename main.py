@@ -42,13 +42,15 @@ class _FlowView:
     """
 
     __slots__ = ("n", "x", "y", "vy", "tl", "sz", "light", "wp",
-                 "nx", "ny", "nvy", "ntl", "use_np")
+                 "nx", "ny", "nvy", "ntl", "nwp", "nsz", "nli", "use_np")
 
     def __init__(self):
         self.n = 0
         self.x = self.y = self.vy = self.tl = self.sz = self.light = self.wp = []
         # numpy 零拷贝切片, 只给向量化打包用(见 tools/flow_texture_experiment.py)。
+        # `nwp/nsz/nli` 另供 `_draw_neck_grains` 的向量化分支(颈部颗粒的相位/尺寸/亮标)。
         self.nx = self.ny = self.nvy = self.ntl = None
+        self.nwp = self.nsz = self.nli = None
         self.use_np = False
 
 
@@ -432,6 +434,10 @@ SPLASH_GRAV_HI = float(os.environ.get("HG_SPLASH_GRAV_HI", "1.55"))
 #   保留成"表"是为了以后想再试混合时只改这一行(取单元素表 = 单一尺寸)。
 SPLASH_SIZE_MIX = ((1, 1),)
 SPLASH_PX_BASE = float(os.environ.get("HG_SPLASH_PX", "1.0"))   # 基准像素(再乘屏幕缩放)
+
+# 颈部颗粒的**标量兜底路径**开关 —— **只为对照**。`HG_NECK_SCALAR=1` 强制走老的单颗循环:
+# 向量化那版必须与它在 `random.seed(23)` 下**逐像素 0 差异**(否则量出来的加速是拿画面对错的)。
+NECK_SCALAR = os.environ.get("HG_NECK_SCALAR") == "1"
 
 # 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
 # ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为"打农药"的做法。
@@ -3126,6 +3132,9 @@ class HourglassWidget(Widget):
             pv.ny = self.py[:n]
             pv.nvy = self.pvy[:n]
             pv.ntl = self.ptl[:n]
+            pv.nwp = self.pwp[:n]
+            pv.nsz = self.psz[:n]
+            pv.nli = self.pli[:n]
             pv.x = self.px[:n].tolist()
             pv.y = self.py[:n].tolist()
             pv.vy = self.pvy[:n].tolist()
@@ -3284,6 +3293,28 @@ class HourglassWidget(Widget):
         }
         self.splashes.append(d)
         return d
+
+    def _splash_uniform_half(self):
+        """全场同尺寸时给批处理渲染器返回 `(half_w, half_h)`, 否则 `None`。
+
+        实测(`HG_SPLASH_RENDERER=batch` vs 逐 `Rectangle`): 本层 Python 打包 + blit 共
+        **0.85ms/帧**(~1700 颗), 而飞溅绘制在 Canvas 里基本免费(2.73 vs 2.82ms)。
+        逐颗读 `size` 占了打包的一大半, 而尺寸现在是**循环常量** ⇒ 提到循环外。
+
+        🔴 **判据必须用配置, 不许逐颗验证** —— 试过: 验证那趟遍历的代价**正好等于**省下的。
+        `len(SPLASH_SIZE_MIX) == 1` 时, `_eject_splash` 里的 `random.choice(SPLASH_SIZE_MIX)`
+        **按构造**只能产出同一尺寸, O(1) 即可判定。
+
+        ⚠️ 口径必须与 `_eject_splash` 里那一行**逐字一致**(同一个 `_px`、同一个 `round`)。
+        ⚠️ 已知边界: 窗口**运行中被 resize**时, `_R_inner` 变了而**在途的旧飞溅**还带着旧尺寸
+        ⇒ 这一步给它们算错尺寸, 最长错 0.2s。不过那种情况下它们的**绝对坐标**本来就已失效,
+        不是新增的一类问题(全屏 app 上也不会发生)。
+        """
+        if len(SPLASH_SIZE_MIX) != 1:
+            return None
+        _k = SPLASH_SIZE_MIX[0]
+        _px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
+        return (round(_k[0] * _px) * 0.5, round(_k[1] * _px) * 0.5)
 
     def _spawn_bg_splashes(self, dt):
         """沿沙面**由强到弱**铺开的背景飞溅 —— 补上"斜坡上根本没有生成源"这一块。
@@ -4892,7 +4923,7 @@ class HourglassWidget(Widget):
         if _batch is None:
             self._sync_rects(self._splash_group, self._splash_rects, self.splashes)
         else:
-            _batch.update(self.splashes)
+            _batch.update(self.splashes, self._splash_uniform_half())
         for i, f in enumerate(self.flares):
             if i == len(self._flare_rects):
                 color, rect = Color(), Rectangle()
@@ -5129,67 +5160,125 @@ class HourglassWidget(Widget):
         lights_p = pv.light
         xs_p = pv.x
         count = 0
-        # use_np 时只遍历候选(第一趟已算好); 标量兜底路径保持原样。
-        for i in (_cand if _cand is not None else range(pv.n)):
-            distance = outlet - ys_p[i]
-            if distance < 0 or distance > length + 1e-6:
-                continue
-            if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
-                continue
-            t = distance / depth                     # 0 = 刚出孔口, 1 = 流得最深的一颗
-            if t > 1.0:
-                t = 1.0
-            y = top_y - t * span
-            half_w = half_w_at(y)
-            size = sizes_p[i]
-            half_stroke = size if size > 1 else 0.5
-            limit = half_w - half_stroke
-            if limit <= 0.0:
-                limit = 0.0
-            spread = (xs_p[i] - cx) * (half_w / t_in)
-            if spread > limit:
-                spread = limit
-            elif spread < -limit:
-                spread = -limit
-            x = cx + spread
-            # ⚠️ 亮端必须与**沙体材质**的量级对齐(2026-10-04 用户: "上面的部分和颈部的沙子
-            # 构成完全不同")。材质在 base ± 0.35 之间, 而这里原来最高走到 base→light 的 0.85,
-            # 比球体整整高一个档 ⇒ 颈部读成另一种材料。压暗会变脏斑(项目试过), 所以只收窄亮端。
-            tone_t = 0.06 + 0.20 * t
-            if lights_p[i]:
-                ji = 26                      # 0.85 * 31 ≈ 26.35 ⇒ 最近的量化档
-            else:
-                variation = int(phases_p[i] * tone_scale)
-                if variation > 4:
-                    variation = 4
-                variation -= 2
-                # 化简: color.rgb = base + (light-base) * (mix * 0.85)
-                # (原来先 lerp 出 T=base+(light-base)*mix, 再 base+(T-base)*0.85 —— 同一个式子)
-                m = (tone_t + variation * 0.04) * 0.85
-                if m < 0.0:
-                    m = 0.0
-                elif m > 1.0:
-                    m = 1.0
-                ji = int(m * 31.0 + 0.5)
-            color, line = pool[count]
-            # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
-            # 量化后查表 —— 且**同一槽位颜色没变就不写**(Kivy 属性赋值要过描述符 + 事件派发)
-            rgb = tone_tab[ji]
-            if tone_last[count] != rgb:
-                color.rgb = rgb
-                tone_last[count] = rgb
-            if line.width != size:
-                line.width = size
-            top_pt = y + 1
-            if top_pt > top_y:
-                top_pt = top_y
-            bot_pt = y - 1
-            if bot_pt < bottom_y:
-                bot_pt = bottom_y
-            line.points = (x, bot_pt, x, top_pt)
-            count += 1
-            if count == pool_len:
-                break
+        if _cand is not None and pv.nwp is not None and not NECK_SCALAR:
+            # ★ **向量化**(2026-10-07 性能): 池子 320 ⇒ 实测这一段的纯 Python 循环 **1.07ms/帧**。
+            #   消融验证(池子 320→1): `_draw_neck_grains` 1.068 → 0.163ms, `redraw` 同步 −1.07;
+            #   而属性写入那 ~300 次只值 0.06ms(桌面微基准 128 次 = 0.024ms)
+            #   ⇒ **钱全在循环体的算术上** ⇒ 把算式交给 numpy, 写入照旧。
+            #   等价性: 逐条照抄标量版(NaN 传播、向零截断、两端越界分支都对齐), 且由
+            #   **逐像素比对**兜底(`tools/inspect_flow.py`, random.seed(23) 下必须 0 差异)。
+            #   ⚠️ 下面的标量兜底路径**一字未动** —— `_cand is None` 时它是唯一出路。
+            _idx = _np.array(_cand[:pool_len], dtype=_np.intp)
+            _cnt = len(_idx)
+            _t = (outlet - pv.ny[_idx]) / depth   # 0 = 刚出孔口, 1 = 流得最深的一颗
+            _np.minimum(_t, 1.0, out=_t)
+            _y = top_y - _t * span
+            # `half_w_at` 的向量版: `searchsorted(side="left")` 与 `bisect_left` 同义,
+            # 越界两支与退化段用 `where` 补回 —— 与标量版逐条对应。
+            _ys_a = _np.asarray(ys_asc)
+            _xs_a = _np.asarray(xs_asc)
+            _k = _np.searchsorted(_ys_a, _y, side="left")
+            _np.clip(_k, 1, len(ys_asc) - 1, out=_k)
+            _y0 = _ys_a[_k]
+            _y1 = _ys_a[_k - 1]
+            _x0 = _xs_a[_k]
+            _x1 = _xs_a[_k - 1]
+            _den = _y0 - _y1
+            _hw = _x0 + (_x1 - _x0) * (_y0 - _y) / _np.where(_den < 1e-9, 1.0, _den)
+            _hw = _np.where(_den < 1e-9, _x0, _hw)
+            _hw = _np.where(_y >= ys[0], xs[0],
+                            _np.where(_y <= ys_asc[0], xs_asc[0], _hw))
+            _sz = pv.nsz[_idx]
+            _limit = _np.maximum(_hw - _np.where(_sz > 1, _sz, 0.5), 0.0)
+            # ⚠️ 横向用**原始 half_w**, 只有夹取用 `_limit`(标量版就是两处不同口径)
+            _x = cx + _np.clip((pv.nx[_idx] - cx) * (_hw / t_in), -_limit, _limit)
+            # 亮端收窄的理由见下面标量分支里那段注释(与沙体材质量级对齐)
+            _var = (pv.nwp[_idx] * tone_scale).astype(_np.int64)   # 与 `int()` 同为向零截断
+            _np.minimum(_var, 4, out=_var)
+            _var -= 2
+            _m = (0.06 + 0.20 * _t + _var * 0.04) * 0.85
+            _np.clip(_m, 0.0, 1.0, out=_m)
+            _ji = (_m * 31.0 + 0.5).astype(_np.int64)
+            # ⚠️ `pli` 是 **float** 数组, 直接当索引会 IndexError —— 先转布尔掩码
+            _ji[pv.nli[_idx] != 0.0] = 26      # 0.85 * 31 ≈ 26.35 ⇒ 最近的量化档
+            _xl = _x.tolist()
+            _bl = _np.maximum(_y - 1.0, bottom_y).tolist()
+            _tl = _np.minimum(_y + 1.0, top_y).tolist()
+            _jl = _ji.tolist()
+            _sl = _sz.tolist()
+            for _c in range(_cnt):
+                color, line = pool[_c]
+                rgb = tone_tab[_jl[_c]]
+                if tone_last[_c] != rgb:
+                    color.rgb = rgb
+                    tone_last[_c] = rgb
+                size = _sl[_c]
+                if line.width != size:
+                    line.width = size
+                line.points = (_xl[_c], _bl[_c], _xl[_c], _tl[_c])
+            count = _cnt
+        else:
+            # use_np 时只遍历候选(第一趟已算好); 标量兜底路径保持原样。
+            for i in range(pv.n):
+                distance = outlet - ys_p[i]
+                if distance < 0 or distance > length + 1e-6:
+                    continue
+                if vys_p[i] ** 2 - twice_gravity * distance > source_limit_squared:
+                    continue
+                t = distance / depth                     # 0 = 刚出孔口, 1 = 流得最深的一颗
+                if t > 1.0:
+                    t = 1.0
+                y = top_y - t * span
+                half_w = half_w_at(y)
+                size = sizes_p[i]
+                half_stroke = size if size > 1 else 0.5
+                limit = half_w - half_stroke
+                if limit <= 0.0:
+                    limit = 0.0
+                spread = (xs_p[i] - cx) * (half_w / t_in)
+                if spread > limit:
+                    spread = limit
+                elif spread < -limit:
+                    spread = -limit
+                x = cx + spread
+                # ⚠️ 亮端必须与**沙体材质**的量级对齐(2026-10-04 用户: "上面的部分和颈部的沙子
+                # 构成完全不同")。材质在 base ± 0.35 之间, 而这里原来最高走到 base→light 的 0.85,
+                # 比球体整整高一个档 ⇒ 颈部读成另一种材料。压暗会变脏斑(项目试过), 所以只收窄亮端。
+                tone_t = 0.06 + 0.20 * t
+                if lights_p[i]:
+                    ji = 26                      # 0.85 * 31 ≈ 26.35 ⇒ 最近的量化档
+                else:
+                    variation = int(phases_p[i] * tone_scale)
+                    if variation > 4:
+                        variation = 4
+                    variation -= 2
+                    # 化简: color.rgb = base + (light-base) * (mix * 0.85)
+                    # (原来先 lerp 出 T=base+(light-base)*mix, 再 base+(T-base)*0.85 —— 同一个式子)
+                    m = (tone_t + variation * 0.04) * 0.85
+                    if m < 0.0:
+                        m = 0.0
+                    elif m > 1.0:
+                        m = 1.0
+                    ji = int(m * 31.0 + 0.5)
+                color, line = pool[count]
+                # Opaque preblend avoids Kivy's extra stencil passes for translucent wide lines.
+                # 量化后查表 —— 且**同一槽位颜色没变就不写**(Kivy 属性赋值要过描述符 + 事件派发)
+                rgb = tone_tab[ji]
+                if tone_last[count] != rgb:
+                    color.rgb = rgb
+                    tone_last[count] = rgb
+                if line.width != size:
+                    line.width = size
+                top_pt = y + 1
+                if top_pt > top_y:
+                    top_pt = top_y
+                bot_pt = y - 1
+                if bot_pt < bottom_y:
+                    bot_pt = bottom_y
+                line.points = (x, bot_pt, x, top_pt)
+                count += 1
+                if count == pool_len:
+                    break
         for color, line in self._neck_grain_pool[count:self._neck_grain_count]:
             line.points = []
         self._neck_grain_count = count
@@ -6534,6 +6623,11 @@ if platform == "android" or os.environ.get("HG_FLOW_RENDERER"):
 #   画布构建时、外面 try 包不住)。
 SPLASH_RENDERER = os.environ.get("HG_SPLASH_RENDERER", "batch")   # rect | batch
 
+# 颈部颗粒走**批处理**(与飞溅共用着色器与 `SplashBatch`) —— 与飞溅同一个开关理由:
+# 桌面 GL 余量大、测不出, 装不上自动回退原来的 320 个 `Line`。
+# 实测收益(设备, 池子 320→1 的消融): 这一层值 ~2.3ms/帧(Canvas 1.48 + Python 0.78)。
+NECK_RENDERER = os.environ.get("HG_NECK_RENDERER", "batch")       # line | batch
+
 
 def _install_splash_renderer(widget_class):
     if SPLASH_RENDERER != "batch":
@@ -6548,6 +6642,13 @@ def _install_splash_renderer(widget_class):
         print("splash batch unavailable (%s); keeping per-Rectangle" % why)
         return
     mod.install(widget_class)
+    # ⚠️ **必须排在 `mod.install` 之后** —— 两者都包 `_build_dynamic_canvas`,
+    #    后包的先跑; 颈部那版依赖飞溅那版已经把 RenderContext 建好。
+    if NECK_RENDERER == "batch":
+        try:
+            mod.install_neck(widget_class)
+        except Exception as exc:
+            print("neck batch unavailable (%s); keeping per-Line" % exc)
 
 
 if platform == "android" or os.environ.get("HG_SPLASH_RENDERER"):
@@ -6555,6 +6656,29 @@ if platform == "android" or os.environ.get("HG_SPLASH_RENDERER"):
         _install_splash_renderer(HourglassWidget)
     except Exception as exc:
         print(f"splash renderer {SPLASH_RENDERER} unavailable, using per-Rectangle: {exc}")
+
+
+# ---- 设备端**函数级剖面**挂点(2026-10-07) ------------------------------------
+# 只在**存在标记文件**时才真正干活 —— 标记与 app 同目录的 `prof.on`:
+#     adb shell touch /data/data/org.shalou.hourglass/files/app/prof.on
+#     adb logcat | grep HGPROF
+# ⚠️ **位置必须在这后面** —— 沙流/飞溅渲染器会**替换** `_draw_stream` 等属性,
+#    先挂就会量到被换掉的那份(量出来是"渲染器没生效"的假象)。
+# ⚠️ 量四栏 benchmark 时要把标记删掉(那套探针自己包了 `update_particles`/`redraw`,
+#    叠起来互相算进去)。理由与口径见 `tools/prof_android.py` 顶部。
+def _install_prof():
+    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import prof_android
+    prof_android.install(HourglassWidget,
+                         os.path.join(os.path.dirname(os.path.abspath(__file__)), "prof.on"))
+
+
+try:
+    _install_prof()
+except Exception as exc:                      # 探针不许影响出货
+    print(f"prof hook unavailable: {exc}")
 
 
 if __name__ == "__main__":
