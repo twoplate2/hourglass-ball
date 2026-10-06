@@ -388,7 +388,16 @@ SPLASH_SPEED_HI = float(os.environ.get("HG_SPLASH_SPD_HI", "0.28"))
 # `SPLASH_GAIN` = **唯一**的夸张旋钮(乘在比例上)。⚠️ 拉到 ~1.07 以上会越过 0.30 的物理界、
 #   闸门会翻红 —— 那是**有意的护栏**, 不要去放宽它。
 SPLASH_GAIN = float(os.environ.get("HG_SPLASH_GAIN", "1.0"))
-SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", "1.15"))   # 出射角 ±66°
+# 🔴 **出射角必须"避开竖直"** —— 这是专家团给的**可量化判据**, 不是口味:
+#   抛物线 `apex = vy²/2g`, `range = 2·vx·vy/g` ⇒
+#       **`apex > range` ⟺ `vy > 4·vx` ⟺ 出射角**离竖直**不到 `atan(1/4) = 14°`。**
+#   离竖直 <14° 的颗粒**升得比走得远** = 原地蹦, 不是溅。
+#   实测(20 万抽样): `ang ~ U(-66°,66°)` 时 **21.3% 落在蹦的区间**;
+#   v4 那套绝对值(`vx±35 / vy55~110`)等效角更陡, 实测 **43%** ——
+#   这正是专家把它读成"竖直喷泉"的原因。
+#   ⇒ 改成 **`|ang| ~ U(0.30, 1.15)` rad(17°~66°)**, 蹦的比例 **0.0%**。
+SPLASH_ANGLE_MIN = float(os.environ.get("HG_SPLASH_ANG_LO", "0.30"))  # 离竖直至少 17°
+SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", "1.15"))   # 最多 66°
 SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))      # v4: 沙面上方 2px
 
 # 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
@@ -400,10 +409,12 @@ SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
 # ★ **落到沙面上之后** —— 用户 2026-10-06 选定「**贴坡面滑一段再没**」(不是 v4 的"落回即删")。
 #   ⚠️ 这是**有意的偏离**, 不是抄错 v4。贴 y 到面 + `vy` 归零(重力下一帧又把它按回面上
 #      ⇒ 自然沿坡走) + 横向按摩擦衰减, 停住或超时才消失。
-SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "3.0"))   # 坡面摩擦(1/秒)
-SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.45"))    # 落地后最多再活多久(s)
-SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
-SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "3.0"))   # 坡面摩擦(1/秒)
+# ⚠️ **3.0 是拍错的** —— 专家团实测(2026-10-06): 落地 |vx| 中位 **57px/s**, 而"停住"门槛是
+#   4px/s ⇒ 指数衰减 `v0·exp(-k·t)` 要 `k = ln(57/4)/0.45 ≈ 6.0` 才刹得住。
+#   k=3.0 时**没有任何一颗能在 0.45s 内停住** ⇒ `_rest` 实测 p50 = p90 = **0.467s**,
+#   即 **≈90% 的颗粒是在"明显运动中"被定时器硬砍掉的**(死时 p90 还有 91~137px/s)。
+#   ⇒ 那不是"滑到停住再消失", 是"滑到一半被抹掉"。改成 **6.0** 让设计意图真的发生。
+SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "6.0"))   # 坡面摩擦(1/秒)
 SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.45"))    # 落地后最多再活多久(s)
 SPLASH_MIN_VX = float(os.environ.get("HG_SPLASH_MINVX", "4.0"))       # 小于它就当停住(px/s)
 
@@ -2403,6 +2414,15 @@ class HourglassWidget(Widget):
         y_top, y_end = pts[0][1], 2 * self._neck_y - tp['y_bot']
         fill_t = self._neck_fill_time
         f = min(1.0, max(0.0, self.elapsed / fill_t))
+        # ★ **末段提前排空**(2026-10-06 用户实测报的 bug: 「时间归零的时候颈部**仍然会残留
+        #   一些沙子**」, 1s/5s 档尤其明显)。旧版只在 `_done_at`(归零**之后**)才开始排空
+        #   ⇒ **归零那一帧颈部还是满的**, 再花 fill_t 秒才排完。
+        #   现在在最后 `fill_t` 秒内就把 f 降到 0 ⇒ **归零那一刻颈部是空的**。
+        #   (`_done_at` 那段保留作兜底: 万一 elapsed 跳过了末段, 仍然会排空。)
+        #   ⚠️ **不能加 `if _rem > 0` 的守卫** —— 归零那一帧 `_rem` 恰好是 0, 会被跳过,
+        #      于是 f 又回到 1(满), 反而在归零处**闪一下满柱**。实测踩过。
+        _rem = self.get_remaining()
+        f = min(f, max(0.0, _rem / fill_t))
         if self._done_at is not None:
             d = (time.perf_counter() - self._done_at) / fill_t
             f = min(f, max(0.0, 1.0 - d))
@@ -3033,7 +3053,8 @@ class HourglassWidget(Widget):
         """
         v_impact = v_impact if v_impact > 0.0 else 0.0
         b = v_impact * random.uniform(SPLASH_SPEED_LO, SPLASH_SPEED_HI) * SPLASH_GAIN
-        ang = random.uniform(-SPLASH_ANGLE_MAX, SPLASH_ANGLE_MAX)
+        # 出射角: **避开竖直**(见 `SPLASH_ANGLE_MIN` 处注释 —— 离竖直 <14° 会读成"原地蹦")
+        ang = random.choice((-1.0, 1.0)) * random.uniform(SPLASH_ANGLE_MIN, SPLASH_ANGLE_MAX)
         d = {
             "x": x,
             "y": y_surface + SPLASH_LIFT_PX,
