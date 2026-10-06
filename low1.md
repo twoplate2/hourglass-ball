@@ -76,8 +76,16 @@ Window.bind(on_flip=self._on_flip)          # 每帧一次
 - 四个探针把一帧切成四段：**物理 / 图元(redraw) / Canvas(GL) / 前次Swap**。
 - 另有"**阶段残差**" = 帧时间 − 四段 − GC，用来发现"探针之外"的开销（实测均值 0.1~0.3ms）。
 
-> ⚠️ Kivy 的调用顺序是 **`Window.flip` 在 `Window.on_draw` 之前**。
-> 按"先 on_draw 后 flip"去算会得到负值（实测 −frame_ms）。
+> 🔴 **2026-10-07 更正（外部评审 youhua1.md §2.2 指出，我查了本机 Kivy 源码，评审是对的）**：
+> Kivy 的 `EventLoopBase.idle()` 里顺序是 **`window.dispatch('on_draw')` 然后
+> `window.dispatch('on_flip')`**（`kivy/base.py:400-401`），而默认的 `Window.on_flip`
+> 处理里才调 `self.flip()`（交换缓冲）。所以**同一轮内是 on_draw → flip**，
+> 上一句"flip 在 on_draw 之前"是**错的**（它是本项目旧文档的错，我照抄了）。
+> 探针名 `previous_swap_ms` 也随之**名不副实**——它量的是**本轮**的交换。
+> ⚠️ 但**四个探针的数字仍然可用**：benchmark 的帧边界是绑在 `on_flip` 上的回调，
+> 从回调 N 到 N+1 覆盖的正是"physics → redraw → on_draw → flip"一整个将来帧，
+> 所以四项相加与帧时间是同向的（残差实测只有 0.1~0.3ms）。
+> 错的是**命名与叙述**，不是那四个数。
 
 ### 2.2 统计量
 

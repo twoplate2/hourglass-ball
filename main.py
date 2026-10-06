@@ -3373,6 +3373,19 @@ class HourglassWidget(Widget):
         source_speed = 60.0 * motion_scale
         source_speed_squared = source_speed * source_speed
         lower_cut = self._lower_ball_cut
+        # ★ **收缩饱和阈值**(2026-10-06, 外部评审 §4.2 提出, 我验算过推导):
+        #   `target = sqrt(v0 / sqrt(v0² + 2gb))`, 钳到 `m = FLOW_SHRINK_MIN`。
+        #   `target <= m  ⟺  v0 / sqrt(v0²+2gb) <= m²  ⟺  sqrt(v0²+2gb) >= v0/m²
+        #                ⟺  v0² + 2gb >= v0²/m⁴  ⟺  b >= v0²(m⁻⁴ - 1) / (2g)`
+        #   ⇒ 一旦 `below_tube` 越过 `b_sat`, 后面两次 `sqrt` 全是白算(结果恒为 m)。
+        #   本帧的 `g_abs` / `source_speed` 是常量 ⇒ `b_sat` 每帧只算一次。
+        #   落程越长饱和占比越高(长周期档几乎全程饱和)。
+        #   ⚠️ 阈值附近有浮点舍入差 ⇒ 在 `b_sat` 附近留一小段**回退原式**的缓冲带,
+        #      并且必须用 `tools/_probe_shrink_equiv.py` 做逐点数值对照, 不许口头说"等价"。
+        _m4 = FLOW_SHRINK_MIN ** -4.0
+        b_sat = (source_speed * source_speed * (_m4 - 1.0) / (2.0 * g_abs)
+                 if g_abs > 0.0 and 0.0 < FLOW_SHRINK_MIN < 1.0 else -1.0)
+        SAT_GUARD = 1.0        # 缓冲带(px): [b_sat - SAT_GUARD, b_sat) 仍走原式
         lower_top = self._lower_sand_top
         lower_center = self._lower_y_c
         sand_half_w = self._sand_half_w
@@ -3471,13 +3484,16 @@ class HourglassWidget(Widget):
                     shrink = 1.0
                 else:
                     below_tube = lower_cut - y
-                    # ★ `** 0.5` → `sqrt`(2026-10-06 性能): 两处操作数都**非负**
-                    #   ⇒ 逐字等价, 而 CPython 里 `**0.5` 走 `pow`、明显慢于 `math.sqrt`。
-                    #   这是**每颗粒每帧两次**, 峰值 1540 颗粒 ⇒ ~3080 次/帧。
-                    v_at_y = sqrt(source_speed_squared + 2 * g_abs * below_tube)
-                    target = sqrt(source_speed / v_at_y)
-                    if target <= FLOW_SHRINK_MIN:
+                    if below_tube >= b_sat + SAT_GUARD:
+                        # 已在饱和区: 原式恒等于 FLOW_SHRINK_MIN ⇒ 两次 sqrt 全省。
                         target = FLOW_SHRINK_MIN
+                    else:
+                        # ★ `** 0.5` → `sqrt`: 两处操作数都**非负** ⇒ 逐字等价,
+                        #   而 CPython 里 `**0.5` 走 `pow`、明显慢于 `math.sqrt`。
+                        v_at_y = sqrt(source_speed_squared + 2 * g_abs * below_tube)
+                        target = sqrt(source_speed / v_at_y)
+                        if target <= FLOW_SHRINK_MIN:
+                            target = FLOW_SHRINK_MIN
                     # 平滑过渡区长度(px)
                     if below_tube < 40.0:
                         shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
@@ -4036,14 +4052,21 @@ class HourglassWidget(Widget):
         self._upper_rough_cache_t = t
         return out
 
-    def _upper_rough_at(self, index, height):
+    def _upper_rough_at(self, index, height, arr=None):
         """上球第 index 个节点的粗糙偏移(已乘"随沙量出现/收敛"的包络)。
 
         包络按评审 §4.3: `e(q) = smoothstep(0,0.015,q) × [1-smoothstep(0.97,1,q)]`,
         q 用"平顶等效高度占球高之比"代理(与目标面积占比单调同向)。
         ⇒ 满球(无自由面)和空球两端自动收敛成平面, 少量沙不会先长出几根尖刺。
+
+        ★ **`arr` 可选传入**(2026-10-06 性能): 本帧的粗糙数组对**所有调用方都是同一份**
+        (见 `_upper_rough_now` 的缓存), 而在**循环里**逐点调用时每点都要重走一遍
+        `getattr(...) == t` 的缓存判定。峰值实测 `_upper_rough_at` **940 次/帧**,
+        其中大头是面积求解 `_upper_area` 的 65 点循环 × 求解器每帧 8~12 次迭代。
+        调用方在循环外取一次 `arr` 传进来即可 —— **公式一个字没改**(仍然只有这一份)。
         """
-        arr = self._upper_rough_now()
+        if arr is None:
+            arr = self._upper_rough_now()
         if not arr or index >= len(arr):
             return 0.0
         # 🔴 **包络每帧只算一次**(2026-10-06 性能)。`env` 只跟 `height` 走, 而一帧里
@@ -4090,11 +4113,13 @@ class HourglassWidget(Widget):
         n = MOUND_SHAPE_NODES - 1
         w = 2.0 * Ri / n
         area = deriv = 0.0
+        rough = self._upper_rough_now()      # ← 循环外取一次(见 `_upper_rough_at` 的 `arr` 说明)
+        rough_at = self._upper_rough_at
         for i in range(n + 1):
             dx = -Ri + w * i
             floor = Ri - math.sqrt(max(0.0, Ri * Ri - dx * dx))
             roof = 2.0 * Ri - floor
-            y = level - self._upper_surface_drop(dx, d, b) + self._upper_rough_at(i, level)
+            y = level - self._upper_surface_drop(dx, d, b) + rough_at(i, level, rough)
             if y <= floor:
                 continue
             if y >= roof:
