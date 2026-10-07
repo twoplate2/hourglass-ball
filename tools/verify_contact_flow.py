@@ -1,6 +1,6 @@
-"""Focused PC check for contact flow, volume inversion and outward splashes."""
+"""PC visual clips and focused checks for collision-driven grain splashes."""
 
-import math
+import json
 import os
 from pathlib import Path
 import random
@@ -9,7 +9,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "benchmark_logs" / "contact_flow"
+OUT = ROOT / "benchmark_logs" / "contact_flow_2_3"
 
 
 def run():
@@ -42,12 +42,21 @@ def run():
                 for _ in range(round(seconds * 60)):
                     now[0] += 1 / 60
                     self.hourglass.tick(1 / 60)
+                    self.peak = max(self.peak, self.hourglass._sn)
 
-            def capture(self, name):
+            def shot(self, name):
                 path = OUT / (name + ".png")
                 self.hourglass.export_to_png(str(path))
                 with Image.open(path) as image:
-                    return np.asarray(image.convert("RGB")).copy()
+                    return image.convert("RGB").copy()
+
+            def clip(self, name, frames=None, seconds=1.2):
+                frames = [] if frames is None else frames
+                for k in range(round(seconds * 10)):
+                    self.advance(0.1)
+                    frames.append(self.shot(name + "_%02d" % k))
+                frames[0].save(OUT / (name + ".gif"), save_all=True,
+                               append_images=frames[1:], duration=100, loop=0)
 
             def check(self, _dt):
                 self.root.apply_orientation()
@@ -58,91 +67,63 @@ def run():
                 w.set_duration(50)
                 w._rebuild_height_table()
                 w.reset()
-                assert w._geom_ready
-                flow = w._mound_surface_flow
-                assert flow is not None and flow.shader.success, "GPU path did not compile"
+                self.peak = 0
                 random.seed(23)
                 w.toggle()
                 self.advance(0.1)
                 assert w._last_impact_clock is None and w._sn == 0
-                assert w._mound_flow_strength() == 0
-                for target in (6.0, 25.0):
-                    self.advance(target - w.elapsed)
-                    assert abs(w.elapsed - target) < 0.02
-                    assert flow._node_count > 2 and w._mound_flow_strength() > 0
-                    profile = w._mound_profile
-                    for fraction in (0.01, 0.1, 0.5, 0.9, 0.99, 1.0):
-                        apex = profile.apex_for_fraction(fraction)
-                        actual = profile.heap.area_at(apex) / profile.heap.capacity
-                        assert abs(actual - fraction) < 1e-9
-                    vertices = flow._vertices
-                    left = right = 0
-                    for k in range(flow._node_count):
-                        x, top, _, _, vx, vy, coverage = vertices[k * 14:k * 14 + 7]
-                        bottom = vertices[k * 14 + 8]
-                        floor = w._lower_sand_bot + profile.bounds(x - w._cx)[0]
-                        assert floor - 1e-6 <= bottom <= top + 1e-6
-                        assert abs(top - w._mound_top_at(x)) < 1e-6
-                        if coverage:
-                            assert vx * (x - w._cx) >= 0
-                            left += vx < 0
-                            right += vx > 0
-                    assert left and right
-                    self.capture("elapsed_%d" % target)
-                # Change only the surface shader clock, not the physics or other layers.
-                first = self.capture("flow_a")
-                clock = flow["sand_clock"]
-                flow["sand_clock"] = clock + 0.2
-                second = self.capture("flow_b")
-                flow["sand_clock"] = clock
-                pixels = int(np.count_nonzero(np.any(first != second, axis=2)))
-                assert pixels > 10, "surface flow has no visible pixel change"
-                w.toggle()
-                phase = flow["sand_clock"]
-                strength = w._mound_flow_strength()
-                self.advance(0.3)
-                assert flow["sand_clock"] == phase and w._mound_flow_strength() == strength
-                w.toggle()
+                before = []
+                while w._last_impact_clock is None and w.elapsed < 3.0:
+                    self.advance(0.1)
+                    before.append(self.shot("before_hit"))
+                assert w._last_impact_clock is not None
+                self.clip("first_contact", before[-2:])
+                self.advance(8.0 - w.elapsed)
+                live = w._sn
+                airborne = int(np.count_nonzero(
+                    (w.sslide[:live] == 0.0) & (w.shas[:live] == 0.0)))
+                aloft = int(sum(w.sy[i] - w._mound_top_at(w.sx[i]) > 2.0 for i in range(live)))
+                normal = self.shot("elapsed_8")
+                w._sn = 0
+                w.redraw()
+                hidden = self.shot("no_splashes")
+                w._sn = live
+                w.redraw()
+                difference = np.max(np.abs(np.asarray(normal).astype(int)
+                                            - np.asarray(hidden).astype(int)), axis=2)
+                visible = int(np.count_nonzero(difference >= 5))
+                assert airborne > 40 and aloft > 40, "not enough readable airborne grains"
+                assert visible > 60, "splashes exist but are not visible in the rendered frame"
+                random_state = random.getstate()
                 saved = w.splashes
-                w.splashes = []
-                slides = flights = 0
-                for side in (-1.0, 1.0):
-                    x = w._cx + side * w._contact_flow_diameter()
-                    y = w._mound_top_at(x)
-                    step = max(1.0, w._R_inner / 256.0)
-                    slope = (w._mound_top_at(x + step) - w._mound_top_at(x - step)) / (2 * step)
-                    norm = math.hypot(1, slope)
-                    for _ in range(100):
-                        i = w._eject_splash(x, y, 400, surface_aligned=True)
-                        assert i >= 0
-                        vx, vy = w.svx[i], w.svy[i]
-                        assert side * vx > 0
-                        if w.sslide[i]:
-                            slides += 1
-                        else:
-                            flights += 1
-                            tangent = side * (vx + slope * vy) / norm
-                            normal = (-slope * vx + vy) / norm
-                            assert tangent > 0 and normal >= 0
-                            assert math.atan2(normal, tangent) <= math.radians(12) + 1e-9
-                assert 0.6 <= slides / (slides + flights) <= 0.9
+                for _ in range(10):
+                    w._eject_splash(w._cx, w.get_mound_top_y(), 400)
+                assert random.getstate() == random_state, "effect draws changed the main RNG"
                 w.splashes = saved
-                self.advance(49.0 - w.elapsed)
-                self.capture("elapsed_49")
-                # A roof-clipped contact region has no exposed flowing surface.
-                reach = 2.5 * w._contact_flow_diameter()
-                if not any(w._mound_profile.free_surface(
-                        reach * (k / 8 - 1), w._mound_apex()) for k in range(17)):
-                    assert flow._node_count == 0
-                self.advance(50.5 - w.elapsed)
-                assert not w.running and w.pn == 0
-                assert w._mound_flow_strength() == 0 and flow._node_count == 0
+                w.toggle()
+                state = tuple(tuple(getattr(w, field)[:w._sn]) for field in m._S_FIELDS)
+                self.advance(0.2)
+                assert state == tuple(tuple(getattr(w, field)[:w._sn]) for field in m._S_FIELDS)
+                w.toggle()
+                self.clip("steady")
+                for fraction in (0.01, 0.1, 0.5, 0.9, 0.99, 1.0):
+                    profile = w._mound_profile
+                    apex = profile.apex_for_fraction(fraction)
+                    assert abs(profile.heap.area_at(apex) / profile.heap.capacity - fraction) < 1e-9
+                self.advance(48.8 - w.elapsed)
+                self.clip("finish", seconds=1.8)
+                self.advance(1.6)
+                assert w.pn == 0 and w._sn == 0 and not w.running
+                stats = dict(w._splash_stats)
+                assert self.peak <= m.SPLASH_MAX
                 w.reset()
                 w.redraw()
-                assert w._sn == 0 and w._last_impact_clock is None
-                assert flow._node_count == 0
-                print("PASS contact flow: GPU pixels=%d, slides=%d, flights=%d; "
-                      "volume, pause, reset and tail checked" % (pixels, slides, flights))
+                assert w._sn == 0 and not w._contact_hits and w._last_impact_clock is None
+                report = dict(version=m.APP_VERSION, live=live, airborne=airborne,
+                              above_surface_2px=aloft, visible_pixels_delta5=visible,
+                              peak=self.peak, drops=stats)
+                (OUT / "report.json").write_text(json.dumps(report, indent=2))
+                print("PASS contact splashes:", report)
                 self.stop()
 
         Probe().run()

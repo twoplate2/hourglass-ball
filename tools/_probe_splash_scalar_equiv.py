@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""飞溅积分器: **numpy 向量化版 vs 标量兜底版** 的逐位等价守卫。
+"""飞溅积分器: numpy 向量化版与标量兜底版的数值一致性检查。
 
 ## 为什么不能用"跑一遍 `_np = None`"来验
 
@@ -9,13 +9,14 @@
 粒子, 与飞溅无关。**这是项目既有的性质, 不是本次改动引入的。**
 
 所以本脚本把两个积分器**单独拎出来对拍**: 同一个状态、同一组参数, 各跑一次,
-比对结果数组的**每一个 bit**。
+比对存活数与结果数组, 绝对容差 1e-9 个绘制单位。
+短跳/滚落使用 exp/log 积分, NumPy 与 libm 允许末位舍入差, 不要求逐位相同。
 
 ## 跑法
 
     python tools/_probe_splash_scalar_equiv.py [周期=15] [预热秒=6] [帧数=60]
 
-退出码 0 = 逐位一致。
+退出码 0 = 在容差内一致。
 """
 import os
 import sys
@@ -115,16 +116,20 @@ def run():
                     b_n = w._sn
                     b_val = [list(getattr(w, nm)[:b_n]) for nm in fields]
                     state["frames"] += 1
-                    if a_n != b_n or a_val != b_val:
+                    import numpy as np
+                    equal = a_n == b_n and all(
+                        np.allclose(va, vb, rtol=0.0, atol=1e-9)
+                        for va, vb in zip(a_val, b_val))
+                    if not equal:
                         state["bad"] += 1
                         if state["first"] is None:
                             if a_n != b_n:
                                 state["first"] = ("存活数", a_n, b_n)
                             else:
                                 for nm, va, vb in zip(fields, a_val, b_val):
-                                    if va != vb:
+                                    if not np.allclose(va, vb, rtol=0.0, atol=1e-9):
                                         for k in range(len(va)):
-                                            if va[k] != vb[k]:
+                                            if abs(va[k] - vb[k]) > 1e-9:
                                                 state["first"] = (nm, k, va[k], vb[k])
                                                 break
                                         break
@@ -140,7 +145,7 @@ def run():
         if state["frames"] == 0:
             print("!! 一帧都没比到 —— 这个『通过』不算数")
             return 1
-        print("==> 两条路径", "有差异" if state["bad"] else "逐位一致")
+        print("==> 两条路径", "有差异" if state["bad"] else "数值一致(绝对容差 1e-9)")
         return 1 if state["bad"] else 0
 
 

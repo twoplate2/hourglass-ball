@@ -17,6 +17,7 @@ import os
 import random
 import struct
 from array import array
+from collections import deque
 from bisect import bisect_left as _bisect_left
 from bisect import bisect_right, insort as _insort   # 面积表求逆 / 沙堆节点插入
 import sys
@@ -39,7 +40,9 @@ _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt",
 # "从下标 n0 起"打标, 隔若干帧再按标记读回来。**原来那些探针靠 dict 的 `id()`/对象同一性
 # 跨帧认人, 换成数组后那条路断了** —— 用这个字段代替。
 _S_FIELDS = ("sx", "sy", "svx", "svy", "sgd", "shw", "shh",
-             "srest", "sstill", "shas", "sdt", "stag", "sslide")
+             "srest", "sstill", "shas", "sdt", "stag", "sslide",
+             "sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh")
+_S_MOTION_FIELDS = ("sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh")
 # 向量化的固定开销(每个桶一次 np.array/argsort/bincount, 每次 numpy 调用 ~5-20µs)
 # 在粒子少时会盖过 O(pn) 循环省下的时间。设备实测: 1 秒档(约 278 颗)打包+分组
 # 反而慢 0.92ms, 5 秒档(约 1695 颗)才转正。阈值取两者之间, 低于它走原标量路径。
@@ -2971,6 +2974,10 @@ class HourglassWidget(Widget):
         self._bg_splash_acc = 0.0
         self._mound_flow_clock = 0.0
         self._first_impact_clock = self._last_impact_clock = None
+        self._contact_hits = deque(maxlen=256)
+        self._effect_random = None
+        self._splash_stats = dict.fromkeys(
+            ("born_air", "born_roll", "pool_full", "settled", "glass", "reentered", "expired"), 0)
         self.flares = []
         self.dusts = []
         self.mound_peak_offset = 0.0
@@ -3656,6 +3663,9 @@ class HourglassWidget(Widget):
         self._bg_splash_acc = 0.0
         self._mound_flow_clock = 0.0
         self._first_impact_clock = self._last_impact_clock = None
+        self._contact_hits.clear()
+        self._effect_random = None
+        self._splash_stats = dict.fromkeys(self._splash_stats, 0)
         self._sn = 0                  # 飞溅: 只改存活数, 数组不必清(存活数之外无意义)
         self.flares = []
         self.dusts = []
@@ -4293,6 +4303,10 @@ class HourglassWidget(Widget):
         self.sstill[i] = 0.0
         self.shas[i] = 0.0
         self.sslide[i] = 0.0
+        self.sside[i] = 1.0 if vx >= 0.0 else -1.0
+        self.sdist[i] = self.sage[i] = self.sbounce[i] = self.saway[i] = 0.0
+        self.svariant[i] = 1.0
+        self.srw[i], self.srh[i] = hw, hh
         self.stag[i] = 0.0         # 取证探针的标记位(默认空)
         self.sdt[i] = 0.0          # 由调用方按需覆盖成"帧内偏步长"
         self._sn = i + 1
@@ -4336,6 +4350,7 @@ class HourglassWidget(Widget):
                 d["_tag"] = tag
             if self.sslide[i]:
                 d["_contact_slide"] = True
+            d["_motion_state"] = tuple(float(getattr(self, name)[i]) for name in _S_MOTION_FIELDS)
             out.append(d)
         return out
 
@@ -4362,6 +4377,9 @@ class HourglassWidget(Widget):
                 self.stag[i] = float(d["_tag"])
             if d.get("_contact_slide"):
                 self.sslide[i] = 1.0
+            if "_motion_state" in d:
+                for name, value in zip(_S_MOTION_FIELDS, d["_motion_state"]):
+                    getattr(self, name)[i] = value
 
     def _p_refresh_view(self):
         """数组 -> `_pv`(Python list 快照)。每帧调一次, 并让 dict 缓存失效。
@@ -4534,6 +4552,7 @@ class HourglassWidget(Widget):
             x = float(px[i])
             vy = float(pvy[i])
             step_dt = float(pdt[i])
+            self._contact_hits.append((self._mound_flow_clock, x, -vy))
             hy = None
             if rand() < 0.25:
                 hy = _hit_hy(k, x)
@@ -4549,72 +4568,64 @@ class HourglassWidget(Widget):
                 if sp >= 0:                      # -1 = 撞上存活上限, 没生成(见 SPLASH_MAX)
                     self.sdt[sp] = step_left if step_left > 0 else 0
 
-    def _eject_splash(self, x, y_surface, v_impact, surface_aligned=False):
-        """真实碰撞与落点补充共用的效果模型, 不额外计入沙量。
+    def _splash_random(self):
+        if self._effect_random is None:
+            self._effect_random = random.Random()
+            self._effect_random.setstate(random.getstate())
+        return self._effect_random
 
-        约 75% 贴坡滑落, 其余相对向外切线以 5–12 度离坡; 法向能量限制跳起高度。
-        随机调用保持原顺序: 速度 → 方向 → 角度 → 尺寸 → 重力。
-        `surface_aligned=False` 保留旧的自由出射路径, 仅供兼容调用。
-        """
-        v_impact = v_impact if v_impact > 0.0 else 0.0
-        # 尺寸随**画布**缩放(桌面参考半径 ≈140px) ⇒ 设备上不再细成 1/3 大小
-        _px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
-        b = v_impact * random.uniform(SPLASH_SPEED_LO, SPLASH_SPEED_HI) * SPLASH_GAIN
-        # 出射角: **避开竖直**(见 `SPLASH_ANGLE_MIN` 处注释 —— 离竖直 <14° 会读成"原地蹦")
-        ang = random.choice((-1.0, 1.0)) * random.uniform(SPLASH_ANGLE_MIN, SPLASH_ANGLE_MAX)
-        # ⚠️ **随机数调用顺序**必须与原来那个 dict 字面量的**求值顺序**逐字一致:
-        #    uniform(SPD) → choice(±1) → uniform(ANG) → choice(SIZE) → uniform(GRAV)。
-        #    dict 字面量的值是按源码顺序求值的, 所以 `_sz` 那一行必须夹在 `b`/`ang`
-        #    之后、`_gd` 之前 —— 挪一下就会让此后所有随机数错位。
-        _sz = tuple(round(_k * _px) for _k in random.choice(SPLASH_SIZE_MIX))
-        _gd = random.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)   # 这颗自己的重力倍率
-        # ⚠️ **存活上限判定必须放在这 5 次随机调用之后**: 提前 return 会改变随机数流,
-        #    此后整幅画面都变(项目里那条通用铁律)。抽完不追加, 流一字不动 ✓
-        #    返回 -1 表示"没生成", 调用方必须判 `>= 0` 再写 `sdt`(否则会写到 `sdt[-1]`)。
+    def _eject_splash(self, x, y_surface, v_impact, surface_aligned=True):
+        """真实碰撞和补充共用低能量出射; 不增加沙量, 不预定贴坡比例。"""
+        rng = self._splash_random()
+        squeeze = rng.uniform(0.18, 0.28)
+        direction = rng.choice((-1.0, 1.0))
+        sample = rng.random()
+        px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
+        size = tuple(round(k * px) for k in rng.choice(SPLASH_SIZE_MIX))
+        gd = rng.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)
         if SPLASH_MAX and self._sn >= SPLASH_MAX:
+            self._splash_stats["pool_full"] += 1
             return -1
-        vx, vy = math.sin(ang) * b, abs(math.cos(ang)) * b
-        if surface_aligned:
-            step = max(1.0, self._R_inner / 256.0)
-            slope = (self._mound_top_at(x + step) - self._mound_top_at(x - step)) / (2.0 * step)
-            side = (1.0 if x > self._cx else -1.0 if x < self._cx
-                    else 1.0 if ang > 0.0 else -1.0)
-            selection = (abs(ang) - SPLASH_ANGLE_MIN) / max(
-                1e-6, SPLASH_ANGLE_MAX - SPLASH_ANGLE_MIN)
-            norm = math.sqrt(1.0 + slope * slope)
-            if selection < 0.75:
-                vx = side * b / norm
-                i = self._s_append(x, y_surface, vx, slope * vx,
-                                   _sz[0] * 0.5, _sz[1] * 0.5, _gd)
-                self.sslide[i] = 1.0
-                self.srest[i] = max(0.0, SPLASH_REST_LIFE - 0.24)
-                return i
-            elevation = math.radians(5.0 + 7.0 * (selection - 0.75) / 0.25)
-            scale = self._particle_motion_scale
-            gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
-                               else scale ** SPLASH_G_SCALE) * _gd
-            tangent_speed = b * math.cos(elevation)
-            # 限制离坡的法向能量, 不把沿坡下降误当成向上喷射。
-            normal_speed = min(b * math.sin(elevation), math.sqrt(
-                2.0 * gravity / norm * 0.25 * self._contact_flow_diameter()))
-            vx = (side * tangent_speed - slope * normal_speed) / norm
-            vy = (side * slope * tangent_speed + normal_speed) / norm
-        jet = self._splash_jet_bounds()
-        if jet is not None and vx * (x - self._cx) < 0.0:
-            radius, low, high = jet
-            distance = abs(x - self._cx) - radius - _sz[0] * 0.5
-            if distance > 0.0:
-                time_to_jet = distance / max(1e-6, abs(vx))
-                scale = self._particle_motion_scale
-                gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
-                                   else scale ** SPLASH_G_SCALE) * _gd
-                y_cross = (y_surface + SPLASH_LIFT_PX + vy * time_to_jet
-                           - 0.5 * gravity * time_to_jet * time_to_jet)
-                if low < y_cross < high:
-                    vx = -vx
-        return self._s_append(x, y_surface + SPLASH_LIFT_PX,
-                              vx, vy,
-                              _sz[0] * 0.5, _sz[1] * 0.5, _gd)
+        profile = self._mound_profile
+        if profile is None:
+            return -1
+        height, free, thick = profile.column(x - self._cx, self._mound_apex())
+        if not free and thick > 0.0:
+            return -1
+        y_surface = self._lower_sand_bot + height
+        step = max(self._R_inner * 2.0 / (CONTACT_TABLE_N - 1), sum(size) * 0.5)
+        slope = (self._mound_top_at(x + step) - self._mound_top_at(x - step)) / (2.0 * step)
+        norm = math.hypot(1.0, slope)
+        diameter = self._contact_flow_diameter()
+        side = direction if abs(x - self._cx) < 0.1 * diameter else (1.0 if x > self._cx else -1.0)
+        tx, ty = side / norm, side * slope / norm
+        nx, ny = -slope / norm, 1.0 / norm
+        impact = max(0.0, v_impact)
+        normal_in, tangent_in = impact * ny, max(0.0, -impact * ty)
+        hw, hh = size[0] * 0.5, size[1] * 0.5
+        support = abs(nx) * hw + ny * hh
+        u = 0.40 * tangent_in + squeeze * normal_in * min(1.0, thick / max(1.0, size[1]))
+        scale = self._particle_motion_scale
+        gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
+                           else scale ** SPLASH_G_SCALE) * gd
+        roof = self._lower_sand_bot + profile.bounds(x - self._cx)[1]
+        clearance = max(0.0, (roof - y_surface - 2.0 * support * norm) / norm)
+        w = min((0.04 + 0.26 * sample * sample) * normal_in,
+                math.sqrt(2.0 * gravity * ny * min(0.35 * diameter, clearance)))
+        energy_scale = min(1.0, 0.5 * impact / max(1e-9, math.hypot(u, w)))
+        u, w = u * energy_scale, w * energy_scale
+        pixel = getattr(self, "_splash_pixel", 1.0)
+        hop = w * w / max(1e-9, 2.0 * gravity * ny) >= max(0.5 * pixel, 0.35 * support)
+        if not hop:
+            w = 0.0
+        lift = support + 0.05 * pixel
+        i = self._s_append(x + nx * lift, y_surface + ny * lift,
+                           u * tx + w * nx, u * ty + w * ny, hw, hh, gd)
+        self.sside[i] = side
+        self.svariant[i] = 0.85 + 0.30 * sample
+        self.sslide[i] = 0.0 if hop else 1.0
+        self._splash_stats["born_air" if hop else "born_roll"] += 1
+        return i
 
     def _splash_jet_bounds(self):
         if self.pn <= 0:
@@ -4628,6 +4639,31 @@ class HourglassWidget(Widget):
         high = 2.0 * self._neck_y - self._taper["y_bot"]
         self._splash_jet_cache = radius, low, high
         return self._splash_jet_cache
+
+    def _splash_jet_rows(self):
+        cached = getattr(self, "_splash_rows_cache", None)
+        if cached is not None:
+            return cached
+        if self.pn <= 0:
+            return None
+        low = float(min(self.py[:self.pn]))
+        high = 2.0 * self._neck_y - self._taper["y_bot"]
+        inv = 32.0 / max(1e-6, high - low)
+        if _np is None:
+            left, right = [float("inf")] * 32, [float("-inf")] * 32
+            for i in range(self.pn):
+                row = min(31, max(0, int((self.py[i] - low) * inv)))
+                half = 0.5 * self.psz[i]
+                left[row] = min(left[row], self.px[i] - half)
+                right[row] = max(right[row], self.px[i] + half)
+        else:
+            left, right = _np.full(32, _np.inf), _np.full(32, -_np.inf)
+            row = _np.clip(((self.py[:self.pn] - low) * inv).astype(_np.intp), 0, 31)
+            half = self.psz[:self.pn] * 0.5
+            _np.minimum.at(left, row, self.px[:self.pn] - half)
+            _np.maximum.at(right, row, self.px[:self.pn] + half)
+        self._splash_rows_cache = low, high, inv, left, right
+        return self._splash_rows_cache
 
     def _splash_uniform_half(self):
         """全场同尺寸时给批处理渲染器返回 `(half_w, half_h)`, 否则 `None`。
@@ -4654,312 +4690,64 @@ class HourglassWidget(Widget):
     def _update_splashes(self, dt, g_splash, g_abs, ctab, ctab_n, ctab_r, ctab_inv,
                          mound_bot, lower_center, lower_bot, lower_top,
                          cx, Ri2, profile, apex):
-        """飞溅积分 —— **并行数组 + numpy 掩码**, 与原逐颗循环逐句等价。
-
-        ## 为什么
-
-        `@splash_loop` 设备实测 **1.6~2.0ms/帧**(~1700 颗, 0.9µs/颗), 是 `update_particles`
-        里最大的一块。拆开量过: 其中 **86% 是 Python 解释器的算术与分支**, 只有 14% 是 dict
-        查找(只换 `__slots__` 容器只快 13.8%) ⇒ **必须向量化**, 而向量化要求并行数组。
-
-        ## 逐条等价(每一条都是踩过或量过的, 别"化简")
-
-        - 结合律: 原式 `y + vy*dt + 0.5*g*dt*dt` 是**扁平左结合链**
-          `((y + (vy*dt)) + (((0.5*g)*dt)*dt))`。numpy 同序 OK。
-          **不要**照抄 `flow_numpy.py` 顶部那条"多项相加必须显式加括号"的规则 ——
-          那条是给粒子的 `+=` 写的; 飞溅是扁平链, 抄错实测 **24.9% 的样本差 1 ULP**。
-        - `0.5 * _g * dt * dt` 里的 `_g` 必须是**先算好的数组**(标量版先 `g_splash*gd`
-          再乘 0.5), 写成 `0.5*g_splash*sgd*...` 会多一次舍入。
-        - `int(z)` 是**向零截断** => 用 `np.trunc`, 不用 `np.floor`
-          (`z` 落在 (-1,0) 时两者差一格表步长)。
-        - 坡角取的是**相对中轴**的 `x - cx`, **不是绝对 x**。用错会让整个滑动支失效。
-        - `_still` 的**存在性**用独立的 `shas` 标志, 不能用值判 `> 0`
-          (`0.0` 是合法的"已停稳"值; 用值判会让它被当活跃颗粒重新积分 => 坡面二次下滑)。
-        - 所有 `continue` 都写成"**不满足才剔除**"(`~(A|B)`), NaN 时比较为 False => 保留,
-          与标量 `if cond: continue` 同。
-        - **停稳分支会跳过后面全部判定**(含末段剔除) => `out_ball` / `drop` 都要被 `act`
-          掩掉, 否则停稳颗粒会被误剔。
-        - 压实用布尔掩码 gather, **保序** => 与原 `append_splash_keep` 的顺序一致。
-        - **不要在这里重铺 `sdt`** —— 帧内新生颗粒的"偏步长"由调用方在循环**之前**
-          写好了, 重铺会把它冲掉。
-        - 已知差异(记录在案): `z` 若为 NaN/inf, 标量版会在 `int()` 当场抛, 这里先 `clip`
-          再 `trunc`, 会静默走到表首/表尾那两支。出货路径上不出现(NaN 本来就该是 bug)。
-        """
-        n = self._sn
-        if n == 0:
-            return
-        np = _np
-        if np is None:
+        """向量化短跳与滚落; 标量路径使用同一接触表和参数。"""
+        if _np is None:
             self._update_splashes_scalar(dt, g_splash, g_abs, ctab, ctab_n, ctab_r,
                                          ctab_inv, mound_bot, lower_center, lower_bot,
                                          lower_top, cx, Ri2, profile, apex)
             return
-        sy = self.sy[:n]
-        svy = self.svy[:n]
-        sx = self.sx[:n]
-        svx = self.svx[:n]
-        gd = self.sgd[:n]
-        rest = self.srest[:n]
-        still = self.sstill[:n]
-        has = self.shas[:n]
-        sdt = self.sdt[:n]
-
-        # ---- 1) 已停稳: 只推进计时, 不积分、不做任何其它判定 ----
-        is_still = has != 0.0
-        act = ~is_still
-        ns = still + sdt
-        die_still = is_still & (ns > SPLASH_STILL_LIFE)
-        if is_still.any():
-            si = np.flatnonzero(is_still)
-            still[si] = ns[si]
-
-        # ---- 2) 积分(仅活跃行) ----
-        sg = g_splash * gd
-        y2 = sy + svy * sdt + 0.5 * sg * sdt * sdt
-        vy2 = svy + sg * sdt
-        x2 = sx + svx * sdt
-        ai = np.flatnonzero(act)
-        if ai.size:
-            sy[ai] = y2[ai]
-            svy[ai] = vy2[ai]
-            sx[ai] = x2[ai]
-
-        # ---- 3) 球内剔除(仅活跃行) ----
-        dyv = y2 - lower_center
-        rxs = x2 - cx
-        _a = np.where(rxs > 0.0, rxs + 1.0, 1.0 - rxs)
-        out_ball = ((_a * _a + dyv * dyv) > Ri2) & act
-
-        # ---- 4) 接触 + 贴坡 ----
-        die_stop = np.zeros(n, dtype=bool)
-        die_slide = np.zeros(n, dtype=bool)
-        if ctab is not None:
-            tab = np.asarray(ctab)
-            zz = (rxs + ctab_r) * ctab_inv
-            _zc = np.clip(zz, -1099511627776.0, 1099511627776.0)
-            ii = np.trunc(_zc).astype(np.int64)
-            ic = np.clip(ii, 0, ctab_n - 2)
-            a0 = tab[ic]
-            a1 = tab[ic + 1]
-            surf = mound_bot + a0 + (a1 - a0) * (zz - ic.astype(np.float64))
-            surf = np.where(ii < 0, mound_bot + tab[0],
-                            np.where(ii >= ctab_n - 1, mound_bot + tab[ctab_n - 1], surf))
-            attached = (self.sslide[:n] != 0.0) & act
-            hitm = act & ~out_ball & (((vy2 < 0.0) & (y2 <= surf)) | attached)
-            if hitm.any():
-                hi = np.flatnonzero(hitm)
-                sy[hi] = surf[hi]
-                svy[hi] = 0.0
-                self.sslide[hi] = 1.0
-                rest[hi] = rest[hi] + sdt[hi]
-                avx = np.abs(svx)
-                stopm = hitm & (avx < SPLASH_MIN_VX)
-                slidm = hitm & ~(avx < SPLASH_MIN_VX)
-                if stopm.any():
-                    pi = np.flatnonzero(stopm)
-                    svx[pi] = 0.0
-                    still[pi] = still[pi] + sdt[pi]
-                    has[pi] = 1.0
-                    die_stop = stopm & (still > SPLASH_STILL_LIFE)
-                if slidm.any():
-                    gi = np.flatnonzero(slidm)
-                    if SPLASH_SLOPE_GAIN > 0.0:
-                        for k in gi:
-                            _x = float(rxs[k])          # <- **相对中轴**, 不是绝对 x
-                            _slope = (profile.contact(_x + 2.0, apex)
-                                      - profile.contact(_x - 2.0, apex)) / (2.0 * 2.0)
-                            _sin_a = abs(_slope) / math.sqrt(1.0 + _slope * _slope)
-                            svx[k] += ((1.0 if _x >= 0.0 else -1.0)
-                                       * g_abs * _sin_a * SPLASH_SLOPE_GAIN * float(sdt[k]))
-                    kk = 1.0 - SPLASH_SLIDE_DAMP * sdt[gi]
-                    svx[gi] = svx[gi] * np.where(kk > 0.0, kk, 0.0)
-                    die_slide = slidm & (rest > SPLASH_REST_LIFE)
-
-        # ---- 5) 末段剔除(仅活跃行) + 压实 ----
-        drop = ((sy < lower_bot) | (sy > lower_top - 5.0)) & act
-        keep = ~(die_still | out_ball | drop | die_stop | die_slide)
-        jet = self._splash_jet_bounds()
-        if jet is not None:
-            radius, low, high = jet
-            in_jet = ((np.abs(sx - cx) < radius + self.shw[:n])
-                      & (sy > low) & (sy < high) & (self.sslide[:n] == 0.0) & act)
-            keep &= ~in_jet
-        if not keep.all():
-            new_n = int(np.count_nonzero(keep))
-            for name in _S_FIELDS:
-                arr = getattr(self, name)
-                arr[:new_n] = arr[:n][keep]
-            self._sn = new_n
+        self._step_contact_effects(ctab, ctab_r, ctab_inv, mound_bot, lower_center,
+                                   -g_splash, scalar=False)
 
     def _update_splashes_scalar(self, dt, g_splash, g_abs, ctab, ctab_n, ctab_r,
                                 ctab_inv, mound_bot, lower_center, lower_bot,
                                 lower_top, cx, Ri2, profile, apex):
-        """numpy 缺席时的兜底 —— 按下标直接读写那批数组。
+        """无 NumPy 时的同模型兜底。"""
+        self._step_contact_effects(ctab, ctab_r, ctab_inv, mound_bot, lower_center,
+                                   -g_splash, scalar=True)
 
-        慢(逐颗 Python 循环), 但 `_np is None` 在出货配置里不会发生(numpy 是硬依赖),
-        它只为"换后端也能跑"存在。**验法**: 把 `main._np` 打桩成 None 再跑
-        `tools/_splash_golden.py` —— 两条路径必须给出同一个指纹。
-        """
-        sx = self.sx
-        sy = self.sy
-        svx = self.svx
-        svy = self.svy
-        gd = self.sgd
-        rest = self.srest
-        still = self.sstill
-        has = self.shas
-        sdt = self.sdt
-        keep = []
+    def _step_contact_effects(self, table, radius, inv, bottom, center, gravity, scalar):
         n = self._sn
-        jet = self._splash_jet_bounds()
-        for i in range(n):
-            step_dt = sdt[i]
-            if has[i] != 0.0:
-                _v = still[i] + step_dt
-                if _v > SPLASH_STILL_LIFE:
-                    continue
-                still[i] = _v
-                keep.append(i)
-                continue
-            g = g_splash * gd[i]
-            vy0 = svy[i]
-            y = sy[i] + vy0 * step_dt + 0.5 * g * step_dt * step_dt
-            vy = vy0 + g * step_dt
-            x = sx[i] + svx[i] * step_dt
-            sy[i] = y
-            svy[i] = vy
-            sx[i] = x
-            dy = y - lower_center
-            rxs = x - cx
-            _a = rxs + 1.0 if rxs > 0.0 else 1.0 - rxs
-            if _a * _a + dy * dy > Ri2:
-                continue
-            if (vy < 0 or self.sslide[i] != 0.0) and ctab is not None:
-                _z = (rxs + ctab_r) * ctab_inv
-                _j = int(_z)
-                if _j < 0:
-                    _surf = mound_bot + ctab[0]
-                elif _j >= ctab_n - 1:
-                    _surf = mound_bot + ctab[ctab_n - 1]
-                else:
-                    _a0 = ctab[_j]
-                    _surf = mound_bot + _a0 + (ctab[_j + 1] - _a0) * (_z - _j)
-                if y <= _surf or self.sslide[i] != 0.0:
-                    sy[i] = _surf
-                    svy[i] = 0.0
-                    self.sslide[i] = 1.0
-                    rest[i] = rest[i] + step_dt
-                    _vx = svx[i]
-                    _avx = _vx if _vx >= 0.0 else -_vx
-                    if _avx < SPLASH_MIN_VX:
-                        svx[i] = 0.0
-                        _s = still[i] + step_dt
-                        still[i] = _s
-                        has[i] = 1.0
-                        if _s > SPLASH_STILL_LIFE:
-                            continue
-                    else:
-                        if SPLASH_SLOPE_GAIN > 0.0:
-                            _dd = 2.0
-                            _slope = (profile.contact(rxs + _dd, apex)
-                                      - profile.contact(rxs - _dd, apex)) / (2.0 * _dd)
-                            _sin_a = abs(_slope) / math.sqrt(1.0 + _slope * _slope)
-                            svx[i] += ((1.0 if rxs >= 0.0 else -1.0)
-                                       * g_abs * _sin_a * SPLASH_SLOPE_GAIN * step_dt)
-                        _k = 1.0 - SPLASH_SLIDE_DAMP * step_dt
-                        svx[i] = svx[i] * (_k if _k > 0.0 else 0.0)
-                        if rest[i] > SPLASH_REST_LIFE:
-                            continue
-            if sy[i] < lower_bot or sy[i] > lower_top - 5:
-                continue
-            if jet is not None and self.sslide[i] == 0.0:
-                radius, low, high = jet
-                if abs(sx[i] - cx) < radius + self.shw[i] and low < sy[i] < high:
-                    continue
-            keep.append(i)
-        m = len(keep)
-        if m != n:
+        if n == 0 or table is None:
+            return
+        from splash_motion import step
+        mask = step(self, table, radius, inv, bottom, center, gravity,
+                    max(1.0, self._particle_motion_scale),
+                    getattr(self, "_splash_pixel", 1.0), self._splash_jet_rows(), scalar)
+        keep = [i for i in range(n) if mask[i]] if scalar or _np is None else mask
+        count = len(keep) if isinstance(keep, list) else int(_np.count_nonzero(keep))
+        if count != n:
             for name in _S_FIELDS:
                 arr = getattr(self, name)
-                if m:
-                    arr[:m] = [arr[j] for j in keep]
-            self._sn = m
+                if _np is None:
+                    arr[:count] = [arr[i] for i in keep]
+                else:
+                    arr[:count] = arr[:n][keep]
+            self._sn = count
 
     def _spawn_bg_splashes(self, dt):
-        """真实碰撞后在落点附近补充效果, 与碰撞层共用预算上限和贴坡模型。"""
-        Ri = self._R_inner
-        if Ri <= 0 or self._last_impact_clock is None:
-            return
-        if self._mound_flow_clock - self._last_impact_clock >= 0.2:
-            return
-        rand_uniform = random.uniform      # 与粒子同一条随机数流(工程惯例, 便于复现)
-        # 本帧的锥面与锥顶只取一次(与下面 h 用的必须是同一份)
-        _prof = self._mound_profile
-        _apex = self._mound_apex()
-        # 数量轴见 `SPLASH_BG_RATE` / `SPLASH_BG_PER_PARTICLE` 两处注释。
-        # **默认是与周期无关的定率**(用户 2026-10-06 裁决); 非 0 时才会去乘在途粒子数。
-        _edge = self._mound_edge()
-        if _edge <= 1.0:                 # 沙堆还没成形(开局/刚重置) —— 没有沙面可打
-            # 🔴 **2026-10-06 修 burn**: 这一段原来是"先 `acc += dt*rate` 再 `acc -= k`
-            #    然后才 early-return" ⇒ 沙堆没成形那段时间**预算被扣掉丢掉**(不是攒着),
-            #    等于**变相让短周期变少** —— 实测烧掉 1s **29.6%** / 5s 19% / 15s 6.2%。
-            #    这与用户「和周期没有关系」直接冲突, 所以清零并**不累加**。
+        """复用近期真实撞击位置和速度, 不在整个坡上凭空生成效果。"""
+        hits = self._contact_hits
+        while hits and self._mound_flow_clock - hits[0][0] > 0.05:
+            hits.popleft()
+        if not hits:
             self._bg_splash_acc = 0.0
             return
-        # 水位(与周期无关): 见 `SPLASH_BG_RATE` / `SPLASH_BG_PER_PARTICLE` 处注释。
-        _rate = SPLASH_BG_PER_PARTICLE * self.pn if SPLASH_BG_PER_PARTICLE > 0 else SPLASH_BG_RATE
-        self._bg_splash_acc += dt * _rate
-        k = int(self._bg_splash_acc)
-        if k <= 0:
-            return
-        if k > 24:                       # 一帧最多补这么多, 防卡顿后一次性炸开
-            k = 24
-        self._bg_splash_acc -= k
-        append = self._s_append        # ⚠️ 不许 bind 成 `self.splashes.append` —— 那是 property,
-                                       #    每取一次都重建整个 dict 列表(而且 append 到临时对象上)
-        # 🔴🔴 **2026-10-06 用户实测: 「空中都开始掉了…本来是他妈的**溅到沙子上才开始掉的**」
-        #    ⇒ 「符合直觉 = 基础物理学」。**这一条是根本性的**:
-        #    改前 σ = `沙堆边缘/1.5`(实测 229px ⇒ σ=153px) ⇒ 飞溅被**沿整个沙堆表面**撒开,
-        #    **与"沙流打在哪里"没有任何因果关系** ⇒ 颗粒在远离落点的坡上凭空出现。
-        #    正解: **只在落点附近生成, 靠速度往外散** —— 沙是先砸到沙堆上才溅起来的。
-        #    σ 现在只跟**落点的尺度**走(取球内半径的一小部分), 与沙堆有多宽无关。
-        _g_abs = 450.0 * (self._particle_motion_scale ** 2)
-        gen_y = 2 * self._neck_y - self._taper['y_bot']       # 颈口出口
-        _sigma = max(2.0, self._R_inner * SPLASH_BG_SPRAY_FRAC)
-        _sig_max = _sigma * SPLASH_BG_EDGE_SIGMA      # 喷溅外沿 = 1.5σ(用户口径)
-        for _ in range(k):
-            mag = _inv_norm(rand_uniform(0.0, 1.0)) * _sigma
-            if abs(mag) > _sig_max:      # 喷溅外沿之外: 那颗沙没砸在这儿
-                continue
-            # ★ **先判 `has_sand` 再查接触高度**(2026-10-07 性能)。原来两句是反的:
-            #   `h = self._mound_contact_h(mag)` 先算完, 紧接着的 `has_sand` 一假就
-            #   `continue` —— **那颗的 h 白算了**。而 `_mound_contact_h` 是这一族里最贵的
-            #   (走 `geometry_at`, 设备实测 ~4.8µs/次)。两句都是纯函数、都不抽随机数,
-            #   循环顶上的 `rand_uniform` 一字未动 ⇒ **随机数序列与画面逐位不变**。
-            # 🔴 **不要把 `_prof is None or _apex <= 0.0` 提到循环外提前 return** ——
-            #   那会连循环顶上的 `rand_uniform` 一起跳过, 随机数流当场错位(整幅画面都变)。
-            if _prof is None or _apex <= 0.0 or not _prof.free_surface(mag, _apex):
-                continue
-            h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
-            # 🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
-            #    `_mound_contact_h` 在**没有沙的那几列**返回的是**球内底** ⇒ 颗粒会被撒在
-            #    裸露玻璃底上。`_MoundProfile.has_sand` 就是干这个的, **别自己再写一套**。
-            #    (2026-10-07: 这个判断已经**挪到上面 `h = ...` 之前**了 —— 见那一段注释。)
-            # ★ **与命中层同一个模型** —— 旧版这里另有一套"仰角 U(10°,72°) +
-            #   速度 sqrt(2·g·apex·0.30)≈190px/s", 凭空发明、没有 v4 依据, 而且比 v4 的
-            #   55~110 大 1.7~3.5 倍 ⇒ 正是"喷射太猛、像打农药"的来源。现在调同一个函数。
-            # 背景层没有"某一颗入射粒子的速度" —— 取**沙流砸到当地沙面时的代表速度**
-            # (`v = sqrt(v0² + 2g·落差)`, 与主流粒子同一套公式), 这样两层同源。
-            _drop = gen_y - (self._lower_sand_bot + h)
-            self._eject_splash(self._cx + mag, self._lower_sand_bot + h,
-                               math.sqrt(max(0.0, _drop) * 2.0 * _g_abs
-                                         + (60.0 * self._particle_motion_scale) ** 2),
-                               surface_aligned=True)
+        rate = SPLASH_BG_PER_PARTICLE * self.pn if SPLASH_BG_PER_PARTICLE > 0 else SPLASH_BG_RATE
+        self._bg_splash_acc += dt * rate
+        count = min(24, int(self._bg_splash_acc))
+        self._bg_splash_acc = min(self._bg_splash_acc - count, rate / 60.0)
+        rng = self._splash_random()
+        samples = tuple(hits)
+        for _ in range(count):
+            _, x, speed = samples[rng.randrange(len(samples))]
+            self._eject_splash(x, self._mound_top_at(x), speed)
 
     def update_particles(self, dt, flow_dt=None):
         if not self._geom_ready:
             return
         self._splash_jet_cache = None
+        self._splash_rows_cache = None
         effect_dt = dt
         self._mound_flow_clock += effect_dt
         landed_before = self._sand_landed
@@ -5236,6 +5024,7 @@ class HourglassWidget(Widget):
                 x = cx + off
 
                 if hit:
+                    self._contact_hits.append((self._mound_flow_clock, x, -vy))
                     if mound_top > lower_bot + 1:
                         peak_offset = peak_offset * 0.97 + (x - cx) * 0.03
                     # ⚠️ **出生点用该颗粒自己的接触高度 hy**(dingbu.md §7.1 第 6 条:
@@ -5265,6 +5054,7 @@ class HourglassWidget(Widget):
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
         self._p_refresh_view()
         self._splash_jet_cache = None  # 落地压实后重新取流前沿, 后续飞溅共用。
+        self._splash_rows_cache = None
         if self._sand_landed > landed_before:
             if self._first_impact_clock is None:
                 self._first_impact_clock = self._mound_flow_clock
@@ -6244,6 +6034,7 @@ class HourglassWidget(Widget):
         self._sand_material = material
         self._sand_flow_contexts = ()
         self._mound_surface_flow = None
+        self._splash_pixel = Window.system_size[0] / max(1.0, Window.width)
         upper_flow = neck_flow = None
         if material and os.environ.get("HG_SAND_FLOW", "1") != "0":
             try:
@@ -6293,7 +6084,8 @@ class HourglassWidget(Widget):
                     self._mound_carve = _QuadBand(n_seg)
                     self._mound_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
                     self._mound_band = _QuadBand(n_seg)
-                    if material and os.environ.get("HG_SAND_FLOW", "1") != "0":
+                    if (material and os.environ.get("HG_SAND_FLOW", "1") != "0"
+                            and os.environ.get("HG_MOUND_FLOW", "0") == "1"):
                         try:
                             from sand_flow_material import MoundSurfaceFlowContext
                             self._mound_surface_flow = MoundSurfaceFlowContext(
@@ -6355,6 +6147,13 @@ class HourglassWidget(Widget):
             self._neck_grain_group.add(line)
             self._neck_grain_pool.append((color, line))
 
+        # 新生散粒可被主沙流遮挡; 离开流束后自然显露, 不在接触核心直接剔除。
+        self._splash_group = InstructionGroup()
+        self._splash_color = Color(*self.sand_light)
+        self._splash_group.add(self._splash_color)
+        self.canvas.add(self._splash_group)
+        self._splash_rects = []
+
         # 同色同线宽共用一条 Color 指令,且不再排序/改变物理粒子列表。
         self._stream_pools = {}
         # 高光在普通粒子之后绘制,避免被密集的主体完全盖住。
@@ -6374,11 +6173,6 @@ class HourglassWidget(Widget):
         self._stream_counts = {key: 0 for key in self._stream_pools}
         self._reserve_stream_lines()
 
-        self._splash_group = InstructionGroup()
-        self._splash_color = Color(*self.sand_light)
-        self._splash_group.add(self._splash_color)
-        self.canvas.add(self._splash_group)
-        self._splash_rects = []
         self._flare_group = InstructionGroup()
         self.canvas.add(self._flare_group)
         self._flare_rects = []
@@ -6673,10 +6467,10 @@ class HourglassWidget(Widget):
             # 非批处理路径(桌面默认)也走**数组** —— 原先这里传的是 `self.splashes`,
             # 而那是个 property, 每帧重建 1403 个 dict(桌面 cProfile 实测占 **18%**)。
             self._sync_rects_arrays(self._splash_group, self._splash_rects, self._sn,
-                                    self.sx, self.sy, self.shw, self.shh)
+                                    self.sx, self.sy, self.srw, self.srh)
         else:
             # 并行数组直通(每颗省掉 3 次 dict 查找)。
-            _batch.update_arrays(self._sn, self.sx, self.sy, self.shw, self.shh)
+            _batch.update_arrays(self._sn, self.sx, self.sy, self.srw, self.srh)
         self._draw_flares(now)
         self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
         self._bore_color.a = 1 if remaining <= 0.001 else 0
