@@ -118,8 +118,14 @@ void main(void) {
 class TextureFlowBatch(flow_batch_experiment.FlowBatch):
     def __init__(self, group, width, reserve=0):
         super().__init__(group, width)
-        for chunk in range(math.ceil(reserve / self.CHUNK)):
-            self._ensure_part(chunk, min(self.CHUNK, reserve - chunk * self.CHUNK))
+        # ⚠️ **不要在这里预建 parts**(2026-10-07, 1号专家实测空壳占一半)。
+        #    桶按 (色档, 线宽) 有 **24** 个, 每帧真正有内容的只有 **~8** 个; 预建的那些
+        #    每个都带 `BindTexture + (Mesh 自己那条) + Mesh` **三条指令**, 空桶照样被遍历。
+        #    实测摘掉 16 个空 part: on_draw −0.090ms/帧(桌面)。
+        #    ⚠️ 之前**不敢**懒建: 建一块要跑三层生成器吐 12288 个 float(~2.2ms), 懒建等于
+        #       把卡顿挪进帧里。现在 `build_vertices` 只要 ~0.24ms(见 1.214) ⇒ 可以懒建了。
+        #    `_ensure_part` 本来就是按需建的; capacity 恒为 CHUNK ⇒ u 步长与分块无关不变。
+        #    `reserve` 保留在签名里只为兼容调用方, 已经不预分配任何东西。
 
     def _ensure_part(self, chunk, count):
         if chunk == len(self.parts):
