@@ -140,8 +140,10 @@ from kivy.config import Config          # ⚠️ 必须在下面那个 if **之�
 def _maxfps_path():
     """`maxfps` 标记文件的路径(**与 main.py 同目录**)。
 
-    ⚠️ 开发菜单里那个「帧率节奏」开关写的**就是**这个文件, 两边必须同一个表达式 ——
-    写成两处迟早分叉(写了半天没生效, 还找不到原因)。
+    ⚠️ **不再有 UI 入口** —— 2026-10-07 用户要求「删掉沙漏设置里那个帧率节奏机制, 默认选最高」,
+    所以开发者菜单里那一行已经拆掉。这个标记文件现在**只剩开发用途**: 设备上做 A/B 时
+    `adb shell "echo 120 > <app>/maxfps"`(环境变量 `HG_MAXFPS` 优先)。
+    **出货默认恒为 "0"(= 不设上限, 节拍交给 vsync)。**
     """
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "maxfps")
 
@@ -2512,8 +2514,13 @@ class _VoiceBank:
             keys.append(f"d{ones}")
         return keys
 
-    def sentence_keys(self, seconds):
-        """拼出"X小时Y分Z秒的沙漏计时完成"的词块序列(零分量省略,中间夹"零")。"""
+    def sentence_keys(self, seconds, zero=True):
+        """拼出"X小时Y分Z秒的沙漏计时完成"的词块序列(零分量省略)。
+
+        `zero=True`(默认, 完成播报用): 时与秒之间缺分时夹一个"零"("一小时**零**三十秒")。
+        `zero=False`(操作提示音用, 用户 2026-10-07 定「0 不说, 尽量简化」): 不夹那声"零"。
+        ⚠️ **默认值必须保持 True** —— 完成播报的句子一字不能变。
+        """
         total = max(0, int(round(seconds)))
         hours, rest = divmod(total, 3600)
         minutes, secs = divmod(rest, 60)
@@ -2522,7 +2529,7 @@ class _VoiceBank:
             keys += self._hour_keys(hours) + ["hour"]
         if minutes:
             keys += [f"n{minutes}", "min"]
-        elif hours and secs:
+        elif hours and secs and zero:
             keys.append("n0")               # "一小时零三十秒"
         if secs:
             keys += [f"n{secs}", "sec"]
@@ -2976,6 +2983,7 @@ class HourglassWidget(Widget):
         #   所以就算第一帧之前真完成也不会炸。等词库到位后自动切回拼接播报。
         self._voice_bank = None
         self._completion_spoken = None      # 动态拼出的播报(每条周期重建一次)
+        self._voice_prompt = None           # 上一次的操作提示音(见 `_voice_say`)
         Clock.schedule_once(self._load_voice_bank, 0.05)
 
         self.bind(size=self._on_size, pos=self._on_size)
@@ -3661,6 +3669,112 @@ class HourglassWidget(Widget):
         if self._completion_sound is not None:
             self._completion_sound.stop()
             self._completion_sound.play()
+
+    # ==================== 操作提示音(2026-10-07) ====================
+    # 换沙色 / 改周期 / 换提示音 三个操作各补一句语音(文案由用户逐条拍定):
+    #   换沙色   → 「金沙」                     (只说颜色名)
+    #   改周期   → 「计时时间设定为一分钟」      (**只在点「确定」时**; 弹窗里调基础时间/
+    #                                            倍数/拖滑杆一律不播 —— 用户明确要求)
+    #   换提示音 → 「提示音设定为沙沙声」        (点选项**真的切换成功**时才播)
+    # 播法照抄完成播报那条唯一跑通的路径: **拼 PCM → 写 wav → 独立的 _SoundProxy**
+    # (必须走文件: 三个后端里有两条按路径播)。
+    #
+    # ⚠️ **通道**: Windows winsound 单通道且 `SND_PURGE` 是**全局停播** ⇒ 语音会顶掉背景
+    #    循环音, 必须"让路 + 归还"; 安卓 AudioTrack 每个 proxy 独立一条 track ⇒ 天然混播,
+    #    **不做让路**(否则用户会白听一个停顿)。
+    def _voice_say(self, keys, duck=True):
+        """按词块键顺序拼成一句播出去。词库没就绪 / 任何异常 ⇒ **静默跳过**。"""
+        bank = self._voice_bank
+        if bank is None or not bank.ok or not keys:
+            return False
+        try:
+            clips = bank.clips
+            if any(k not in clips for k in keys):
+                return False
+            pcm = b"".join(clips[k] for k in keys)
+        except Exception:
+            return False
+        cache_dir = os.path.join(os.path.dirname(config_path()), "voice_cache")
+        path = os.path.join(cache_dir, "%s.wav" % "_".join(keys))
+        try:
+            if not os.path.exists(path):
+                os.makedirs(cache_dir, exist_ok=True)
+                tmp = path + ".tmp"
+                with wave.open(tmp, "wb") as stream:
+                    stream.setnchannels(1)
+                    stream.setsampwidth(2)
+                    stream.setframerate(bank.rate)
+                    stream.writeframes(pcm)
+                os.replace(tmp, path)          # 原子换名: 半截文件永远不会被读到
+        except Exception as exc:
+            print("voice prompt write failed: %s" % (exc,))
+            return False
+        # 让路: 只在 winsound 这条单通道后端上做(安卓/Kivy 都能混播, 不必打断背景音)
+        held = False
+        if (duck and self.running and self._sound is not None
+                and getattr(self._sound, "backend", "") == "winsound"):
+            self._stop_sound()
+            held = True
+        old = getattr(self, "_voice_prompt", None)
+        if old is not None:
+            old.stop()
+            old.close()
+            self._voice_prompt = None
+        try:
+            proxy = _SoundProxy(path, loop=False)
+        except Exception as exc:
+            print("voice prompt audio init failed: %s" % (exc,))
+            if held:
+                self._play_sound()
+            return False
+        if proxy.backend == "none":
+            if held:
+                self._play_sound()
+            return False
+        self._voice_prompt = proxy
+        proxy.play()
+        if held:                                # 播完按 PCM 时长归还背景音
+            dur = len(pcm) / float(bank.rate or 24000)
+            Clock.unschedule(self._voice_release_bg)
+            Clock.schedule_once(self._voice_release_bg, dur + 0.05)
+        return True
+
+    def _voice_release_bg(self, _dt=None):
+        if self.running:
+            self._play_sound()
+
+    def _voice_keys_color(self, name):
+        """色块名 → `c0..c5`, **序号与 `SAND_PRESETS` 同序**。"""
+        for i, preset in enumerate(SAND_PRESETS):
+            if preset[0] == name:
+                return ["c%d" % i]
+        return None
+
+    def _voice_keys_sound(self, name):
+        """音效名 → `e0..e4`, **序号与 `SOUND_OPTIONS` 同序**。"""
+        for i, (n, _path) in enumerate(SOUND_OPTIONS):
+            if n == name:
+                if n == SILENT_NAME:
+                    # 用户 2026-10-07: 选「无声音」不说"设定为无声音"(绕), 直接说
+                    # **「提示音改为无声」**(整句, 独立的 pre_silent 词块)。
+                    return ["pre_silent"]
+                return ["pre_sound", "e%d" % i]
+        return None
+
+    def _voice_keys_duration(self, seconds):
+        """时长 → `pre_time` + `sentence_keys` 的词序。
+
+        ⚠️ **必须去掉末尾的 `tail`** —— `sentence_keys` 恒在结尾附一句
+        「的沙漏计时完成」(那是给**完成播报**用的) ⇒ 不去掉会念成
+        「计时时间设定为一分钟的沙漏计时完成」。
+        """
+        bank = self._voice_bank
+        if bank is None or not bank.ok:
+            return None
+        keys = list(bank.sentence_keys(seconds, zero=False))
+        if keys and keys[-1] == "tail":
+            keys.pop()
+        return ["pre_time"] + keys
 
     def _play_completion_announcement(self, duration):
         """把词块拼成一段 PCM 写盘 -> 交给 _SoundProxy 一次播完(无接缝)。
@@ -7138,7 +7252,7 @@ class HourglassApp(App):
         # (Android Kivy 2.3.0 对 late binding 时序敏感,曾导致点周期按钮闪退)
         mult_btns = {}
         preview_label = Label(
-            text=f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）",
+            text=f"计时时间：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）",
             size_hint=(1, None), height=dp(34),
             color=POPUP_TEXT, font_size=sp(18))
 
@@ -7221,7 +7335,7 @@ class HourglassApp(App):
 
         # --- 运行中警告 ---
         if self.hourglass.running:
-            warn_label = Label(text="修改周期将重置当前进度",
+            warn_label = Label(text="修改计时设置将重置当前进度",
                                size_hint=(1, None), height=dp(26),
                                color=(0.85, 0.45, 0.15, 1), font_size=sp(14))
             _mid(warn_label)
@@ -7241,7 +7355,7 @@ class HourglassApp(App):
         btn_row.add_widget(confirm_btn)
         # ⚠️ btn_row **不在这里 add** —— 它挂哪儿取决于"装不装得下"(见弹窗创建后的分支)
 
-        popup = _SandBgPopup(title="选择周期", content=content,
+        popup = _SandBgPopup(title="计时设置", content=content,
                              size_hint=(0.88, None), height=dp(460),
                              auto_dismiss=False)
         popup.title_align = "center"
@@ -7310,7 +7424,7 @@ class HourglassApp(App):
             sel = (v == val)
             btn.background_color = active_color if sel else inactive_color
             btn.color = POPUP_TEXT
-        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
+        preview_label.text = f"计时时间：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
 
     def _on_mult_picked(self, val, mult_btns, state, preview_label):
         state["mult"] = val
@@ -7320,7 +7434,7 @@ class HourglassApp(App):
             sel = (m == val)
             btn.background_color = active_color if sel else inactive_color
             btn.color = POPUP_TEXT
-        preview_label.text = f"最终周期：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
+        preview_label.text = f"计时时间：{_fmt_duration(state['base'] * state['mult'])}（{state['base'] * state['mult']:.0f}秒）"
 
     def _on_slider_moved(self, v, state, preview_label, mult_label):
         """对数滑杆:10^(3t) 向上取整;只更新 state/预览/×N 标签,不动按钮高亮。"""
@@ -7330,12 +7444,18 @@ class HourglassApp(App):
         state['mult'] = m
         mult_label.text = f"×{m}"
         total = state['base'] * m
-        preview_label.text = f"最终周期：{_fmt_duration(total)}（{total:.0f}秒）"
+        preview_label.text = f"计时时间：{_fmt_duration(total)}（{total:.0f}秒）"
 
     def _pick_duration(self, sec, popup):
         popup.dismiss()
+        # 🔴 **操作提示音只挂在这里(= 点「确定」那一下), 且只在周期真的变了时播** ——
+        #    用户明确要求: 弹窗里调基础时间/倍数/拖滑杆**一律不要语音**
+        #    (滑杆那条还会逐帧触发)。`set_duration` 不变时返回 False ⇒ 天然不播。
         if self.hourglass.set_duration(sec):
             self.hourglass.save_config(self._selected_color_name())
+            keys = self.hourglass._voice_keys_duration(self.hourglass.duration)
+            if keys:
+                self.hourglass._voice_say(keys)
         self.duration_btn.text = _fmt_duration(self.hourglass.duration)
         self.on_run_state_changed()
 
@@ -7520,40 +7640,6 @@ class HourglassApp(App):
         _mid(rough_box)
         self._dev_level_btns = {"grain": grain_btns, "rough": rough_btns}
 
-        # ---- 帧率节奏(写 `maxfps` 标记文件, **重启后生效**)(2026-10-07) ----
-        # 为什么把它放进菜单: 这是**唯一还够得着的 low 帧杠杆**。平板 15s 档的掉格帧里
-        # 每一列都同倍涨(物理 1.73 / 图元 1.95 / Canvas 2.10 / tick尾 2.19)而**粒子 0.99**,
-        # ⇒ 那 ~5% 是**整帧被拖慢 ~1.9×**, 不是哪一栏算多了。要让 3.93ms 的中位活在
-        # 1.9× 拖慢下仍塞进 6.06ms, 得砍到 ~3.0ms(−25%) —— 已知候选都够不着
-        # (marker 批 0.10 / 颈部懒建 0.046 / 图集 0.10 / 减粒子 0)。剩下就是**节奏**:
-        # Kivy 的睡眠地板 `(11/15)/cap` 在 cap=120 时是 6.111ms, 与 165Hz 一格(6.06ms)
-        # 几乎重合 ⇒ **睡眠变成抖动的缓冲**。DanZhu 同机实测: cap=120 ⇒ 平均 160.5 /
-        # 1%Low 118.9; cap=165 ⇒ 165.1 / 112.1(**平均 −3% 换尾部 +6%**)。
-        # ⚠️ **模拟器上量不出来**(它的呈现节拍被宿主锁死, 且面板格不是 6.06ms)
-        #    ⇒ 只能在用户自己的 165Hz 平板上 A/B ⇒ 装个开关, 免得还要 adb。
-        # ⚠️ 只写文件、**不改默认**: 出厂仍是「最高」。
-        PACE = (("最高", 0), ("144", 144), ("120", 120))
-
-        def pick_pace(lb):
-            try:
-                with open(_maxfps_path(), "w") as fh:
-                    fh.write(str(dict(PACE)[lb]))
-            except Exception as exc:
-                print("pace knob write failed (%s)" % (exc,))
-            refresh_pace(lb)
-
-        _cur = "最高"
-        try:
-            with open(_maxfps_path()) as fh:
-                _v = int(float(fh.read().strip() or 0))
-            _cur = {n: lb for lb, n in PACE}.get(_v, "最高")
-        except Exception:
-            pass
-        pace_box, refresh_pace, pace_btns = make_levels(
-            "帧率节奏", [lb for lb, _n in PACE], _cur, pick_pace,
-            fmt=lambda lb: "当前 %s · 重启 app 生效" % _cur)
-        _mid(pace_box)
-        self._dev_level_btns["pace"] = pace_btns
 
         _mid(Widget(size_hint=(1, None), height=dp(6)))
         bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",
@@ -7941,6 +8027,12 @@ class HourglassApp(App):
         if self.hourglass._set_sound(label):
             self.hourglass.save_config(self._selected_color_name())
             self._update_sound_btn()
+            # 操作提示音: 「提示音设定为沙沙声」。**只在真的切换成功时播** ——
+            # 同名连点 `_set_sound` 返回 False ⇒ 天然不重复播。
+            # ⚠️ 选「无声音」时**也要念** —— 那是最需要确认的一种(此时没有声音可听)。
+            keys = self.hourglass._voice_keys_sound(label)
+            if keys:
+                self.hourglass._voice_say(keys)
         for lb, btn in btns.items():
             btn.background_color = POPUP_GOLD_SEL if lb == label else POPUP_UNSEL_BASE
             btn.color = POPUP_TEXT
@@ -7978,6 +8070,10 @@ class HourglassApp(App):
         self.hourglass.set_sand_color(base, dark, light)
         self._mark_selected(name)
         self.hourglass.save_config(name)
+        # 操作提示音: 只说颜色名(「金沙」)。词库没就绪时 `_voice_say` 静默跳过。
+        keys = self.hourglass._voice_keys_color(name)
+        if keys:
+            self.hourglass._voice_say(keys)
 
     def _mark_selected(self, name):
         for n, btn in self.color_btns:
