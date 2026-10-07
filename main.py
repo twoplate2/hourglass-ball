@@ -2969,6 +2969,8 @@ class HourglassWidget(Widget):
         self._sn = 0
         self._s_alloc(512)
         self._bg_splash_acc = 0.0
+        self._mound_flow_clock = 0.0
+        self._first_impact_clock = self._last_impact_clock = None
         self.flares = []
         self.dusts = []
         self.mound_peak_offset = 0.0
@@ -3206,7 +3208,7 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            cap_radius = min(Ri * 0.12, self._taper["t_in"] * 1.1)
+            cap_radius = min(Ri * 0.18, 0.9 * self._contact_flow_diameter())
             shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC, cap_radius)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
@@ -3589,6 +3591,16 @@ class HourglassWidget(Widget):
         """绝对 y 版的接触高度 —— splash / 尘埃用(它们会跑到平台之外)。"""
         return self._lower_sand_bot + self._mound_contact_h(x - self._cx)
 
+    def _contact_flow_diameter(self):
+        return 2.0 * self._taper["t_in"] * FLOW_SHRINK_MIN
+
+    def _mound_flow_strength(self):
+        if self._last_impact_clock is None:
+            return 0.0
+        onset = _smoothstep(0.0, 0.08, self._mound_flow_clock - self._first_impact_clock)
+        tail = 1.0 - _smoothstep(0.0, 0.2, self._mound_flow_clock - self._last_impact_clock)
+        return onset * tail
+
     def get_mound_top_y(self):
         """粒子主流的碰撞面(**一个标量**, 见常量区"路线 A")。
 
@@ -3642,6 +3654,8 @@ class HourglassWidget(Widget):
         # ⚠️ 背景飞溅的**预算累加器**也要清 —— 原来只在 `__init__` 初始化过一次,
         #    重置后残留的零头会让新一局头几帧多喷几颗(总量可控但没道理)。
         self._bg_splash_acc = 0.0
+        self._mound_flow_clock = 0.0
+        self._first_impact_clock = self._last_impact_clock = None
         self._sn = 0                  # 飞溅: 只改存活数, 数组不必清(存活数之外无意义)
         self.flares = []
         self.dusts = []
@@ -4536,21 +4550,11 @@ class HourglassWidget(Widget):
                     self.sdt[sp] = step_left if step_left > 0 else 0
 
     def _eject_splash(self, x, y_surface, v_impact, surface_aligned=False):
-        """从沙面上的一个点**弹出一颗飞溅** —— 全工程**唯一**的飞溅模型。
+        """真实碰撞与落点补充共用的效果模型, 不额外计入沙量。
 
-        参数逐字取自 PC v4(`pc/hourglass_v4.py:1109-1118`, 项目自定的"唯一真理"):
-            `x` = 命中处; `y` = 沙面上方 2px; 速度 = **入射速度的 0.10~0.28 倍**, **方向朝上**
-        之后交给重力做抛物线(`update_particles` 的 splash 段)。
-
-        `SPLASH_GAIN` 是**唯一**的夸张旋钮, 同时乘在 vx/vy 上。
-        碰撞后以贴坡滑落为主, 少量低仰角朝外飞溅; 穿流轨迹优先镜像替换, 不增加预算。
-
-        🔴 **命中层与背景层共用这一个函数** —— 旧版两层各有一套参数(命中层 vy 朝下、
-        背景层是"仰角 U(10°,72°) + 速度 sqrt(2·g·apex·0.3)"), 读起来就是用户说的
-        「**像打农药一样**」。**别再把参数分叉出去**。
-
-        ⚠️ 随机数调用顺序(3 次 uniform/choice)是**两条物理路径共用**的
-        (`_replay_hits` 与标量循环), 改动它要同步改 `tools/test_physics_equiv.py`。
+        约 75% 贴坡滑落, 其余相对向外切线以 5–12 度离坡; 法向能量限制跳起高度。
+        随机调用保持原顺序: 速度 → 方向 → 角度 → 尺寸 → 重力。
+        `surface_aligned=False` 保留旧的自由出射路径, 仅供兼容调用。
         """
         v_impact = v_impact if v_impact > 0.0 else 0.0
         # 尺寸随**画布**缩放(桌面参考半径 ≈140px) ⇒ 设备上不再细成 1/3 大小
@@ -4564,12 +4568,12 @@ class HourglassWidget(Widget):
         #    之后、`_gd` 之前 —— 挪一下就会让此后所有随机数错位。
         _sz = tuple(round(_k * _px) for _k in random.choice(SPLASH_SIZE_MIX))
         _gd = random.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)   # 这颗自己的重力倍率
-        # 🔴 `vy` **向上**(Kivy y 向上) —— v4 的 55~110 就是向上
         # ⚠️ **存活上限判定必须放在这 5 次随机调用之后**: 提前 return 会改变随机数流,
         #    此后整幅画面都变(项目里那条通用铁律)。抽完不追加, 流一字不动 ✓
         #    返回 -1 表示"没生成", 调用方必须判 `>= 0` 再写 `sdt`(否则会写到 `sdt[-1]`)。
         if SPLASH_MAX and self._sn >= SPLASH_MAX:
             return -1
+        vx, vy = math.sin(ang) * b, abs(math.cos(ang)) * b
         if surface_aligned:
             step = max(1.0, self._R_inner / 256.0)
             slope = (self._mound_top_at(x + step) - self._mound_top_at(x - step)) / (2.0 * step)
@@ -4577,16 +4581,24 @@ class HourglassWidget(Widget):
                     else 1.0 if ang > 0.0 else -1.0)
             selection = (abs(ang) - SPLASH_ANGLE_MIN) / max(
                 1e-6, SPLASH_ANGLE_MAX - SPLASH_ANGLE_MIN)
+            norm = math.sqrt(1.0 + slope * slope)
             if selection < 0.75:
-                vx = side * b / math.sqrt(1.0 + slope * slope)
+                vx = side * b / norm
                 i = self._s_append(x, y_surface, vx, slope * vx,
                                    _sz[0] * 0.5, _sz[1] * 0.5, _gd)
                 self.sslide[i] = 1.0
                 self.srest[i] = max(0.0, SPLASH_REST_LIFE - 0.24)
                 return i
-            elevation = math.radians(8.0 + 7.0 * (selection - 0.75) / 0.25)
-            ang = side * (math.pi * 0.5 - elevation)
-        vx, vy = math.sin(ang) * b, abs(math.cos(ang)) * b
+            elevation = math.radians(5.0 + 7.0 * (selection - 0.75) / 0.25)
+            scale = self._particle_motion_scale
+            gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
+                               else scale ** SPLASH_G_SCALE) * _gd
+            tangent_speed = b * math.cos(elevation)
+            # 限制离坡的法向能量, 不把沿坡下降误当成向上喷射。
+            normal_speed = min(b * math.sin(elevation), math.sqrt(
+                2.0 * gravity / norm * 0.25 * self._contact_flow_diameter()))
+            vx = (side * tangent_speed - slope * normal_speed) / norm
+            vy = (side * slope * tangent_speed + normal_speed) / norm
         jet = self._splash_jet_bounds()
         if jet is not None and vx * (x - self._cx) < 0.0:
             radius, low, high = jet
@@ -4738,6 +4750,7 @@ class HourglassWidget(Widget):
                 hi = np.flatnonzero(hitm)
                 sy[hi] = surf[hi]
                 svy[hi] = 0.0
+                self.sslide[hi] = 1.0
                 rest[hi] = rest[hi] + sdt[hi]
                 avx = np.abs(svx)
                 stopm = hitm & (avx < SPLASH_MIN_VX)
@@ -4769,7 +4782,7 @@ class HourglassWidget(Widget):
         if jet is not None:
             radius, low, high = jet
             in_jet = ((np.abs(sx - cx) < radius + self.shw[:n])
-                      & (sy > low) & (sy < high) & (self.sslide[:n] == 0.0))
+                      & (sy > low) & (sy < high) & (self.sslide[:n] == 0.0) & act)
             keep &= ~in_jet
         if not keep.all():
             new_n = int(np.count_nonzero(keep))
@@ -4834,6 +4847,7 @@ class HourglassWidget(Widget):
                 if y <= _surf or self.sslide[i] != 0.0:
                     sy[i] = _surf
                     svy[i] = 0.0
+                    self.sslide[i] = 1.0
                     rest[i] = rest[i] + step_dt
                     _vx = svx[i]
                     _avx = _vx if _vx >= 0.0 else -_vx
@@ -4872,14 +4886,11 @@ class HourglassWidget(Widget):
             self._sn = m
 
     def _spawn_bg_splashes(self, dt):
-        """沿沙面**由强到弱**铺开的背景飞溅 —— 补上"斜坡上根本没有生成源"这一块。
-
-        位置抽样: `|u|^FALLOFF` 把样本往中心收(指数越大越集中), 再乘 `SIGMA × R` 定尺度;
-        **纵向落在当地沙面上**, 初速比落点那些小(越远的越弱)。
-        用 `rand_uniform` 走本工程统一的随机数流(与粒子同源, 便于复现)。
-        """
+        """真实碰撞后在落点附近补充效果, 与碰撞层共用预算上限和贴坡模型。"""
         Ri = self._R_inner
-        if Ri <= 0:
+        if Ri <= 0 or self._last_impact_clock is None:
+            return
+        if self._mound_flow_clock - self._last_impact_clock >= 0.2:
             return
         rand_uniform = random.uniform      # 与粒子同一条随机数流(工程惯例, 便于复现)
         # 本帧的锥面与锥顶只取一次(与下面 h 用的必须是同一份)
@@ -4927,7 +4938,7 @@ class HourglassWidget(Widget):
             #   循环顶上的 `rand_uniform` 一字未动 ⇒ **随机数序列与画面逐位不变**。
             # 🔴 **不要把 `_prof is None or _apex <= 0.0` 提到循环外提前 return** ——
             #   那会连循环顶上的 `rand_uniform` 一起跳过, 随机数流当场错位(整幅画面都变)。
-            if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
+            if _prof is None or _apex <= 0.0 or not _prof.free_surface(mag, _apex):
                 continue
             h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
             # 🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
@@ -4942,13 +4953,16 @@ class HourglassWidget(Widget):
             _drop = gen_y - (self._lower_sand_bot + h)
             self._eject_splash(self._cx + mag, self._lower_sand_bot + h,
                                math.sqrt(max(0.0, _drop) * 2.0 * _g_abs
-                                         + (60.0 * self._particle_motion_scale) ** 2))
+                                         + (60.0 * self._particle_motion_scale) ** 2),
+                               surface_aligned=True)
 
     def update_particles(self, dt, flow_dt=None):
         if not self._geom_ready:
             return
         self._splash_jet_cache = None
         effect_dt = dt
+        self._mound_flow_clock += effect_dt
+        landed_before = self._sand_landed
         dt = dt if flow_dt is None else flow_dt
         if self.running:
             self._sand_active = True
@@ -5251,6 +5265,10 @@ class HourglassWidget(Widget):
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
         self._p_refresh_view()
         self._splash_jet_cache = None  # 落地压实后重新取流前沿, 后续飞溅共用。
+        if self._sand_landed > landed_before:
+            if self._first_impact_clock is None:
+                self._first_impact_clock = self._mound_flow_clock
+            self._last_impact_clock = self._mound_flow_clock
         dt = effect_dt
 
         if _pm:
@@ -6156,6 +6174,7 @@ class HourglassWidget(Widget):
         """
         carve, band = self._mound_carve, self._mound_band
         profile = self._mound_profile
+        flow = getattr(self, "_mound_surface_flow", None)
         if carve is None:                    # 画布还没建(见 `__init__` 的哨兵值)
             return
         if h_mound <= 0 or profile is None:
@@ -6163,6 +6182,11 @@ class HourglassWidget(Widget):
             band.clear()
             carve.flush()
             band.flush()
+            if flow is not None:
+                flow.update_surface(self._mound_flow_clock, self._particle_motion_scale,
+                                    self._sand_material,
+                                    (self.sand_base, self.sand_dark, self.sand_light),
+                                    [], self._contact_flow_diameter(), 0.0)
             return
         cx = self._cx
         bottom = self._lower_sand_bot
@@ -6178,6 +6202,8 @@ class HourglassWidget(Widget):
         #   走 `profile.column()` 一次拿齐, **定义仍然只有 `_MoundProfile` 那一份**
         #   (没有在调用方抄第二套算式)。
         column = profile.column
+        strength = self._mound_flow_strength() if flow is not None else 0.0
+        flow_diameter = self._contact_flow_diameter()
         for dx in knots:
             y, free, thick = column(dx, apex)
             cols.append((cx + dx, bottom + y, free, thick))
@@ -6194,11 +6220,19 @@ class HourglassWidget(Widget):
                 continue
             if free0 and free1:
                 w = min(SAND_SURFACE_BAND, th0, th1)
+                midpoint = abs(0.5 * (x0 + x1) - cx)
+                w *= 1.0 - strength * (1.0 - _smoothstep(
+                    0.0, 2.5 * flow_diameter, midpoint))
                 band.set(i, [x0, y0, x1, y1, x1, y1 - w, x0, y0 - w])
             else:
                 band.zero(i)
         carve.flush()
         band.flush()
+        if flow is not None:
+            flow.update_surface(self._mound_flow_clock, self._particle_motion_scale,
+                                self._sand_material,
+                                (self.sand_base, self.sand_dark, self.sand_light),
+                                cols, flow_diameter, strength)
 
     def _build_dynamic_canvas(self):
         """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
@@ -6209,6 +6243,7 @@ class HourglassWidget(Widget):
         material = self._current_material()
         self._sand_material = material
         self._sand_flow_contexts = ()
+        self._mound_surface_flow = None
         upper_flow = neck_flow = None
         if material and os.environ.get("HG_SAND_FLOW", "1") != "0":
             try:
@@ -6258,6 +6293,19 @@ class HourglassWidget(Widget):
                     self._mound_carve = _QuadBand(n_seg)
                     self._mound_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
                     self._mound_band = _QuadBand(n_seg)
+                    if material and os.environ.get("HG_SAND_FLOW", "1") != "0":
+                        try:
+                            from sand_flow_material import MoundSurfaceFlowContext
+                            self._mound_surface_flow = MoundSurfaceFlowContext(
+                                (cx, Ri, bottom, 2.0 * Ri + MOUND_CREST_MARGIN),
+                                n_seg + 1, material.texture)
+                            self.canvas.add(self._mound_surface_flow)
+                            if not getattr(self, "_mound_flow_logged", False):
+                                print("GPU mound contact flow active")
+                                self._mound_flow_logged = True
+                        except Exception as exc:
+                            self._mound_surface_flow = None
+                            print("GPU mound flow unavailable, keeping particles: %s" % exc)
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()

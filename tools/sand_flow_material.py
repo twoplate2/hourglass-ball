@@ -1,10 +1,12 @@
-"""GPU texture advection for the upper reservoir and neck, not the lower mound.
+"""GPU grain advection for the reservoir, neck and lower contact surface.
 
 Two-phase flow follows Catlike Coding's Texture Distortion / Valve flow-map approach.
 Only grain detail is advected; the palette and broad lighting stay in world space.
 """
 
-from kivy.graphics import RenderContext
+import math
+
+from kivy.graphics import Color, Mesh, RenderContext
 
 
 VERTEX_SHADER = """
@@ -18,7 +20,7 @@ void main(void) {
 }
 """
 
-FRAGMENT_SHADER = """
+GRAIN_FRAGMENT_HEADER = """
 $HEADER$
 varying vec2 sand_position;
 uniform vec4 sand_geometry; // center x, radius, upper bottom, mouth top
@@ -48,6 +50,9 @@ float grain(vec2 uv) {
                              : luma(sand_base) - luma(sand_dark);
     return delta / max(span, 0.001) - lighting(sample_uv);
 }
+"""
+
+FRAGMENT_SHADER = GRAIN_FRAGMENT_HEADER + """
 void main(void) {
     vec4 original = texture2D(texture0, tex_coord0);
     float diameter = max(2.0, sand_geometry.y * 2.0);
@@ -88,10 +93,10 @@ void main(void) {
 
 
 class SandFlowContext(RenderContext):
-    def __init__(self, geometry):
+    def __init__(self, geometry, vertex_shader=VERTEX_SHADER, fragment_shader=FRAGMENT_SHADER):
         super().__init__(use_parent_projection=True, use_parent_modelview=True)
-        self.shader.vs = VERTEX_SHADER
-        self.shader.fs = FRAGMENT_SHADER
+        self.shader.vs = vertex_shader
+        self.shader.fs = fragment_shader
         if not self.shader.success:
             raise RuntimeError("sand flow shader failed to compile")
         self["sand_geometry"] = tuple(map(float, geometry))
@@ -119,3 +124,114 @@ class SandFlowContext(RenderContext):
         if tail != self._tail_key:
             self._tail_key = tail
             self["sand_tail"] = tuple(map(float, tail))
+
+
+MOUND_VERTEX_SHADER = """
+$HEADER$
+attribute vec2 vFlow;
+attribute float vCoverage;
+varying vec2 sand_position;
+varying vec2 surface_velocity;
+varying float surface_coverage;
+void main(void) {
+    sand_position = vPosition;
+    surface_velocity = vFlow;
+    surface_coverage = vCoverage;
+    tex_coord0 = vTexCoords0;
+    frag_color = color * vec4(1.0, 1.0, 1.0, opacity);
+    gl_Position = projection_mat * modelview_mat * vec4(vPosition, 0.0, 1.0);
+}
+"""
+
+# Keep grain contrast and lighting identical to the existing flow material.
+MOUND_FRAGMENT_SHADER = GRAIN_FRAGMENT_HEADER + """
+varying vec2 surface_velocity;
+varying float surface_coverage;
+void main(void) {
+    float diameter = max(2.0, sand_geometry.y * 2.0);
+    vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
+                  (sand_position.y - sand_geometry.z) / sand_geometry.w);
+    vec4 original = texture2D(texture0, uv);
+    vec2 velocity = surface_velocity / vec2(diameter, sand_geometry.w);
+    float t = sand_clock + 0.18 * sin(tex_coord0.x * 5.1);
+    float a = fract(t);
+    float b = fract(t + 0.5);
+    float wa = 1.0 - abs(1.0 - 2.0 * a);
+    float wb = 1.0 - wa;
+    vec2 jump = vec2(0.125, 0.0625);
+    float ga = grain(uv - velocity * a + floor(t) * jump);
+    float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
+    float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
+    float tone = clamp(lighting(uv) + detail, -1.0, 1.0);
+    vec3 flowing = mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
+    float depth_mix = 1.0 - smoothstep(0.45, 1.0, tex_coord0.y);
+    float coverage = sand_mix * surface_coverage * depth_mix;
+    gl_FragColor = frag_color * vec4(flowing, original.a * coverage);
+}
+"""
+
+
+class MoundSurfaceFlowContext(SandFlowContext):
+    """One fixed mesh inside the shared mound surface; no additional sand volume."""
+
+    def __init__(self, geometry, max_nodes, texture):
+        super().__init__(geometry, MOUND_VERTEX_SHADER, MOUND_FRAGMENT_SHADER)
+        self._max_nodes = max_nodes
+        self._vertices = [0.0] * (max_nodes * 2 * 7)
+        self._indices = []
+        for i in range(max_nodes - 1):
+            k = i * 2
+            self._indices.extend((k, k + 1, k + 2, k + 2, k + 1, k + 3))
+        self._node_count = 0
+        with self:
+            Color(1, 1, 1, 1)
+            self._mesh = Mesh(
+                vertices=self._vertices, indices=[], texture=texture, mode="triangles",
+                fmt=[(b"vPosition", 2, "float"), (b"vTexCoords0", 2, "float"),
+                     (b"vFlow", 2, "float"), (b"vCoverage", 1, "float")])
+
+    def update_surface(self, clock, speed_scale, material, palette, cols, diameter, strength):
+        self.update_flow(clock, speed_scale, material, palette)
+        self["sand_mix"] = float(strength)
+        if strength <= 0.0 or not cols:
+            if self._node_count:
+                self._mesh.indices = []
+                self._node_count = 0
+            return
+        self._mesh.texture = material.texture
+        cx = self["sand_geometry"][0]
+        reach = 2.5 * diameter
+        vertices = self._vertices
+        count = 0
+        visible = False
+        for i, (x, y, free, thick) in enumerate(cols):
+            if abs(x - cx) > reach:
+                continue
+            before = cols[max(0, i - 1)]
+            after = cols[min(len(cols) - 1, i + 1)]
+            slope = (after[1] - before[1]) / max(1e-6, after[0] - before[0])
+            norm = math.sqrt(1.0 + slope * slope)
+            u = min(1.0, abs(x - cx) / reach)
+            fade = u * u * (3.0 - 2.0 * u)
+            depth = min(0.14 * diameter * (1.0 - fade) * norm, thick)
+            coverage = (1.0 - fade) * min(1.0, depth) if free else 0.0
+            visible = visible or coverage > 0.0
+            side = -1.0 if x < cx else 1.0 if x > cx else 0.0
+            speed = diameter * (1.5 + 2.5 * fade)
+            vx = side * speed / norm
+            vy = slope * vx
+            k = count * 14
+            vertices[k:k + 14] = (
+                x, y, (x - cx) / diameter, 0.0, vx, vy, coverage,
+                x, y - depth, (x - cx) / diameter, 1.0, vx, vy, coverage)
+            count += 1
+        if count > self._max_nodes:
+            raise ValueError("mound flow mesh capacity exceeded")
+        if not visible:
+            self._mesh.indices = []
+            self._node_count = 0
+            return
+        self._mesh.vertices = vertices
+        if count != self._node_count:
+            self._mesh.indices = self._indices[:max(0, count - 1) * 6]
+            self._node_count = count
