@@ -3073,7 +3073,10 @@ class HourglassWidget(Widget):
         ow = max(2.0, w * (6.0 / 380.0))
         tube_h = h * 0.055   # 给球↔管的曲线过渡留出竖直空间
         side_margin = w * 0.06
-        v_pad = h * 0.02
+        # 上下留白: 原 2%(≈38px@1900) 太宽 —— 用户 2026-10-07 明确要求
+        # 「0/50 下面和沙漏下面的空行变矮, 剩下的空间让沙漏更大」。
+        # ⚠️ **R 是高度受限**(R_by_h 才是 min) ⇒ 纵向每省 4px, R 就涨 1px。
+        v_pad = h * 0.006
         nw = self.neck_w
 
         # R 同时受"宽不溢出"和"高放得下两球+管"约束,取更紧者;在 380x730 下 ≈168
@@ -7024,8 +7027,8 @@ class HourglassApp(App):
         if os.environ.get("HG_SURFACE_LEVEL") is None:
             apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT))
 
-        root = BoxLayout(orientation="vertical", spacing=dp(3),
-                         padding=[dp(8), dp(6), dp(8), dp(6)])
+        root = BoxLayout(orientation="vertical", spacing=dp(2),
+                         padding=[dp(8), dp(4), dp(8), dp(4)])
 
         # 顶部色块
         # ★ 高度(用户 2026-10-06: 「还能继续压缩下高度」): 50 -> 42
@@ -7047,7 +7050,9 @@ class HourglassApp(App):
         # 倒计时
         self.time_label = Label(
             text=f"{self.hourglass.duration:.0f}/{self.hourglass.duration:.0f}秒",
-            font_size=sp(24), bold=True, size_hint=(1, None), height=dp(40),
+            # 行高 40 -> 34: 文字是 sp(24), 原高度富余了 ~16dp 的空白行 ——
+            # 与 v_pad 一起收掉, 那部分高度直接变成沙漏的(见 `_rebuild_height_table` 的 v_pad)。
+            font_size=sp(24), bold=True, size_hint=(1, None), height=dp(34),
             color=(0.2, 0.2, 0.2, 1))
         root.add_widget(self.time_label)
 
