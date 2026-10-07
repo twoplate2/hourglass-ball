@@ -476,7 +476,8 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 #   而飞溅的**在世数 = 生成率 × 寿命** ⇒ 直接按比例换时间。
 #   480/700 = −31% 的背景层(背景层约占生成量的一半) ⇒ 总颗数约 −15%。
 #   ⚠️ 这是**观感取舍**: 觉得稀了就把这个数调回去(一行)。
-SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "360"))
+SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "600"))
+SPLASH_HIT_CHANCE = 0.50
 # 🔴 **2026-10-06 用户裁决: 「这个实际上和周期没有关系」** ⇒ 飞溅**不随周期变**。
 #   曾按 `∝ 在途主流粒子数` 做过(比例跨 14 倍 → 4.2 倍), 但那必然让长周期变少(50s 只剩 45%)
 #   ⇒ **作废**。默认 0 = 走定率 `SPLASH_BG_RATE`; 非 0 可恢复"按比例"(留作对照臂)。
@@ -522,8 +523,8 @@ def _splash_max():
                 return max(0, int(float(fh.read().strip() or 0)))
     except Exception:
         pass
-    # v2.5: 按当前“数量偏少”的反馈小增, 仍控制在三个 512 粒绘制块以内。
-    return 1500
+    # v2.6: 加量集中在有效方向, 上限仍有限, 绘制使用四个固定批处理块。
+    return 2000
 
 # 生效值(启动时定一次; 设备侧改它要重启 app —— 标记文件与 `flowrate` 同一套)。
 SPLASH_MAX = _splash_max()
@@ -560,16 +561,11 @@ SPLASH_SPEED_HI = float(os.environ.get("HG_SPLASH_SPD_HI", "0.42"))
 # `SPLASH_GAIN` = **唯一**的夸张旋钮(乘在比例上)。⚠️ 拉到 ~1.07 以上会越过 0.30 的物理界、
 #   闸门会翻红 —— 那是**有意的护栏**, 不要去放宽它。
 SPLASH_GAIN = float(os.environ.get("HG_SPLASH_GAIN", "1.0"))
-# 🔴 **出射角必须"避开竖直"** —— 这是专家团给的**可量化判据**, 不是口味:
-#   抛物线 `apex = vy²/2g`, `range = 2·vx·vy/g` ⇒
-#       **`apex > range` ⟺ `vy > 4·vx` ⟺ 出射角**离竖直**不到 `atan(1/4) = 14°`。**
-#   离竖直 <14° 的颗粒**升得比走得远** = 原地蹦, 不是溅。
-#   实测(20 万抽样): `ang ~ U(-66°,66°)` 时 **21.3% 落在蹦的区间**;
-#   v4 那套绝对值(`vx±35 / vy55~110`)等效角更陡, 实测 **43%** ——
-#   这正是专家把它读成"竖直喷泉"的原因。
-#   ⇒ 改成 **`|ang| ~ U(0.30, 1.15)` rad(17°~66°)**, 蹦的比例 **0.0%**。
-SPLASH_ANGLE_MIN = float(os.environ.get("HG_SPLASH_ANG_LO", "0.30"))  # 离竖直至少 17°
-SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", "1.15"))   # 最多 66°
+# 环境参数保留旧的“相对竖直线、单位弧度”语义; 默认换算为水平仰角 20–45 度。
+# 发射时再限制水平仰角不超过 50 度, 包括使用旧环境参数的情况。
+SPLASH_ANGLE_MIN = float(os.environ.get("HG_SPLASH_ANG_LO", str(math.radians(45))))
+SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", str(math.radians(70))))
+SPLASH_HORIZONTAL_ANGLE_LIMIT = math.radians(50)
 SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))      # v4: 沙面上方 2px
 # ★ **每颗飞溅各有各的重力倍率** —— 用户 2026-10-06:「不同沙子的**轨迹是略有不同的**…
 #   可以重复, 但是**不要都是一个曲线**」。
@@ -4552,7 +4548,7 @@ class HourglassWidget(Widget):
             if rand() < 0.25:
                 hy = _hit_hy(k, x)
                 append_flare({"x": x, "y": hy, "end": now + 0.08})
-            selected = rand() < 0.35
+            selected = rand() < SPLASH_HIT_CHANCE
             if selected or first_contact:
                 if hy is None:
                     hy = _hit_hy(k, x)
@@ -4587,7 +4583,11 @@ class HourglassWidget(Widget):
         rng = self._splash_random()
         gain = rng.uniform(SPLASH_SPEED_LO, SPLASH_SPEED_HI) * SPLASH_GAIN
         side = rng.choice((-1.0, 1.0))
-        angle = rng.uniform(SPLASH_ANGLE_MIN, SPLASH_ANGLE_MAX)
+        low = min(SPLASH_ANGLE_MIN, SPLASH_ANGLE_MAX)
+        high = max(SPLASH_ANGLE_MIN, SPLASH_ANGLE_MAX)
+        low = min(math.pi / 2, max(math.pi / 2 - SPLASH_HORIZONTAL_ANGLE_LIMIT, low))
+        high = min(math.pi / 2, max(low, high))
+        angle = rng.uniform(low, high)
         px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
         size = tuple(round(k * px) for k in rng.choice(SPLASH_SIZE_MIX))
         gd = rng.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)
@@ -5012,7 +5012,7 @@ class HourglassWidget(Widget):
                     #    高 p50=7.5px / p90=12.6px / max=15.4px(92% 的命中 >1px)。
                     if rand() < 0.25:
                         append_flare({"x": x, "y": hy, "end": now + 0.08})
-                    selected = rand() < 0.35
+                    selected = rand() < SPLASH_HIT_CHANCE
                     if selected or first_contact:
                         # ★ 唯一的飞溅模型(与 numpy 路径同一个函数, 随机数顺序一致)
                         step_left = step_dt - hit_dt

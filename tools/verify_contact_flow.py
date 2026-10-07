@@ -10,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "benchmark_logs" / "contact_flow_2_5"
+OUT = ROOT / "benchmark_logs" / "contact_flow_2_6"
 
 
 def run():
@@ -98,8 +98,8 @@ def run():
                 difference = np.max(np.abs(np.asarray(normal).astype(int)
                                             - np.asarray(hidden).astype(int)), axis=2)
                 visible = int(np.count_nonzero(difference >= 5))
-                assert airborne > 300 and aloft > 300, "splash population still too sparse"
-                assert visible > 300, "splashes exist but are not visible in the rendered frame"
+                assert airborne > 700 and aloft > 700, "valid-direction splash population still too sparse"
+                assert visible > 700, "splashes exist but are not visible in the rendered frame"
                 pixels = np.asarray(normal).astype(int)
                 sand = pixels[:, :, 0] - pixels[:, :, 2] > 45
                 half = w._taper["t_in"] * m.FLOW_SHRINK_MIN * 0.7
@@ -133,12 +133,27 @@ def run():
                         assert i >= 0
                         vx, vy = float(w.svx[i]), float(w.svy[i])
                         assert vx > 0 and vy > 0
+                        assert np.arctan2(vy, abs(vx)) <= np.deg2rad(50) + 1e-12
                         group.append((vx, vy))
                     velocities.append(np.asarray(group))
                 ratio = np.linalg.norm(velocities[1], axis=1) / np.linalg.norm(velocities[0], axis=1)
                 assert np.min(ratio) >= 0.90, "late splash strength still collapses with impact speed"
                 angles = np.arctan2(velocities[0][:, 1], velocities[0][:, 0])
-                assert np.ptp(angles) > 0.6 and np.ptp(velocities[0][:, 0]) > 70
+                assert np.ptp(angles) > np.deg2rad(20) and np.ptp(velocities[0][:, 0]) > 70
+                saved_angles = m.SPLASH_ANGLE_MIN, m.SPLASH_ANGLE_MAX
+                try:
+                    for low, high in ((0.30, 1.15), (0.10, 0.30), (1.15, 0.30)):
+                        m.SPLASH_ANGLE_MIN, m.SPLASH_ANGLE_MAX = low, high
+                        w.splashes = []
+                        for side in (-1.0, 1.0):
+                            xx = w._cx + side * 0.6 * w._contact_flow_diameter()
+                            for _ in range(80):
+                                i = w._eject_splash(xx, w._mound_top_at(xx), 400)
+                                assert i >= 0
+                                assert side * w.svx[i] > 0
+                                assert np.arctan2(w.svy[i], abs(w.svx[i])) <= np.deg2rad(50) + 1e-12
+                finally:
+                    m.SPLASH_ANGLE_MIN, m.SPLASH_ANGLE_MAX = saved_angles
                 assert random.getstate() == random_state, "effect draws changed the main RNG"
                 w.splashes = saved
                 w._splash_stats = saved_stats
@@ -167,6 +182,7 @@ def run():
                 report = dict(version=m.APP_VERSION, live=live, airborne=airborne,
                               above_surface_2px=aloft, visible_pixels_delta5=visible,
                               minimum_late_strength_ratio=float(np.min(ratio)),
+                              max_initial_horizontal_angle_deg=float(np.rad2deg(np.max(angles))),
                               contact_coverage=valid / total,
                               peak=self.peak, drops=stats)
                 (OUT / "report.json").write_text(json.dumps(report, indent=2))
