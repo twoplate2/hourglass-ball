@@ -29,8 +29,6 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
     """逐字抄自 main.py:update_particles 的 `for p in self.particles:` 循环体。"""
     cx = c["cx"]
     mound_top = c["mound_top"]
-    contact_band = c.get("contact_band", 40.0)
-    contact_width = c.get("contact_width", 1.25)
     g = c["g"]
     g_abs = c["g_abs"]
     source_speed = c["source_speed"]
@@ -70,7 +68,7 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
         vy += g * step_dt
         hit = y <= mound_top
         hy = mound_top
-        if y <= mound_top + contact_band and use_curve:
+        if hit and use_curve:
             z = (px[i] - _c_x0) * _c_scale
             if z <= 0.0:
                 hy = _cy_arr[0]
@@ -109,10 +107,6 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
                 shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
             else:
                 shrink = target
-            dist_to_floor = y - hy
-            spread = max(0.0, min(1.0, 1.0 - dist_to_floor / contact_band))
-            spread = spread * spread * (3.0 - 2.0 * spread)
-            shrink = shrink + (contact_width - shrink) * spread
         x = cx + x_offset * shrink + math.sin(fallen_dist * 0.07 + wobble_phase) \
             * wobble_amp * (1 - shrink * 0.4)
 

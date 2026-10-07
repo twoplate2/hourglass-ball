@@ -39,7 +39,7 @@ _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt",
 # "从下标 n0 起"打标, 隔若干帧再按标记读回来。**原来那些探针靠 dict 的 `id()`/对象同一性
 # 跨帧认人, 换成数组后那条路断了** —— 用这个字段代替。
 _S_FIELDS = ("sx", "sy", "svx", "svy", "sgd", "shw", "shh",
-             "srest", "sstill", "shas", "sdt", "stag")
+             "srest", "sstill", "shas", "sdt", "stag", "sslide")
 # 向量化的固定开销(每个桶一次 np.array/argsort/bincount, 每次 numpy 调用 ~5-20µs)
 # 在粒子少时会盖过 O(pn) 循环省下的时间。设备实测: 1 秒档(约 278 颗)打包+分组
 # 反而慢 0.92ms, 5 秒档(约 1695 颗)才转正。阈值取两者之间, 低于它走原标量路径。
@@ -772,8 +772,6 @@ def _inv_norm(p):
 #    ⇒ 做成开关(默认 0.70 = **零行为改动**), 好让"0.70 vs 0.50 看起来差多少"变成可判的。
 #    ⚠️ 值通过 `consts` 传给 numpy 路径, 两条路径**不可能**再各写各的。
 FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.70"))
-FLOW_CONTACT_BAND = 40.0
-FLOW_CONTACT_WIDTH = 1.25
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -4280,6 +4278,7 @@ class HourglassWidget(Widget):
         self.srest[i] = 0.0
         self.sstill[i] = 0.0
         self.shas[i] = 0.0
+        self.sslide[i] = 0.0
         self.stag[i] = 0.0         # 取证探针的标记位(默认空)
         self.sdt[i] = 0.0          # 由调用方按需覆盖成"帧内偏步长"
         self._sn = i + 1
@@ -4321,6 +4320,8 @@ class HourglassWidget(Widget):
             tag = float(self.stag[i])
             if tag:
                 d["_tag"] = tag
+            if self.sslide[i]:
+                d["_contact_slide"] = True
             out.append(d)
         return out
 
@@ -4345,6 +4346,8 @@ class HourglassWidget(Widget):
                 self.sdt[i] = float(d["_step_dt"])
             if d.get("_tag"):
                 self.stag[i] = float(d["_tag"])
+            if d.get("_contact_slide"):
+                self.sslide[i] = 1.0
 
     def _p_refresh_view(self):
         """数组 -> `_pv`(Python list 快照)。每帧调一次, 并让 dict 缓存失效。
@@ -4540,7 +4543,7 @@ class HourglassWidget(Widget):
         之后交给重力做抛物线(`update_particles` 的 splash 段)。
 
         `SPLASH_GAIN` 是**唯一**的夸张旋钮, 同时乘在 vx/vy 上。
-        碰撞层按局部坡面法线旋转出射方向; 背景层沿用原方向, 抽样强度与数量不分叉。
+        碰撞后以贴坡滑落为主, 少量低仰角朝外飞溅; 穿流轨迹优先镜像替换, 不增加预算。
 
         🔴 **命中层与背景层共用这一个函数** —— 旧版两层各有一套参数(命中层 vy 朝下、
         背景层是"仰角 U(10°,72°) + 速度 sqrt(2·g·apex·0.3)"), 读起来就是用户说的
@@ -4570,11 +4573,49 @@ class HourglassWidget(Widget):
         if surface_aligned:
             step = max(1.0, self._R_inner / 256.0)
             slope = (self._mound_top_at(x + step) - self._mound_top_at(x - step)) / (2.0 * step)
-            ang -= math.atan(slope)
-            ang = max(-math.radians(75), min(math.radians(75), ang))
+            side = (1.0 if x > self._cx else -1.0 if x < self._cx
+                    else 1.0 if ang > 0.0 else -1.0)
+            selection = (abs(ang) - SPLASH_ANGLE_MIN) / max(
+                1e-6, SPLASH_ANGLE_MAX - SPLASH_ANGLE_MIN)
+            if selection < 0.75:
+                vx = side * b / math.sqrt(1.0 + slope * slope)
+                i = self._s_append(x, y_surface, vx, slope * vx,
+                                   _sz[0] * 0.5, _sz[1] * 0.5, _gd)
+                self.sslide[i] = 1.0
+                self.srest[i] = max(0.0, SPLASH_REST_LIFE - 0.24)
+                return i
+            elevation = math.radians(8.0 + 7.0 * (selection - 0.75) / 0.25)
+            ang = side * (math.pi * 0.5 - elevation)
+        vx, vy = math.sin(ang) * b, abs(math.cos(ang)) * b
+        jet = self._splash_jet_bounds()
+        if jet is not None and vx * (x - self._cx) < 0.0:
+            radius, low, high = jet
+            distance = abs(x - self._cx) - radius - _sz[0] * 0.5
+            if distance > 0.0:
+                time_to_jet = distance / max(1e-6, abs(vx))
+                scale = self._particle_motion_scale
+                gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
+                                   else scale ** SPLASH_G_SCALE) * _gd
+                y_cross = (y_surface + SPLASH_LIFT_PX + vy * time_to_jet
+                           - 0.5 * gravity * time_to_jet * time_to_jet)
+                if low < y_cross < high:
+                    vx = -vx
         return self._s_append(x, y_surface + SPLASH_LIFT_PX,
-                              math.sin(ang) * b, abs(math.cos(ang)) * b,
+                              vx, vy,
                               _sz[0] * 0.5, _sz[1] * 0.5, _gd)
+
+    def _splash_jet_bounds(self):
+        if self.pn <= 0:
+            return None
+        cached = getattr(self, "_splash_jet_cache", None)
+        if cached is not None:
+            return cached
+        radius = self._taper["t_in"] * FLOW_SHRINK_MIN + 2.0
+        front = float(min(self.py[:self.pn])) if _np is None else float(_np.min(self.py[:self.pn]))
+        low = max(front, self.get_mound_top_y() + max(4.0, radius * 0.35))
+        high = 2.0 * self._neck_y - self._taper["y_bot"]
+        self._splash_jet_cache = radius, low, high
+        return self._splash_jet_cache
 
     def _splash_uniform_half(self):
         """全场同尺寸时给批处理渲染器返回 `(half_w, half_h)`, 否则 `None`。
@@ -4691,7 +4732,8 @@ class HourglassWidget(Widget):
             surf = mound_bot + a0 + (a1 - a0) * (zz - ic.astype(np.float64))
             surf = np.where(ii < 0, mound_bot + tab[0],
                             np.where(ii >= ctab_n - 1, mound_bot + tab[ctab_n - 1], surf))
-            hitm = act & ~out_ball & (vy2 < 0.0) & (y2 <= surf)
+            attached = (self.sslide[:n] != 0.0) & act
+            hitm = act & ~out_ball & (((vy2 < 0.0) & (y2 <= surf)) | attached)
             if hitm.any():
                 hi = np.flatnonzero(hitm)
                 sy[hi] = surf[hi]
@@ -4723,6 +4765,12 @@ class HourglassWidget(Widget):
         # ---- 5) 末段剔除(仅活跃行) + 压实 ----
         drop = ((sy < lower_bot) | (sy > lower_top - 5.0)) & act
         keep = ~(die_still | out_ball | drop | die_stop | die_slide)
+        jet = self._splash_jet_bounds()
+        if jet is not None:
+            radius, low, high = jet
+            in_jet = ((np.abs(sx - cx) < radius + self.shw[:n])
+                      & (sy > low) & (sy < high) & (self.sslide[:n] == 0.0))
+            keep &= ~in_jet
         if not keep.all():
             new_n = int(np.count_nonzero(keep))
             for name in _S_FIELDS:
@@ -4750,6 +4798,7 @@ class HourglassWidget(Widget):
         sdt = self.sdt
         keep = []
         n = self._sn
+        jet = self._splash_jet_bounds()
         for i in range(n):
             step_dt = sdt[i]
             if has[i] != 0.0:
@@ -4772,7 +4821,7 @@ class HourglassWidget(Widget):
             _a = rxs + 1.0 if rxs > 0.0 else 1.0 - rxs
             if _a * _a + dy * dy > Ri2:
                 continue
-            if vy < 0 and ctab is not None:
+            if (vy < 0 or self.sslide[i] != 0.0) and ctab is not None:
                 _z = (rxs + ctab_r) * ctab_inv
                 _j = int(_z)
                 if _j < 0:
@@ -4782,7 +4831,7 @@ class HourglassWidget(Widget):
                 else:
                     _a0 = ctab[_j]
                     _surf = mound_bot + _a0 + (ctab[_j + 1] - _a0) * (_z - _j)
-                if y <= _surf:
+                if y <= _surf or self.sslide[i] != 0.0:
                     sy[i] = _surf
                     svy[i] = 0.0
                     rest[i] = rest[i] + step_dt
@@ -4809,6 +4858,10 @@ class HourglassWidget(Widget):
                             continue
             if sy[i] < lower_bot or sy[i] > lower_top - 5:
                 continue
+            if jet is not None and self.sslide[i] == 0.0:
+                radius, low, high = jet
+                if abs(sx[i] - cx) < radius + self.shw[i] and low < sy[i] < high:
+                    continue
             keep.append(i)
         m = len(keep)
         if m != n:
@@ -4894,6 +4947,7 @@ class HourglassWidget(Widget):
     def update_particles(self, dt, flow_dt=None):
         if not self._geom_ready:
             return
+        self._splash_jet_cache = None
         effect_dt = dt
         dt = dt if flow_dt is None else flow_dt
         if self.running:
@@ -5052,8 +5106,6 @@ class HourglassWidget(Widget):
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
                     "curve": (_cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1),
-                    "contact_band": FLOW_CONTACT_BAND,
-                    "contact_width": FLOW_CONTACT_WIDTH,
                 }
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
                     self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
@@ -5098,7 +5150,7 @@ class HourglassWidget(Widget):
                 #    真正的 x 依赖 shrink, 而 shrink 又依赖本判定 ⇒ 不能用本帧的 x(会成环)。
                 hit = y <= mound_top
                 hy = mound_top
-                if y <= mound_top + FLOW_CONTACT_BAND and _use_curve:
+                if hit and _use_curve:
                     z = (p_x_prev - _c_x0) * _c_scale
                     if z <= 0.0:
                         hy = _cy_arr[0]
@@ -5143,10 +5195,6 @@ class HourglassWidget(Widget):
                         shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
                     else:
                         shrink = target
-                    dist_to_floor = y - hy
-                    spread = max(0.0, min(1.0, 1.0 - dist_to_floor / FLOW_CONTACT_BAND))
-                    spread = spread * spread * (3.0 - 2.0 * spread)
-                    shrink = shrink + (FLOW_CONTACT_WIDTH - shrink) * spread
                 x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
                     * wobble_amp * (1 - shrink * 0.4)
 
@@ -5202,6 +5250,7 @@ class HourglassWidget(Widget):
             self._mound_shape_cache = self._mound_curve_cache = None
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
         self._p_refresh_view()
+        self._splash_jet_cache = None  # 落地压实后重新取流前沿, 后续飞溅共用。
         dt = effect_dt
 
         if _pm:
