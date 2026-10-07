@@ -10,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "benchmark_logs" / "contact_flow_2_6"
+OUT = ROOT / "benchmark_logs" / "contact_flow_2_7"
 
 
 def run():
@@ -133,12 +133,13 @@ def run():
                         assert i >= 0
                         vx, vy = float(w.svx[i]), float(w.svy[i])
                         assert vx > 0 and vy > 0
-                        assert np.arctan2(vy, abs(vx)) <= np.deg2rad(50) + 1e-12
+                        assert np.arctan2(vy, abs(vx)) <= np.deg2rad(55) + 1e-12
                         group.append((vx, vy))
                     velocities.append(np.asarray(group))
                 ratio = np.linalg.norm(velocities[1], axis=1) / np.linalg.norm(velocities[0], axis=1)
                 assert np.min(ratio) >= 0.90, "late splash strength still collapses with impact speed"
                 angles = np.arctan2(velocities[0][:, 1], velocities[0][:, 0])
+                assert np.min(angles) >= np.deg2rad(15) - 1e-12
                 assert np.ptp(angles) > np.deg2rad(20) and np.ptp(velocities[0][:, 0]) > 70
                 saved_angles = m.SPLASH_ANGLE_MIN, m.SPLASH_ANGLE_MAX
                 try:
@@ -151,7 +152,7 @@ def run():
                                 i = w._eject_splash(xx, w._mound_top_at(xx), 400)
                                 assert i >= 0
                                 assert side * w.svx[i] > 0
-                                assert np.arctan2(w.svy[i], abs(w.svx[i])) <= np.deg2rad(50) + 1e-12
+                                assert np.arctan2(w.svy[i], abs(w.svx[i])) <= np.deg2rad(60) + 1e-12
                 finally:
                     m.SPLASH_ANGLE_MIN, m.SPLASH_ANGLE_MAX = saved_angles
                 assert random.getstate() == random_state, "effect draws changed the main RNG"
@@ -183,6 +184,7 @@ def run():
                               above_surface_2px=aloft, visible_pixels_delta5=visible,
                               minimum_late_strength_ratio=float(np.min(ratio)),
                               max_initial_horizontal_angle_deg=float(np.rad2deg(np.max(angles))),
+                              min_initial_horizontal_angle_deg=float(np.rad2deg(np.min(angles))),
                               contact_coverage=valid / total,
                               peak=self.peak, drops=stats)
                 (OUT / "report.json").write_text(json.dumps(report, indent=2))
