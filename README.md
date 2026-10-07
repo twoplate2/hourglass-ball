@@ -37,7 +37,8 @@ python main.py
 ## 计时完成语音
 
 结束时播放一小段柔和提示音，再由微软晓晓 `zh-CN-XiaoxiaoNeural` 说一次「沙漏计时完成」，
-不弹确认框。整段声音已预录到 `sounds/completion.wav`，无需联网或手机系统 TTS。
+总时长大于或等于 30 分钟时才弹完成提示；短周期仍播放完成声音。
+整段声音已预录到 `sounds/completion.wav`，无需联网或手机系统 TTS。
 背景音效选「无声音」不影响完成播报；重置或开始新一轮会停止上一轮的播报。
 Benchmark 自动禁用完成语音并在结束后恢复，避免连续短周期打断播报或影响测量。
 开发机重新生成：`python tools/generate_completion_voice.py`，只需开发环境的 `edge-tts` / `miniaudio`。

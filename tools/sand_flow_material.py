@@ -28,6 +28,7 @@ uniform vec3 sand_light;
 uniform vec2 sand_lighting; // shade, vertical gradient
 uniform float sand_clock;
 uniform float sand_mix;
+uniform vec3 sand_tail; // mean top, grain-front amplitude, tube half-width
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -71,7 +72,17 @@ void main(void) {
     float tone = clamp(lighting(uv) + detail, -1.0, 1.0);
     vec3 target = tone >= 0.0 ? sand_light : sand_dark;
     vec3 flowing = mix(sand_base, target, abs(tone));
-    gl_FragColor = frag_color * vec4(mix(original.rgb, flowing, sand_mix), original.a);
+    float coverage = 1.0;
+    if (sand_tail.y > 0.0) {
+        float u = 0.5 + (sand_position.x - sand_geometry.x) / (2.0 * sand_tail.z);
+        // Mirrored grain noise is odd across the tube: no net added cap volume.
+        float left = grain(vec2(u, sand_clock * 0.25 + 0.37));
+        float right = grain(vec2(1.0 - u, sand_clock * 0.25 + 0.37));
+        float top = sand_tail.x + sand_tail.y * clamp((left - right) * 0.7, -1.0, 1.0);
+        coverage = 1.0 - smoothstep(top - 0.5, top + 0.5, sand_position.y);
+    }
+    gl_FragColor = frag_color * vec4(mix(original.rgb, flowing, sand_mix),
+                                     original.a * coverage);
 }
 """
 
@@ -86,10 +97,12 @@ class SandFlowContext(RenderContext):
         self["sand_geometry"] = tuple(map(float, geometry))
         self["sand_clock"] = 0.0
         self["sand_mix"] = 0.0
+        self["sand_tail"] = (0.0, 0.0, 1.0)
         self._material_key = None
         self._clock_key = None
+        self._tail_key = None
 
-    def update_flow(self, elapsed, speed_scale, material, palette):
+    def update_flow(self, elapsed, speed_scale, material, palette, tail=(0.0, 0.0, 1.0)):
         key = (material, palette)
         if key != self._material_key:
             self._material_key = key
@@ -103,3 +116,6 @@ class SandFlowContext(RenderContext):
             self._clock_key = (clock, blend)
             self["sand_clock"] = float(clock)
             self["sand_mix"] = float(blend)
+        if tail != self._tail_key:
+            self._tail_key = tail
+            self["sand_tail"] = tuple(map(float, tail))

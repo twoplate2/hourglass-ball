@@ -55,10 +55,11 @@ class _FlowView:
     """
 
     __slots__ = ("n", "nx", "ny", "nvy", "ntl", "nwp", "nsz", "nli", "use_np",
-                 "_x", "_y", "_vy", "_tl", "_sz", "_light", "_wp")
+                 "_x", "_y", "_vy", "_tl", "_sz", "_light", "_wp", "tail")
 
     def __init__(self):
         self.n = 0
+        self.tail = False
         # 🔴 **list 快照是惰性的**(2026-10-07): 六个字段每帧 `tolist()` 实测 **0.11ms**
         #    (桌面; 设备更贵), 而**安卓上一条读它的路径都走不到** —— 三个读点
         #    (`_group_stream_particles` / `_draw_stream` / `_draw_neck_grains`)
@@ -1950,7 +1951,7 @@ MOUND_FLOOR_MAX = 3.5
 MOUND_FLOOR_EFF = 0.02
 
 COMPLETION_POPUP_DELAY = 1.0   # 完成提示延后(秒): 让闪光/尘埃先演完再弹(用户 2026-10-03 定)
-COMPLETION_POPUP_MIN = 20.0    # 周期短于这个数就**不弹**完成提示(同上)
+COMPLETION_POPUP_MIN = 1800.0  # 总时长至少 30 分钟才弹完成提示
 
 # (1.39 回滚) 这里曾有 JET_VENA / JET_DIFFUSE / JET_SPREAD / JET_EDGE / JET_WAVE_K ——
 # 出口以下的"vena contracta 收腰 + 沿深度相干摆动"。它把颈部射流做成了一根**静止的
@@ -3187,6 +3188,9 @@ class HourglassWidget(Widget):
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
             _uamp = UPPER_ROUGH_FRAC * 2.0 * Ri
             self._upper_rough = _surface_roughness(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED, _uamp)
+            self._upper_wall_weights = tuple(
+                0.35 + 0.65 * (1.0 - (2.0 * i / (MOUND_SHAPE_NODES - 1) - 1.0) ** 2)
+                for i in range(MOUND_SHAPE_NODES))
             # 演化帧: 与静态版同幅度、同节点口径, 只是**随时间平滑地换形状**
             self._upper_rough_frames = _build_rough_frames(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED)
             self._upper_rough_cache = None
@@ -3362,7 +3366,7 @@ class HourglassWidget(Widget):
         return self._raw_height_ratio(self._upper_sand_fraction()) * 2 * self._R_inner
 
     def _transfer_timing(self):
-        """Reserve flight time before zero; the neck buffer represents a transit interval."""
+        """Reserve flight time; neck storage follows its geometry, not an arbitrary duration."""
         if self._sand_timing is None:
             start = self._neck_fill_time
             scale = self._particle_motion_scale
@@ -3373,7 +3377,8 @@ class HourglassWidget(Widget):
             flight = 2.0 * distance / (
                 speed + math.sqrt(speed * speed + 2.0 * gravity * distance))
             end = max(start + 1e-6, self.duration - flight - 1.0 / 60.0)
-            reserve = min(0.45, start / max(1e-6, end - start))
+            sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
+            reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
             self._sand_timing = (start, end, reserve)
         return self._sand_timing
 
@@ -3420,6 +3425,7 @@ class HourglassWidget(Widget):
             table.append((volume, y))
             last_y, last_x = y, x
         self._neck_mass_table = tuple((v / max(1e-12, volume), y) for v, y in table)
+        self._neck_volume = volume
 
     def _neck_surface_y(self, fraction):
         table = self._neck_mass_table
@@ -5603,7 +5609,7 @@ class HourglassWidget(Widget):
     def _upper_funnel_params(self, p, height):
         """上球漏斗的 (下陷深度 d, 半宽 b) —— 专家 dingbu.md §4.2。
 
-        d = 0.03D · smoothstep(0,0.25,p) · [1 - smoothstep(0.85,1,p)]
+        d = UPPER_FUNNEL_DEPTH · D · 起步/收尾包络 · (0.75 + 0.25·汇流强度)
         b = D · [0.10 + 0.04 · smoothstep(0.10,0.80,p)]
         两个限制: d ≤ 0.25×当前沙层厚, b ≤ 0.8×该高度的半弦宽。
         ⚠️ 两端 sstep 包络 ⇒ **满球和空球都自动收敛成平面**(那是正确的: 满球没有自由表面)。
@@ -5618,7 +5624,10 @@ class HourglassWidget(Widget):
         s2 = 1.0 - _smoothstep(0.85, 1.0, p)
         # d 仍乘 s1/s2 包络(评审: "d 继续乘原有的随沙量出现、收敛的包络"), 满球/空球自动收敛成平面。
         # b 不需要额外的 p 增长项 —— C 本身随沙量变化(半弦宽), 已含"慢慢出来"。
-        d = UPPER_FUNNEL_DEPTH * D * s1 * s2
+        from_mouth = max(0.0, self._upper_sand_bot + height
+                         - self._taper["in_pts"][0][1]) / D
+        sink = 1.0 / (1.0 + 8.0 * from_mouth * from_mouth)
+        d = UPPER_FUNNEL_DEPTH * D * s1 * s2 * (0.75 + 0.25 * sink)
         b = UPPER_FUNNEL_WIDTH * (2.0 * half_chord)
         return min(d, UPPER_FUNNEL_MAXH * height), min(b, UPPER_FUNNEL_MAXB * half_chord)
 
@@ -5658,7 +5667,7 @@ class HourglassWidget(Widget):
         (见 `_upper_rough_now` 的缓存), 而在**循环里**逐点调用时每点都要重走一遍
         `getattr(...) == t` 的缓存判定。峰值实测 `_upper_rough_at` **940 次/帧**,
         其中大头是面积求解 `_upper_area` 的 65 点循环 × 求解器每帧 8~12 次迭代。
-        调用方在循环外取一次 `arr` 传进来即可 —— **公式一个字没改**(仍然只有这一份)。
+        调用方在循环外取一次 `arr` 传入; 绘制与面积求解共用同一份近壁衰减。
         """
         if arr is None:
             arr = self._upper_rough_now()
@@ -5675,7 +5684,7 @@ class HourglassWidget(Widget):
                                * (1.0 - _smoothstep(0.97, 1.0, q)))
             self._upper_env_h = height
         env = self._upper_env
-        return arr[index] * env if env > 0.0 else 0.0
+        return arr[index] * env * self._upper_wall_weights[index] if env > 0.0 else 0.0
 
     def _upper_rough_crest(self, height):
         """`rough` 在整个数组上的**最大正值**(含包络) —— 沙体矩形顶要盖住它。
@@ -6456,6 +6465,17 @@ class HourglassWidget(Widget):
         side = self._neck_sand_side()
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
+        tail_front = (0.0, 0.0, 1.0)
+        if (side and self._sand_flow_contexts and self._sand_material is not None
+                and self._upper_sand_fraction() <= 0.0):
+            mean_top = side[0][1]
+            grain_px = max(1.0, diameter / SAND_MATERIAL_SIZE * SAND_MATERIAL_COARSE)
+            amplitude = max(0.0, min(1.6 * grain_px, 0.45 * (mean_top - outlet),
+                                     0.45 * (inlet - mean_top)))
+            if amplitude > 0.0:
+                # Enlarge only the draw bound; the shader cuts a zero-mean grain front.
+                tail_front = (mean_top, amplitude, self._taper["t_in"])
+                side = [(side[0][0], mean_top + amplitude)] + side[1:]
         transition = min(inlet - outlet, max(8, self._taper["t_in"] * 0.7))
         connected = bool(side and side[-1][1] <= outlet + 1e-6)
         if connected:
@@ -6510,9 +6530,10 @@ class HourglassWidget(Widget):
 
         self._draw_stream()
         if self._sand_flow_contexts and self._sand_material is not None:
-            for context in self._sand_flow_contexts:
+            for i, context in enumerate(self._sand_flow_contexts):
                 context.update_flow(self.elapsed, self._particle_motion_scale,
-                                    self._sand_material, colors)
+                                    self._sand_material, colors,
+                                    tail_front if i == 1 else (0.0, 0.0, 1.0))
         else:
             self._draw_neck_grains(side)
         # 飞溅层: 装了批处理渲染器就走批处理, 否则走原来的**逐 `Rectangle`**。
@@ -6580,6 +6601,8 @@ class HourglassWidget(Widget):
         #    那份表建了从来没人读(24 次字典查找 + 12 个 list/帧)。挪到用处再建。
         last = n_colors - 1
         pv = self._pv
+        # The final packet is still real sand, but must not read as a solid plug.
+        pv.tail = self.elapsed >= self._neck_fill_time and self._upper_sand_fraction() <= 0.0
         if pv.use_np:
             # 向量化: 选(y 未越过 outlet) -> 算色调档 -> 拼成 0..(2*(n_colors+1)-1) 的
             # 桶码 -> 稳定排序按桶分段。桶内下标升序, 与原 append 次序逐字相同。
@@ -6608,7 +6631,7 @@ class HourglassWidget(Widget):
                 # ★ 色调研磨成 4 档(每 3 档取 1) —— 桶数 22 → 8。见 /tmp/patch_buckets.py
                 idx -= idx % 3
                 key = np.where(_pl != 0.0, n_colors, idx)
-                slot = np.where(_ps == 1.0, 0, 1)
+                slot = np.zeros_like(key) if pv.tail else np.where(_ps == 1.0, 0, 1)
                 code = key * 2 + slot
                 # ★ **先把桶码压到 `uint8` 再排**(2026-10-07 性能)。`np.argsort(kind="stable")`
                 #   对整数走**基数排序**, 轮数正比于 dtype 宽度: 实测 n=1560 时
@@ -6675,7 +6698,7 @@ class HourglassWidget(Widget):
                 elif index > last:
                     index = last
                 row = by_key[index]
-            row[0 if sizes[i] == 1 else 1].append(i)
+            row[0 if pv.tail or sizes[i] == 1 else 1].append(i)
         return buckets
 
     def _draw_stream(self):
@@ -6698,7 +6721,8 @@ class HourglassWidget(Widget):
             for i, index in enumerate(indices):
                 y = ys[index]
                 x = xs[index]
-                trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale)
+                trail = (1.0 if pv.tail else
+                         max(2.0, abs(vys[index]) * trails[index] / motion_scale))
                 top = min(top_limit, y + trail)
                 coords = (x, y, x, top)
                 if i == len(pool):
@@ -6713,6 +6737,8 @@ class HourglassWidget(Widget):
             self._stream_counts[key] = len(indices)
 
     def _particle_trail(self, particle, motion_scale=None):
+        if self._pv.tail:
+            return 1.0
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
         return max(2.0, abs(particle["vy"]) * particle["trail_time"] / scale)
 
