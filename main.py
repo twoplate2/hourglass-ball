@@ -772,6 +772,8 @@ def _inv_norm(p):
 #    ⇒ 做成开关(默认 0.70 = **零行为改动**), 好让"0.70 vs 0.50 看起来差多少"变成可判的。
 #    ⚠️ 值通过 `consts` 传给 numpy 路径, 两条路径**不可能**再各写各的。
 FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.70"))
+FLOW_CONTACT_BAND = 40.0
+FLOW_CONTACT_WIDTH = 1.25
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -4526,11 +4528,11 @@ class HourglassWidget(Widget):
                 #   旧版这里把 v4 的"向上弹"改成了 `vy = -|cos|·bounce·0.2`(**朝下、0.2 倍**)
                 #   ⇒ 抛物线没了, 就是用户说的「实际它是一个**先喷射再抛物线**」。
                 step_left = step_dt - float(hit_dt[k])
-                sp = self._eject_splash(x, hy, -vy)
+                sp = self._eject_splash(x, hy, -vy, surface_aligned=True)
                 if sp >= 0:                      # -1 = 撞上存活上限, 没生成(见 SPLASH_MAX)
                     self.sdt[sp] = step_left if step_left > 0 else 0
 
-    def _eject_splash(self, x, y_surface, v_impact):
+    def _eject_splash(self, x, y_surface, v_impact, surface_aligned=False):
         """从沙面上的一个点**弹出一颗飞溅** —— 全工程**唯一**的飞溅模型。
 
         参数逐字取自 PC v4(`pc/hourglass_v4.py:1109-1118`, 项目自定的"唯一真理"):
@@ -4538,6 +4540,7 @@ class HourglassWidget(Widget):
         之后交给重力做抛物线(`update_particles` 的 splash 段)。
 
         `SPLASH_GAIN` 是**唯一**的夸张旋钮, 同时乘在 vx/vy 上。
+        碰撞层按局部坡面法线旋转出射方向; 背景层沿用原方向, 抽样强度与数量不分叉。
 
         🔴 **命中层与背景层共用这一个函数** —— 旧版两层各有一套参数(命中层 vy 朝下、
         背景层是"仰角 U(10°,72°) + 速度 sqrt(2·g·apex·0.3)"), 读起来就是用户说的
@@ -4564,6 +4567,11 @@ class HourglassWidget(Widget):
         #    返回 -1 表示"没生成", 调用方必须判 `>= 0` 再写 `sdt`(否则会写到 `sdt[-1]`)。
         if SPLASH_MAX and self._sn >= SPLASH_MAX:
             return -1
+        if surface_aligned:
+            step = max(1.0, self._R_inner / 256.0)
+            slope = (self._mound_top_at(x + step) - self._mound_top_at(x - step)) / (2.0 * step)
+            ang -= math.atan(slope)
+            ang = max(-math.radians(75), min(math.radians(75), ang))
         return self._s_append(x, y_surface + SPLASH_LIFT_PX,
                               math.sin(ang) * b, abs(math.cos(ang)) * b,
                               _sz[0] * 0.5, _sz[1] * 0.5, _gd)
@@ -5044,6 +5052,8 @@ class HourglassWidget(Widget):
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
                     "curve": (_cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1),
+                    "contact_band": FLOW_CONTACT_BAND,
+                    "contact_width": FLOW_CONTACT_WIDTH,
                 }
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
                     self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
@@ -5088,7 +5098,7 @@ class HourglassWidget(Widget):
                 #    真正的 x 依赖 shrink, 而 shrink 又依赖本判定 ⇒ 不能用本帧的 x(会成环)。
                 hit = y <= mound_top
                 hy = mound_top
-                if y <= mound_top + 30.0 and _use_curve:
+                if y <= mound_top + FLOW_CONTACT_BAND and _use_curve:
                     z = (p_x_prev - _c_x0) * _c_scale
                     if z <= 0.0:
                         hy = _cy_arr[0]
@@ -5134,9 +5144,9 @@ class HourglassWidget(Widget):
                     else:
                         shrink = target
                     dist_to_floor = y - hy
-                    spread = max(0.0, min(1.0, 1.0 - dist_to_floor / 30.0))
+                    spread = max(0.0, min(1.0, 1.0 - dist_to_floor / FLOW_CONTACT_BAND))
                     spread = spread * spread * (3.0 - 2.0 * spread)
-                    shrink = shrink + (1.0 - shrink) * spread
+                    shrink = shrink + (FLOW_CONTACT_WIDTH - shrink) * spread
                 x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
                     * wobble_amp * (1 - shrink * 0.4)
 
@@ -5175,7 +5185,7 @@ class HourglassWidget(Widget):
                     if rand() < 0.35:
                         # ★ 唯一的飞溅模型(与 numpy 路径同一个函数, 随机数顺序一致)
                         step_left = step_dt - hit_dt
-                        sp = self._eject_splash(x, hy, -vy)
+                        sp = self._eject_splash(x, hy, -vy, surface_aligned=True)
                         if sp >= 0:                  # -1 = 撞上存活上限
                             self.sdt[sp] = step_left if step_left > 0 else 0
                     continue

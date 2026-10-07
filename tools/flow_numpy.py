@@ -56,6 +56,8 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     g = c["g"]
     g_abs = c["g_abs"]
     mound_top = c["mound_top"]
+    contact_band = c.get("contact_band", 40.0)
+    contact_width = c.get("contact_width", 1.25)
 
     # ⚠️ 这两个**别名**就够了(原来写的是 `.copy()`, 每帧白拷 2×2750 个 float64 = 44KB):
     #    `y`/`vy` 下面都是**重绑定**(`y = y + ...` / `y = np.where(...)`), 不是原地改;
@@ -87,7 +89,7 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
         #   ⇒ 先把 `hy` 用 `mound_top` 铺满(这正是"够不着"那批该拿到的值),
         #     子集上算完再散写回去。**逐位不变**: 同一个算式、同一批输入, 一个数都没动。
         # Also query the local surface while approaching it, for contact-band spreading.
-        near = y <= mound_top + 30.0
+        near = y <= mound_top + contact_band
         hy = np.full(n, mound_top) if n else y
         m = np.flatnonzero(near)
         if m.size:
@@ -148,9 +150,9 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
                            1.0 + (target - 1.0) * (below_tube / 40.0),
                            target)
     dist_to_floor = y - hy_eff
-    spread = np.clip(1.0 - dist_to_floor / 30.0, 0.0, 1.0)
+    spread = np.clip(1.0 - dist_to_floor / contact_band, 0.0, 1.0)
     spread = spread * spread * (3.0 - 2.0 * spread)
-    shrink_body = shrink_body + (1.0 - shrink_body) * spread
+    shrink_body = shrink_body + (contact_width - shrink_body) * spread
     shrink = np.where(y > c["lower_cut"], 1.0, shrink_body)
 
     cx = c["cx"]
