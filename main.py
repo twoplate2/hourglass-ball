@@ -41,8 +41,8 @@ _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt",
 # 跨帧认人, 换成数组后那条路断了** —— 用这个字段代替。
 _S_FIELDS = ("sx", "sy", "svx", "svy", "sgd", "shw", "shh",
              "srest", "sstill", "shas", "sdt", "stag", "sslide",
-             "sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh")
-_S_MOTION_FIELDS = ("sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh")
+             "sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh", "sdamp")
+_S_MOTION_FIELDS = ("sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh", "sdamp")
 # 向量化的固定开销(每个桶一次 np.array/argsort/bincount, 每次 numpy 调用 ~5-20µs)
 # 在粒子少时会盖过 O(pn) 循环省下的时间。设备实测: 1 秒档(约 278 颗)打包+分组
 # 反而慢 0.92ms, 5 秒档(约 1695 颗)才转正。阈值取两者之间, 低于它走原标量路径。
@@ -4306,6 +4306,7 @@ class HourglassWidget(Widget):
         self.sside[i] = 1.0 if vx >= 0.0 else -1.0
         self.sdist[i] = self.sage[i] = self.sbounce[i] = self.saway[i] = 0.0
         self.svariant[i] = 1.0
+        self.sdamp[i] = 2.0
         self.srw[i], self.srh[i] = hw, hh
         self.stag[i] = 0.0         # 取证探针的标记位(默认空)
         self.sdt[i] = 0.0          # 由调用方按需覆盖成"帧内偏步长"
@@ -4338,7 +4339,7 @@ class HourglassWidget(Widget):
         for i in range(self._sn):
             d = {"x": float(self.sx[i]), "y": float(self.sy[i]),
                  "vx": float(self.svx[i]), "vy": float(self.svy[i]),
-                 "size": (int(self.shw[i] * 2.0), int(self.shh[i] * 2.0)),
+                 "size": (float(self.shw[i] * 2.0), float(self.shh[i] * 2.0)),
                  "gd": float(self.sgd[i])}
             rest = float(self.srest[i])
             if rest:
@@ -4580,8 +4581,15 @@ class HourglassWidget(Widget):
         squeeze = rng.uniform(0.18, 0.28)
         direction = rng.choice((-1.0, 1.0))
         sample = rng.random()
+        # 各因素独立且出生后固定, 避免同一高度上限和关联随机数生成成组的近似轨迹。
+        tangent_retention = rng.uniform(0.30, 0.50)
+        hop_height = rng.uniform(0.14, 0.40)
+        deposition = rng.uniform(0.80, 1.20)
+        damping = rng.uniform(1.6, 2.4)
+        transport_factor = rng.uniform(0.85, 1.15)
+        emphasis = 1.25 if rng.random() < 0.20 else 1.0  # 保留基础细粒, 少量增强辨认度。
         px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
-        size = tuple(round(k * px) for k in rng.choice(SPLASH_SIZE_MIX))
+        size = tuple(round(k * px) * emphasis for k in rng.choice(SPLASH_SIZE_MIX))
         gd = rng.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)
         if SPLASH_MAX and self._sn >= SPLASH_MAX:
             self._splash_stats["pool_full"] += 1
@@ -4604,14 +4612,17 @@ class HourglassWidget(Widget):
         normal_in, tangent_in = impact * ny, max(0.0, -impact * ty)
         hw, hh = size[0] * 0.5, size[1] * 0.5
         support = abs(nx) * hw + ny * hh
-        u = 0.40 * tangent_in + squeeze * normal_in * min(1.0, thick / max(1.0, size[1]))
+        u = tangent_retention * tangent_in + squeeze * normal_in * min(1.0, thick / max(1.0, size[1]))
         scale = self._particle_motion_scale
         gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
                            else scale ** SPLASH_G_SCALE) * gd
+        # 密集沙床耗散过强的侧向冲量; 只收敛高速出射, 不凭空补偿后期能量。
+        transport_speed = transport_factor * math.sqrt(gravity * diameter)
+        u = transport_speed * math.tanh(u / max(1e-9, transport_speed))
         roof = self._lower_sand_bot + profile.bounds(x - self._cx)[1]
         clearance = max(0.0, (roof - y_surface - 2.0 * support * norm) / norm)
-        w = min((0.04 + 0.26 * sample * sample) * normal_in,
-                math.sqrt(2.0 * gravity * ny * min(0.35 * diameter, clearance)))
+        w = min((0.06 + 0.24 * sample) * normal_in,
+                math.sqrt(2.0 * gravity * ny * min(hop_height * diameter, clearance)))
         energy_scale = min(1.0, 0.5 * impact / max(1e-9, math.hypot(u, w)))
         u, w = u * energy_scale, w * energy_scale
         pixel = getattr(self, "_splash_pixel", 1.0)
@@ -4622,7 +4633,8 @@ class HourglassWidget(Widget):
         i = self._s_append(x + nx * lift, y_surface + ny * lift,
                            u * tx + w * nx, u * ty + w * ny, hw, hh, gd)
         self.sside[i] = side
-        self.svariant[i] = 0.85 + 0.30 * sample
+        self.svariant[i] = deposition
+        self.sdamp[i] = damping
         self.sslide[i] = 0.0 if hop else 1.0
         self._splash_stats["born_air" if hop else "born_roll"] += 1
         return i
@@ -4666,26 +4678,8 @@ class HourglassWidget(Widget):
         return self._splash_rows_cache
 
     def _splash_uniform_half(self):
-        """全场同尺寸时给批处理渲染器返回 `(half_w, half_h)`, 否则 `None`。
-
-        实测(`HG_SPLASH_RENDERER=batch` vs 逐 `Rectangle`): 本层 Python 打包 + blit 共
-        **0.85ms/帧**(~1700 颗), 而飞溅绘制在 Canvas 里基本免费(2.73 vs 2.82ms)。
-        逐颗读 `size` 占了打包的一大半, 而尺寸现在是**循环常量** ⇒ 提到循环外。
-
-        🔴 **判据必须用配置, 不许逐颗验证** —— 试过: 验证那趟遍历的代价**正好等于**省下的。
-        `len(SPLASH_SIZE_MIX) == 1` 时, `_eject_splash` 里的 `random.choice(SPLASH_SIZE_MIX)`
-        **按构造**只能产出同一尺寸, O(1) 即可判定。
-
-        ⚠️ 口径必须与 `_eject_splash` 里那一行**逐字一致**(同一个 `_px`、同一个 `round`)。
-        ⚠️ 已知边界: 窗口**运行中被 resize**时, `_R_inner` 变了而**在途的旧飞溅**还带着旧尺寸
-        ⇒ 这一步给它们算错尺寸, 最长错 0.2s。不过那种情况下它们的**绝对坐标**本来就已失效,
-        不是新增的一类问题(全屏 app 上也不会发生)。
-        """
-        if len(SPLASH_SIZE_MIX) != 1:
-            return None
-        _k = SPLASH_SIZE_MIX[0]
-        _px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
-        return (round(_k[0] * _px) * 0.5, round(_k[1] * _px) * 0.5)
+        """尺寸有少量差异且融入时会缩小, 不可走统一尺寸的兼容快路径。"""
+        return None
 
     def _update_splashes(self, dt, g_splash, g_abs, ctab, ctab_n, ctab_r, ctab_inv,
                          mound_bot, lower_center, lower_bot, lower_top,
@@ -6452,6 +6446,7 @@ class HourglassWidget(Widget):
         else:
             self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
 
+        self._project_stream_contact()
         self._draw_stream()
         if self._sand_flow_contexts and self._sand_material is not None:
             for i, context in enumerate(self._sand_flow_contexts):
@@ -6637,6 +6632,39 @@ class HourglassWidget(Widget):
                 thin = threshold < pv.tail_blend
             row[0 if thin else 1].append(i)
         return buckets
+
+    def _project_stream_contact(self):
+        """仅补齐已发生碰撞的落点末端采样间隙, 不移动物理粒子或扩大沙柱。"""
+        pv = self._pv
+        n = self.pn
+        if _np is None:
+            pv._y = self.py[:n]
+        else:
+            pv.ny = self.py[:n]
+            pv._y = None
+        if (n == 0 or self._last_impact_clock is None
+                or self._mound_flow_clock - self._last_impact_clock > 0.05):
+            return
+        band = 3.0 * max(getattr(self, "_splash_pixel", 1.0), self._R_inner / 140.0)
+        ceiling = self.get_mound_top_y() + band
+        xs, ys, *_ = self._mound_contact_curve()
+        overlap = 0.15 * getattr(self, "_splash_pixel", 1.0)
+        if _np is None:
+            for i in range(n):
+                if self.py[i] <= ceiling:
+                    surface = self._mound_top_at(self.px[i])
+                    if 0.0 < self.py[i] - surface <= band:
+                        pv._y[i] = surface - overlap
+        else:
+            near = _np.flatnonzero(self.py[:n] <= ceiling)
+            if near.size:
+                surface = _np.interp(self.px[near], xs, ys)
+                gap = self.py[near] - surface
+                touch = (gap > 0.0) & (gap <= band)
+                if touch.any():
+                    display_y = self.py[:n].copy()
+                    display_y[near[touch]] = surface[touch] - overlap
+                    pv.ny = display_y
 
     def _draw_stream(self):
         # 区间打点: 从上一处打点到这里的整段 = **沙流之前的那些层**

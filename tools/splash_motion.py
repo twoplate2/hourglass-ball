@@ -77,7 +77,8 @@ def _step_np(w, table, radius, inv, bottom, center, gravity, scale, pixel, jet):
     g = gravity * w.sgd[:n]
     x0 = w._cx - radius
     diameter = w._contact_flow_diameter()
-    gamma = 2.0 * scale
+    gamma = w.sdamp[:n] * scale
+    contact_activity = w._mound_flow_strength()
     fade_life, max_life = 0.12 / scale, 1.8 / scale
     count = max(1, math.ceil(float(np.max(w.sdt[:n])) * min(240.0, 120.0 * scale)))
     h = w.sdt[:n] / count
@@ -130,16 +131,20 @@ def _step_np(w, table, radius, inv, bottom, center, gravity, scale, pixel, jet):
             u = np.maximum(0.0, side[ri] * vx[ri] * rn)
             z = np.clip((dist[ri] / w.svariant[ri] - 0.8 * diameter)
                         / (2.0 * diameter), 0.0, 1.0)
-            mu = 0.30 + 0.52 * z * z * (3.0 - 2.0 * z)
+            core = np.clip((np.abs(x[ri] - w._cx) / diameter - 0.35) / 0.55, 0.0, 1.0)
+            core = 1.0 - core * core * (3.0 - 2.0 * core)
+            near_mu = 0.30 - 0.14 * contact_activity * core
+            mu = near_mu + (0.82 - near_mu) * z * z * (3.0 - 2.0 * z)
             a = g[ri] * (-side[ri] * rm - mu) / rn
+            damp = gamma[ri]
             dt = roll_dt[ri].copy()
             stopping = (a < 0.0) & (u > 0.0)
             ts = np.full(len(ri), np.inf)
-            ts[stopping] = np.log1p(gamma * u[stopping] / -a[stopping]) / gamma
+            ts[stopping] = np.log1p(damp[stopping] * u[stopping] / -a[stopping]) / damp[stopping]
             dt = np.minimum(dt, ts)
-            decay = np.exp(-gamma * dt)
-            speed = np.maximum(0.0, u * decay + a / gamma * (1.0 - decay))
-            travel = np.maximum(0.0, (u - a / gamma) * (1.0 - decay) / gamma + a / gamma * dt)
+            decay = np.exp(-damp * dt)
+            speed = np.maximum(0.0, u * decay + a / damp * (1.0 - decay))
+            travel = np.maximum(0.0, (u - a / damp) * (1.0 - decay) / damp + a / damp * dt)
             x[ri] += side[ri] * travel / rn
             dist[ri] += travel
             rs, rm, rn, rr = _surface_np(table, x0, inv, bottom, x[ri], hw[ri], hh[ri])
@@ -184,12 +189,14 @@ def _step_scalar(w, table, radius, inv, bottom, center, gravity, scale, pixel, j
     n = w._sn
     count = max(1, math.ceil(max(w.sdt[:n]) * min(240.0, 120.0 * scale)))
     x0, diameter = w._cx - radius, w._contact_flow_diameter()
-    gamma, fade_life, max_life = 2.0 * scale, 0.12 / scale, 1.8 / scale
+    fade_life, max_life = 0.12 / scale, 1.8 / scale
+    contact_activity = w._mound_flow_strength()
     keep = [True] * n
     for i in range(n):
         x, y, vx, vy = (float(getattr(w, name)[i]) for name in ("sx", "sy", "svx", "svy"))
         hw, hh, side = w.shw[i], w.shh[i], w.sside[i]
         g, h = gravity * w.sgd[i], w.sdt[i] / count
+        gamma = w.sdamp[i] * scale
         for _ in range(count):
             w.sage[i] += h
             active = w.shas[i] == 0.0
@@ -224,7 +231,10 @@ def _step_scalar(w, table, radius, inv, bottom, center, gravity, scale, pixel, j
                 rs, rm, rn, rr = _surface(table, x0, inv, bottom, x, hw, hh)
                 u = max(0.0, side * vx * rn)
                 z = min(1.0, max(0.0, (w.sdist[i] / w.svariant[i] - 0.8 * diameter) / (2.0 * diameter)))
-                mu = 0.30 + 0.52 * z * z * (3.0 - 2.0 * z)
+                core = min(1.0, max(0.0, (abs(x - w._cx) / diameter - 0.35) / 0.55))
+                core = 1.0 - core * core * (3.0 - 2.0 * core)
+                near_mu = 0.30 - 0.14 * contact_activity * core
+                mu = near_mu + (0.82 - near_mu) * z * z * (3.0 - 2.0 * z)
                 a, dt = g * (-side * rm - mu) / rn, roll_dt
                 if a < 0.0 and u > 0.0:
                     dt = min(dt, math.log1p(gamma * u / -a) / gamma)

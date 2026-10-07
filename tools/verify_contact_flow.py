@@ -9,7 +9,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "benchmark_logs" / "contact_flow_2_3"
+OUT = ROOT / "benchmark_logs" / "contact_flow_2_4"
 
 
 def run():
@@ -52,11 +52,13 @@ def run():
 
             def clip(self, name, frames=None, seconds=1.2):
                 frames = [] if frames is None else frames
-                for k in range(round(seconds * 10)):
-                    self.advance(0.1)
+                prefix = len(frames)
+                for k in range(round(seconds * 30)):
+                    self.advance(1 / 30)
                     frames.append(self.shot(name + "_%02d" % k))
+                durations = [100] * prefix + [30, 30, 40] * ((len(frames) - prefix + 2) // 3)
                 frames[0].save(OUT / (name + ".gif"), save_all=True,
-                               append_images=frames[1:], duration=100, loop=0)
+                               append_images=frames[1:], duration=durations[:len(frames)], loop=0)
 
             def check(self, _dt):
                 self.root.apply_orientation()
@@ -94,12 +96,41 @@ def run():
                 visible = int(np.count_nonzero(difference >= 5))
                 assert airborne > 40 and aloft > 40, "not enough readable airborne grains"
                 assert visible > 60, "splashes exist but are not visible in the rendered frame"
+                physical_y = w.py[:w.pn].copy()
+                w._project_stream_contact()
+                assert np.array_equal(physical_y, w.py[:w.pn]), "contact projection changed physics"
+                cx, cy, *_ = w._mound_contact_curve()
+                surface = np.interp(w.px[:w.pn], cx, cy)
+                displayed = w._pv.ny
+                assert np.min(displayed - surface) <= 0.01, "stream does not reach the contact surface"
                 random_state = random.getstate()
                 saved = w.splashes
-                for _ in range(10):
-                    w._eject_splash(w._cx, w.get_mound_top_y(), 400)
+                saved_stats = dict(w._splash_stats)
+                effect_state = w._splash_random().getstate()
+                w.splashes = []
+                x = w._cx + 0.6 * w._contact_flow_diameter()
+                step = w._R_inner * 2 / (m.CONTACT_TABLE_N - 1)
+                slope = (w._mound_top_at(x + step) - w._mound_top_at(x - step)) / (2 * step)
+                norm = np.hypot(1.0, slope)
+                heights = []
+                for _ in range(160):
+                    i = w._eject_splash(x, w._mound_top_at(x), 400)
+                    assert i >= 0
+                    vx, vy = w.svx[i], w.svy[i]
+                    assert vx > 0 and vx * vx + vy * vy <= 200 ** 2 + 1e-7
+                    if not w.sslide[i]:
+                        vn = (-slope * vx + vy) / norm
+                        gravity = 450 * w._particle_motion_scale ** 2 * w.sgd[i]
+                        heights.append(round(float(vn * vn / (2 * gravity / norm)
+                                                   / w._contact_flow_diameter()), 3))
+                _, counts = np.unique(heights, return_counts=True)
+                assert len(counts) > 30 and np.max(counts) / len(heights) < 0.15
+                assert np.ptp(w.sdamp[:w._sn]) > 0.5
+                assert np.ptp(w.svariant[:w._sn]) > 0.25
                 assert random.getstate() == random_state, "effect draws changed the main RNG"
                 w.splashes = saved
+                w._splash_stats = saved_stats
+                w._splash_random().setstate(effect_state)
                 w.toggle()
                 state = tuple(tuple(getattr(w, field)[:w._sn]) for field in m._S_FIELDS)
                 self.advance(0.2)
@@ -110,6 +141,8 @@ def run():
                     profile = w._mound_profile
                     apex = profile.apex_for_fraction(fraction)
                     assert abs(profile.heap.area_at(apex) / profile.heap.capacity - fraction) < 1e-9
+                self.advance(45.5 - w.elapsed)
+                self.clip("late")
                 self.advance(48.8 - w.elapsed)
                 self.clip("finish", seconds=1.8)
                 self.advance(1.6)
@@ -121,6 +154,7 @@ def run():
                 assert w._sn == 0 and not w._contact_hits and w._last_impact_clock is None
                 report = dict(version=m.APP_VERSION, live=live, airborne=airborne,
                               above_surface_2px=aloft, visible_pixels_delta5=visible,
+                              distinct_hop_heights=len(counts),
                               peak=self.peak, drops=stats)
                 (OUT / "report.json").write_text(json.dumps(report, indent=2))
                 print("PASS contact splashes:", report)
