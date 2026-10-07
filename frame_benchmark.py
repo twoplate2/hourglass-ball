@@ -102,6 +102,8 @@ def benchmark_environment(widget):
     # `图元` 两栏**的旋钮。不记的话又回到"标记文件到底有没有被读到"只能靠猜。
     # ⚠️ 这一行**必须在 `source` 之后** —— 放在上面那个 dict 后面会 UnboundLocalError。
     environment["flow_rate"] = getattr(source, "FLOW_BASE_RATE", None)
+    # 批处理块预热(见 `main.py:_warm_batches_step`)开没开 —— 同上, **标记文件必须自证被读到**。
+    environment["warm"] = int(bool(getattr(source, "WARM_ENABLED", True)))
     path = getattr(source, "_benchmark_source_path", getattr(source, "__file__", None))
     if path:
         try:

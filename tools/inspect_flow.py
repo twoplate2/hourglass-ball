@@ -141,6 +141,15 @@ def main():
                     if widget.duration != period:
                         widget.set_duration(period)
                     widget.completion_enabled = False
+                    # ★ **预热必须夹在这里** —— 与真实使用同序(改完周期 → 闲帧 → 按下开始),
+                    #   而且 `toggle()` 之后 `running=True`, `_warm_batches_step` 会直接返回。
+                    #   见 `main.py:_warm_batches_step`(它把"第一次有内容才建"的批处理块
+                    #   挪到动画之外, 免得起跑那一帧建 7 块 —— 用户设备实测 43.88ms)。
+                    for _ in range(400):
+                        _before = len(getattr(widget, "_warm_queue", ()))
+                        widget._warm_batches_step()
+                        if len(getattr(widget, "_warm_queue", ())) >= _before:
+                            break
                     if not widget.running:
                         widget.toggle()
                     random.seed(23)

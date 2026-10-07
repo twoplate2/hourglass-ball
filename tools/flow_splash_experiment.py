@@ -168,6 +168,17 @@ class SplashBatch:
         self.parts.append(part)
         return part
 
+    def warm(self, chunk=0):
+        """**现在就建好第 `chunk` 块**(只在没在跑的时候调, 见 `main.py:_warm_batches_step`)。
+
+        为什么要它: 建一块要走 `Mesh` + `Texture.create` + 顶点表 + 索引数组, 设备实测
+        **≈6ms/块**(沙流那块; 飞溅这块钱小一些), 而它们是**第一次有内容那一帧**才建的
+        —— 用户设备上沙柱注满那一帧同时建了 7 块, `图元` 43.88ms(稳态 2.9ms),
+        表现为"必然有一帧很低"。
+        `context` 是**常挂**的 ⇒ 建完下一帧就会被 `apply`, 顶点表/纹理由此一并建好。
+        """
+        return self._ensure_part(chunk)
+
     def update(self, splashes, uniform_half=None):
         """`splashes` = widget 的飞溅列表(list of dict)。
 
@@ -811,6 +822,14 @@ class FlareBatch:
         mesh.vertices = vertices
         self.parts.append(part)
         return part
+
+    def warm(self, chunk=0):
+        """**现在就建好第 `chunk` 块**(由 `main.py:_warm_batches_step` 在没在跑时调)。
+
+        理由与 `SplashBatch.warm` 逐字相同 —— 建块的代价(设备实测数 ms)不该落在
+        "第一次有闪光/飞溅那一帧"。`context` 常挂 ⇒ 建完下一帧即 `apply`。
+        """
+        return self._ensure_part(chunk)
 
     def update_raw(self, raw, count):
         """`raw` = 全部闪光的 `left/bottom/right/top/alpha` 字节(**每条 20 字节**)。

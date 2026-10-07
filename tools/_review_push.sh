@@ -29,7 +29,7 @@ W=$(cd "$ROOT" && pwd -W)
 
 # main.py 运行时**按名字 import** 的 tools 模块(见 main.py:60 与 :5459-5469)。
 # 改了其中任何一个, 或改了 main.py 里与它们交换的键, 都必须一起推 —— 否则设备上是错配的一对。
-TOOLS_MODULES="flow_numpy.py flow_texture_experiment.py flow_batch_experiment.py flow_gpu_experiment.py flow_splash_experiment.py prof_android.py"
+TOOLS_MODULES="flow_numpy.py flow_texture_experiment.py flow_batch_experiment.py flow_gpu_experiment.py flow_splash_experiment.py marker_batch_experiment.py prof_android.py"
 # ⚠️ **新增一个被 main.py 运行时 import 的 tools 模块, 必须加进这一行** ——
 #   2026-10-07 踩过: 漏加 `flow_splash_experiment.py` ⇒ 设备上 `import` 失败 ⇒
 #   main.py 的 except 捕获后**静默回退**原路径 ⇒ 设备 A/B 量出来"两条路径一模一样"

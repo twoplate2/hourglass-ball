@@ -134,9 +134,14 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         #    改成按需挂之后, 必须**插到与该桶原次序一致的位置**(`attach` 回调里做),
         #    不能简单 append。守卫: `tools/_render_golden.py --check` 逐图一致 +
         #    `tools/_probe_canvas_instr.py` 的**指令条数**必须相应下降。
+        #    🔴 **2026-10-07 补充**: `warm()` 会为**每个**桶建块 ⇒ 24 个组都会挂上
+        #    (比"只挂有内容的 ~8 个"多 48 条指令 ≈ 0.06ms/帧)。这是**故意换的** ——
+        #    省下的是"第一次有内容那一帧建 7 块"的设备实测 43.88ms。
         self._order = order
         self._attach = attach
         self._attached = attach is None          # None ⇒ 老行为(建时就已挂好)
+        # 每块**上一帧真正写了多少条**(≠ `part[4]` 的"画多少条")。见 `update` 里那段。
+        self.live = []
 
     def _ensure_part(self, chunk, count):
         if not self._attached:
@@ -148,6 +153,10 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         #    实测摘掉 16 个空 part: on_draw −0.090ms/帧(桌面)。
         #    ⚠️ 之前**不敢**懒建: 建一块要跑三层生成器吐 12288 个 float(~2.2ms), 懒建等于
         #       把卡顿挪进帧里。现在 `build_vertices` 只要 ~0.24ms(见 1.214) ⇒ 可以懒建了。
+        #    🔴 **但懒建的代价在 2026-10-07 被用户抓到了**: 建块落在"**所有桶同时第一次有
+        #       内容**"那一帧(沙柱注满, 沙柱注满前不出粒子)⇒ 设备上那一帧 `图元` **43.88ms**,
+        #       就是"必然有一帧很低"。⇒ 现在由 `warm()` 在**没在跑**的闲帧里一帧一块地建好,
+        #       这里仍保持"不预建"(运行中才建的那几块照旧按需)。
         #    `_ensure_part` 本来就是按需建的; capacity 恒为 CHUNK ⇒ u 步长与分块无关不变。
         #    `reserve` 保留在签名里只为兼容调用方, 已经不预分配任何东西。
         if chunk == len(self.parts):
@@ -156,6 +165,7 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             self.group.add(binding)
             self.group.add(mesh)
             self.parts.append([mesh, array("f"), array("H"), 0, 0, None, None, binding])
+            self.live.append(0)
         part = self.parts[chunk]
         if part[3] < count:
             # 固定 capacity = CHUNK: u 步长与分块无关, shader 只需一个 uniform。
@@ -181,6 +191,39 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             part[5:7] = texture, data
             part[7].texture = texture
             part[0].vertices = vertices
+        return part
+
+    def warm(self, chunk=0):
+        """**把第 `chunk` 块现在就建好、索引一次给满** —— 让运行期第一次有内容时不必再付这笔钱。
+
+        为什么要有它(2026-10-07, 用户设备 Lenovo TB323FU 的 log 定位):
+
+        沙柱注满前**不出粒子** ⇒ 注满那一帧**所有桶同时**第一次拿到内容 ⇒ 那一帧要建 7 块。
+        设备实测那一帧的 `图元` 是 **43.88ms**(稳态只有 2.9ms), 且 1s/5s/15s 三档分别落在
+        t=0.156/0.25/0.25s —— **正好是 `_neck_fill_time`**。之后每帧还有 ~8 次"索引重赋"
+        (每次把整块 ~90 KiB 顶点表重走一遍)一路衰减到 0.7 次/帧。
+        ⇒ 用户看到的"必然有一帧很低"(1% low 63~75 / 最慢帧 28~35ms)就是它。
+
+        **索引给满**这一半同样重要: `update` 只在 `count > part[4]` 时重赋索引(那次要
+        `clear_data + add_vertex_data` 整块顶点表, 是"只增不减"规则下**唯一**还会付的
+        重建), 一旦 `part[4] = CHUNK` 就**永远不会再发生**; 用不到的槽位靠 `PAD_ENDPOINT`
+        推到画面外 ⇒ **一个像素都不多画**。
+
+        ⚠️ 代价: 每块恒定画 `CHUNK` 个四边形(而不是"历史最高")。多出来的是**顶点着色器**
+        的活(片元全被裁掉), 实测档位下可忽略; 换来的是运行期**一次重建都不发生**。
+        ⚠️ 只在**没在跑**的时候调(见 `main.py:_warm_batches_step`) —— 设备上建一块 ≈ 6ms。
+        """
+        part = self._ensure_part(chunk, self.CHUNK)
+        data = part[6]
+        # 整块先中性化: 索引给满之后, 用不到的槽位**会被画出来**, 零端点会在画布原点
+        # 留下一簇小方块(不是"看不见")。
+        data[:] = PAD_ENDPOINT * self.CHUNK
+        flow_batch_experiment.blit_texture(
+            part[5], data, self.CHUNK * TEXELS_PER_PARTICLE)
+        if part[4] != self.CHUNK:
+            part[0].indices = part[2]          # 全量索引(容量个四边形)
+            part[4] = self.CHUNK
+        self.live[chunk] = 0
         return part
 
     def update(self, view, indices, top_limit, motion_scale=1):
@@ -267,24 +310,31 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     pack(data, offset, xs[i], bottom, top)
                     offset += 12
             # ⚠️ 顺序要紧: 先把纹理内容(含下面的"中性化")写完, 再上传。
+            live = self.live[chunk]
             _upload = count
             if count > previous:
                 # **只在这里赋值** —— 每块的索引只增不减, 暖机之后基本不再发生。
                 # 旧写法是 `previous != count` 就赋值 ⇒ 粒子数一变, 整块 160 KiB 顶点
                 # 就走一遍 clear_data+add_vertex_data 并把整个 VBO 标脏。
                 # 实测(5s 档, 1529 颗): 24 块全变 ⇒ 24 次赋值 / 2112 KiB / 帧。
+                # (`warm()` 过的那一块 `previous` 已经是 `CHUNK` ⇒ 这里一次都不会进。)
                 mesh.indices = _indices[:count * len(self.indices)]
                 part[4] = count
                 STATS["index_assigns"] += 1
                 STATS["vertex_bytes"] += len(_vertices) * 4
-            elif count < previous:
+            if count < live:
                 # 缩了: **不动 indices**(动了又触发整块重建), 改把用不到的槽位在端点
                 # 纹理里推到画面外 —— shader 里 x 直接决定横向位置, -1e5 时整条线被裁掉。
-                # 代价是每帧多处理"历史最大 − 当前"那几个顶点, 换来不重走顶点表。
-                data[count * 12:previous * 12] = PAD_ENDPOINT * (previous - count)
-                STATS["neutralized"] += previous - count
-                # ⚠️ 缩的时候要传到 `previous` —— 索引只增不减, 那些槽位仍在被画
-                _upload = previous
+                # 🔴 **只补"上一帧还在写"的那一段(`live`), 不是 `previous`(历史最高)**
+                #    (2026-10-07): 原来按 `previous` 补 ⇒ 一个桶只要曾经高过, **之后每一帧**
+                #    都要重写并重传那一段(`previous` 是历史最高、不会回落), "只传用到的纹素"
+                #    被这条抵消掉了。≥ `live` 的槽位在**上一次收缩时就已经是 PAD**, 保持即可。
+                #    已下标定: `_probe_warm_equiv.py` 逐帧逐像素比。
+                data[count * 12:live * 12] = PAD_ENDPOINT * (live - count)
+                STATS["neutralized"] += live - count
+                if live > _upload:
+                    _upload = live
+            self.live[chunk] = count
             # **只传用到的纹素**。原来一律整块 `CHUNK*3` 纹素(6KB/块) —— 而每块实际常只有
             # 几百颗 ⇒ 白传的部分比用到的还多。MuMu 上 `glTexSubImage2D` 实测 ~80µs/次,
             # 8 块就是 ~0.6ms/帧, 这是"只传用到那点"最直接的一笔。
@@ -293,13 +343,23 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             flow_batch_experiment.blit_texture(
                 texture, data, _upload * TEXELS_PER_PARTICLE)
             STATS["chunks"] += 1
-        for part in self.parts[chunks:]:
-            if part[4]:
-                # 整块不用了: 这里仍清空索引 —— icount==0 时 build() 直接 clear_data(),
-                # **不会**重走顶点表, 而且实测只有 0~4 次/帧。
-                part[0].indices = array("H")
-                part[4] = 0
-                STATS["chunk_clears"] += 1
+        for chunk in range(chunks, len(self.parts)):
+            # 整块这一帧不用了。**不再清索引** —— 清空(`mesh.indices = array("H")`)本身便宜
+            # (`icount==0` 时 `build()` 直接 `clear_data()`, 不重走顶点表), 但**下次这块
+            # 再有内容时就要重赋索引** ⇒ 那次是整块顶点表重建(设备实测 ~118 KiB/次,
+            # 稳态 0.708 次/帧)。改成把**上一帧还在写的那一段**中性化: 一次性写完传完,
+            # 索引与 `part[4]` 原样留着 ⇒ **再也不会重赋**。
+            live = self.live[chunk]
+            if not live:
+                continue
+            part = self.parts[chunk]
+            data = part[6]
+            data[:live * 12] = PAD_ENDPOINT * live
+            flow_batch_experiment.blit_texture(
+                part[5], data, live * TEXELS_PER_PARTICLE)
+            self.live[chunk] = 0
+            STATS["neutralized"] += live
+            STATS["chunk_clears"] += 1        # 语义: "整块置空"(现在是中性化, 不是清索引)
 
     def write_raw(self, raw, off, total):
         """把**已经算好**的端点字节(`raw`, 每条 12 字节)从第 `off` 条起写 `total` 条。
@@ -318,26 +378,37 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             part = self._ensure_part(chunk, count)
             mesh, _vertices, _indices, _capacity, previous, texture, data, _binding = part
             data[:count * 12] = raw[src + start * 12:src + (start + count) * 12]
+            live = self.live[chunk]
             _upload = count
             if count > previous:
                 mesh.indices = _indices[:count * len(self.indices)]
                 part[4] = count
                 STATS["index_assigns"] += 1
                 STATS["vertex_bytes"] += len(_vertices) * 4
-            elif count < previous:
-                data[count * 12:previous * 12] = PAD_ENDPOINT * (previous - count)
-                STATS["neutralized"] += previous - count
-                _upload = previous
+            if count < live:
+                # 只补上一帧还在写的那一段(口径与 `update` 逐字相同)。
+                data[count * 12:live * 12] = PAD_ENDPOINT * (live - count)
+                STATS["neutralized"] += live - count
+                if live > _upload:
+                    _upload = live
+            self.live[chunk] = count
             # 上传走共用助手(它带 `blit.rep` / `blit.wide` 两个量具旋钮, 默认等价于
             # 下面这一行的老写法)。`HG_NO_BLIT` 的老语义(整条不传)= rep 0, 由它接管。
             flow_batch_experiment.blit_texture(
                 texture, data, _upload * TEXELS_PER_PARTICLE)
             STATS["chunks"] += 1
-        for part in self.parts[chunks:]:
-            if part[4]:
-                part[0].indices = array("H")
-                part[4] = 0
-                STATS["chunk_clears"] += 1
+        for chunk in range(chunks, len(self.parts)):
+            live = self.live[chunk]          # 口径与 `update` 的尾部逐字相同(见那里的注释)
+            if not live:
+                continue
+            part = self.parts[chunk]
+            data = part[6]
+            data[:live * 12] = PAD_ENDPOINT * live
+            flow_batch_experiment.blit_texture(
+                part[5], data, live * TEXELS_PER_PARTICLE)
+            self.live[chunk] = 0
+            STATS["neutralized"] += live
+            STATS["chunk_clears"] += 1
 
 
 def install(widget_class):

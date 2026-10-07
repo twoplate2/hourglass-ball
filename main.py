@@ -1646,6 +1646,35 @@ TAPER_SEGS = 24      # 过渡曲线采样段数
 # 24 段把每段折角压到 ~3°。只在几何重建时算一次, 不在每帧路径上。
 NECK_FILL = 0.25     # 颈部沙柱注满耗时(秒), 避免起跑瞬间"啪"地从空变满
 
+# 批处理块的**预热**(见 `HourglassWidget._warm_batches_step`)。
+# 建一块的代价: 沙流那块设备实测 ≈6ms(512 槽 × 12 顶点 × float32 的顶点表 + 纹理 +
+# 索引数组), 飞溅/颈部/闪光那几块钱小得多 ⇒ 分开估。预算 6ms/帧 就是"一帧最多建一块
+# 沙流块", 免得把 24+37 块挤在一帧里又造出一次冻结。
+WARM_COST_FLOW = 6.0
+WARM_COST_SMALL = 1.5
+WARM_BUDGET_MS = 6.0
+WARM_SPLASH_CHUNKS = 4      # 用户设备实测飞溅峰值 1826 颗 ⇒ 4 块(每块 512)
+
+
+def _warm_enabled():
+    """预热开关。设备侧做单变量对照用**标记文件**(安卓读不到宿主环境变量):
+
+        adb shell touch /data/data/org.shalou.hourglass/files/app/warm.off
+
+    ⚠️ **不要用 `HG_NO_WARM=1 bash ...` 去量设备** —— 环境变量到不了 app 端,
+    那样量出来的"两臂一样"其实是"两臂都没改"(项目在 `blit.off` 上踩过)。
+    """
+    if os.environ.get("HG_NO_WARM") == "1":
+        return False
+    try:
+        return not os.path.exists(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "warm.off"))
+    except Exception:
+        return True
+
+
+WARM_ENABLED = _warm_enabled()
+
 
 def _bezier2(p0, p1, p2, n):
     """二次贝塞尔采样。P1 取"球切线 × 管壁线"的交点 → 起点与球弧相切、
@@ -2713,6 +2742,8 @@ class HourglassWidget(Widget):
         self._completion_triggered = False
         self._done_at = None                 # 漏完时刻(颈管排空用), 未漏完为 None
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
+        self._warm_queue = []               # 待预热的批处理块(见 _warm_batches_step)
+        self._warm_src = (None, None)       # 上一批队列对应的批对象本身(重建即换新, 见那里的 ⚠️)
         self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
         # 拖动「沙子浓度」滑块时的低分辨率材质槽(见 preview_sand_material)。
         # 非 None 时它**优先于** _sand_material, 松手/换色即清空。
@@ -3469,6 +3500,75 @@ class HourglassWidget(Widget):
 
     # ---------- tick / 物理 ----------
 
+    def _collect_warm_jobs(self):
+        """列出"待预热的块"。**沙流在前**(最贵, 也最先被用到), 后面是飞溅/颈部/闪光。"""
+        jobs = []
+        for batch in (getattr(self, "_flow_batches", None) or {}).values():
+            if hasattr(batch, "warm"):
+                jobs.append((batch, 0, WARM_COST_FLOW))
+        for item in (getattr(self, "_neck_batches", None) or ()):
+            batch = item[1]
+            if hasattr(batch, "warm"):
+                jobs.append((batch, 0, WARM_COST_SMALL))
+        splash = getattr(self, "_splash_batch", None)
+        if splash is not None and hasattr(splash, "warm"):
+            for chunk in range(WARM_SPLASH_CHUNKS):
+                jobs.append((splash, chunk, WARM_COST_SMALL))
+        flare = getattr(self, "_flare_batches", None)
+        if flare is not None and hasattr(flare, "warm"):
+            jobs.append((flare, 0, WARM_COST_SMALL))
+        jobs.reverse()                       # 用 `pop()` 从头取 ⇒ 沙流先做
+        return jobs
+
+    def _warm_batches_step(self):
+        """把"第一次有内容才建"的批处理块, **挪到动画之外**一帧一块地建好。
+
+        ## 为什么必须有这个(2026-10-07, 由用户设备 Lenovo TB323FU 的 log 定位)
+
+        沙柱注满前**不出粒子** ⇒ 注满那一帧**所有桶同时**第一次拿到内容 ⇒ 那一帧要建 7 块。
+        实测那一帧的 `图元` = **43.88ms**(稳态 2.9ms), 三档的落点
+        **1s→t=0.156s / 5s→t=0.25s / 15s→t=0.25s** 正好都是 `_neck_fill_time`;
+        之后每帧还有 ~8 次"索引重赋"(每次 ~90 KiB 顶点表重建)衰减到 0.7 次/帧。
+        ⇒ 用户看到的"**必然有一帧很低**"(1% low 63~75 / 最慢帧 28~35ms)。
+
+        ## 规则
+
+        * **只在没在跑的时候做** —— 设备上建一块 ≈6ms, 混进动画帧就是新的卡顿。
+          正常使用时这 0.3 秒落在用户按下"开始"**之前**(改周期/转屏之后立刻开始跑的话,
+          预热会暂停, 代价退回今天这样, **不会更差**)。
+        * **每帧限预算** —— 一帧内把 24+37 块全建出来就是又一次 200ms 冻结。
+        * 队列在**画布重建**时重取(`_flow_batches` 是每次重建新建的 dict, 身份即代次)。
+        * 任何一块建失败就**整队放弃** —— 运行期照样按需建块, 只是没有这份优化。
+        """
+        if not WARM_ENABLED:
+            return
+        # ⚠️ **握对象引用, 不要只握 `id()`** —— 只存 id 的话上一代 dict 会被回收,
+        #    CPython 的 dict freelist 很可能把**同一个地址**再发给新建的那个 ⇒ 世代判不出来。
+        #    握住引用 ⇒ 上一代活着 ⇒ 地址不可能被复用 ⇒ `is` 一定准。
+        src = (getattr(self, "_flow_batches", None),
+               getattr(self, "_splash_batch", None))
+        if src[0] is not self._warm_src[0] or src[1] is not self._warm_src[1]:
+            self._warm_src = src
+            self._warm_queue = self._collect_warm_jobs()
+        queue = self._warm_queue
+        if not queue:
+            return
+        budget = WARM_BUDGET_MS
+        done = 0
+        while queue:
+            batch, chunk, cost = queue[-1]
+            if done and cost > budget:
+                break
+            queue.pop()
+            try:
+                batch.warm(chunk)
+            except Exception as exc:               # 装不上就整队放弃, 别每帧炸一次
+                print("batch warm failed (%s); 放弃预热, 运行期照旧按需建块" % (exc,))
+                del queue[:]
+                return
+            budget -= cost
+            done += 1
+
     def tick(self, _dt_kivy):
         if not self._geom_ready:
             return
@@ -3497,6 +3597,8 @@ class HourglassWidget(Widget):
                     app.on_run_state_changed()
         if self.running or self._completion_triggered:
             self.update_particles(dt)
+        else:
+            self._warm_batches_step()
         self.redraw()
         app = App.get_running_app()
         if app is not None:
@@ -7609,6 +7711,31 @@ SPLASH_RENDERER = os.environ.get("HG_SPLASH_RENDERER", "batch")   # rect | batch
 # 实测收益(设备, 池子 320→1 的消融): 这一层值 ~2.3ms/帧(Canvas 1.48 + Python 0.78)。
 NECK_RENDERER = os.environ.get("HG_NECK_RENDERER", "batch")       # line | batch
 FLARE_RENDERER = os.environ.get("HG_FLARE_RENDERER", "batch")      # rect | batch
+# marker 层(20 根斜短线)的批处理 —— **默认 `line`(不启用)**。
+# 它与上面三个**不同的地方**: 它会**改像素**(着色器里旋转在 GPU 上算, Kivy 在 CPU 上用
+# `math.cos/sin` 造网格 ⇒ 端点/圆头帽边缘差 ULP 级)。实测代价(2026-10-07,
+# `tools/_probe_marker_equiv.py` 三臂): **83~97 个像素(0.026%), 全落在 17x14 的框里,
+# 最大通道差 6~15 级**; 收益 **画布指令 322 -> 267(省 55 条)** ≈ 0.10ms/帧。
+# ⇒ 项目红线: **视觉改动由用户对着并排图(`benchmark_logs/marker_ab.png`)判** ——
+#   在用户点头之前**不许把它改成默认 `batch`**。
+def _marker_renderer():
+    """`HG_MARKER_RENDERER` 优先(桌面), 其次是**与 main.py 同目录的 `marker.on` 标记文件**。
+
+    🔴 安卓 app **读不到宿主 shell 的环境变量** ⇒ 要在**设备上**验这个批处理
+    (GLES2 与桌面 GL 对着色器的行为可能不同, 项目为此栽过), 只能靠标记文件:
+        adb shell touch /data/data/org.shalou.hourglass/files/app/marker.on
+    """
+    env = os.environ.get("HG_MARKER_RENDERER")
+    if env:
+        return env
+    try:
+        return ("batch" if os.path.exists(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "marker.on")) else "line")
+    except Exception:
+        return "line"
+
+
+MARKER_RENDERER = _marker_renderer()     # line | batch (默认 line)
 
 
 def _install_splash_renderer(widget_class):
@@ -7645,8 +7772,19 @@ def _install_splash_renderer(widget_class):
     #    **要判断"批处理真的生效了没有", 看的是建画布之后那对互斥日志**
     #    (`flare batch active (shader compiled)` vs `flare batch failed, ...`)。
     #    这里保留一句"接线"记录, 措辞改成不会读成"已生效"。
-    print("batch renderers wired: splash=%s neck=%s flare=%s"
-          % (SPLASH_RENDERER, NECK_RENDERER, "batch" if _flare_ok else "rect"))
+    # ⚠️ marker 那版**必须排在最后** —— 它也包 `_build_dynamic_canvas`, 后包的先跑;
+    #    它要找的 `_surface_marker_pool` 是**原构建**里建的, 所以它的 wrapper 先调内层
+    #    再读池子。**默认关**(见 `MARKER_RENDERER` 那里的注释: 它会改像素, 等用户判)。
+    _marker_ok = False
+    if MARKER_RENDERER == "batch":
+        try:
+            import importlib as _il
+            _marker_ok = _il.import_module("marker_batch_experiment").install(widget_class)
+        except Exception as exc:
+            print("marker batch unavailable (%s); keeping per-Line" % exc)
+    print("batch renderers wired: splash=%s neck=%s flare=%s marker=%s"
+          % (SPLASH_RENDERER, NECK_RENDERER, "batch" if _flare_ok else "rect",
+             "batch" if _marker_ok else "line"))
 
 
 if platform == "android" or os.environ.get("HG_SPLASH_RENDERER"):
