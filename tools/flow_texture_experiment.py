@@ -470,8 +470,16 @@ def install(widget_class):
         keys = [k for k in buckets if len(buckets[k])]
         for key in buckets:
             if not len(buckets[key]):
-                # 空桶: 走老路把它的块清掉(update 里 chunks=0 那段), 与原来逐字相同
-                batches[key].update(view, [], top_limit, motion)
+                # 空桶: 走老路把它的块清掉(update 里 chunks=0 那段), 与原来逐字相同。
+                # 🔴 **但只有"上一帧还在画"的块才需要清**(2026-10-07): 24 个桶里每帧只有
+                #    ~10 个有内容, 另外 14 个**每帧都白调一次 `update`**(函数入口 +
+                #    `STATS` + 逐 part 走一遍尾部循环)。`warm()` 之后每块都建好了,
+                #    而"没写过"的块 `live == 0` ⇒ 尾部循环本来就什么都不做 ⇒ **纯白调**。
+                #    判据是**调用次数**(`prof_android` 的 `calls/frame`), 不是时间 ——
+                #    这台设备分辨不出 <0.5ms 的时间差, 但这个调用是**逐次确定**地消失的。
+                _b = batches[key]
+                if any(_b.live):
+                    _b.update(view, [], top_limit, motion)
         if not keys:
             return
         if len(keys) == 1:
