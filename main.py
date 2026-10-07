@@ -2958,6 +2958,7 @@ class HourglassWidget(Widget):
         self._warm_src = (None, None)       # 上一批队列对应的批对象本身(重建即换新, 见那里的 ⚠️)
         self._geom_key = None               # 上一次生效的 (w,h,x,y); 见 `_on_size` 的去抖
         self._geom_pending = None           # 已排队但还没跑的几何重建(去抖用)
+        self._geom_defers = 0               # 占位尺寸上最多延后几帧(有界, 见 `_do_geom`)
         self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
         # 拖动「沙子浓度」滑块时的低分辨率材质槽(见 preview_sand_material)。
         # 非 None 时它**优先于** _sand_material, 松手/换色即清空。
@@ -3007,6 +3008,15 @@ class HourglassWidget(Widget):
 
     def _do_geom(self, *_):
         self._geom_pending = None
+        # Kivy 把布局跑出来**之前**, Widget 的尺寸是默认的 100x100 —— 那不是真实布局,
+        # 而给这个占位尺寸整块重建画布要 **71.5ms**(实测), 且那时画面上什么都还没有。
+        # ⇒ 小到不可能是真布局时**最多再等 3 帧**(有界, 不会永远不建)。
+        # ⚠️ 只在"还没建过"时延后(`not self._geom_ready`): 之后任何尺寸变化一律立即重建。
+        if (not self._geom_ready and self._geom_defers < 3
+                and (self.width < 150.0 or self.height < 150.0)):
+            self._geom_defers += 1
+            self._geom_pending = Clock.schedule_once(self._do_geom, -1)
+            return
         self._rebuild_height_table()
 
     @property
@@ -6846,7 +6856,12 @@ class HourglassApp(App):
         cfg = self.hourglass.load_config()
         if isinstance(cfg.get('duration'), (int, float)) and cfg['duration'] > 0:
             self.hourglass.duration = cfg['duration']
-            self.hourglass._rebuild_height_table()
+            # ⚠️ **尺寸还没出来就别建** —— `build()` 跑的时候布局还没跑, Widget 还是 Kivy 的
+            #    默认 100x100, 为它整块重建画布要 ~70ms(实测), 而画面上什么都还没有。
+            #    这里只**记下周期**(`neck_w` 从 duration 派生 ⇒ 尺寸真出来时会自己算对);
+            #    真实尺寸一到, `_on_size` 那条路会建。
+            if self.hourglass.width >= 150.0 and self.hourglass.height >= 150.0:
+                self.hourglass._rebuild_height_table()
         sound_name = cfg.get('sound_name')
         if sound_name in [n for n, _ in SOUND_OPTIONS]:
             self.hourglass._set_sound(sound_name)
