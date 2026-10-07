@@ -40,9 +40,8 @@ _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt",
 # "从下标 n0 起"打标, 隔若干帧再按标记读回来。**原来那些探针靠 dict 的 `id()`/对象同一性
 # 跨帧认人, 换成数组后那条路断了** —— 用这个字段代替。
 _S_FIELDS = ("sx", "sy", "svx", "svy", "sgd", "shw", "shh",
-             "srest", "sstill", "shas", "sdt", "stag", "sslide",
-             "sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh", "sdamp")
-_S_MOTION_FIELDS = ("sside", "sdist", "sage", "sbounce", "svariant", "saway", "srw", "srh", "sdamp")
+             "srest", "sstill", "shas", "sdt", "stag", "saway", "srw", "srh")
+_S_MOTION_FIELDS = ("saway", "srw", "srh")
 # 向量化的固定开销(每个桶一次 np.array/argsort/bincount, 每次 numpy 调用 ~5-20µs)
 # 在粒子少时会盖过 O(pn) 循环省下的时间。设备实测: 1 秒档(约 278 颗)打包+分组
 # 反而慢 0.92ms, 5 秒档(约 1695 颗)才转正。阈值取两者之间, 低于它走原标量路径。
@@ -477,7 +476,7 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 #   而飞溅的**在世数 = 生成率 × 寿命** ⇒ 直接按比例换时间。
 #   480/700 = −31% 的背景层(背景层约占生成量的一半) ⇒ 总颗数约 −15%。
 #   ⚠️ 这是**观感取舍**: 觉得稀了就把这个数调回去(一行)。
-SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "240"))
+SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "360"))
 # 🔴 **2026-10-06 用户裁决: 「这个实际上和周期没有关系」** ⇒ 飞溅**不随周期变**。
 #   曾按 `∝ 在途主流粒子数` 做过(比例跨 14 倍 → 4.2 倍), 但那必然让长周期变少(50s 只剩 45%)
 #   ⇒ **作废**。默认 0 = 走定率 `SPLASH_BG_RATE`; 非 0 可恢复"按比例"(留作对照臂)。
@@ -523,7 +522,8 @@ def _splash_max():
                 return max(0, int(float(fh.read().strip() or 0)))
     except Exception:
         pass
-    return 1300
+    # v2.5: 按当前“数量偏少”的反馈小增, 仍控制在三个 512 粒绘制块以内。
+    return 1500
 
 # 生效值(启动时定一次; 设备侧改它要重启 app —— 标记文件与 `flowrate` 同一套)。
 SPLASH_MAX = _splash_max()
@@ -2976,6 +2976,7 @@ class HourglassWidget(Widget):
         self._first_impact_clock = self._last_impact_clock = None
         self._contact_hits = deque(maxlen=256)
         self._effect_random = None
+        self._splash_reference_speed = None
         self._splash_stats = dict.fromkeys(
             ("born_air", "born_roll", "pool_full", "settled", "glass", "reentered", "expired"), 0)
         self.flares = []
@@ -3215,7 +3216,7 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            cap_radius = min(Ri * 0.18, 0.9 * self._contact_flow_diameter())
+            cap_radius = min(Ri * 0.12, self._taper["t_in"] * 1.1)
             shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC, cap_radius)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
@@ -3665,6 +3666,7 @@ class HourglassWidget(Widget):
         self._first_impact_clock = self._last_impact_clock = None
         self._contact_hits.clear()
         self._effect_random = None
+        self._splash_reference_speed = None
         self._splash_stats = dict.fromkeys(self._splash_stats, 0)
         self._sn = 0                  # 飞溅: 只改存活数, 数组不必清(存活数之外无意义)
         self.flares = []
@@ -4302,11 +4304,7 @@ class HourglassWidget(Widget):
         self.srest[i] = 0.0
         self.sstill[i] = 0.0
         self.shas[i] = 0.0
-        self.sslide[i] = 0.0
-        self.sside[i] = 1.0 if vx >= 0.0 else -1.0
-        self.sdist[i] = self.sage[i] = self.sbounce[i] = self.saway[i] = 0.0
-        self.svariant[i] = 1.0
-        self.sdamp[i] = 2.0
+        self.saway[i] = 0.0
         self.srw[i], self.srh[i] = hw, hh
         self.stag[i] = 0.0         # 取证探针的标记位(默认空)
         self.sdt[i] = 0.0          # 由调用方按需覆盖成"帧内偏步长"
@@ -4349,8 +4347,6 @@ class HourglassWidget(Widget):
             tag = float(self.stag[i])
             if tag:
                 d["_tag"] = tag
-            if self.sslide[i]:
-                d["_contact_slide"] = True
             d["_motion_state"] = tuple(float(getattr(self, name)[i]) for name in _S_MOTION_FIELDS)
             out.append(d)
         return out
@@ -4376,8 +4372,6 @@ class HourglassWidget(Widget):
                 self.sdt[i] = float(d["_step_dt"])
             if d.get("_tag"):
                 self.stag[i] = float(d["_tag"])
-            if d.get("_contact_slide"):
-                self.sslide[i] = 1.0
             if "_motion_state" in d:
                 for name, value in zip(_S_MOTION_FIELDS, d["_motion_state"]):
                     getattr(self, name)[i] = value
@@ -4553,12 +4547,13 @@ class HourglassWidget(Widget):
             x = float(px[i])
             vy = float(pvy[i])
             step_dt = float(pdt[i])
-            self._contact_hits.append((self._mound_flow_clock, x, -vy))
+            first_contact = self._record_contact(x, -vy)
             hy = None
             if rand() < 0.25:
                 hy = _hit_hy(k, x)
                 append_flare({"x": x, "y": hy, "end": now + 0.08})
-            if rand() < 0.35:
+            selected = rand() < 0.35
+            if selected or first_contact:
                 if hy is None:
                     hy = _hit_hy(k, x)
                 # ★ 唯一的飞溅模型(参数取自 PC v4) —— 见 `_eject_splash`。
@@ -4568,6 +4563,18 @@ class HourglassWidget(Widget):
                 sp = self._eject_splash(x, hy, -vy, surface_aligned=True)
                 if sp >= 0:                      # -1 = 撞上存活上限, 没生成(见 SPLASH_MAX)
                     self.sdt[sp] = step_left if step_left > 0 else 0
+                if first_contact:
+                    for _ in range(2):
+                        sp = self._eject_splash(x, hy, -vy)
+                        if sp >= 0:
+                            self.sdt[sp] = max(0.0, step_left)
+
+    def _record_contact(self, x, speed):
+        first = self._splash_reference_speed is None
+        if first:
+            self._splash_reference_speed = max(float(speed), 60.0 * self._particle_motion_scale)
+        self._contact_hits.append((self._mound_flow_clock, x, speed))
+        return first
 
     def _splash_random(self):
         if self._effect_random is None:
@@ -4576,67 +4583,41 @@ class HourglassWidget(Widget):
         return self._effect_random
 
     def _eject_splash(self, x, y_surface, v_impact, surface_aligned=True):
-        """真实碰撞和补充共用低能量出射; 不增加沙量, 不预定贴坡比例。"""
+        """v1.244 的抛射模型; 只稳定力度、朝外出射并限制真实玻璃净空。"""
         rng = self._splash_random()
-        squeeze = rng.uniform(0.18, 0.28)
-        direction = rng.choice((-1.0, 1.0))
-        sample = rng.random()
-        # 各因素独立且出生后固定, 避免同一高度上限和关联随机数生成成组的近似轨迹。
-        tangent_retention = rng.uniform(0.30, 0.50)
-        hop_height = rng.uniform(0.14, 0.40)
-        deposition = rng.uniform(0.80, 1.20)
-        damping = rng.uniform(1.6, 2.4)
-        transport_factor = rng.uniform(0.85, 1.15)
-        emphasis = 1.25 if rng.random() < 0.20 else 1.0  # 保留基础细粒, 少量增强辨认度。
+        gain = rng.uniform(SPLASH_SPEED_LO, SPLASH_SPEED_HI) * SPLASH_GAIN
+        side = rng.choice((-1.0, 1.0))
+        angle = rng.uniform(SPLASH_ANGLE_MIN, SPLASH_ANGLE_MAX)
         px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
-        size = tuple(round(k * px) * emphasis for k in rng.choice(SPLASH_SIZE_MIX))
+        size = tuple(round(k * px) for k in rng.choice(SPLASH_SIZE_MIX))
         gd = rng.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)
         if SPLASH_MAX and self._sn >= SPLASH_MAX:
             self._splash_stats["pool_full"] += 1
             return -1
         profile = self._mound_profile
-        if profile is None:
+        if profile is None or v_impact <= 0.0:
             return -1
         height, free, thick = profile.column(x - self._cx, self._mound_apex())
         if not free and thick > 0.0:
             return -1
         y_surface = self._lower_sand_bot + height
-        step = max(self._R_inner * 2.0 / (CONTACT_TABLE_N - 1), sum(size) * 0.5)
-        slope = (self._mound_top_at(x + step) - self._mound_top_at(x - step)) / (2.0 * step)
-        norm = math.hypot(1.0, slope)
         diameter = self._contact_flow_diameter()
-        side = direction if abs(x - self._cx) < 0.1 * diameter else (1.0 if x > self._cx else -1.0)
-        tx, ty = side / norm, side * slope / norm
-        nx, ny = -slope / norm, 1.0 / norm
-        impact = max(0.0, v_impact)
-        normal_in, tangent_in = impact * ny, max(0.0, -impact * ty)
-        hw, hh = size[0] * 0.5, size[1] * 0.5
-        support = abs(nx) * hw + ny * hh
-        u = tangent_retention * tangent_in + squeeze * normal_in * min(1.0, thick / max(1.0, size[1]))
+        if abs(x - self._cx) >= 0.1 * diameter:
+            side = 1.0 if x > self._cx else -1.0
+        # 视觉散粒代表持续撞击, 力度以首次实测撞击为基准, 前后最多温和变化 10%。
+        reference = self._splash_reference_speed or float(v_impact)
+        strength = reference * (0.90 + 0.10 * min(1.0, v_impact / reference))
+        speed = strength * gain
+        vx, vy = side * math.sin(angle) * speed, abs(math.cos(angle)) * speed
         scale = self._particle_motion_scale
         gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
                            else scale ** SPLASH_G_SCALE) * gd
-        # 密集沙床耗散过强的侧向冲量; 只收敛高速出射, 不凭空补偿后期能量。
-        transport_speed = transport_factor * math.sqrt(gravity * diameter)
-        u = transport_speed * math.tanh(u / max(1e-9, transport_speed))
         roof = self._lower_sand_bot + profile.bounds(x - self._cx)[1]
-        clearance = max(0.0, (roof - y_surface - 2.0 * support * norm) / norm)
-        w = min((0.06 + 0.24 * sample) * normal_in,
-                math.sqrt(2.0 * gravity * ny * min(hop_height * diameter, clearance)))
-        energy_scale = min(1.0, 0.5 * impact / max(1e-9, math.hypot(u, w)))
-        u, w = u * energy_scale, w * energy_scale
-        pixel = getattr(self, "_splash_pixel", 1.0)
-        hop = w * w / max(1e-9, 2.0 * gravity * ny) >= max(0.5 * pixel, 0.35 * support)
-        if not hop:
-            w = 0.0
-        lift = support + 0.05 * pixel
-        i = self._s_append(x + nx * lift, y_surface + ny * lift,
-                           u * tx + w * nx, u * ty + w * ny, hw, hh, gd)
-        self.sside[i] = side
-        self.svariant[i] = deposition
-        self.sdamp[i] = damping
-        self.sslide[i] = 0.0 if hop else 1.0
-        self._splash_stats["born_air" if hop else "born_roll"] += 1
+        lift = min(SPLASH_LIFT_PX, max(0.0, roof - y_surface - size[1] * 0.5))
+        clearance = max(0.0, roof - y_surface - lift - size[1] * 0.5)
+        vy = min(vy, math.sqrt(2.0 * gravity * clearance))
+        i = self._s_append(x, y_surface + lift, vx, vy, size[0] * 0.5, size[1] * 0.5, gd)
+        self._splash_stats["born_air"] += 1
         return i
 
     def _splash_jet_bounds(self):
@@ -4678,13 +4659,13 @@ class HourglassWidget(Widget):
         return self._splash_rows_cache
 
     def _splash_uniform_half(self):
-        """尺寸有少量差异且融入时会缩小, 不可走统一尺寸的兼容快路径。"""
+        """兼容取证接口; 当前绘制直接读取实际半尺寸数组。"""
         return None
 
     def _update_splashes(self, dt, g_splash, g_abs, ctab, ctab_n, ctab_r, ctab_inv,
                          mound_bot, lower_center, lower_bot, lower_top,
                          cx, Ri2, profile, apex):
-        """向量化短跳与滚落; 标量路径使用同一接触表和参数。"""
+        """v1.244 抛物线和表面滑动; 标量路径使用同一接触表和参数。"""
         if _np is None:
             self._update_splashes_scalar(dt, g_splash, g_abs, ctab, ctab_n, ctab_r,
                                          ctab_inv, mound_bot, lower_center, lower_bot,
@@ -4702,9 +4683,13 @@ class HourglassWidget(Widget):
 
     def _step_contact_effects(self, table, radius, inv, bottom, center, gravity, scalar):
         n = self._sn
-        if n == 0 or table is None:
+        if n == 0:
             return
+        radius = self._R_inner if radius is None else radius
+        inv = (CONTACT_TABLE_N - 1) / (2.0 * radius) if inv is None else inv
         from splash_motion import step
+        self._splash_limits = (SPLASH_MIN_VX, SPLASH_SLIDE_DAMP, SPLASH_REST_LIFE,
+                               SPLASH_STILL_LIFE, SPLASH_SLOPE_GAIN)
         mask = step(self, table, radius, inv, bottom, center, gravity,
                     max(1.0, self._particle_motion_scale),
                     getattr(self, "_splash_pixel", 1.0), self._splash_jet_rows(), scalar)
@@ -5018,7 +5003,7 @@ class HourglassWidget(Widget):
                 x = cx + off
 
                 if hit:
-                    self._contact_hits.append((self._mound_flow_clock, x, -vy))
+                    first_contact = self._record_contact(x, -vy)
                     if mound_top > lower_bot + 1:
                         peak_offset = peak_offset * 0.97 + (x - cx) * 0.03
                     # ⚠️ **出生点用该颗粒自己的接触高度 hy**(dingbu.md §7.1 第 6 条:
@@ -5027,12 +5012,18 @@ class HourglassWidget(Widget):
                     #    高 p50=7.5px / p90=12.6px / max=15.4px(92% 的命中 >1px)。
                     if rand() < 0.25:
                         append_flare({"x": x, "y": hy, "end": now + 0.08})
-                    if rand() < 0.35:
+                    selected = rand() < 0.35
+                    if selected or first_contact:
                         # ★ 唯一的飞溅模型(与 numpy 路径同一个函数, 随机数顺序一致)
                         step_left = step_dt - hit_dt
                         sp = self._eject_splash(x, hy, -vy, surface_aligned=True)
                         if sp >= 0:                  # -1 = 撞上存活上限
                             self.sdt[sp] = step_left if step_left > 0 else 0
+                        if first_contact:
+                            for _ in range(2):
+                                sp = self._eject_splash(x, hy, -vy)
+                                if sp >= 0:
+                                    self.sdt[sp] = max(0.0, step_left)
                     continue
                 p["y"] = y
                 p["vy"] = vy
@@ -6141,6 +6132,10 @@ class HourglassWidget(Widget):
             self._neck_grain_group.add(line)
             self._neck_grain_pool.append((color, line))
 
+        with self.canvas:
+            self._contact_grain_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
+            self._contact_grains = _QuadBand(8, texture=None if material is None else material.texture)
+
         # 新生散粒可被主沙流遮挡; 离开流束后自然显露, 不在接触核心直接剔除。
         self._splash_group = InstructionGroup()
         self._splash_color = Color(*self.sand_light)
@@ -6313,6 +6308,7 @@ class HourglassWidget(Widget):
                     self._neck_quads.set_texture(material.texture)
                     self._neck_solid_rect.texture = material.texture
                     self._neck_fade_rect.texture = material.texture
+                    self._contact_grains.set_texture(material.texture)
             if self._sand_material is None:
                 # 退回平色时颈部才跟着染沙色; 有材质时前面必须保持白色(否则双重着色变暗)
                 self._neck_color.rgb = self.sand_base
@@ -6447,6 +6443,7 @@ class HourglassWidget(Widget):
             self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
 
         self._project_stream_contact()
+        self._draw_contact_grains()
         self._draw_stream()
         if self._sand_flow_contexts and self._sand_material is not None:
             for i, context in enumerate(self._sand_flow_contexts):
@@ -6632,6 +6629,44 @@ class HourglassWidget(Widget):
                 thin = threshold < pv.tail_blend
             row[0 if thin else 1].append(i)
         return buckets
+
+    def _draw_contact_grains(self):
+        """沿真实堆面保留很短的撞击纹理足迹, 补齐柱底横向采样空洞。"""
+        band = self._contact_grains
+        if (self.pn == 0 or self._mound_profile is None or self._last_impact_clock is None
+                or self._mound_flow_clock - self._last_impact_clock > 0.05):
+            band.clear()
+            band.flush()
+            return
+        half = min(self._taper["t_in"], self._taper["t_in"] * FLOW_SHRINK_MIN + 1.0)
+        height = 3.0 * max(getattr(self, "_splash_pixel", 1.0), self._R_inner / 140.0)
+        apex, profile = self._mound_apex(), self._mound_profile
+        outlet = 2.0 * self._neck_y - self._taper["y_bot"]
+        diameter = 2.0 * self._R_inner
+        uv_height = diameter + MOUND_CREST_MARGIN
+        self._contact_grain_color.rgb = (1, 1, 1) if self._sand_material else self.sand_base
+        cols = []
+        for i in range(9):
+            dx = half * (i / 4.0 - 1.0)
+            y, free, thick = profile.column(dx, apex)
+            y += self._lower_sand_bot
+            cap = min(outlet, y + height * (1.0 - 0.35 * (dx / half) ** 2))
+            cols.append((self._cx + dx, y - 0.15, cap, free and thick > 0.5))
+        for i in range(8):
+            x0, y0, t0, free0 = cols[i]
+            x1, y1, t1, free1 = cols[i + 1]
+            if not (free0 and free1 and t0 > y0 and t1 > y1):
+                band.zero(i)
+                continue
+            pts = [x0, y0, x1, y1, x1, t1, x0, t0]
+            if self._sand_material:
+                u0, u1 = 0.5 + (x0 - self._cx) / diameter, 0.5 + (x1 - self._cx) / diameter
+                b = self._lower_sand_bot
+                band.set_uv(i, pts, (u0, (y0 - b) / uv_height, u1, (y1 - b) / uv_height,
+                                     u1, (t1 - b) / uv_height, u0, (t0 - b) / uv_height))
+            else:
+                band.set(i, pts)
+        band.flush()
 
     def _project_stream_contact(self):
         """仅补齐已发生碰撞的落点末端采样间隙, 不移动物理粒子或扩大沙柱。"""

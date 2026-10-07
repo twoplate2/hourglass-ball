@@ -1,6 +1,7 @@
-"""PC visual clips and focused checks for collision-driven grain splashes."""
+"""Four focused PC checks for the v1.244-based splash adjustments."""
 
 import json
+import logging
 import os
 from pathlib import Path
 import random
@@ -9,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "benchmark_logs" / "contact_flow_2_4"
+OUT = ROOT / "benchmark_logs" / "contact_flow_2_5"
 
 
 def run():
@@ -21,6 +22,7 @@ def run():
         from kivy.clock import Clock
         from kivy.core.window import Window
         from PIL import Image
+        logging.getLogger("PIL").setLevel(logging.WARNING)
 
         m.HourglassWidget._make_sound_proxy = lambda *_: None
         m.HourglassWidget._make_completion_sound = lambda *_: None
@@ -79,11 +81,13 @@ def run():
                     self.advance(0.1)
                     before.append(self.shot("before_hit"))
                 assert w._last_impact_clock is not None
+                assert w._splash_reference_speed is not None
+                assert w._splash_stats["born_air"] >= 3, "first real contact produced no splash"
                 self.clip("first_contact", before[-2:])
                 self.advance(8.0 - w.elapsed)
                 live = w._sn
-                airborne = int(np.count_nonzero(
-                    (w.sslide[:live] == 0.0) & (w.shas[:live] == 0.0)))
+                airborne = int(sum(w.shas[i] == 0 and
+                                  w.sy[i] - w._mound_top_at(w.sx[i]) > 2.0 for i in range(live)))
                 aloft = int(sum(w.sy[i] - w._mound_top_at(w.sx[i]) > 2.0 for i in range(live)))
                 normal = self.shot("elapsed_8")
                 w._sn = 0
@@ -94,8 +98,18 @@ def run():
                 difference = np.max(np.abs(np.asarray(normal).astype(int)
                                             - np.asarray(hidden).astype(int)), axis=2)
                 visible = int(np.count_nonzero(difference >= 5))
-                assert airborne > 40 and aloft > 40, "not enough readable airborne grains"
-                assert visible > 60, "splashes exist but are not visible in the rendered frame"
+                assert airborne > 300 and aloft > 300, "splash population still too sparse"
+                assert visible > 300, "splashes exist but are not visible in the rendered frame"
+                pixels = np.asarray(normal).astype(int)
+                sand = pixels[:, :, 0] - pixels[:, :, 2] > 45
+                half = w._taper["t_in"] * m.FLOW_SHRINK_MIN * 0.7
+                valid, total = 0, 0
+                for px in range(round(w._cx - w.x - half), round(w._cx - w.x + half) + 1):
+                    boundary = normal.height - (w._mound_top_at(px + w.x) - w.y)
+                    for row in range(int(np.ceil(boundary - 2)), int(np.floor(boundary + 1)) + 1):
+                        valid += bool(sand[row, px])
+                        total += 1
+                assert valid / total >= 0.95, "visible holes remain in the collision footprint"
                 physical_y = w.py[:w.pn].copy()
                 w._project_stream_contact()
                 assert np.array_equal(physical_y, w.py[:w.pn]), "contact projection changed physics"
@@ -109,24 +123,22 @@ def run():
                 effect_state = w._splash_random().getstate()
                 w.splashes = []
                 x = w._cx + 0.6 * w._contact_flow_diameter()
-                step = w._R_inner * 2 / (m.CONTACT_TABLE_N - 1)
-                slope = (w._mound_top_at(x + step) - w._mound_top_at(x - step)) / (2 * step)
-                norm = np.hypot(1.0, slope)
-                heights = []
-                for _ in range(160):
-                    i = w._eject_splash(x, w._mound_top_at(x), 400)
-                    assert i >= 0
-                    vx, vy = w.svx[i], w.svy[i]
-                    assert vx > 0 and vx * vx + vy * vy <= 200 ** 2 + 1e-7
-                    if not w.sslide[i]:
-                        vn = (-slope * vx + vy) / norm
-                        gravity = 450 * w._particle_motion_scale ** 2 * w.sgd[i]
-                        heights.append(round(float(vn * vn / (2 * gravity / norm)
-                                                   / w._contact_flow_diameter()), 3))
-                _, counts = np.unique(heights, return_counts=True)
-                assert len(counts) > 30 and np.max(counts) / len(heights) < 0.15
-                assert np.ptp(w.sdamp[:w._sn]) > 0.5
-                assert np.ptp(w.svariant[:w._sn]) > 0.25
+                velocities = []
+                for impact in (400, 150):
+                    w.splashes = []
+                    w._splash_random().setstate(effect_state)
+                    group = []
+                    for _ in range(160):
+                        i = w._eject_splash(x, w._mound_top_at(x), impact)
+                        assert i >= 0
+                        vx, vy = float(w.svx[i]), float(w.svy[i])
+                        assert vx > 0 and vy > 0
+                        group.append((vx, vy))
+                    velocities.append(np.asarray(group))
+                ratio = np.linalg.norm(velocities[1], axis=1) / np.linalg.norm(velocities[0], axis=1)
+                assert np.min(ratio) >= 0.90, "late splash strength still collapses with impact speed"
+                angles = np.arctan2(velocities[0][:, 1], velocities[0][:, 0])
+                assert np.ptp(angles) > 0.6 and np.ptp(velocities[0][:, 0]) > 70
                 assert random.getstate() == random_state, "effect draws changed the main RNG"
                 w.splashes = saved
                 w._splash_stats = saved_stats
@@ -154,7 +166,8 @@ def run():
                 assert w._sn == 0 and not w._contact_hits and w._last_impact_clock is None
                 report = dict(version=m.APP_VERSION, live=live, airborne=airborne,
                               above_surface_2px=aloft, visible_pixels_delta5=visible,
-                              distinct_hop_heights=len(counts),
+                              minimum_late_strength_ratio=float(np.min(ratio)),
+                              contact_coverage=valid / total,
                               peak=self.peak, drops=stats)
                 (OUT / "report.json").write_text(json.dumps(report, indent=2))
                 print("PASS contact splashes:", report)
