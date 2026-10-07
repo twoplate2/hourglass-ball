@@ -1281,6 +1281,13 @@ def _flow_rate_probe():
 FLOW_RATE_PROBE = _flow_rate_probe()
 FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 1500.0
 
+# `_apply_max_refresh_rate()` 把 `Display.getSupportedModes()` 的**整个列表**写在这里,
+# 由基准日志的 `refresh_modes=` 带出来(桌面/无安卓时为 None)。
+# 为什么要它: 用户那台 Y700 五代是 **165Hz 屏**, 而日志里 `refresh_hz` 一直只有 **120**
+# —— 不把"系统到底给了哪些档"记下来, 就分不清是**系统没开**(要在显示设置里选极致刷新率)
+# 还是**我们没要到**(请求方式不对)。见 `_apply_max_refresh_rate` 的注释。
+REFRESH_INFO = None
+
 
 def apply_sand_style(mode, grain):
     """设置全局沙体材质。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
@@ -6421,11 +6428,25 @@ class HourglassApp(App):
         (常见 60/120, 哪怕面板是 165/185)。这里读 `Display.getSupportedModes()` 取最高档,
         写进窗口的 `WindowManager.LayoutParams`, 并把"要之前/要之后"都打出来便于回溯。
 
+        🔴 **2026-10-07: 用户报告"我这台是 165Hz 屏, 但日志里一直是 `refresh_hz=120.0`"**
+        ⇒ 光报一句"already at panel max / requested X"**看不出系统到底给了哪些档**。
+        现在把 `getSupportedModes()` **整个列表**(id/分辨率/刷新率)写进模块级 `REFRESH_INFO`,
+        由基准日志的 `refresh_modes=` 带出来 —— **下一次跑基准就能判"165 到底在不在列表里"**。
+        两种情形要分开:
+        * 列表里根本没有 165 ⇒ **系统侧**没开(联想那台要在显示设置里选"极致刷新率",
+          或在游戏助手里把 app 加进去) —— app 这边无能为力, 只能告诉用户去改;
+        * 列表里有 165 而**要不到** ⇒ 是我们请求的方式不对(见下), 该继续改这里。
+
+        ⚠️ 同时写 `preferredDisplayModeId`(API 23+) 与 `preferredRefreshRate`(API 30+) ——
+        前者按**模式 id** 指名道姓, 后者按**速率**要。实测部分 OEM 只认其中一个
+        (只写速率时被静默忽略的情形真实存在)。
+
         ⚠️ 与 `maxfps=0` 是**两件事**: maxfps 是"我们自己不设上限", 这一步是"让系统别给低档"。
         ⚠️ SDL 回前台可能重刷窗口属性 ⇒ `on_resume` 也要再要一次(同 `_apply_orientation`)。
         ⚠️ 刚 setAttributes 时档位切换是异步的, 紧接着读回仍可能是旧值 ——
         真正算数的是基准日志里的 `refresh_hz`(它在基准开始时才读)。
         """
+        global REFRESH_INFO
         try:
             from jnius import autoclass
             version = autoclass("android.os.Build$VERSION")
@@ -6433,21 +6454,35 @@ class HourglassApp(App):
             display = activity.getWindowManager().getDefaultDisplay()
             now = float(display.getRefreshRate())
             best = now
+            best_id = -1
+            listing = []
             if int(version.SDK_INT) >= 23:
                 modes = display.getSupportedModes()
                 for i in range(len(modes)):
-                    best = max(best, float(modes[i].getRefreshRate()))
+                    mode = modes[i]
+                    rate = float(mode.getRefreshRate())
+                    listing.append("%dx%d@%g#%d"
+                                   % (mode.getPhysicalWidth(),
+                                      mode.getPhysicalHeight(), rate,
+                                      mode.getModeId()))
+                    if rate > best + 1e-6:
+                        best, best_id = rate, mode.getModeId()
+            REFRESH_INFO = "%s now=%g max=%g" % (";".join(listing) or "n/a", now, best)
+            print("Refresh modes: " + REFRESH_INFO)
             if best <= now + 0.5:
                 print(f"Refresh rate: already at panel max ({now:.1f}Hz)")
                 return
             attrs = activity.getWindow().getAttributes()
             attrs.preferredRefreshRate = float(best)
+            if best_id >= 0 and int(version.SDK_INT) >= 23:
+                attrs.preferredDisplayModeId = int(best_id)
             activity.getWindow().setAttributes(attrs)
             after = float(activity.getWindowManager()
                           .getDefaultDisplay().getRefreshRate())
             print(f"Refresh rate: requested {best:.1f}Hz "
                   f"(was {now:.1f}Hz, readback {after:.1f}Hz)")
         except Exception as exc:
+            REFRESH_INFO = "error=%s" % (exc,)
             print(f"Refresh rate request failed: {exc}")
 
     def _hide_startup_screen(self, *_):

@@ -104,6 +104,10 @@ def benchmark_environment(widget):
     environment["flow_rate"] = getattr(source, "FLOW_BASE_RATE", None)
     # 批处理块预热(见 `main.py:_warm_batches_step`)开没开 —— 同上, **标记文件必须自证被读到**。
     environment["warm"] = int(bool(getattr(source, "WARM_ENABLED", True)))
+    # 屏幕给出的**全部**刷新率档位(见 `main.py:_apply_max_refresh_rate`)。
+    # 判据: `refresh_hz`(实际拿到的) vs `refresh_modes` 里的最大值 —— 两者不等就说明
+    # **面板没跑满**, 而列表里有没有高档决定了"该去改系统设置"还是"该改我们的请求方式"。
+    environment["refresh_modes"] = getattr(source, "REFRESH_INFO", None)
     path = getattr(source, "_benchmark_source_path", getattr(source, "__file__", None))
     if path:
         try:
