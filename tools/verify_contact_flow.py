@@ -10,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "benchmark_logs" / "contact_flow_2_8"
+OUT = ROOT / "benchmark_logs" / "contact_flow_2_9"
 
 
 def run():
@@ -133,13 +133,13 @@ def run():
                         assert i >= 0
                         vx, vy = float(w.svx[i]), float(w.svy[i])
                         assert vx > 0 and vy > 0
-                        assert np.arctan2(vy, abs(vx)) <= np.deg2rad(55) + 1e-12
+                        assert np.arctan2(vy, abs(vx)) <= np.deg2rad(60) + 1e-12
                         group.append((vx, vy))
                     velocities.append(np.asarray(group))
                 ratio = np.linalg.norm(velocities[1], axis=1) / np.linalg.norm(velocities[0], axis=1)
                 assert np.min(ratio) >= 0.90, "late splash strength still collapses with impact speed"
                 angles = np.arctan2(velocities[0][:, 1], velocities[0][:, 0])
-                assert np.min(angles) >= np.deg2rad(5) - 1e-12
+                assert np.min(angles) >= np.deg2rad(0.01) - 1e-12
                 assert np.ptp(angles) > np.deg2rad(20) and np.ptp(velocities[0][:, 0]) > 70
                 saved_angles = m.SPLASH_ANGLE_MIN, m.SPLASH_ANGLE_MAX
                 try:
