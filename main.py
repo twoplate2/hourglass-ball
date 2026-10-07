@@ -1289,6 +1289,24 @@ FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 1500.0
 REFRESH_INFO = None
 
 
+def _peak_refresh_cap(activity):
+    """系统侧"峰值刷新率"上限(`Settings.System.PEAK_REFRESH_RATE`), 读不到返回 0。
+
+    🔴 为什么必须读它(2026-10-07, 照抄 `DanZhu` 的 `_android_system_fps_cap`):
+    很多机器(含联想这台)的**显示设置里有一个"刷新率/峰值刷新率"档**, 系统会用这个值把
+    所有窗口的请求**夹住** —— 用户把它设成 120 时, app 怎么申请都拿不到 165。
+    **不读它, 就分不清"系统没开"与"我们没要到"**, 而那两件事的处理办法完全相反
+    (一个要用户去设置里改, 一个要改我们的代码)。
+    """
+    try:
+        settings = __import__("jnius").autoclass("android.provider.Settings$System")
+        cap = float(settings.getFloat(activity.getContentResolver(),
+                                      settings.PEAK_REFRESH_RATE, 0.0))
+        return cap if cap > 1.0 else 0.0
+    except Exception:
+        return 0.0
+
+
 def apply_sand_style(mode, grain):
     """设置全局沙体材质。**只改全局, 不碰画布** —— 供"读配置"在建材质之前调用。
 
@@ -6424,63 +6442,92 @@ class HourglassApp(App):
     def _apply_max_refresh_rate(self):
         """向系统**显式要**当前屏幕的最高刷新率。
 
-        安卓**不会**自动把面板跑到最高档 —— 不给 `preferredRefreshRate` 就按系统默认档走
-        (常见 60/120, 哪怕面板是 165/185)。这里读 `Display.getSupportedModes()` 取最高档,
-        写进窗口的 `WindowManager.LayoutParams`, 并把"要之前/要之后"都打出来便于回溯。
+        ## 2026-10-07 重写 —— 照抄 `DanZhu` 的做法(同一台 Y700 TB323FU, 那边实测 165fps)
 
-        🔴 **2026-10-07: 用户报告"我这台是 165Hz 屏, 但日志里一直是 `refresh_hz=120.0`"**
-        ⇒ 光报一句"already at panel max / requested X"**看不出系统到底给了哪些档**。
-        现在把 `getSupportedModes()` **整个列表**(id/分辨率/刷新率)写进模块级 `REFRESH_INFO`,
-        由基准日志的 `refresh_modes=` 带出来 —— **下一次跑基准就能判"165 到底在不在列表里"**。
-        两种情形要分开:
-        * 列表里根本没有 165 ⇒ **系统侧**没开(联想那台要在显示设置里选"极致刷新率",
-          或在游戏助手里把 app 加进去) —— app 这边无能为力, 只能告诉用户去改;
-        * 列表里有 165 而**要不到** ⇒ 是我们请求的方式不对(见下), 该继续改这里。
+        用户指出「我这台是 165Hz 屏, 而你这个 app 只有 120」。查 `DanZhu` 的
+        `danzhu/platform/device.py:_request_android_high_hz()` —— 他们在**同一台设备**上
+        跑出 `平均 165.0 / 1%Low 123~129`, 而他们比我们多做了三件事, **缺一不可**:
 
-        ⚠️ 同时写 `preferredDisplayModeId`(API 23+) 与 `preferredRefreshRate`(API 30+) ——
-        前者按**模式 id** 指名道姓, 后者按**速率**要。实测部分 OEM 只认其中一个
-        (只写速率时被静默忽略的情形真实存在)。
+        1. **在 UI 线程上申请**(`android.runnable.run_on_ui_thread`)。
+           `Window.setAttributes` / `setFrameRate` 是**窗口属性**, 从 Kivy 的 Python 线程
+           直接调**不保证生效**(被静默忽略最坏 —— 我们那个 `except Exception` 正好会把
+           异常也吞掉, 于是日志上看着"requested 165.0Hz"、实际一直是 120)。
+        2. **`Window.setFrameRate(hz)`(API 30+)** —— 这是现代那套**按窗口**要帧率,
+           自适应刷新率的机器上比 `LayoutParams` 管用得多。
+        3. **先读系统上限 `Settings.System.PEAK_REFRESH_RATE`**, 只申请"屏幕支持 ∩ 系统允许"
+           的最高档 —— 顺手把"到底是系统没开还是我们要不到"这件事**记进日志**。
+
+        另外**档位要在当前分辨率下挑**(165 档可能只存在于某个分辨率), 所以先按
+        `getPhysicalWidth/Height` 过滤当前分辨率, 取不超过上限的最高档; 一个都不满足时
+        宁可降档(照抄他们的选择: 不去绕系统设定)。
 
         ⚠️ 与 `maxfps=0` 是**两件事**: maxfps 是"我们自己不设上限", 这一步是"让系统别给低档"。
-        ⚠️ SDL 回前台可能重刷窗口属性 ⇒ `on_resume` 也要再要一次(同 `_apply_orientation`)。
-        ⚠️ 刚 setAttributes 时档位切换是异步的, 紧接着读回仍可能是旧值 ——
-        真正算数的是基准日志里的 `refresh_hz`(它在基准开始时才读)。
+        ⚠️ 档位切换是**异步**的, 紧接着回读可能还是旧值 —— 真正算数的是基准日志里的
+           `refresh_hz`(基准开始时才读) 与 `refresh_modes=`(这里写的期望值)。
         """
         global REFRESH_INFO
         try:
             from jnius import autoclass
-            version = autoclass("android.os.Build$VERSION")
+            from android.runnable import run_on_ui_thread
+            sdk = int(autoclass("android.os.Build$VERSION").SDK_INT)
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
-            display = activity.getWindowManager().getDefaultDisplay()
+            window = activity.getWindow()
+            display = window.getWindowManager().getDefaultDisplay()
             now = float(display.getRefreshRate())
-            best = now
-            best_id = -1
-            listing = []
-            if int(version.SDK_INT) >= 23:
-                modes = display.getSupportedModes()
-                for i in range(len(modes)):
-                    mode = modes[i]
-                    rate = float(mode.getRefreshRate())
-                    listing.append("%dx%d@%g#%d"
-                                   % (mode.getPhysicalWidth(),
-                                      mode.getPhysicalHeight(), rate,
-                                      mode.getModeId()))
-                    if rate > best + 1e-6:
-                        best, best_id = rate, mode.getModeId()
-            REFRESH_INFO = "%s now=%g max=%g" % (";".join(listing) or "n/a", now, best)
+            modes = list(display.getSupportedModes())
+            cur = display.getMode()
+            cw, ch = int(cur.getPhysicalWidth()), int(cur.getPhysicalHeight())
+            same = [m for m in modes
+                    if int(m.getPhysicalWidth()) == cw and int(m.getPhysicalHeight()) == ch]
+            cands = same or modes
+
+            def _hz(m):
+                return float(m.getRefreshRate())
+
+            screen_cap = max((_hz(m) for m in cands), default=0.0)
+            sys_cap = _peak_refresh_cap(activity)          # 读不到返回 0 = 未知
+            caps = [c for c in (screen_cap, sys_cap) if c > 0.0]
+            target = min(caps) if caps else screen_cap
+            at_or_below = [m for m in cands if _hz(m) <= target + 0.5]
+            chosen = (max(at_or_below, key=_hz) if at_or_below else
+                      min(cands, key=_hz) if cands else None)
+            mode_id = int(chosen.getModeId()) if chosen is not None else 0
+            mode_hz = _hz(chosen) if chosen is not None else 0.0
+            REFRESH_INFO = ("modes=%s now=%g screen_cap=%g sys_cap=%g "
+                            "want=%g#%d res=%dx%d"
+                            % (";".join("%dx%d@%g#%d" % (m.getPhysicalWidth(),
+                                                         m.getPhysicalHeight(),
+                                                         _hz(m), m.getModeId())
+                                        for m in modes) or "n/a",
+                               now, screen_cap, sys_cap, mode_hz, mode_id, cw, ch))
             print("Refresh modes: " + REFRESH_INFO)
-            if best <= now + 0.5:
+
+            if mode_hz <= 0.0:
+                return
+            if mode_hz <= now + 0.5 and sys_cap > 0.0 and sys_cap <= now + 0.5:
                 print(f"Refresh rate: already at panel max ({now:.1f}Hz)")
                 return
-            attrs = activity.getWindow().getAttributes()
-            attrs.preferredRefreshRate = float(best)
-            if best_id >= 0 and int(version.SDK_INT) >= 23:
-                attrs.preferredDisplayModeId = int(best_id)
-            activity.getWindow().setAttributes(attrs)
-            after = float(activity.getWindowManager()
-                          .getDefaultDisplay().getRefreshRate())
-            print(f"Refresh rate: requested {best:.1f}Hz "
-                  f"(was {now:.1f}Hz, readback {after:.1f}Hz)")
+
+            @run_on_ui_thread
+            def _apply(win, hz_, mid, api):
+                # ⚠️ 整个申请**必须在 UI 线程**上做(见 docstring 第 1 条)。
+                if api >= 30:
+                    try:
+                        win.setFrameRate(float(hz_))
+                    except Exception as exc:
+                        print(f"setFrameRate failed: {exc}")
+                if mid:
+                    try:
+                        attrs = win.getAttributes()
+                        attrs.preferredDisplayModeId = int(mid)
+                        attrs.preferredRefreshRate = float(hz_)
+                        win.setAttributes(attrs)
+                    except Exception as exc:
+                        print(f"setAttributes failed: {exc}")
+
+            _apply(window, mode_hz, mode_id, sdk)
+            print("Refresh rate: requested %.1fHz (was %.1fHz, mode #%d)"
+                  % (mode_hz, now, mode_id))
         except Exception as exc:
             REFRESH_INFO = "error=%s" % (exc,)
             print(f"Refresh rate request failed: {exc}")
