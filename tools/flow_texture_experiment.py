@@ -293,10 +293,11 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 # 算式与逐字相同: (-vy) / (vy*tl)/ms / 下限 2 / 上限 top_limit
                 vy = np.abs(view.nvy[idx])
                 trail = vy * view.ntl[idx] / motion_scale
-                if getattr(view, "tail", False):
-                    trail.fill(1.0)
-                else:
-                    np.maximum(trail, 2.0, out=trail)
+                np.maximum(trail, 2.0, out=trail)
+                blend = getattr(view, "tail_blend", 0.0)
+                if blend:
+                    trail *= 1.0 - blend
+                    trail += blend
                 top = bottom + trail
                 np.minimum(top, top_limit, out=top)
                 # ★ **直接建 float32 块**: 原来先建 float64 再 `astype("<f4")`,
@@ -319,10 +320,10 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     if vy < 0:
                         vy = -vy
                     trail = vy * trails[i] / motion_scale
-                    if getattr(view, "tail", False):
-                        trail = 1.0
-                    elif trail < 2:
+                    if trail < 2:
                         trail = 2
+                    blend = getattr(view, "tail_blend", 0.0)
+                    trail = trail * (1.0 - blend) + blend
                     top = bottom + trail
                     if top > top_limit:
                         top = top_limit
@@ -529,10 +530,11 @@ def install(widget_class):
         bottom = view.ny[allidx]
         vy = np.abs(view.nvy[allidx])
         trail = vy * view.ntl[allidx] / motion
-        if getattr(view, "tail", False):
-            trail.fill(1.0)
-        else:
-            np.maximum(trail, 2.0, out=trail)
+        np.maximum(trail, 2.0, out=trail)
+        blend = getattr(view, "tail_blend", 0.0)
+        if blend:
+            trail *= 1.0 - blend
+            trail += blend
         top = bottom + trail
         np.minimum(top, top_limit, out=top)
         blk = np.empty((allidx.size, 3), dtype="<f4")

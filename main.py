@@ -55,11 +55,13 @@ class _FlowView:
     """
 
     __slots__ = ("n", "nx", "ny", "nvy", "ntl", "nwp", "nsz", "nli", "use_np",
-                 "_x", "_y", "_vy", "_tl", "_sz", "_light", "_wp", "tail")
+                 "_x", "_y", "_vy", "_tl", "_sz", "_light", "_wp", "tail",
+                 "tail_blend")
 
     def __init__(self):
         self.n = 0
         self.tail = False
+        self.tail_blend = 0.0
         # 🔴 **list 快照是惰性的**(2026-10-07): 六个字段每帧 `tolist()` 实测 **0.11ms**
         #    (桌面; 设备更贵), 而**安卓上一条读它的路径都走不到** —— 三个读点
         #    (`_group_stream_particles` / `_draw_stream` / `_draw_neck_grains`)
@@ -4925,10 +4927,8 @@ class HourglassWidget(Widget):
             for spawn_index in range(spawn_count):
                 self.particle_acc -= 1
                 x_off = random.uniform(-x_clip, x_clip)
-                vy0 = -(random.uniform(90, 120) if random.random() < 0.05
-                        else random.uniform(35, 60)) * motion_scale
-                # ⚠️ 抽取顺序必须与原来那个 dict 字面量的求值顺序逐字一致; 尤其
-                #    `size` 的条件表达式在 x_clip < 3.0 时短路, **不抽**那个随机数。
+                vy0 = -random.uniform(35, 60) * motion_scale
+                # 后续字段沿用既有抽取顺序; 窄颈时 size 短路, 不抽额外随机数。
                 phase = random.uniform(0, math.tau)
                 amp = random.uniform(0.4, 1.0)
                 is_light = random.random() < 0.10
@@ -6601,8 +6601,12 @@ class HourglassWidget(Widget):
         #    那份表建了从来没人读(24 次字典查找 + 12 个 list/帧)。挪到用处再建。
         last = n_colors - 1
         pv = self._pv
-        # The final packet is still real sand, but must not read as a solid plug.
-        pv.tail = self.elapsed >= self._neck_fill_time and self._upper_sand_fraction() <= 0.0
+        start, end, reserve = self._transfer_timing()
+        drain_start = start + (1.0 - reserve) * (end - start)
+        progress = max(0.0, min(1.0, (self.elapsed - drain_start)
+                               / max(1e-6, min(0.12, self.duration * 0.06))))
+        pv.tail_blend = progress * progress * (3.0 - 2.0 * progress)
+        pv.tail = pv.tail_blend > 0.0
         if pv.use_np:
             # 向量化: 选(y 未越过 outlet) -> 算色调档 -> 拼成 0..(2*(n_colors+1)-1) 的
             # 桶码 -> 稳定排序按桶分段。桶内下标升序, 与原 append 次序逐字相同。
@@ -6631,7 +6635,12 @@ class HourglassWidget(Widget):
                 # ★ 色调研磨成 4 档(每 3 档取 1) —— 桶数 22 → 8。见 /tmp/patch_buckets.py
                 idx -= idx % 3
                 key = np.where(_pl != 0.0, n_colors, idx)
-                slot = np.zeros_like(key) if pv.tail else np.where(_ps == 1.0, 0, 1)
+                if pv.tail:
+                    amp = self.pwa[:n] if sel.size == n else self.pwa[:n][sel]
+                    threshold = np.mod(_pw / math.tau + amp * 0.61803398875, 1.0)
+                    slot = np.where((_ps == 1.0) | (threshold < pv.tail_blend), 0, 1)
+                else:
+                    slot = np.where(_ps == 1.0, 0, 1)
                 code = key * 2 + slot
                 # ★ **先把桶码压到 `uint8` 再排**(2026-10-07 性能)。`np.argsort(kind="stable")`
                 #   对整数走**基数排序**, 轮数正比于 dtype 宽度: 实测 n=1560 时
@@ -6698,7 +6707,11 @@ class HourglassWidget(Widget):
                 elif index > last:
                     index = last
                 row = by_key[index]
-            row[0 if pv.tail or sizes[i] == 1 else 1].append(i)
+            thin = sizes[i] == 1
+            if pv.tail and not thin:
+                threshold = (phases[i] / math.tau + float(self.pwa[i]) * 0.61803398875) % 1.0
+                thin = threshold < pv.tail_blend
+            row[0 if thin else 1].append(i)
         return buckets
 
     def _draw_stream(self):
@@ -6721,8 +6734,8 @@ class HourglassWidget(Widget):
             for i, index in enumerate(indices):
                 y = ys[index]
                 x = xs[index]
-                trail = (1.0 if pv.tail else
-                         max(2.0, abs(vys[index]) * trails[index] / motion_scale))
+                trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale)
+                trail = trail * (1.0 - pv.tail_blend) + pv.tail_blend
                 top = min(top_limit, y + trail)
                 coords = (x, y, x, top)
                 if i == len(pool):
@@ -6737,10 +6750,9 @@ class HourglassWidget(Widget):
             self._stream_counts[key] = len(indices)
 
     def _particle_trail(self, particle, motion_scale=None):
-        if self._pv.tail:
-            return 1.0
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
-        return max(2.0, abs(particle["vy"]) * particle["trail_time"] / scale)
+        trail = max(2.0, abs(particle["vy"]) * particle["trail_time"] / scale)
+        return trail * (1.0 - self._pv.tail_blend) + self._pv.tail_blend
 
     def _hide_neck_grains(self):
         for color, line in self._neck_grain_pool[:self._neck_grain_count]:
