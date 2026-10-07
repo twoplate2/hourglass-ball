@@ -489,6 +489,8 @@ def install(widget_class):
         top_limit = self._taper["y_bot"]
         motion = self._particle_motion_scale
         buckets = self._group_stream_particles()
+        if _mk:
+            _mk("flow_group")          # 分组: 桶码 = key*2+slot、稳定排序、bincount
         batches = self._flow_batches
         if np is None or not view.use_np or not FUSE_BUCKETS:
             for key, bucket in buckets.items():
@@ -530,11 +532,15 @@ def install(widget_class):
         blk[:, 1] = bottom
         blk[:, 2] = top
         raw = blk.tobytes()
+        if _mk:
+            _mk("flow_block")          # numpy 端点块(3 个花式索引 + 3 次赋值 + tobytes)
         off = 0
         for key in keys:
             c = len(buckets[key])
             batches[key].write_raw(raw, off, c)
             off += c
+        if _mk:
+            _mk("flow_write")          # 逐桶切片 + 索引检查 + **纹理上传**(blit_buffer)
 
     widget_class._build_dynamic_canvas = build_texture_batches
     widget_class._draw_stream = draw_texture_batches

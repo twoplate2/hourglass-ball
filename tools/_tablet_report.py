@@ -77,6 +77,8 @@ def main():
     grid = 1000.0 / hz
     print("")
     print("  == 每档: 以 **一格 vsync = %.2fms** 为门槛 ==" % grid)
+    print("  ⚠️ 门槛按日志里的 `refresh_hz` 算 —— **模拟器上呈现节拍被宿主锁死(实测恒 ~60), "
+          "这一栏会虚高**, 只有真机的数才作数。")
     for i, s in enumerate(tiers(rows)):
         if not s:
             continue
