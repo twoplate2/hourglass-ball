@@ -107,6 +107,28 @@ def main():
     else:
         print("")
         print("  (这份日志没有 `Slowest frame segments` —— 1.225 起才有)")
+
+    # ---- 掉格帧到底是"活多了"还是"机器慢了": 逐列比倍数(2026-10-07 加) ----
+    # 判据只有一条: **每一列都同倍上涨 = 整帧一起变慢(设备/调度), 只有一两列涨 = 代码**。
+    # 实测(平板 1.221, 15s 档): 物理 1.73 / 图元 1.95 / Canvas 2.10 / 前次Swap 1.95 /
+    # 连 `tick尾` 都 2.19× —— 而**粒子 0.99 / 飞溅 1.06**(活没多)。
+    # ⇒ 那 5.4% 的掉格帧是**设备抖动**, 不是哪一栏的算力; 要压掉它只能压**中位数**。
+    COLS = (("物理", 3), ("图元", 4), ("Canvas", 5), ("前次Swap", 6),
+            ("粒子", 7), ("飞溅", 8), ("gap帧间", 12), ("tick尾", 13))
+    print("")
+    print("  == 掉格帧 vs 正常帧: **逐列倍数**(都同倍 ⇒ 设备抖动; 只有一两列涨 ⇒ 代码) ==")
+    for i, s in enumerate(tiers(rows)):
+        if not s:
+            continue
+        over = [r for r in s if r[1] > grid * 1.5]
+        rest = [r for r in s if r[1] <= grid * 1.5]
+        if not over or not rest:
+            continue
+        print("   档%d (%d 掉格 / %d 帧):" % (i, len(over), len(s)), end="")
+        for name, c in COLS:
+            a, b = st.median([r[c] for r in over]), st.median([r[c] for r in rest])
+            print("  %s %.2fx" % (name, (a + 1e-9) / (b + 1e-9)), end="")
+        print("")
     return 0
 
 
