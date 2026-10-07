@@ -5088,7 +5088,7 @@ class HourglassWidget(Widget):
                 #    真正的 x 依赖 shrink, 而 shrink 又依赖本判定 ⇒ 不能用本帧的 x(会成环)。
                 hit = y <= mound_top
                 hy = mound_top
-                if hit and _use_curve:
+                if y <= mound_top + 30.0 and _use_curve:
                     z = (p_x_prev - _c_x0) * _c_scale
                     if z <= 0.0:
                         hy = _cy_arr[0]
@@ -5133,9 +5133,10 @@ class HourglassWidget(Widget):
                         shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
                     else:
                         shrink = target
-                    dist_to_floor = y - mound_top
-                    if 0 < dist_to_floor < 30:
-                        shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
+                    dist_to_floor = y - hy
+                    spread = max(0.0, min(1.0, 1.0 - dist_to_floor / 30.0))
+                    spread = spread * spread * (3.0 - 2.0 * spread)
+                    shrink = shrink + (1.0 - shrink) * spread
                 x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
                     * wobble_amp * (1 - shrink * 0.4)
 

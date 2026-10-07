@@ -68,7 +68,7 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
         vy += g * step_dt
         hit = y <= mound_top
         hy = mound_top
-        if hit and use_curve:
+        if y <= mound_top + 30.0 and use_curve:
             z = (px[i] - _c_x0) * _c_scale
             if z <= 0.0:
                 hy = _cy_arr[0]
@@ -107,9 +107,10 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
                 shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
             else:
                 shrink = target
-            dist_to_floor = y - mound_top
-            if 0 < dist_to_floor < 30:
-                shrink *= 1 + (1 - dist_to_floor / 30) * 0.4
+            dist_to_floor = y - hy
+            spread = max(0.0, min(1.0, 1.0 - dist_to_floor / 30.0))
+            spread = spread * spread * (3.0 - 2.0 * spread)
+            shrink = shrink + (1.0 - shrink) * spread
         x = cx + x_offset * shrink + math.sin(fallen_dist * 0.07 + wobble_phase) \
             * wobble_amp * (1 - shrink * 0.4)
 

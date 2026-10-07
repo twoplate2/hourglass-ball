@@ -86,7 +86,8 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
         #       hy_eff= np.where(y <= mound_top, hy, mound_top)
         #   ⇒ 先把 `hy` 用 `mound_top` 铺满(这正是"够不着"那批该拿到的值),
         #     子集上算完再散写回去。**逐位不变**: 同一个算式、同一批输入, 一个数都没动。
-        near = y <= mound_top
+        # Also query the local surface while approaching it, for contact-band spreading.
+        near = y <= mound_top + 30.0
         hy = np.full(n, mound_top) if n else y
         m = np.flatnonzero(near)
         if m.size:
@@ -146,10 +147,10 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     shrink_body = np.where(below_tube < 40.0,
                            1.0 + (target - 1.0) * (below_tube / 40.0),
                            target)
-    dist_to_floor = y - mound_top
-    shrink_body = np.where((dist_to_floor > 0.0) & (dist_to_floor < 30.0),
-                           shrink_body * (1 + (1 - dist_to_floor / 30.0) * 0.4),
-                           shrink_body)
+    dist_to_floor = y - hy_eff
+    spread = np.clip(1.0 - dist_to_floor / 30.0, 0.0, 1.0)
+    spread = spread * spread * (3.0 - 2.0 * spread)
+    shrink_body = shrink_body + (1.0 - shrink_body) * spread
     shrink = np.where(y > c["lower_cut"], 1.0, shrink_body)
 
     cx = c["cx"]
