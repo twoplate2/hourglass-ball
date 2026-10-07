@@ -2968,16 +2968,34 @@ class HourglassWidget(Widget):
         self._sound = self._make_sound_proxy(self.sound_name)
         self.completion_enabled = True
         self._completion_sound = self._make_completion_sound()
-        self._voice_bank = _VoiceBank(resource_path(""))
+        # ★ **语音词库 + 钟声预热挪到第一帧之后**(2026-10-07 启动优化):
+        #   它们**只在"计时完成"时才用得到**, 而词库要开 **76 个 wav 文件** ——
+        #   桌面上 5ms, 安卓私有目录上按经验要几十~几百 ms, 而这段全压在
+        #   "第一帧能看见"这条关键路径上(用户报「启动时间比最早版本长了很多」)。
+        #   `None` 期间完成播报**自动走预录整句兜底**(见 `_play_completion_sound`),
+        #   所以就算第一帧之前真完成也不会炸。等词库到位后自动切回拼接播报。
+        self._voice_bank = None
         self._completion_spoken = None      # 动态拼出的播报(每条周期重建一次)
-        if self._voice_bank.ok:
-            _completion_chime(self._voice_bank.rate)   # 预热,别让首播卡在完成那一帧
+        Clock.schedule_once(self._load_voice_bank, 0.05)
 
         self.bind(size=self._on_size, pos=self._on_size)
         Clock.schedule_once(self._on_size, 0)
         Clock.schedule_interval(self.tick, 0)
 
     # ---------- 几何(自适应; Kivy y 向上) ----------
+
+    def _load_voice_bank(self, _dt=None):
+        """**第一帧之后**才读语音词库(76 个 wav)+ 预热钟声 —— 见 `__init__` 里那段说明。"""
+        if self._voice_bank is not None:
+            return
+        try:
+            self._voice_bank = _VoiceBank(resource_path(""))
+        except Exception as exc:                 # `_VoiceBank` 自己不会抛(缺词块时 ok=False),
+            print("voice bank load failed (%s)" % (exc,))   # 这里只防意外
+            self._voice_bank = None
+            return
+        if self._voice_bank.ok:
+            _completion_chime(self._voice_bank.rate)   # 预热,别让首播卡在完成那一帧
 
     def _on_size(self, *_):
         """尺寸/位置变化 → 重建几何。**启动时这条路会连发好几次, 每次都是整块画布重建。**
@@ -3635,7 +3653,10 @@ class HourglassWidget(Widget):
         """播报"X小时Y分Z秒的沙漏计时完成"。词库缺失时回退预录整句。"""
         if not self.completion_enabled:
             return
-        if self._voice_bank.ok and self._play_completion_announcement(duration):
+        # ⚠️ `_voice_bank` 可能是 **None** —— 词库是**第一帧之后**才加载的(见 __init__ 里那段),
+        #    这期间完成播报走预录兜底。少这个判空就是启动后立刻完成 → AttributeError。
+        if (self._voice_bank is not None and self._voice_bank.ok
+                and self._play_completion_announcement(duration)):
             return
         if self._completion_sound is not None:
             self._completion_sound.stop()
