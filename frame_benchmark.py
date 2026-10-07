@@ -84,7 +84,24 @@ def benchmark_environment(widget):
     # 而日志里看不出来。
     "splash_renderer": getattr(widget, "splash_renderer", "rect"),
 }
+    # 纹理上传的量具旋钮也必须记进日志 —— 与上面 `splash_renderer` 同一条教训:
+    # **不记的话, "标记文件到底有没有被读到"就只能靠猜**。设备单变量对照全靠它。
+    try:
+        from flow_batch_experiment import BLIT_REP, BLIT_WIDE
+        environment["blit_rep"] = BLIT_REP
+        environment["blit_wide"] = int(bool(BLIT_WIDE))
+    except Exception as exc:
+        environment["blit_probe_error"] = type(exc).__name__
+    try:
+        from flow_texture_experiment import LAZY_VIEW_OFF
+        environment["lazy_view_off"] = int(bool(LAZY_VIEW_OFF))
+    except Exception as exc:
+        environment["lazy_view_probe_error"] = type(exc).__name__
     source = sys.modules.get(type(widget).__module__)
+    # 生成率也要记 —— 它直接决定在途粒子数, 是 A/B 里**唯一那个能同时压 `物理` 与
+    # `图元` 两栏**的旋钮。不记的话又回到"标记文件到底有没有被读到"只能靠猜。
+    # ⚠️ 这一行**必须在 `source` 之后** —— 放在上面那个 dict 后面会 UnboundLocalError。
+    environment["flow_rate"] = getattr(source, "FLOW_BASE_RATE", None)
     path = getattr(source, "_benchmark_source_path", getattr(source, "__file__", None))
     if path:
         try:

@@ -97,6 +97,7 @@ DUMP_INTERVAL = 4.0      # 每 4 秒打一行; 一轮 15 秒的周期约 3~4 行
 TAG = "HGPROF"
 
 _ACC = {}
+_CALLS = {}
 _FRAMES = 0
 _MARKER = None
 _ENABLED = False
@@ -128,6 +129,7 @@ def _wrap(cls, name, count_frame=False):
             if _ENABLED:
                 global _FRAMES
                 _ACC[_name] = _ACC.get(_name, 0.0) + (time.perf_counter() - t0)
+                _CALLS[_name] = _CALLS.get(_name, 0) + 1   # 次数(见 `_dump`)
                 if _count:                     # 帧数直接数 `tick`, 不再挂一个 0 间隔回调
                     _FRAMES += 1
 
@@ -171,6 +173,17 @@ def _dump(_dt=None):
     #    量出来一片"1ms 或 0ms", 什么都看不出(第一版就栽在这)。
     Logger.info("%s frames=%d ms/frame> %s" % (
         TAG, n, " ".join("%s=%.3f" % (k, v * 1000.0 / n) for k, v in items)))
+    # ★ **调用次数**也打出来(2026-10-07)。为什么必须有它: 这台机器上 **<0.5ms 的时间差
+    #   一律测不出来**(四臂交替实测, 组内极差就有 0.19~0.47ms)。而"优化"里有很大一类是
+    #   **纯删无用功**(推迟求值 / 把白算的挪到分支里 / 恒真筛选的短路)—— 那类改变
+    #   **调用次数是逐次确定的**, **不受噪声影响**, 比时间更硬。
+    #   格式 `名字=次数/帧`, 与 `ms/frame` 并列; 只打次数 > 0 的。
+    calls = sorted(((k, v) for k, v in _CALLS.items() if v),
+                   key=lambda kv: -kv[1])
+    if calls:
+        Logger.info("%s calls/frame> %s" % (
+            TAG, " ".join("%s=%.2f" % (k, v / float(n)) for k, v in calls)))
+    _CALLS.clear()
     _ACC.clear()
     _FRAMES = 0
 
@@ -197,6 +210,7 @@ def _wrap_module_target(mod_name, dotted, label):
         finally:
             if _ENABLED:
                 _ACC[_name] = _ACC.get(_name, 0.0) + (time.perf_counter() - t0)
+                _CALLS[_name] = _CALLS.get(_name, 0) + 1   # 次数(见 `_dump`)
 
     wrapper.__name__ = attr
     setattr(target, attr, wrapper)

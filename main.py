@@ -494,8 +494,13 @@ NECK_SCALAR = os.environ.get("HG_NECK_SCALAR") == "1"
 
 # **区间打点**钩子 —— 由 `tools/prof_android.py` 在装上时填一个 callable, 平时是 `None`。
 # 用来把 `update_particles` 这个整体拆成"主粒子 / 飞溅"两段(它内部没有可单独包的方法)。
-# ⚠️ 读它的写法必须是 `_m = _PROF_MARK` 一次 + `if _m:` —— **别直接 `if _PROF_MARK:`**,
+# ⚠️ 读它的写法是 `_pm = _PROF_MARK` 一次 + `if _pm:` —— **别直接 `if _PROF_MARK:`**,
 #    那会在热路径上多一次全局查表。
+# 🔴 **局部名要挑没被占用的** —— 2026-10-07 我在 `_draw_neck_grains` 里照抄了 `_m`,
+#    而那个函数**下面**有 `_m = (0.06 + 0.20 * _t + ...) * 0.85`(向量化分支的色调混合数组)
+#    ⇒ 打点函数被数组覆盖, 随后 `if _m:` 变成"数组的真值"
+#    ⇒ `ValueError: truth value of an array with more than one element is ambiguous`。
+#    代价: 应用一跑到那帧就崩。**加打点前先在该函数里 grep 一遍你要用的名字。**
 _PROF_MARK = None
 
 # 颈部颗粒的**批处理直通**钩子 —— 由 `tools/flow_splash_experiment.install_neck` 填。
@@ -1245,7 +1250,36 @@ FLOW_TONE_STEP = 2.0
 # `_particle_motion_scale`, 同样不变), 只有 >24s 的档变密。
 # ⚠️ **不要再按孔径去调它** —— 那会把"孔径↔周期"的约束用第二次(过定),
 #    且会把已经修掉的"长周期虚线"重新做回来。
-FLOW_BASE_RATE = float(os.environ.get("HG_FLOW_RATE", "1500"))
+#
+# ⚠️ 但**它可以为了帧率整体调低** —— 见下面 `_flow_rate_probe()`:
+#    在途粒子数 = rate × 飞行时间, 而 `物理` 与 `图元` **两栏都正比于在途粒子数**
+#    (实测 15s 档峰值 2755 颗)。这是**唯一能把两栏一起按百分比压下去**的旋钮。
+#    代价是沙流线密度(颗/px)同比例下降 —— 那是**观感**, 由用户裁决。
+def _flow_rate_probe():
+    """`HG_FLOW_RATE` 环境变量优先(桌面), 其次与 main.py 同目录的 `flowrate` 标记文件。
+
+    🔴 安卓 app **读不到宿主 shell 的环境变量** ⇒ 设备上做"改 rate"的单变量对照只能
+    写标记文件(app 私有目录, 与 `prof.on` / `blit.off` 同一套):
+        adb shell "echo 1000 > /data/data/org.shalou.hourglass/files/app/flowrate"
+    两个都没有 ⇒ 返回 None ⇒ 走出货默认值。
+    """
+    env = os.environ.get("HG_FLOW_RATE")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "flowrate"), "r") as fh:
+            text = fh.read().strip()
+        return float(text) if text else None
+    except Exception:
+        return None
+
+
+FLOW_RATE_PROBE = _flow_rate_probe()
+FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 1500.0
 
 
 def apply_sand_style(mode, grain):
@@ -3788,20 +3822,33 @@ class HourglassWidget(Widget):
         #    一种输入。**收益 0.05ms 远小于一个我说不清的差异** ⇒ 整批路径不再启用。
         #    `contact_np` 与它的守卫留在代码里备查(要再启用, 先补一个能覆盖真实工况的判据)。
         hy_all = None
+
+        def _hit_hy(kk, xx):
+            """该颗粒**当地的接触高度** —— 与 scalar 路径同源(dingbu.md §7.1 第 6 条)。
+
+            ⚠️ 只在真要用时才调(**推迟求值**, 2026-10-07 性能): 下面两个分支是
+            `rand()<0.25` / `rand()<0.50`, **两个都不中时(概率 0.375)这颗的 hy 根本没人读**。
+            而这一查走 `_mound_contact_h` → `geometry_at`, 每颗 x 都不同 ⇒ 命中率低,
+            **设备实测单次 ~4.8µs**, 是整个 `_replay_hits` 里最大的一笔
+            (`_replay_hits` 0.255ms/帧, 其中 `_mound_contact_h` 0.119)。**推迟后省掉 37.5%。**
+            纯函数 + 不抽随机数 ⇒ **两个 `rand()` 的顺序一字未动**, 画面逐位不变。
+            """
+            if hy_all is not None:
+                return float(hy_all[kk])
+            return self._lower_sand_bot + self._mound_contact_h(xx - self._cx)
+
         for k in range(len(hit_idx)):
             i = int(hit_idx[k])
             x = float(px[i])
             vy = float(pvy[i])
             step_dt = float(pdt[i])
-            # ⚠️ 与 scalar 路径同源: 出生点用**该颗粒自己的接触高度**(dingbu.md §7.1 第 6 条)。
-            #    numpy 路径拿不到 scalar 的 hy, 就地按 x 查一次 —— 两条路径必须同口径。
-            if hy_all is not None:
-                hy = float(hy_all[k])
-            else:
-                hy = self._lower_sand_bot + self._mound_contact_h(x - self._cx)
+            hy = None
             if rand() < 0.25:
+                hy = _hit_hy(k, x)
                 append_flare({"x": x, "y": hy, "end": now + 0.08})
             if rand() < 0.50:
+                if hy is None:
+                    hy = _hit_hy(k, x)
                 # ★ 唯一的飞溅模型(参数取自 PC v4) —— 见 `_eject_splash`。
                 #   旧版这里把 v4 的"向上弹"改成了 `vy = -|cos|·bounce·0.2`(**朝下、0.2 倍**)
                 #   ⇒ 抛物线没了, 就是用户说的「实际它是一个**先喷射再抛物线**」。
@@ -4133,12 +4180,20 @@ class HourglassWidget(Widget):
             mag = _inv_norm(rand_uniform(0.0, 1.0)) * _sigma
             if abs(mag) > _sig_max:      # 喷溅外沿之外: 那颗沙没砸在这儿
                 continue
+            # ★ **先判 `has_sand` 再查接触高度**(2026-10-07 性能)。原来两句是反的:
+            #   `h = self._mound_contact_h(mag)` 先算完, 紧接着的 `has_sand` 一假就
+            #   `continue` —— **那颗的 h 白算了**。而 `_mound_contact_h` 是这一族里最贵的
+            #   (走 `geometry_at`, 设备实测 ~4.8µs/次)。两句都是纯函数、都不抽随机数,
+            #   循环顶上的 `rand_uniform` 一字未动 ⇒ **随机数序列与画面逐位不变**。
+            # 🔴 **不要把 `_prof is None or _apex <= 0.0` 提到循环外提前 return** ——
+            #   那会连循环顶上的 `rand_uniform` 一起跳过, 随机数流当场错位(整幅画面都变)。
+            if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
+                continue
             h = self._mound_contact_h(mag)     # 当地沙面(相对下球内底)
             # 🔴 **2026-10-06 用户实测: 「甚至在没有沙子的沙漏瓶子边缘都在跳动」**
             #    `_mound_contact_h` 在**没有沙的那几列**返回的是**球内底** ⇒ 颗粒会被撒在
             #    裸露玻璃底上。`_MoundProfile.has_sand` 就是干这个的, **别自己再写一套**。
-            if _prof is None or _apex <= 0.0 or not _prof.has_sand(mag, _apex):
-                continue
+            #    (2026-10-07: 这个判断已经**挪到上面 `h = ...` 之前**了 —— 见那一段注释。)
             # ★ **与命中层同一个模型** —— 旧版这里另有一套"仰角 U(10°,72°) +
             #   速度 sqrt(2·g·apex·0.30)≈190px/s", 凭空发明、没有 v4 依据, 而且比 v4 的
             #   55~110 大 1.7~3.5 倍 ⇒ 正是"喷射太猛、像打农药"的来源。现在调同一个函数。
@@ -4162,6 +4217,8 @@ class HourglassWidget(Widget):
         motion_scale = self._particle_motion_scale
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
+        if _pm:
+            _pm("phys_setup")               # 帧首 → 各 property / 常量就绪
         # ⚠️ 本帧步长必须在这里铺满, **不能**在帧尾存"上一帧的 dt"。
         #    闸门用 step = min(1/120, target-elapsed), 到采样点附近会产生偏步长;
         #    存上一帧的 dt 会让下一帧的粒子落得更远、提前触底(实测每周期末 2% 分叉)。
@@ -4231,6 +4288,8 @@ class HourglassWidget(Widget):
                 self.pdt[i] = self.particle_acc / rate
                 self.pn = i + 1
 
+        if _pm:
+            _pm("phys_spawn")               # `pdt/sdt` 铺满 + 本帧生成循环
         g = -450.0 * motion_scale * motion_scale
         g_abs = abs(g)
         source_speed = 60.0 * motion_scale
@@ -4265,6 +4324,8 @@ class HourglassWidget(Widget):
         mound_top_plus_1 = mound_top + 1
         _cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1 = self._mound_contact_curve()
         _use_curve = len(_cx_arr) > 1
+        if _pm:
+            _pm("phys_curve")               # 接触曲线(129 次 `contact`) + 步长常量
         if _flow_numpy is not None and self.pn >= _NUMPY_MIN:
             # numpy 路线: 纯算术向量化(逐位等价由 tools/test_physics_equiv.py 验收),
             # 随机数仍留在 Python, 命中事件按下标升序回放。
@@ -4290,10 +4351,14 @@ class HourglassWidget(Widget):
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
                     self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
                     self.psz, self.pdt, pn, consts)
+                if _pm:
+                    _pm("phys_step")
                 nhit = len(hit_idx)
                 if nhit:
                     self._replay_hits(hit_idx, hit_dt, mound_top,
                                       motion_scale, now)
+                    if _pm:
+                        _pm("phys_replay")
                     keep = _np.ones(pn, dtype=bool)
                     keep[hit_idx] = False
                     newpn = pn - nhit
@@ -4301,6 +4366,8 @@ class HourglassWidget(Widget):
                         _arr = getattr(self, _name)
                         _arr[:newpn] = _arr[:pn][keep]
                     self.pn = newpn
+                    if _pm:
+                        _pm("phys_compact")
         else:
             # numpy 缺席时的兜底: 数组 -> dict -> 原标量循环 -> 写回数组。
             particles = self._p_to_dicts(self._spawn_from)
@@ -5951,6 +6018,16 @@ class HourglassWidget(Widget):
         if not side or side[-1][1] > 2 * self._neck_y - self._taper["y_bot"] + 1e-6:
             self._hide_neck_grains()
             return
+        # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)。**入口这一笔是必须的**:
+        # 打点记的是"距上一次打点"的时长, 所以入口那笔会把**它之前**的代码算进来
+        # (读的时候忽略 `neck_enter` 那一格即可) —— 但它把后面每一格的起点钉住了。
+        # ⚠️ 变量名**不能叫 `_m`** —— 本函数下面 `_m = (0.06 + 0.20 * _t + ...)` 是
+        #    向量化分支里的**色调混合数组**, 会把打点函数覆盖掉, 随后 `if _m:` 就是
+        #    "数组的真值" ⇒ `ValueError: truth value of an array ... is ambiguous`
+        #    (2026-10-07 实测: `_render_golden --check` 当场 2/60 张就翻红, 抓得很快)。
+        _nk_mark = _PROF_MARK
+        if _nk_mark:
+            _nk_mark("neck_enter")
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         length = max(1e-6, self._taper["y_bot"] - outlet)
         top_y, bottom_y = side[0][1], side[-1][1]
@@ -5999,6 +6076,8 @@ class HourglassWidget(Widget):
                 if distance > depth:
                     depth = distance
             _cand = None
+        if _nk_mark:
+            _nk_mark("neck_pass1")      # 第一趟: 扫**全部 pn 颗粒**找候选 + 最深投影
         ys = [y for _x, y in side]
         xs = [x for x, _y in side]
 
@@ -6079,6 +6158,8 @@ class HourglassWidget(Widget):
             _ji = (_m * 31.0 + 0.5).astype(_np.int64)
             # ⚠️ `pli` 是 **float** 数组, 直接当索引会 IndexError —— 先转布尔掩码
             _ji[pv.nli[_idx] != 0.0] = 26      # 0.85 * 31 ≈ 26.35 ⇒ 最近的量化档
+            if _nk_mark:
+                _nk_mark("neck_math")   # 第二趟: 候选的几何/色调算术
             _sink = _NECK_SINK
             if _sink is not None:
                 # ★ **直通**: 不写记录器、也不再来一趟 283 颗的桶收集。
@@ -6089,6 +6170,8 @@ class HourglassWidget(Widget):
                 _sink(self, _cnt, _x,
                       _np.maximum(_y - 1.0, bottom_y), _np.minimum(_y + 1.0, top_y),
                       _ji, _sz)
+                if _nk_mark:
+                    _nk_mark("neck_sink")   # 喂 32 个色调批(含 argsort/bincount/逐批写+上传)
             else:
                 _xl = _x.tolist()
                 _bl = _np.maximum(_y - 1.0, bottom_y).tolist()

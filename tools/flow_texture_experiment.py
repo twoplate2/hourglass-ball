@@ -1,5 +1,6 @@
 """Opt-in endpoint texture batching; cap geometry and palette order are retained."""
 
+import bisect
 from array import array
 import math
 import os
@@ -67,7 +68,9 @@ PAD_ENDPOINT = FLOAT3.pack(-1e5, 0.0, 0.0)
 #     HG_NO_BLIT=1 tools/_one_bench.sh noblit
 # 实测(2026-10-07, MuMu): 15s 图元 2.89 → 2.83 / 5s 2.86 → 2.70 / 1s 3.76 → 3.60
 # ⇒ **上传只值 0.06~0.16ms, 远不是 `update()` 那 0.81ms 的大头** —— 钱在 numpy 上。
-SKIP_BLIT = _flag("HG_NO_BLIT", "blit.off")
+# 上传的开关**已经挪进 `flow_batch_experiment.blit_texture`**(那里还有 `blit.rep` /
+# `blit.wide` 两个量具旋钮, 用来分"每次调用的固定开销"与"每字节带宽" —— 见那边的注释)。
+# 老的 `blit.off` 标记文件语义不变(等价于 rep=0)。
 
 # ★ **把所有桶拼成一条再算**(2026-10-07 性能)。
 # 原写法每桶各跑一遍算式: 每帧 9 桶 × ~15 次 numpy 调用 = ~135 次**固定开销**
@@ -75,6 +78,11 @@ SKIP_BLIT = _flag("HG_NO_BLIT", "blit.off")
 # 拼起来后同一段算式只对 ~1600 个元素跑一遍, 调用数塌到 ~15 次。
 # 置 0 退回逐桶老路(A/B 用, 两边必须逐像素相同)。
 FUSE_BUCKETS = os.environ.get("HG_FLOW_FUSE", "1") != "0"
+
+# 诊断旋钮(A/B 用, 默认关): 恢复"`TextureFlowBatch.update` 开头无条件读那四个惰性
+# list 快照"的旧行为。四个都是 `_FlowView` 的**惰性属性**, 第一次读就 `tolist()`
+# 一整份(n≈1500), 而**安卓走的 numpy 分支一个都不读**。设备单变量对照要用**标记文件**。
+LAZY_VIEW_OFF = _flag("HG_LAZY_VIEW_OFF", "lazyview.off")
 
 
 def stats_reset():
@@ -116,8 +124,24 @@ void main(void) {
 
 
 class TextureFlowBatch(flow_batch_experiment.FlowBatch):
-    def __init__(self, group, width, reserve=0):
+    def __init__(self, group, width, order=0, attach=None):
         super().__init__(group, width)
+        # 🔴 **空壳桶不再挂进画布**(2026-10-07)。24 个桶里每帧只有 ~8~10 个有内容,
+        #    而每个桶无论空不空都占 **`InstructionGroup` + `Color` 两条指令**
+        #    (设备实测: flow 族 73 条里 **48 条**是这 24 对) —— 那 48 条每帧都要走一次
+        #    `apply()`, 而它们**画不出任何像素**。
+        #    ⚠️ **顺序必须保持**: 沙流是不透明线, 不同色调重叠时"谁后画谁赢" ⇒
+        #    改成按需挂之后, 必须**插到与该桶原次序一致的位置**(`attach` 回调里做),
+        #    不能简单 append。守卫: `tools/_render_golden.py --check` 逐图一致 +
+        #    `tools/_probe_canvas_instr.py` 的**指令条数**必须相应下降。
+        self._order = order
+        self._attach = attach
+        self._attached = attach is None          # None ⇒ 老行为(建时就已挂好)
+
+    def _ensure_part(self, chunk, count):
+        if not self._attached:
+            self._attached = True
+            self._attach(self._order, self.group)      # 保序插进 context
         # ⚠️ **不要在这里预建 parts**(2026-10-07, 1号专家实测空壳占一半)。
         #    桶按 (色档, 线宽) 有 **24** 个, 每帧真正有内容的只有 **~8** 个; 预建的那些
         #    每个都带 `BindTexture + (Mesh 自己那条) + Mesh` **三条指令**, 空桶照样被遍历。
@@ -126,8 +150,6 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         #       把卡顿挪进帧里。现在 `build_vertices` 只要 ~0.24ms(见 1.214) ⇒ 可以懒建了。
         #    `_ensure_part` 本来就是按需建的; capacity 恒为 CHUNK ⇒ u 步长与分块无关不变。
         #    `reserve` 保留在签名里只为兼容调用方, 已经不预分配任何东西。
-
-    def _ensure_part(self, chunk, count):
         if chunk == len(self.parts):
             binding = BindTexture(index=1)
             mesh = Mesh(mode=self.mode)
@@ -167,12 +189,22 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         按下标读原生 float, 不再逐颗粒取 numpy 标量。
         """
         STATS["buckets"] += 1
-        ys = view.y
-        vys = view.vy
-        trails = view.tl
-        xs = view.x
         total = len(indices)
         chunks = -(-total // self.CHUNK)
+        # ⚠️ `ys/vys/trails/xs` 原来**无条件**写在函数开头。那四个是 `_FlowView` 的**惰性
+        #    属性** —— 第一次读就把整个 numpy 数组 `tolist()` 一份(n≈1500, 6 个字段
+        #    桌面实测 0.11ms)。而安卓走的是**下面的 numpy 分支**, 那里读的是
+        #    `view.nx/ny/nvy/ntl`, **这四个 list 一个都不读**; 融合路径更是只对**空桶**
+        #    调 `update`(空桶 `chunks == 0` ⇒ 循环体一次都不跑 ⇒ 照样不读)。
+        #    ⇒ 每帧白建 4×~1500 个 float。挪进唯一读它们的那个分支(纯删无用功, 逐位不变)。
+        if LAZY_VIEW_OFF:
+            # 诊断臂: 恢复"无条件读四个惰性 list 快照"的旧行为(A/B 用, 默认关)。
+            ys = view.y
+            vys = view.vy
+            trails = view.tl
+            xs = view.x
+        else:
+            ys = vys = trails = xs = None
         # 向量化: 本桶所有颗粒的 (x, 底端, 顶端) 一次算完, 再 astype('<f4') 出字节。
         # 逐位等价已实测: astype('<f4') 与 struct.pack('<f') 对 30 万样本(含 0/-0/inf/
         # denormal/float32 极值)完全相同, 整段公式的字节输出也完全相同
@@ -185,6 +217,12 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             nidx = np.asarray(indices, dtype=np.intp)
         else:
             pack = FLOAT3.pack_into
+            if total:
+                # 只有**标量**分支读这四个; 空桶连它也省掉。
+                ys = view.y
+                vys = view.vy
+                trails = view.tl
+                xs = view.x
         for chunk in range(chunks):
             start = chunk * self.CHUNK
             count = total - start
@@ -250,9 +288,10 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             # **只传用到的纹素**。原来一律整块 `CHUNK*3` 纹素(6KB/块) —— 而每块实际常只有
             # 几百颗 ⇒ 白传的部分比用到的还多。MuMu 上 `glTexSubImage2D` 实测 ~80µs/次,
             # 8 块就是 ~0.6ms/帧, 这是"只传用到那点"最直接的一笔。
-            if not SKIP_BLIT:
-                texture.blit_buffer(data, size=(_upload * TEXELS_PER_PARTICLE, 1),
-                                    colorfmt="rgba", bufferfmt="ubyte")
+            # 上传走共用助手(它带 `blit.rep` / `blit.wide` 两个量具旋钮, 默认等价于
+            # 下面这一行的老写法)。`HG_NO_BLIT` 的老语义(整条不传)= rep 0, 由它接管。
+            flow_batch_experiment.blit_texture(
+                texture, data, _upload * TEXELS_PER_PARTICLE)
             STATS["chunks"] += 1
         for part in self.parts[chunks:]:
             if part[4]:
@@ -289,9 +328,10 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 data[count * 12:previous * 12] = PAD_ENDPOINT * (previous - count)
                 STATS["neutralized"] += previous - count
                 _upload = previous
-            if not SKIP_BLIT:
-                texture.blit_buffer(data, size=(_upload * TEXELS_PER_PARTICLE, 1),
-                                    colorfmt="rgba", bufferfmt="ubyte")
+            # 上传走共用助手(它带 `blit.rep` / `blit.wide` 两个量具旋钮, 默认等价于
+            # 下面这一行的老写法)。`HG_NO_BLIT` 的老语义(整条不传)= rep 0, 由它接管。
+            flow_batch_experiment.blit_texture(
+                texture, data, _upload * TEXELS_PER_PARTICLE)
             STATS["chunks"] += 1
         for part in self.parts[chunks:]:
             if part[4]:
@@ -321,14 +361,22 @@ def install(widget_class):
         first_group = next(iter(self._stream_pools.values()))[0]
         position = self.canvas.children.index(first_group)
         self._flow_batches = {}
-        for key, (group, color, pool) in self._stream_pools.items():
-            reserve = len(pool)
+        # 🔴 **按需挂进 context, 但要保住原次序**(见 `TextureFlowBatch.__init__` 的注释)。
+        #    `placed` 是"已经挂进去的 order", 升序; 新桶插在**序号比我小的那些之后**
+        #    ⇒ 画布里的相对次序与 `_stream_pools` 的迭代序**完全一致**。
+        placed = []
+
+        def _place(order, group):
+            pos = bisect.bisect_left(placed, order)
+            placed.insert(pos, order)
+            context.insert(pos, group)
+
+        for order, (key, (group, color, pool)) in enumerate(self._stream_pools.items()):
             self.canvas.remove(group)
             group.clear()
             group.add(color)
             pool.clear()
-            context.add(group)
-            self._flow_batches[key] = TextureFlowBatch(group, key[1], reserve)
+            self._flow_batches[key] = TextureFlowBatch(group, key[1], order, _place)
         self.canvas.insert(position, context)
         self._flow_texture_context = context
 

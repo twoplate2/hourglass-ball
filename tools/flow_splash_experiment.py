@@ -223,9 +223,8 @@ class SplashBatch:
                 data[count * 16:previous * 16] = PAD * (previous - count)
                 _upload = previous
             # **只传用到的纹素**(同上: 整块传 8KB 而每块常只用到几百颗)
-            if not SKIP_BLIT:
-                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                                colorfmt="rgba", bufferfmt="ubyte")
+            flow_batch_experiment.blit_texture(
+                texture, data, _upload * TEXELS_PER_SPLASH)
         for part in self.parts[chunks:]:
             if part[5]:
                 part[0].indices = array("H")
@@ -280,9 +279,8 @@ class SplashBatch:
                 data[n * 16:previous * 16] = PAD * (previous - n)
                 _upload = previous
             if _upload:
-                if not SKIP_BLIT:
-                    texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                                        colorfmt="rgba", bufferfmt="ubyte")
+                flow_batch_experiment.blit_texture(
+                    texture, data, _upload * TEXELS_PER_SPLASH)
         for part in self.parts[chunks:]:
             if part[5]:
                 part[0].indices = array("H")
@@ -316,9 +314,9 @@ class SplashBatch:
             data[n * 16:previous * 16] = PAD * (previous - n)
             _upload = previous
         if _upload:
-            if not SKIP_BLIT:
-                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                                colorfmt="rgba", bufferfmt="ubyte")
+            # 上传走共用助手(`blit.rep`/`blit.wide` 两个量具旋钮; 默认等价于老写法)
+            flow_batch_experiment.blit_texture(
+                texture, data, _upload * TEXELS_PER_SPLASH)
 
     def write_bounds_raw(self, raw, off, count):
         """把**已经算好**的边界字节(`raw`, 每条 16 字节)从第 `off` 条起写 `count` 条。
@@ -346,9 +344,9 @@ class SplashBatch:
             data[n * 16:previous * 16] = PAD * (previous - n)
             _upload = previous
         if _upload:
-            if not SKIP_BLIT:
-                texture.blit_buffer(data, size=(_upload * TEXELS_PER_SPLASH, 1),
-                                                colorfmt="rgba", bufferfmt="ubyte")
+            # 上传走共用助手(`blit.rep`/`blit.wide` 两个量具旋钮; 默认等价于老写法)
+            flow_batch_experiment.blit_texture(
+                texture, data, _upload * TEXELS_PER_SPLASH)
 
     def update_bounds(self, bounds):
         """`bounds` = 可迭代的 `(left, bottom, right, top)`(颈部颗粒用)。
@@ -388,9 +386,8 @@ class SplashBatch:
             upload = total
         if upload:
             # 只传用到的纹素(第一版整块 2048 纹素全传, 这里最多 320 颗 × 4)
-            if not SKIP_BLIT:
-                texture.blit_buffer(data, size=(upload * TEXELS_PER_SPLASH, 1),
-                                                colorfmt="rgba", bufferfmt="ubyte")
+            flow_batch_experiment.blit_texture(
+                texture, data, upload * TEXELS_PER_SPLASH)
 
 
 def available():
@@ -604,6 +601,27 @@ def install_neck(widget_class):
         # 与飞溅共用 `TEXEL_STEP`: 一样是 CHUNK 槽 × 4 纹素 ⇒ u 步长相同。
         context[TEXEL_STEP_UNIFORM] = TEXEL_STEP
         context["bounds"] = 1
+        # 🔴🔴 **32 个色调组"按需建"= 试了两次, 两次都像素不一致, 别再试**(2026-10-07)。
+        #
+        # 数值: 设备实测 neck 族 **98 条指令**, 其中 **64 条**是这 32 对
+        # `InstructionGroup + Color`, 而一帧只有 **11 档非空** ⇒ 42 条(≈0.05ms)是空壳。
+        # 看起来是个白捡的钱 —— 它**不是**。
+        #
+        # 第一次(1.215): 把 `_neck_batches` 压成"只有用到的项"的列表。60/60 帧不同、
+        #   颈部约 13000px、最大差 77。
+        # 第二次(2026-10-07, 本次): **先做了更严的版本** —— 保持 `batches` 是 **32 槽、
+        #   按色调索引**(没建的填 `None`), 画布插入位置另用升序表算, **不可能再有下标错位**;
+        #   而且 `tools/_probe_canvas_instr.py` 验证条数**确实**从 98 降到 56(改动生效)。
+        #   ⇒ **`_render_golden --check` 照样翻红。**
+        #   ⇒ **"压缩列表导致下标错位"那条假设被证伪了** —— 根因不在这里。
+        #
+        # **同一轮里, 沙流那一侧的同款改动(`TextureFlowBatch` 按需挂 group)逐图一致 ✓**
+        # (flow 族 73 → 41 条)。两边的差别: 沙流是 **dict 键控**、颈部是 **32 档色调**,
+        # 且颈部的 `Color` 会**逐帧被 `_neck_sink_color` 改 alpha**(空档写 0)。
+        # ⇒ 剩下的怀疑方向是**"没建过 ⇒ 画布上没有这条 Color ⇒ 上一档的 GL 颜色状态
+        #   被下一档继承"**这类**状态泄漏**, 而不是顺序或下标。
+        # **要再碰, 先把"颜色状态是否跨组泄漏"量出来**(给每一组显式写色后再比),
+        # 别直接照抄沙流那套。
         batches = []
         for _k in range(NECK_TONES):
             slot = InstructionGroup()
@@ -717,7 +735,9 @@ _FLARE_ACTIVE_LOGGED = False
 
 # 诊断: **砍掉本模块所有"每帧上传"**(颈部批 / 飞溅 / 闪光)。只用来量"上传一共值多少毫秒",
 # 画面会停在上一帧的数据上 ⇒ **不许当出货配置**。
-SKIP_BLIT = _flag("HG_NO_BLIT", "blit.off")
+# 上传的开关**已经挪进 `flow_batch_experiment.blit_texture`**(那里还有 `blit.rep` /
+# `blit.wide` 两个量具旋钮, 用来分"每次调用的固定开销"与"每字节带宽" —— 见那边的注释)。
+# 老的 `blit.off` 标记文件语义不变(等价于 rep=0)。
 
 FLARE_TEXELS = 5                 # left / bottom / right / top / alpha
 FLARE_STEP = 1.0 / (CHUNK * FLARE_TEXELS)
@@ -816,9 +836,8 @@ class FlareBatch:
                 data[n * 20:previous * 20] = FLARE_PAD * (previous - n)
                 _upload = previous
             if _upload:
-                if not SKIP_BLIT:
-                    texture.blit_buffer(data, size=(_upload * FLARE_TEXELS, 1),
-                                                        colorfmt="rgba", bufferfmt="ubyte")
+                flow_batch_experiment.blit_texture(
+                    texture, data, _upload * FLARE_TEXELS)
         for part in self.parts[chunks:]:
             if part[5]:
                 part[0].indices = array("H")

@@ -31,6 +31,14 @@ SPAN = float(sys.argv[3]) if len(sys.argv) > 3 else 4.0
 def run():
     os.environ.setdefault("KIVY_METRICS_DENSITY", "1.75")
     os.environ["HG_FLOW_RENDERER"] = "texture"
+    # 🔴 **另外两个渲染器也必须钉成安卓出货的那套**(2026-10-07 踩过)。
+    #    原来只设了 flow —— 于是桌面跑的是**飞溅/颈部的 `rect` 老路**, 而安卓走 batch。
+    #    后果: 排行榜第一名是 `_sync_rects_arrays`(0.237s / 占 `redraw` 33%), 看着像个
+    #    "谁都没发现的大头", 而**那条路在设备上根本不存在**(`splash_renderer=batch`)。
+    #    加上这两行之后它**整条从榜单消失**, 榜单才与 `prof_android.py` 对得上。
+    #    ⇒ 拿本脚本排"哪段贵"之前, 先确认这三行与出货配置一致。
+    os.environ.setdefault("HG_SPLASH_RENDERER", "batch")
+    os.environ.setdefault("HG_NECK_RENDERER", "batch")
     sys.argv = [sys.argv[0], "_hot"]
     import main as m
     from kivy.clock import Clock

@@ -2,8 +2,91 @@
 
 from array import array
 import math
+import os
 
 from kivy.graphics import Mesh
+
+
+# ---------------------------------------------------------------------------
+# 纹理上传的诊断旋钮 —— **只给量具用, 出货路径一字不动**。
+#
+# 2026-10-07 那次 `blit.off` 消融把**整条 `blit_buffer` 调用**(调用 + 字节)一起摘掉了,
+# 所以手上只有"上传总共值 0.12~0.31ms" —— **分不开"每次调用的固定开销"与"每字节带宽"**。
+# 而这两者的结论**相反**, 决定要不要做纹理图集:
+#   per-call  ⇒ 把 13 次调用并成 ~4 次能拿到这笔钱 ⇒ 图集值得做;
+#   per-byte  ⇒ 图集要传整行 padding, **反而更慢** ⇒ 原地不动。
+# 先量清楚再动手。
+#
+#   blit.rep  = N    同一次上传**重复 N 遍**(载荷一字不变) ⇒ 与 rep=1 的差 / (N-1)
+#                    = **每次调用的价**。N 放大是必要的: 单次可能只有 10~20µs,
+#                    落在本机 ±0.2~0.4ms 的噪声里, 不放大根本读不出来。
+#   blit.wide = 1    每次上传都传**满整条纹理**(CHUNK*4 纹素) ⇒ 与 rep=1 比,
+#                   差 = **每字节的价**。两次调用次数完全相同 ⇒ 干净的单变量。
+#   blit.off  = 1    完全不传(= rep 0), 老开关, 语义不变。
+#
+# ⚠️ 三个旋钮都**只影响画面的新鲜度**(纹理停在上一帧), 不动帧循环的其余部分 ——
+#    与 `blit.off` 同理, **只能用来量钱, 不许当出货配置**。
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _flag(env_name, file_name):
+    """环境变量优先(桌面方便), 其次标记文件(**设备上唯一能用的那条**)。
+
+    🔴 安卓 app 读不到宿主 shell 的环境变量 —— 设备单变量对照只能写标记文件。
+    """
+    if os.environ.get(env_name):
+        return True
+    try:
+        return os.path.exists(os.path.join(_APP_DIR, file_name))
+    except Exception:
+        return False
+
+
+def _read_int(path, default):
+    try:
+        with open(path, "r") as fh:
+            text = (fh.read() or "").strip()
+        return int(text) if text else default
+    except Exception:
+        return default
+
+
+def _blit_rep():
+    if _flag("HG_NO_BLIT", "blit.off"):
+        return 0
+    env = os.environ.get("HG_BLIT_REP")
+    if env is not None:
+        try:
+            return max(0, int(env))
+        except ValueError:
+            return 1
+    return max(0, _read_int(os.path.join(_APP_DIR, "blit.rep"), 1))
+
+
+BLIT_REP = _blit_rep()
+BLIT_WIDE = _flag("HG_BLIT_WIDE", "blit.wide")
+
+
+def blit_texture(texture, data, texels):
+    """把 `data` 的前 `texels` 个纹素传给 `texture`。
+
+    出货路径 = `texture.blit_buffer(data, size=(texels,1), colorfmt="rgba",
+    bufferfmt="ubyte")` **恰好一次** —— 与本函数出现之前逐字相同。
+    `BLIT_REP`/`BLIT_WIDE` 两个旋钮都取默认时, 行为与老代码**完全一致**
+    (守卫: `tools/_render_golden.py`)。
+
+    ⚠️ 传满宽(`BLIT_WIDE`)用的是 `texture.size[0]` —— 各层的"每颗粒纹素数"不同
+       (沙流 3 / 飞溅 4 / 闪光 5), 写死一个数会越过纹理边界。`data` 本来就一直是
+       **整块** capacity 大小(比 `texels` 多), 所以传满宽不会读越界。
+    """
+    rep = BLIT_REP
+    if not rep:
+        return
+    if BLIT_WIDE:
+        texels = texture.size[0]
+    for _ in range(rep):
+        texture.blit_buffer(data, size=(texels, 1),
+                            colorfmt="rgba", bufferfmt="ubyte")
 
 
 
