@@ -3369,7 +3369,8 @@ class HourglassWidget(Widget):
         #   `f = 0.12/0.25 = 0.48` ⇒ **颈部只剩一半, 提前 12.5 秒开始排空**。
         #   1s 档看不出来 —— 那里 0.25×1 = 0.25s, 与设计值**恰好相同**; 周期越长越离谱。
         _rem_sec = self.get_remaining() * self.duration      # ← 比例 → 秒
-        f = min(f, max(0.0, _rem_sec / fill_t))
+        _rem_f = max(0.0, _rem_sec / fill_t)
+        f = min(f, _rem_f)
         if self._done_at is not None:
             d = (time.perf_counter() - self._done_at) / fill_t
             f = min(f, max(0.0, 1.0 - d))
@@ -3381,7 +3382,16 @@ class HourglassWidget(Widget):
         #    原实现两者共用 `fill_y = y_top - (y_top-y_end)*f`, 排空时下缘从 y_end 爬回 y_top
         #    ⇒ 画成"沙被从下面吸上去"(1号: top_y 恒 410.28 / bottom_y 373.65→408.82),
         #    与真沙漏相反。两条路径的**端点相同**(f=1 满柱 / f=0 空), 只有中段不同。
-        draining = self._done_at is not None
+        #
+        # 🔴 **2026-10-07 用户:「沙子最后下落的时候, 颈部的沙子和其他地方的沙子分成了 2 团」**
+        #    —— 上面那条"排空要用排空形状"的修复**只挂在 `_done_at` 上**(归零**之后**才置位),
+        #    而末段排空(上面 `_rem_f` 那一项、最后 `fill_t` 秒)**走的是注满形状**:
+        #    注满形状 = 顶边钉住、底边往下长的**反向播放** ⇒ 末段变成**出口端先空**、
+        #    沙挂在上球那一侧 ⇒ 与下面沙堆之间空出一段 ⇒ 两团。
+        #    实测(`tools/_probe_neck_end.py` + 设备录像逐帧): 50s 档在 t=49.5 停 26 点满柱,
+        #    49.8→末点 y 372.27(= 出口)升到 379.04、49.95 只剩 12 点 —— **底边在往上退**。
+        #    ⇒ 判据改成"**排空这一项真的在起作用**"就用排空形状(与 `_done_at` 那条同一个机制)。
+        draining = self._done_at is not None or _rem_f < 1.0
         fill_y = (y_end + (y_top - y_end) * f) if draining else (y_top - (y_top - y_end) * f)
         w = tp['t_in']
         if fill_y >= tp['y_bot']:          # 截断点还在曲线段 → 插值取半宽
