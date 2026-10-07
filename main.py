@@ -137,8 +137,42 @@ from kivy.config import Config          # ⚠️ 必须在下面那个 if **之�
 #  启动即死 NameError: name 'Config' is not defined。桌面测不出来 —— 这行只在
 #  Android 分支执行, 而 ast.parse 只查语法不查名字。见 README 经验教训。)
 
+def _maxfps_knob():
+    """Kivy 帧率上限(安卓出厂 = `"0"` = 完全不睡, 节拍交给 vsync)。
+
+    ## 为什么留一个旋钮(2026-10-07)
+
+    `maxfps` 是 Kivy `Clock.idle()` 的**睡眠地板**: `cap=120` ⇒ 地板 `(11/15)/120 = 6.111ms`,
+    而 165Hz 一格 vsync 是 **6.06ms** —— 两者**几乎重合** ⇒ **睡眠变成了抖动的缓冲**
+    (某帧多干 δ, 就少睡 δ, 周期不变)。
+    DanZhu 在**同一台设备**上实测过这个取舍: `cap=120` ⇒ 平均 160.5 / 1%Low **118.9**;
+    `cap=165`(等价于我们的 0) ⇒ 平均 165.1 / 1%Low **112.1** ⇒ **平均 −3% 换尾部 +6%**。
+
+    我方单侧证据(1s 档四轮)当年是反的: M 从 96.7 → **173.4**、p90 12.93 → **7.12ms**
+    —— 但那是在 **60Hz 模拟器**上、且 `maxfps=60` 的台阶(12.222ms)远高于 vsync 的情形,
+    **不能外推到 165Hz 面板**(面板格 6.06ms 与 120 档地板 6.111ms 几乎重合, 是另一种状态)。
+
+    ⚠️ **这是口味取舍(平均 vs 尾部), 归用户** ⇒ 只装旋钮, **默认 "0"**(与今天一字不差)。
+    设备侧:`adb shell "echo 120 > <app>/maxfps"`(要重启 app 才生效 —— 它在 import 期读)。
+    """
+    env = os.environ.get("HG_MAXFPS")
+    if env:
+        try:
+            return str(int(float(env)))
+        except ValueError:
+            pass
+    try:
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maxfps")
+        if os.path.exists(_p):
+            with open(_p) as fh:
+                return str(int(float(fh.read().strip() or 0)))
+    except Exception:
+        pass
+    return "0"
+
+
 if "P4A_BOOTSTRAP" in os.environ or "ANDROID_ARGUMENT" in os.environ:
-    Config.set('graphics', 'maxfps', '0')
+    Config.set('graphics', 'maxfps', _maxfps_knob())
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -431,6 +465,37 @@ SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "480"))
 #   ⇒ **作废**。默认 0 = 走定率 `SPLASH_BG_RATE`; 非 0 可恢复"按比例"(留作对照臂)。
 SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.0"))
 
+
+def _splash_max():
+    """**飞溅存活上限**(2026-10-07)。`0` = 不限制。
+
+    为什么要它: 用户平板 165Hz 的逐帧数据里, 重帧(p95+)与中位帧的**沙流粒子数一样**
+    (1877 vs 1887), 而**飞溅多 49%**(1551 vs 1045) ⇒ **尾部成本是飞溅层驱动的, 不是沙流**。
+    而 165Hz 的预算只有 6.06ms, 三栏和 p50 已经 4.04 / p90 6.55ms ⇒ 余量本来就薄,
+    飞溅一涨就把帧顶过 vsync(掉一格 = 12.1ms, 正是 1% low 里那 5.4% 的帧)。
+    量具: `tools/_splash_max_arms.sh`(标记文件 `splashmax`, 设备上环境变量读不到)。
+
+    ⚠️ **默认 0(不限制)** —— 收紧它是**可见的改动**(1s 档飞溅峰值 4000), 按项目红线
+    要先把并排图交回用户 ⇒ 这里只装**旋钮**, 值等用户定。
+    """
+    env = os.environ.get("HG_SPLASH_MAX")
+    if env:
+        try:
+            return max(0, int(float(env)))
+        except ValueError:
+            pass
+    try:
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "splashmax")
+        if os.path.exists(_p):
+            with open(_p) as fh:
+                return max(0, int(float(fh.read().strip() or 0)))
+    except Exception:
+        pass
+    return 0
+
+# 生效值(启动时定一次; 设备侧改它要重启 app —— 标记文件与 `flowrate` 同一套)。
+SPLASH_MAX = _splash_max()
+
 # ================== 飞溅的**弹道模型** —— 参数逐字取自 PC v4 ==================
 # 🔴 **依据**: `pc/hourglass_v4.py:1109-1118`(项目自定的"唯一真理")。v4 里飞溅**只有一种**,
 #   而且是**从落点向上弹出、走抛物线**:
@@ -510,6 +575,39 @@ NECK_SCALAR = os.environ.get("HG_NECK_SCALAR") == "1"
 #    ⇒ `ValueError: truth value of an array with more than one element is ambiguous`。
 #    代价: 应用一跑到那帧就崩。**加打点前先在该函数里 grep 一遍你要用的名字。**
 _PROF_MARK = None
+
+
+class _MarkCollector:
+    """把 `_PROF_MARK` 的区间打点收进一个 dict, **每帧由基准清一次**(2026-10-07)。
+
+    为什么要它: 用户平板 165Hz 的 log 只给到四栏(`物理/图元/Canvas/Swap`), 而尾部成本
+    全落在 `图元` 这一栏里 —— **不拆开就不知道该改哪块**。打点本来只在 `prof_android`
+    开着(`prof.on` 标记文件)时才挂, 而那需要用户在设备上建文件; 基准跑的时候挂上这个
+    收集器, **用户照常点"开始测试"就能把逐段耗时带进日志**。
+
+    ⚠️ 语义与 `prof_android._mark` **逐字一致**: 记的是"**距上一次打点**"的那一段,
+    所以标签指的是**刚结束的那一段**, 不是"这个名字的函数耗时"。⇒ **读的时候不要相加**
+    (相邻段首尾相接, 相加会把 `图元` 算两遍)。
+    ⚠️ 默认 `_PROF_MARK is None` ⇒ 出货路径零开销(一次局部读 + 一次判空)。
+    """
+
+    __slots__ = ("acc", "_last")
+
+    def __init__(self):
+        self.acc = {}
+        self._last = time.perf_counter()
+
+    def reset(self):
+        self.acc = {}
+        self._last = time.perf_counter()
+
+    def __call__(self, name):
+        t = time.perf_counter()
+        self.acc[name] = self.acc.get(name, 0.0) + (t - self._last) * 1000.0
+        self._last = t
+
+    def snapshot(self):
+        return dict(self.acc)
 
 # 颈部颗粒的**批处理直通**钩子 —— 由 `tools/flow_splash_experiment.install_neck` 填。
 # 填了就跳过"写记录器 -> 再收集成桶"那两步(设备实测合计 ~0.35ms/帧), 直接把已经是
@@ -1295,6 +1393,45 @@ FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 1500.0
 # —— 不把"系统到底给了哪些档"记下来, 就分不清是**系统没开**(要在显示设置里选极致刷新率)
 # 还是**我们没要到**(请求方式不对)。见 `_apply_max_refresh_rate` 的注释。
 REFRESH_INFO = None
+
+
+def _refresh_cap():
+    """**请求的刷新率上限**(2026-10-07)。`0` = 不设上限(要屏幕最高档)。
+
+    ## 为什么要有这个旋钮
+
+    165Hz 上我们的**余量极薄**: 165Hz 的预算是 6.06ms, 而平板实测三栏和
+    (物理+图元+Canvas) p50 已经 **4.04ms**、p90 **6.55ms** ⇒ **p90 已经超预算**,
+    14.5% 的帧的活干不完 ⇒ 掉一格 vsync(→12.1ms), 那就是 1% low 里那 5.4% 的帧。
+
+    **换档位比抠代码的杠杆大得多**: 144Hz 的预算是 **6.94ms(+0.88)**、120Hz 是 **8.33ms(+2.27)**。
+    DanZhu 在**同一台设备**上量过同一个取舍(他们的记录): `cap=120` ⇒ 平均 160.5 / 1%Low **118.9**;
+    `cap=165` ⇒ 平均 165.1 / 1%Low **112.1** —— **平均 −3% 换 1%Low +6%**。
+    机制: 预算变大 ⇒ 掉格的帧变少 ⇒ 尾部抬高。
+
+    ⚠️ **这是口味取舍(平均 vs 尾部), 归用户定** —— 所以这里只装旋钮, **默认 0**(与今天一致)。
+    设备侧只能写**标记文件**(环境变量到不了 app):
+        adb shell "echo 144 > /data/data/org.shalou.hourglass/files/app/refreshmax"
+        adb shell rm  /data/data/org.shalou.hourglass/files/app/refreshmax     # 回到最高档
+    日志里 `refresh_modes=` 会带出 `cap=` —— **标记文件没被读到的话那一臂是空转**。
+    """
+    env = os.environ.get("HG_REFRESH_MAX")
+    if env:
+        try:
+            return max(0.0, float(env))
+        except ValueError:
+            pass
+    try:
+        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "refreshmax")
+        if os.path.exists(_p):
+            with open(_p) as fh:
+                return max(0.0, float(fh.read().strip() or 0))
+    except Exception:
+        pass
+    return 0.0
+
+
+REFRESH_CAP = _refresh_cap()
 
 
 def _peak_refresh_cap(activity):
@@ -4004,7 +4141,8 @@ class HourglassWidget(Widget):
                 #   ⇒ 抛物线没了, 就是用户说的「实际它是一个**先喷射再抛物线**」。
                 step_left = step_dt - float(hit_dt[k])
                 sp = self._eject_splash(x, hy, -vy)
-                self.sdt[sp] = step_left if step_left > 0 else 0
+                if sp >= 0:                      # -1 = 撞上存活上限, 没生成(见 SPLASH_MAX)
+                    self.sdt[sp] = step_left if step_left > 0 else 0
 
     def _eject_splash(self, x, y_surface, v_impact):
         """从沙面上的一个点**弹出一颗飞溅** —— 全工程**唯一**的飞溅模型。
@@ -4035,6 +4173,11 @@ class HourglassWidget(Widget):
         _sz = tuple(round(_k * _px) for _k in random.choice(SPLASH_SIZE_MIX))
         _gd = random.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)   # 这颗自己的重力倍率
         # 🔴 `vy` **向上**(Kivy y 向上) —— v4 的 55~110 就是向上
+        # ⚠️ **存活上限判定必须放在这 5 次随机调用之后**: 提前 return 会改变随机数流,
+        #    此后整幅画面都变(项目里那条通用铁律)。抽完不追加, 流一字不动 ✓
+        #    返回 -1 表示"没生成", 调用方必须判 `>= 0` 再写 `sdt`(否则会写到 `sdt[-1]`)。
+        if SPLASH_MAX and self._sn >= SPLASH_MAX:
+            return -1
         return self._s_append(x, y_surface + SPLASH_LIFT_PX,
                               math.sin(ang) * b, abs(math.cos(ang)) * b,
                               _sz[0] * 0.5, _sz[1] * 0.5, _gd)
@@ -4627,7 +4770,8 @@ class HourglassWidget(Widget):
                         # ★ 唯一的飞溅模型(与 numpy 路径同一个函数, 随机数顺序一致)
                         step_left = step_dt - hit_dt
                         sp = self._eject_splash(x, hy, -vy)
-                        self.sdt[sp] = step_left if step_left > 0 else 0
+                        if sp >= 0:                  # -1 = 撞上存活上限
+                            self.sdt[sp] = step_left if step_left > 0 else 0
                     continue
                 p["y"] = y
                 p["vy"] = vy
@@ -6118,6 +6262,12 @@ class HourglassWidget(Widget):
         return buckets
 
     def _draw_stream(self):
+        # 区间打点: 从上一处打点到这里的整段 = **沙流之前的那些层**
+        # (上球沙面/沙堆/表层标记/颈部沙柱)。沙流自己那段的结束点在下一个打点(`neck_enter`)。
+        # 见 `_MarkCollector` —— 标签指的是**刚结束的那一段**, 不是"这个名字的函数耗时"。
+        _pm = _PROF_MARK
+        if _pm:
+            _pm("stream_start")
         buckets = self._group_stream_particles()
         motion_scale = self._particle_motion_scale
         top_limit = self._taper["y_bot"]
@@ -6496,18 +6646,22 @@ class HourglassApp(App):
             sys_cap = _peak_refresh_cap(activity)          # 读不到返回 0 = 未知
             caps = [c for c in (screen_cap, sys_cap) if c > 0.0]
             target = min(caps) if caps else screen_cap
+            # 用户/诊断设的上限(见 `_refresh_cap`): 0 = 不设 ⇒ 与今天一字不差。
+            if REFRESH_CAP > 0.0:
+                target = min(target, REFRESH_CAP)
             at_or_below = [m for m in cands if _hz(m) <= target + 0.5]
             chosen = (max(at_or_below, key=_hz) if at_or_below else
                       min(cands, key=_hz) if cands else None)
             mode_id = int(chosen.getModeId()) if chosen is not None else 0
             mode_hz = _hz(chosen) if chosen is not None else 0.0
-            REFRESH_INFO = ("modes=%s now=%g screen_cap=%g sys_cap=%g "
+            REFRESH_INFO = ("modes=%s now=%g screen_cap=%g sys_cap=%g cap=%g "
                             "want=%g#%d res=%dx%d"
                             % (";".join("%dx%d@%g#%d" % (m.getPhysicalWidth(),
                                                          m.getPhysicalHeight(),
                                                          _hz(m), m.getModeId())
                                         for m in modes) or "n/a",
-                               now, screen_cap, sys_cap, mode_hz, mode_id, cw, ch))
+                               now, screen_cap, sys_cap, REFRESH_CAP,
+                               mode_hz, mode_id, cw, ch))
             print("Refresh modes: " + REFRESH_INFO)
 
             if mode_hz <= 0.0:

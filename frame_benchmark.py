@@ -102,6 +102,8 @@ def benchmark_environment(widget):
     # `图元` 两栏**的旋钮。不记的话又回到"标记文件到底有没有被读到"只能靠猜。
     # ⚠️ 这一行**必须在 `source` 之后** —— 放在上面那个 dict 后面会 UnboundLocalError。
     environment["flow_rate"] = getattr(source, "FLOW_BASE_RATE", None)
+    # 飞溅存活上限(见 `main.py:_splash_max`) —— 同上, **标记文件必须自证被读到**。
+    environment["splash_max"] = getattr(source, "SPLASH_MAX", None)
     # 批处理块预热(见 `main.py:_warm_batches_step`)开没开 —— 同上, **标记文件必须自证被读到**。
     environment["warm"] = int(bool(getattr(source, "WARM_ENABLED", True)))
     # 屏幕给出的**全部**刷新率档位(见 `main.py:_apply_max_refresh_rate`)。
@@ -321,6 +323,15 @@ def benchmark_log_text(results, cancelled=False):
         lines.append("Slowest frames:")
         for frame in result.get("slowest_frame_details", []):
             lines.append(", ".join(f"{key}={value:.3f}" for key, value in frame.items()))
+        # 🔴 **最慢几帧的逐段耗时**(2026-10-07): 尾部的钱全在 `图元` 这一栏里, 四栏拆不开,
+        #    而用户只能在设备上跑 ⇒ 把分段直接写进日志, 省掉"用户建标记文件"那一步。
+        # ⚠️ 语义: 每个名字记的是**距上一次打点**的那一段(标签 = 刚结束的那一段),
+        #    **不要把这几项相加** —— 它们首尾相接, 相加就把 `图元` 算了两遍。
+        _sm = result.get("slow_marks") or []
+        if _sm:
+            lines.append("Slowest frame segments (ms, 相邻段首尾相接·不要相加):")
+            for ms, seg in _sm:
+                lines.append(f"    redraw={ms:.2f}  {seg}")
         lines.append("Frame trace: time_s,frame_ms,FPS,physics_ms,update_draw_ms,canvas_ms,previous_swap_ms,particles,splashes,gc_ms,gc_generation,mound_px,gap_between_frames_ms,gap_tick_tail_ms,gap_draw_to_flip_ms,index_assigns,chunk_clears,flow_chunks,vertex_rebuild_kib")
         for frame in result.get("frame_trace", []):
             lines.append(",".join(f"{value:.3f}" for value in (
@@ -655,6 +666,7 @@ class BenchmarkRunner:
             return
         self._intervals = []
         self._frame_details = []
+        self._slow_marks = []          # 逐段耗时的"最慢几帧"(见 `_install_probes`)
         self._visual_frames = []
         self.widget.toggle()
         self._case_start = time.perf_counter()
@@ -729,6 +741,7 @@ class BenchmarkRunner:
                     self._frame_details, key=lambda frame: frame["frame_ms"],
                     reverse=True)[:5],
                 "frame_trace": self._frame_details,
+                "slow_marks": list(self._slow_marks),
                 "visual_frames": self._visual_frames,
             })
             self._index += 1
@@ -762,6 +775,18 @@ class BenchmarkRunner:
     def _install_probes(self):
         self._probe_methods = []
         gc.callbacks.append(self._gc_probe)
+        # 🔴 **逐段耗时收集器**(2026-10-07): 用户平板 165Hz 的尾部成本 100% 落在 `图元`
+        #    这一栏里, 而四栏**拆不开它** —— 不拆开就只能猜该改哪块。
+        #    挂钩方式与 `prof_android._mark` 逐字一致(见 `main._MarkCollector`),
+        #    只是**基准自己开灯**: 用户照常点"开始测试"就能把分段带进日志。
+        #    默认 `_PROF_MARK is None` ⇒ 出货路径零开销; 这里开、`_remove_probes` 关。
+        self._marks = None
+        self._mark_src = sys.modules.get(type(self.widget).__module__)
+        _mk = getattr(self._mark_src, "_MarkCollector", None)
+        if _mk is not None:
+            self._marks = _mk()
+            self._mark_src._PROF_MARK = self._marks
+        self._slow_marks = []          # [(帧时间, 分段串)] 只留最慢的几帧
         for target, name, stage in (
                 (self.widget, "update_particles", "physics_ms"),
                 (self.widget, "redraw", "update_draw_ms"),
@@ -771,6 +796,8 @@ class BenchmarkRunner:
 
             def measured(*args, _original=original, _stage=stage, **kwargs):
                 before = time.perf_counter()
+                if _stage == "physics_ms" and self._marks is not None:
+                    self._marks.reset()          # 一帧的起点(物理在前, 重绘在后)
                 try:
                     return _original(*args, **kwargs)
                 finally:
@@ -778,6 +805,17 @@ class BenchmarkRunner:
                     self._stages[_stage] = (after - before) * 1000
                     # 额外记时间戳: 把 flip->flip 里四探针之外的部分拆开
                     self._stamps[_stage] = (before, after)
+                    if _stage == "update_draw_ms" and self._marks is not None:
+                        snap = self._marks.snapshot()
+                        if snap:
+                            _ms = (after - before) * 1000.0
+                            self._slow_marks.append((
+                                _ms,
+                                " ".join("%s=%.2f" % (k, v)
+                                         for k, v in sorted(snap.items(),
+                                                            key=lambda kv: -kv[1])[:8])))
+                            self._slow_marks.sort(key=lambda t: -t[0])
+                            del self._slow_marks[5:]
 
             self._probe_methods.append((target, name, original))
             setattr(target, name, measured)
@@ -787,6 +825,10 @@ class BenchmarkRunner:
         for target, name, original in self._probe_methods:
             setattr(target, name, original)
         self._probe_methods = []
+        if getattr(self, "_mark_src", None) is not None:      # 关灯: 出货路径零开销
+            self._mark_src._PROF_MARK = None
+            self._mark_src = None
+            self._marks = None
 
     def _gc_probe(self, phase, info):
         if phase == "start":

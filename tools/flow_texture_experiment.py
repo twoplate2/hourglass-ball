@@ -425,7 +425,15 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             STATS["chunk_clears"] += 1
 
 
+_MAIN = None          # `install()` 时记下 main 模块 —— 打点钩子 `_PROF_MARK` 挂在那里
+
+
 def install(widget_class):
+    global _MAIN
+    try:
+        _MAIN = __import__(widget_class.__module__)
+    except Exception:
+        _MAIN = None
     build = widget_class._build_dynamic_canvas
 
     def build_texture_batches(self):
@@ -466,6 +474,14 @@ def install(widget_class):
         self._flow_texture_context = context
 
     def draw_texture_batches(self):
+        # 🔴 **区间打点必须打在"真正被调用的那个函数"里**(2026-10-07 踩过):
+        #    `install()` 会把 `widget_class._draw_stream` **整个换成这个函数**, 所以
+        #    `main._draw_stream` 里那道 `stream_start` 打点**在批处理路径上永远不会执行**
+        #    ⇒ 报告里那一格被并进下一个标签(`neck_enter`), 看起来像"颈部前面那一段花了 10ms"。
+        #    (诊断方式: 分值最高的那个标签如果**大得不像话**, 先回读一遍打点到底在哪。)
+        _mk = getattr(_MAIN, "_PROF_MARK", None) if _MAIN is not None else None
+        if _mk:
+            _mk("stream_start")
         # `_stream_np_only` 在装配时置位 ⇒ `_group_stream_particles` 只建**下标数组**桶,
         # 这里直接拿去用(省掉 tolist/array 的往返); 粒子数低于 `_NUMPY_MIN` 时它退回
         # Python list 桶, `update` 的逐颗分支照样吃 list ⇒ 两条都安全。
