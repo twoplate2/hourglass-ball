@@ -76,23 +76,24 @@ def run():
                     per.append((k, n, parts))
                     if parts:
                         nonempty += 1
+            n_shell = sum(1 for e in (batches or ()) if e is None)
             box["rows"].append((n_instr, len(batches) if batches else 0,
-                                nonempty, per))
+                                nonempty, n_shell, per))
             self.stop()
 
     P().run()
-    for n_instr, n_batches, nonempty, per in box["rows"]:
+    for n_instr, n_batches, nonempty, n_shell, per in box["rows"]:
         print("")
         print("  颈部 RenderContext 指令数 = %d (含 %d 个色调组)"
               % (n_instr, n_batches))
-        print("  本帧**非空**色调组 = %d  => 空壳 %d 个"
-              % (nonempty, sum(1 for e in (batches or ()) if e is None)))
+        print("  本帧**非空**色调组 = %d  => 空壳/未建 %d 个"
+              % (nonempty, n_shell))
         print("  每组指令数分布: %s"
               % sorted(set(p[1] for p in per)))
         print("  每组已建 part 数分布: %s"
               % sorted(set(p[2] for p in per)))
         print("")
-        print("  => 懒建能省 ≈ (每组空壳 2 条) × 空壳数 = %d 条" % (2 * (sum(1 for e in (batches or ()) if e is None))))
+        print("  => 懒建能省 ≈ (每组空壳 2 条) × 空壳数 = %d 条" % (2 * n_shell))
     return 0
 
 
