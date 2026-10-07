@@ -867,7 +867,7 @@ MOUND_DRAW_EXTRA = 48       # 绘制折线的角度采样数(另加 ±R/0 与**�
 
 
 class _MoundArea:
-    """一维面积表: A(a) = Σ w·clamp(a + offset - bottom, 0, top-bottom) —— 折线求逆。
+    """一维加权容量表: Σ w·clamp(a + offset - bottom, 0, top-bottom), 折线求逆。
 
     移植自外部专家 `xingzhuang2.md` §4.3 的参考实现。每一列的"面积"都是
     "先为零 → 线性增长 → 填满后不变", 把各列的起止高度合并事件后, 总面积正好是一条折线,
@@ -1012,8 +1012,20 @@ def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES,
     return out
 
 
-def _mound_shape_array(radius, frac=None):
-    """下球轮廓 `f(x)`(绝对值, 相对中心轴): `-m·|x| + r(x)`, 无平台。
+def _mound_base_drop(x, cap_radius=0.0):
+    """Localized rounded contact cap, tangent to the original slopes at its edges."""
+    slope = MOUND_SLOPE_L if x < 0.0 else MOUND_SLOPE_R
+    distance = abs(x)
+    if cap_radius <= 0.0 or distance >= cap_radius:
+        return slope * distance
+    u = distance / cap_radius
+    center = (MOUND_SLOPE_L + MOUND_SLOPE_R) * 0.25
+    return cap_radius * (center + (2.0 * slope - 3.0 * center) * u * u
+                         + (2.0 * center - slope) * u * u * u)
+
+
+def _mound_shape_array(radius, frac=None, cap_radius=0.0, rough=None):
+    """下球轮廓: 原斜坡 + 局部圆钝接触带 + 微粗糙, 无平顶平台。
 
     左右斜率故意略不同(0.58 / 0.62) ⇒ 破掉完全镜像, 但**不需要让堆尖来回摆**。
     相邻差限制保证"从中心向两侧主体始终在下降"(粗糙幅度 ≤ 斜率×Δx/4)。
@@ -1030,12 +1042,16 @@ def _mound_shape_array(radius, frac=None):
     #    否则局部邻点会"翻上去"(从中心向两侧不再是单调下降), 沙堆会长出反坡的小包。
     amp = frac * 2.0 * radius
     limit = min(amp, 0.9 * min(MOUND_SLOPE_L, MOUND_SLOPE_R) * dx)
-    rough = _surface_roughness(radius, frac, MOUND_ROUGH_SEED, limit)
+    if rough is None:
+        rough = _surface_roughness(radius, frac, MOUND_ROUGH_SEED, limit)
     out = []
     for i in range(n):
         u = (i - half) * dx
-        m = MOUND_SLOPE_L if u < 0 else MOUND_SLOPE_R
-        out.append(-m * abs(u) + rough[i])
+        noise = rough[i]
+        if cap_radius > 0.0 and abs(u) < cap_radius:
+            weight = _smoothstep(0.0, cap_radius, abs(u))
+            noise = rough[half] + (noise - rough[half]) * weight
+        out.append(-_mound_base_drop(u, cap_radius) + noise)
     return out
 
 
@@ -1044,10 +1060,10 @@ class _MoundProfile:
 
     轮廓 = `P(x) = apex + f(x)`, `f` 由**固定的** 65 点控制数组线性插值给出
     (2026-10-04 起按 `dingbu.md` §3 取消平台, 改为微不对称尖堆 + 受限微粗糙)。
-    因为 `f` 与沙量无关, 两张面积表只在**几何变化时**重建一次, 每帧只做一次查表求逆。
+    因为 `f` 与沙量无关, 两张径向容量表只在几何变化时重建, 每帧查表求逆。
 
     单位: 构造时 `radius`/`shape` 是绝对像素, 内部用归一化坐标算面积表,
-    返回值 `apex` 是**中心轴处**的沙面高度(绝对, 离球内底) —— 原点处 f(0)=0, 所以它就是峰高。
+    返回值 `apex` 是轮廓纵向偏移; 实际接触高度由 `apex + f(x)` 裁剪后给出。
     """
 
     __slots__ = ("radius", "shape", "xs", "flat", "heap", "slope_l", "slope_r",
@@ -1074,9 +1090,10 @@ class _MoundProfile:
         weights = []
         k = len(xs)
         for i in range(k):
-            left = xs[i] - xs[i - 1] if i else 0.0
-            right = xs[i + 1] - xs[i] if i + 1 < k else 0.0
-            weights.append(0.5 * (left + right))
+            left = 0.5 * (xs[i - 1] + xs[i]) if i else -radius
+            right = 0.5 * (xs[i] + xs[i + 1]) if i + 1 < k else radius
+            # Ring-volume weights; pi cancels when using normalized sand fractions.
+            weights.append(0.5 * (right * abs(right) - left * abs(left)))
         bottom = [radius - math.sqrt(max(0.0, radius * radius - x * x)) for x in xs]
         top = [2.0 * radius - y for y in bottom]
         self.flat = _MoundArea(bottom, top, weights, [0.0] * k)
@@ -1112,6 +1129,10 @@ class _MoundProfile:
         h = min(max(height, 0.0), 2.0 * self.radius)
         fraction = self.flat.area_at(h) / self.flat.capacity
         return self.heap.height_at(fraction * self.heap.capacity)
+
+    def apex_for_fraction(self, fraction):
+        """Direct volume-fraction inversion, without a 2D-area conversion."""
+        return self.heap.height_at(max(0.0, min(1.0, fraction)) * self.heap.capacity)
 
     def raw(self, dx, apex):
         """未裁剪堆面高度(绝对, 离球内底)。"""
@@ -3185,7 +3206,8 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC)
+            cap_radius = min(Ri * 0.12, self._taper["t_in"] * 1.1)
+            shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC, cap_radius)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
             _uamp = UPPER_ROUGH_FRAC * 2.0 * Ri
@@ -3227,15 +3249,11 @@ class HourglassWidget(Widget):
             # ⚠️ **预烘 64 个 `_MoundProfile`**（实测 0.25ms/个 ⇒ 共 16ms 一次性）:
             #    物理热循环里只是**换一个指针**, 逐颗粒零成本; 而且面积表与画出来的轮廓
             #    **天生一致** —— 这是"逐帧改轮廓"还能保守恒的关键。
-            _nm = MOUND_SHAPE_NODES
-            _hm = (_nm - 1) // 2
-            _dxm = Ri / _hm
-            _basem = [-(MOUND_SLOPE_L if (i - _hm) < 0 else MOUND_SLOPE_R)
-                      * abs((i - _hm) * _dxm) for i in range(_nm)]
             _frames = []
             for _fr in _build_rough_frames(Ri, UPPER_ROUGH_FRAC, MOUND_ROUGH_SEED):
                 _mu = sum(_fr) / len(_fr)
-                _shp = [_basem[i] + (_fr[i] - _mu) for i in range(_nm)]
+                _shp = _mound_shape_array(
+                    Ri, UPPER_ROUGH_FRAC, cap_radius, rough=[v - _mu for v in _fr])
                 _frames.append((tuple(_shp), _MoundProfile(Ri, _shp)))
             self._mound_frames = _frames
             self._mound_frame_k = None
@@ -3485,7 +3503,12 @@ class HourglassWidget(Widget):
             return cached[1]
         profile = self._mound_profile
         h = self._mound_height_px()
-        apex = 0.0 if (profile is None or h <= 0.0) else profile.apex_for_height(h)
+        if profile is None or h <= 0.0:
+            apex = 0.0
+        elif self._sand_active:
+            apex = profile.apex_for_fraction(self._effective_fallen())
+        else:
+            apex = profile.apex_for_height(h)
         self._mound_shape_cache = (key, apex)
         return apex
 
@@ -5708,10 +5731,7 @@ class HourglassWidget(Widget):
         return max(0.0, max(arr) * env)
 
     def _upper_area(self, level, d, b):
-        """上球沙面在给定 level 下的**面积**(65 点采样)与该 level 处未被夹住的权重和。
-
-        二维视觉代理口径, 与下球 `_MoundArea` 同源(专家 §6)。
-        dArea/dLevel = 未被球底/球顶夹住的那些列的权重和 ⇒ 直接给牛顿法当导数用。
+        """上球旋转体近似容量及高度导数; 与下球使用相同的径向权重口径。
         """
         Ri = self._R_inner
         n = MOUND_SHAPE_NODES - 1
@@ -5737,8 +5757,10 @@ class HourglassWidget(Widget):
             if c is None:
                 dx = -Ri + w * i
                 fl = Ri - math.sqrt(max(0.0, Ri * Ri - dx * dx))
-                c = cols[i] = (dx, fl, 2.0 * Ri - fl)
-            dx, floor, roof = c
+                left, right = max(-Ri, dx - 0.5 * w), min(Ri, dx + 0.5 * w)
+                weight = 0.5 * (right * abs(right) - left * abs(left))
+                c = cols[i] = (dx, fl, 2.0 * Ri - fl, weight)
+            dx, floor, roof, weight = c
             # `_upper_surface_drop` 内联(与那一份定义逐字相同)
             if d > 0.0 and b > 1e-6:
                 u = 1.0 - (dx / b) ** 2
@@ -5747,14 +5769,14 @@ class HourglassWidget(Widget):
                 drop = 0.0
             y = level - drop
             if rough and i < len(rough):
-                y += rough[i] * env
+                y += rough[i] * env * self._upper_wall_weights[i]
             if y <= floor:
                 continue
             if y >= roof:
-                area += (roof - floor) * w
+                area += (roof - floor) * weight
             else:
-                area += (y - floor) * w
-                deriv += w
+                area += (y - floor) * weight
+                deriv += weight
         return area, deriv
 
     def _upper_solve_level(self, target, d, b, lo, hi):
