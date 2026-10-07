@@ -3075,8 +3075,12 @@ class HourglassWidget(Widget):
         side_margin = w * 0.06
         # 上下留白: 原 2%(≈38px@1900) 太宽 —— 用户 2026-10-07 明确要求
         # 「0/50 下面和沙漏下面的空行变矮, 剩下的空间让沙漏更大」。
-        # ⚠️ **R 是高度受限**(R_by_h 才是 min) ⇒ 纵向每省 4px, R 就涨 1px。
-        v_pad = h * 0.006
+        # ⚠️ **平板上 R 是高度受限**(宽只用了 62%, 余量 42%) ⇒ 纵向每省 4px, R 就涨 1px。
+        #    ⚠️ **桌面预览 400×800 是宽度受限**(w/h=0.5 < 0.5301), 在那边量这条会得出
+        #    "省纵向没用"的**相反结论** —— 量它必须用平板口径:
+        #    `tools/_probe_vertical_budget.py`(默认就按 1904×2890 建窗口, 且回读断言)。
+        # 0.006 → 0.002(≈5px): 纵向留白没有别的用处, 玻璃本来就顶到画布边(见下)
+        v_pad = h * 0.002
         nw = self.neck_w
 
         # R 同时受"宽不溢出"和"高放得下两球+管"约束,取更紧者;在 380x730 下 ≈168
@@ -7028,7 +7032,7 @@ class HourglassApp(App):
             apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT))
 
         root = BoxLayout(orientation="vertical", spacing=dp(2),
-                         padding=[dp(8), dp(4), dp(8), dp(4)])
+                         padding=[dp(8), dp(2), dp(8), dp(2)])
 
         # 顶部色块
         # ★ 高度(用户 2026-10-06: 「还能继续压缩下高度」): 50 -> 42
@@ -7048,12 +7052,26 @@ class HourglassApp(App):
         root.add_widget(top_colors)
 
         # 倒计时
+        # 行高 40 → 34 → **按纹理算**(2026-10-07, 用户: 「倒计时的文字是不是可以往上挪一些,
+        # 留下更多空间给沙漏」)。平板上 **R 是高度受限**(宽只用 62%), 所以纵向省下来的
+        # 每 4px 都换成 R +1px —— 这是现在唯一还够得着的"让球更大"的旋钮。
+        #
+        # 实测(kv 纹理 208×96, 笔画只占 48px): 文字**在行框里垂直居中**, 行框缩多少,
+        # 笔画只上移一半; 而行框小到一定程度**会把字切掉**(14dp 时笔画只剩 37px)。
+        # 不裁的条件只与纹理高 T 有关, 与 density/fontscale 无关 —— 推导:
+        #   纹理上边 = 行框顶 + (S−T)/2;  笔画在纹理内 [0.323T, 0.823T]
+        #   上不出框: (S−T)/2 + 0.323T ≥ 0  ⇒ S ≥ 0.354T
+        #   下不出框: (S−T)/2 + 0.823T ≤ S  ⇒ S ≥ 0.646T   ← 这条更紧
+        # ⇒ 取 **height = 0.70·T**(留 5% 余量)。这样安卓"字体大小"设置把 T 放大时,
+        #   行框自动跟着长, 不会切字; T=96 时得 67px ≈ 24dp, 与写死 dp(24) 几乎一致。
+        # ⚠️ 改这一行请跑 `tools/_probe_row_ink.py`(它把**当前**笔画高与"行框开到 40dp 时的
+        #    笔画高"对比 —— 矮了就是被切了; 判据自带正负对照, 见其文件头)。
         self.time_label = Label(
             text=f"{self.hourglass.duration:.0f}/{self.hourglass.duration:.0f}秒",
-            # 行高 40 -> 34: 文字是 sp(24), 原高度富余了 ~16dp 的空白行 ——
-            # 与 v_pad 一起收掉, 那部分高度直接变成沙漏的(见 `_rebuild_height_table` 的 v_pad)。
-            font_size=sp(24), bold=True, size_hint=(1, None), height=dp(34),
+            font_size=sp(24), bold=True, size_hint=(1, None), height=dp(24),
             color=(0.2, 0.2, 0.2, 1))
+        self.time_label.bind(
+            texture_size=lambda inst, ts: setattr(inst, "height", max(dp(24), ts[1] * 0.70)))
         root.add_widget(self.time_label)
 
         # 沙漏画布

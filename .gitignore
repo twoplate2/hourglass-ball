@@ -21,3 +21,11 @@ _r1_rev/
 _cr_v165.py
 _rev_nofeather.py
 _rev_nolip.py
+
+# ⚠️ 2026-10-07: 探针的取证截图**必须落在这里面**(`benchmark_logs/`), 否则会被
+#    `git add -A` 扫进仓库 ⇒ buildozer `source.dir = .` 把整个仓库树的 png 打进 APK
+#    (1.111 的四连败就是这个)。下面这条是**兜底**: 任何探针在仓库根上直接截图都会被忽略。
+#    规范做法见 `tools/_probe_row_ink.py`: `Window.screenshot(name=...)` 存成
+#    `<name>0001.png`, **命名务必带 `_probe_` 前缀**。
+/*_probe_*.png
+/probe_*.png
