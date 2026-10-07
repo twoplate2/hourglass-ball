@@ -27,7 +27,8 @@ import json
 
 # 沙流粒子的并行数组字段(见 NUMPY_PLAN.md)。numpy 缺失时整条向量化路径关闭,
 # 自动退回 update_particles 里的原标量循环 —— 不给沙漏制造风险。
-_P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt")
+_P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt",
+             "pmass")
 
 # 飞溅的并行数组字段 —— 与 `_P_FIELDS` 同一套做法(数组是真值, dict 只在取证时物化)。
 # `shas` 是「这颗有没有 `_still`」的 **float 0/1 标志**(不是 bool 数组: 沿用 `pli` 的先例,
@@ -2931,6 +2932,13 @@ class HourglassWidget(Widget):
         self._p_dict_cache = None
         self.particles = []
         self.particle_acc = 0.0
+        self._sand_released = 0.0
+        self._sand_landed = 0.0
+        self._sand_pending = 0.0
+        self._sand_active = False
+        self._sand_timing = None
+        self._sand_resized = False
+        self._neck_mass_table = ()
         # 飞溅: **并行数组是真值**, `splashes` 只是取证用的 dict 视图(见该 property)
         self._sn = 0
         self._s_alloc(512)
@@ -3069,6 +3077,10 @@ class HourglassWidget(Widget):
         w, h = self.width, self.height
         if w <= 1 or h <= 1:
             return
+        old_flow = None
+        if self._geom_ready and self._sand_active:
+            old_flow = (self._cx, self._R_inner, self._lower_sand_bot,
+                        2 * self._neck_y - self._taper["y_bot"])
         cx = self.x + w / 2.0
         ow = max(2.0, w * (6.0 / 380.0))
         tube_h = h * 0.055   # 给球↔管的曲线过渡留出竖直空间
@@ -3160,6 +3172,9 @@ class HourglassWidget(Widget):
             'out_pts': _bezier2((w_out, y_out), (t_out, y_knee_o), (t_out, y_bot), TAPER_SEGS),
             'in_pts': _bezier2((w_in, y_in), (t_in, y_knee_i), (t_in, y_bot), TAPER_SEGS),
         }
+        self._build_neck_mass_table()
+        if not self._sand_active:
+            self._sand_timing = None
         # 下球沙堆的形状解: **几何一变就重建**(专家 §2.2/§2.6)
         #   轮廓是 65 点固定数组(微不对称尖堆 + 受限微粗糙), **与沙量无关** ⇒
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
@@ -3223,6 +3238,24 @@ class HourglassWidget(Widget):
             self._mound_frame_k = None
         self._mound_shape_cache = None
         self._geom_ready = True
+        if old_flow is not None:
+            old_cx, old_radius, old_bottom, old_outlet = old_flow
+            outlet = 2 * self._neck_y - self._taper["y_bot"]
+            sx = Ri / old_radius
+            sy = (outlet - self._lower_sand_bot) / (old_outlet - old_bottom)
+            if abs(sx - 1.0) > 1e-9 or abs(sy - 1.0) > 1e-9:
+                self._sand_resized = True
+                left = max(1e-6, self.duration - self.elapsed - 1.0 / 120)
+                gravity = 450.0 * self._particle_motion_scale ** 2
+                for i in range(self.pn):
+                    self.px[i] = cx + (self.px[i] - old_cx) * sx
+                    self.pxo[i] *= sx
+                    self.pwa[i] *= sx
+                    self.py[i] = outlet + (self.py[i] - old_outlet) * sy
+                    contact = self._mound_top_at(float(self.px[i]))
+                    speed = max(0.0, (self.py[i] - contact) / left - 0.5 * gravity * left)
+                    self.pvy[i] = min(self.pvy[i] * sy, -speed)
+                self._p_refresh_view()
         self._build_glass_shell()
         self._build_dynamic_canvas()
 
@@ -3278,6 +3311,8 @@ class HourglassWidget(Widget):
         return max(1.0, self._natural_flight_time / available)
 
     def _effective_fallen(self):
+        if self._sand_active:
+            return max(0.0, min(1.0, self._sand_landed))
         if self.duration <= 0:
             return 0.0
         return max(0.0, min(1.0, (self.elapsed - self._fall_delay) /
@@ -3310,6 +3345,8 @@ class HourglassWidget(Widget):
     def _mound_height_px(self):
         eff = self._effective_fallen()
         ball_h_inner = 2 * self._R_inner
+        if self._sand_active:
+            return self._raw_height_ratio(eff) * ball_h_inner
         delay = self._fall_delay
         if self.elapsed < delay:
             return 0.0
@@ -3319,85 +3356,109 @@ class HourglassWidget(Widget):
         return appear * target
 
     def _upper_sand_height_px(self):
-        """上球沙体高度 —— **只由恒定流速决定**, 不跟下沙堆挂钩。
+        """上球、颈部、在途与落地共用一份归一化沙量。"""
+        return self._raw_height_ratio(self._upper_sand_fraction()) * 2 * self._R_inner
 
-        唯一假设: 体积流速恒定 ⇒ 上球剩余体积比 = 1 − elapsed/duration, 再由 raw 反查高度。
-        下沙堆走的是**另一条时钟**(要等粒子真的飞到底, `_fall_delay`), 两者之差 = **还在空中的沙**。
+    def _transfer_timing(self):
+        """Reserve flight time before zero; the neck buffer represents a transit interval."""
+        if self._sand_timing is None:
+            start = self._neck_fill_time
+            scale = self._particle_motion_scale
+            gravity = 450.0 * scale * scale
+            speed = 35.0 * scale
+            outlet = 2 * self._neck_y - self._taper["y_bot"]
+            distance = max(0.0, outlet - self._lower_sand_top) + 2.0
+            flight = 2.0 * distance / (
+                speed + math.sqrt(speed * speed + 2.0 * gravity * distance))
+            end = max(start + 1e-6, self.duration - flight - 1.0 / 60.0)
+            reserve = min(0.45, start / max(1e-6, end - start))
+            self._sand_timing = (start, end, reserve)
+        return self._sand_timing
 
-        ⚠️ 旧实现写成 `upper = 满 − 下沙堆`, 于是下沙堆为 0 的那些帧上沙恒为满 ——
-        5s 档头 1.35 秒(占整个计时的 27%)上球一动不动
-        (逐像素实测: 0.50s→1.01s 上半球只有粒子串那 159 个像素在变, 沙面零变化)。
-        ⚠️ 差额 = `_fall_delay / duration`(5s 档 27%, 1s 档 45%), 它是真实存在的在途沙;
-        想让它更小, 只能压缩粒子飞行时间(见 `_particle_motion_scale`), 那是另一个决定。
-        """
-        if self.duration <= 0:
-            return 0.0
-        t = max(0.0, min(1.0, self.elapsed / self.duration))
-        return self._raw_height_ratio(1.0 - t) * 2 * self._R_inner
+    def _released_fraction_at(self, elapsed):
+        start, end, _reserve = self._transfer_timing()
+        return max(0.0, min(1.0, (elapsed - start) / (end - start)))
+
+    def _upper_sand_fraction(self):
+        if self.duration <= 0 or not self._geom_ready:
+            return 1.0 if self.duration > 0 else 0.0
+        start, _end, reserve = self._transfer_timing()
+        remaining = 1.0 - self._released_fraction_at(self.elapsed)
+        neck = min(remaining, reserve * min(1.0, max(0.0, self.elapsed / start)))
+        return max(0.0, remaining - neck)
+
+    def sand_transfer_state(self):
+        """取证/快照接口; 热循环不按颗粒构造字典。"""
+        upper = self._upper_sand_fraction()
+        released = (self._sand_released if self._sand_active
+                    else self._released_fraction_at(self.elapsed))
+        landed = self._sand_landed if self._sand_active else self._effective_fallen()
+        return {"upper": upper, "neck": max(0.0, 1.0 - upper - released),
+                "flight": max(0.0, released - landed), "landed": landed}
+
+    def _neck_width_at(self, y):
+        pts = self._taper["in_pts"]
+        if y >= pts[0][1]:
+            return pts[0][0]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            if y1 <= y <= y0:
+                return x0 + (x1 - x0) * (y0 - y) / max(1e-6, y0 - y1)
+        return self._taper["t_in"]
+
+    def _build_neck_mass_table(self):
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        top = min(self._upper_sand_bot, self._taper["in_pts"][0][1])
+        table = [(0.0, outlet)]
+        volume = 0.0
+        last_y, last_x = outlet, self._neck_width_at(outlet)
+        for i in range(1, 129):
+            y = outlet + (top - outlet) * i / 128.0
+            x = self._neck_width_at(y)
+            volume += (y - last_y) * (last_x * last_x + last_x * x + x * x) / 3.0
+            table.append((volume, y))
+            last_y, last_x = y, x
+        self._neck_mass_table = tuple((v / max(1e-12, volume), y) for v, y in table)
+
+    def _neck_surface_y(self, fraction):
+        table = self._neck_mass_table
+        k = min(len(table) - 1, max(1, bisect_right(table, (fraction, float("inf")))))
+        v0, y0 = table[k - 1]
+        v1, y1 = table[k]
+        return y0 + (y1 - y0) * max(0.0, min(1.0, (fraction - v0) / max(1e-12, v1 - v0)))
 
     def _neck_sand_side(self):
-        """颈部沙柱的右半侧轮廓 [(半宽, y), ...] = 上喇叭口曲线 + 直筒(Kivy y 向上)。
-
-        两条刻意的设计(与 pc v4 同源):
-        ① **只到直筒下端**, 下喇叭口敞开不填沙 —— 填了会变成"绿喇叭悬在空球上",
-           沙流跟颈部反而断开; 敞开后沙从孔口流出, 与粒子自然接上。
-        ② 起跑时在 NECK_FILL 秒内**从上往下注满**, 而不是 elapsed>0 一帧切换 ——
-           喇叭口面积大, 瞬间从空变满非常刺眼。
-        ③ **排空同样要有过程**(2026-10-05 帕累托修复): 原来 `redraw` 用
-           `upper_height > 0` 做闸门, 而漏完那一帧 upper_height 恰好归零
-           ⇒ 整根沙柱**一帧消失**, 可下落的颗粒还要再飞 0.3s。**进场有动画、退场硬切**。
-           两位评审独立量到过(r1-2号: 23ms 内 −4901px; r1-1号/r5-1号: f684→685 一帧掉 4620px)。
-           现在漏完后再用同样的 fill_t 把 f 从 1 降到 0 —— 与注满对称, 形状一个字没改。
-        """
+        """颈部只有一个自由表面; 上球耗尽后从上往下排空。"""
         tp = self._taper
         pts = tp['in_pts']
         y_top, y_end = pts[0][1], 2 * self._neck_y - tp['y_bot']
-        fill_t = self._neck_fill_time
-        f = min(1.0, max(0.0, self.elapsed / fill_t))
-        # ★ **末段提前排空**(2026-10-06 用户实测报的 bug: 「时间归零的时候颈部**仍然会残留
-        #   一些沙子**」, 1s/5s 档尤其明显)。旧版只在 `_done_at`(归零**之后**)才开始排空
-        #   ⇒ **归零那一帧颈部还是满的**, 再花 fill_t 秒才排完。
-        #   现在在最后 `fill_t` 秒内就把 f 降到 0 ⇒ **归零那一刻颈部是空的**。
-        #   (`_done_at` 那段保留作兜底: 万一 elapsed 跳过了末段, 仍然会排空。)
-        #   ⚠️ **不能加 `if _rem > 0` 的守卫** —— 归零那一帧 `_rem` 恰好是 0, 会被跳过,
-        #      于是 f 又回到 1(满), 反而在归零处**闪一下满柱**。实测踩过。
-        # 🔴 **2026-10-06 单位错(用户:"50s 档快结束时颈部一段时间没有沙子")**:
-        #   `get_remaining()` 返回的是**比例**(0..1), 不是秒 —— 我上一轮拿它直接除以
-        #   `fill_t`(**秒**) ⇒ 排空起点变成 `_rem = fill_t = 0.25` 的**那一刻**,
-        #   即 **最后 25% 的时长**开始排空, 而不是最后 0.25 秒。
-        #   实测(50s 档, `tools/_probe_neck_end.py`): t=44s 时 `_rem=0.12`,
-        #   `f = 0.12/0.25 = 0.48` ⇒ **颈部只剩一半, 提前 12.5 秒开始排空**。
-        #   1s 档看不出来 —— 那里 0.25×1 = 0.25s, 与设计值**恰好相同**; 周期越长越离谱。
-        _rem_sec = self.get_remaining() * self.duration      # ← 比例 → 秒
-        f = min(f, max(0.0, _rem_sec / fill_t))
-        if self._done_at is not None:
-            d = (time.perf_counter() - self._done_at) / fill_t
-            f = min(f, max(0.0, 1.0 - d))
-        if f <= 0:
+        start, _end, reserve = self._transfer_timing()
+        if self.elapsed <= 0:
             return []
-        # ⚠️ **注满与排空的动边不是同一条**(2026-10-05, r7-1号 实测):
-        #    注满: 沙从**上球**经喇叭口注入 ⇒ 顶边钉在喇叭口上端, **下缘往下长**;
-        #    排空: 沙从**出口**流走 ⇒ 自由表面只能**下降**, 底边钉在出口, **顶边往下退**。
-        #    原实现两者共用 `fill_y = y_top - (y_top-y_end)*f`, 排空时下缘从 y_end 爬回 y_top
-        #    ⇒ 画成"沙被从下面吸上去"(1号: top_y 恒 410.28 / bottom_y 373.65→408.82),
-        #    与真沙漏相反。两条路径的**端点相同**(f=1 满柱 / f=0 空), 只有中段不同。
-        draining = self._done_at is not None
-        fill_y = (y_end + (y_top - y_end) * f) if draining else (y_top - (y_top - y_end) * f)
-        w = tp['t_in']
-        if fill_y >= tp['y_bot']:          # 截断点还在曲线段 → 插值取半宽
-            for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-                if y1 <= fill_y <= y0:
-                    w = x0 + (x1 - x0) * (y0 - fill_y) / max(1e-6, y0 - y1)
-                    break
-        if draining:
-            # 保留曲线段中位于截断点**以下**的部分; 截断点在顶端 ⇒ 补在最前
-            # 出口端始终保留一段直筒(底边钉住) ⇒ 消费者看的 `side[-1]` 恒 = 出口 ⇒ connected
-            side = [(w, fill_y)]
-            side += [(x, y) for x, y in pts if y < fill_y]
-            side.append((tp['t_in'], y_end))
+        if self.elapsed < start:
+            bottom = y_top - (y_top - y_end) * self.elapsed / start
+            top = y_top
         else:
-            side = [(x, y) for x, y in pts if y > fill_y]
-            side.append((w, fill_y))
+            upper = self._upper_sand_fraction()
+            if upper > 0.0:
+                height = self._upper_sand_height_px()
+                d, b = self._upper_funnel_params(1.0 - upper, height)
+                center = (self._upper_sand_bot + self._upper_level_for(height)
+                          - self._upper_surface_drop(0.0, d, b)
+                          + self._upper_rough_at(MOUND_SHAPE_NODES // 2, height))
+                top = min(y_top, center)
+            else:
+                released = (self._sand_released if self._sand_active
+                            else self._released_fraction_at(self.elapsed))
+                neck = max(0.0, 1.0 - released)
+                if neck <= 1e-12:
+                    return []
+                top = self._neck_surface_y(min(1.0, neck / reserve))
+            bottom = y_end
+        if top <= bottom:
+            return []
+        side = [(self._neck_width_at(top), top)]
+        side.extend((x, y) for x, y in pts if bottom < y < top)
+        side.append((self._neck_width_at(bottom), bottom))
         return side
 
     def _mound_apex(self):
@@ -3523,6 +3584,9 @@ class HourglassWidget(Widget):
             elif self.elapsed == 0:
                 gc.collect()
             self.running = True
+            self._sand_active = True
+            if self._geom_ready:
+                self._transfer_timing()
             self.last_tick = self.last_frame = time.perf_counter()
             self._play_sound()
 
@@ -3538,6 +3602,10 @@ class HourglassWidget(Widget):
         self.pn = 0
         self._p_refresh_view()
         self.particle_acc = 0.0
+        self._sand_released = self._sand_landed = self._sand_pending = 0.0
+        self._sand_active = False
+        self._sand_timing = None
+        self._sand_resized = False
         # ⚠️ 背景飞溅的**预算累加器**也要清 —— 原来只在 `__init__` 初始化过一次,
         #    重置后残留的零头会让新一局头几帧多喷几颗(总量可控但没道理)。
         self._bg_splash_acc = 0.0
@@ -4031,29 +4099,27 @@ class HourglassWidget(Widget):
         if not self._geom_ready:
             return
         now = time.perf_counter()
-        dt = max(0.0, min(0.05, now - self.last_frame))   # 物理限幅,防卡顿后飞跳
+        dt = max(0.0, min(0.05, now - self.last_frame))   # 特效限幅; 沙流与计时共用 flow_dt
         self.last_frame = now
+        flow_dt = 0.0
+        completed = False
         if self.running:
             if self.last_tick is not None:
-                self.elapsed += now - self.last_tick   # 计时不限幅,不偏移
+                previous = self.elapsed
+                self.elapsed = min(self.duration, self.elapsed + max(0.0, now - self.last_tick))
+                flow_dt = self.elapsed - previous
             self.last_tick = now
             # ⚠️ 换帧必须在**物理之前** —— 否则同一帧里"粒子撞的轮廓"和"画出来的轮廓"
             #    不是同一个(1.93 那类裂缝的根源)。
             self._sync_mound_frame()
+            self.update_particles(dt, flow_dt=flow_dt)
             if self.elapsed >= self.duration:
-                self.elapsed = self.duration
                 self.running = False
-                self._done_at = now          # 颈管沙柱从这个时刻开始排空(见 _neck_sand_side ③)
+                self._done_at = now
                 self._stop_sound()
-                if not self._completion_triggered:
-                    self._spawn_dust()
-                    self._completion_triggered = True
-                    self._play_completion_sound(self.duration)
-                    self._schedule_completion_popup(App.get_running_app())
-                app = App.get_running_app()
-                if app is not None:
-                    app.on_run_state_changed()
-        if self.running or self._completion_triggered:
+                completed = not self._completion_triggered
+                self._completion_triggered = True
+        elif self._completion_triggered:
             self.update_particles(dt)
         else:
             self._warm_batches_step()
@@ -4061,6 +4127,12 @@ class HourglassWidget(Widget):
         app = App.get_running_app()
         if app is not None:
             app.update_time(max(0.0, self.duration - self.elapsed), self.duration)
+        if completed:
+            self._spawn_dust()
+            self._play_completion_sound(self.duration)
+            self._schedule_completion_popup(app)
+            if app is not None:
+                app.on_run_state_changed()
 
     def _schedule_completion_popup(self, app):
         """完成提示**延后** COMPLETION_POPUP_DELAY 秒再弹, 让闪光/尘埃先演完;
@@ -4087,6 +4159,9 @@ class HourglassWidget(Widget):
 
     def _spawn_dust(self):
         mound_top = self.get_mound_top_y()
+        # A full bulb has no exposed free surface to eject sand back into the empty neck.
+        if mound_top >= self._lower_sand_top - 1e-6:
+            return
         cx = self._cx
         w = self._sand_half_w(mound_top, self._lower_y_c)
         now = time.perf_counter()
@@ -4312,6 +4387,7 @@ class HourglassWidget(Widget):
         ptl = self.ptl
         pli = self.pli
         pdt = self.pdt
+        pmass = self.pmass
         particles = []
         append = particles.append
         for i in range(pn):
@@ -4320,6 +4396,7 @@ class HourglassWidget(Widget):
                 "x_offset": float(pxo[i]), "wobble_phase": float(pwp[i]),
                 "wobble_amp": float(pwa[i]), "size": int(psz[i]),
                 "trail_time": float(ptl[i]), "is_light": bool(pli[i]),
+                "_sand_mass": float(pmass[i]),
             }
             if new_from is not None and i >= new_from:
                 d["_step_dt"] = float(pdt[i])
@@ -4343,6 +4420,7 @@ class HourglassWidget(Widget):
         psz = self.psz
         ptl = self.ptl
         pli = self.pli
+        pmass = self.pmass
         for k in range(n):
             d = particles[k]
             px[k] = d.get("x", 0.0)
@@ -4354,6 +4432,7 @@ class HourglassWidget(Widget):
             psz[k] = 2 if d.get("size", 1) == 2 else 1
             ptl[k] = d.get("trail_time", 0.08)
             pli[k] = 1.0 if d.get("is_light", False) else 0.0
+            pmass[k] = d.get("_sand_mass", 0.0)
         self.pn = n
 
     def _replay_hits(self, hit_idx, hit_dt, mound_top, motion_scale, now):
@@ -4367,6 +4446,7 @@ class HourglassWidget(Widget):
         px = self.px
         pvy = self.pvy
         pdt = self.pdt
+        self._sand_landed += float(_np.sum(self.pmass[hit_idx]))
         rand = random.random
         append_flare = self.flares.append
         # ★ **全部命中的 hy 一次算完**(向量化)。原来每颗现调一次 `_mound_contact_h`,
@@ -4770,12 +4850,15 @@ class HourglassWidget(Widget):
                                math.sqrt(max(0.0, _drop) * 2.0 * _g_abs
                                          + (60.0 * self._particle_motion_scale) ** 2))
 
-    def update_particles(self, dt):
+    def update_particles(self, dt, flow_dt=None):
         if not self._geom_ready:
             return
+        effect_dt = dt
+        dt = dt if flow_dt is None else flow_dt
+        if self.running:
+            self._sand_active = True
         cx = self._cx
         mound_top = self.get_mound_top_y()
-        remaining = self.get_remaining()
         now = time.perf_counter()
         neck_w = self.neck_w
         ow = self._ow
@@ -4792,7 +4875,7 @@ class HourglassWidget(Widget):
         #    粒子随后在 spawn 里覆盖成自己的偏步长。
         if _np is None:
             self.pdt[:self.pn] = [dt] * self.pn   # list 切片不吃标量广播
-            self.sdt[:self._sn] = [dt] * self._sn
+            self.sdt[:self._sn] = [effect_dt] * self._sn
         else:
             self.pdt[:self.pn] = dt
             # 🔴 **飞溅的 dt 也在这一行铺满**, 且必须**早于本帧任何 `_eject_splash` 调用** ——
@@ -4800,9 +4883,15 @@ class HourglassWidget(Widget):
             #    "偏步长"覆盖上去。铺晚了会把刚写进去的偏步长冲掉, 新飞溅第一帧多落一截。
             #    (`_spawn_bg_splashes` 在飞溅循环**之后**追加 ⇒ 它们本帧不被积分,
             #     下一帧自然落进这次铺的 `dt`。)
-            self.sdt[:self._sn] = dt
+            self.sdt[:self._sn] = effect_dt
 
-        if self.running and remaining > 0:
+        start, end, _reserve = self._transfer_timing()
+        previous = max(0.0, self.elapsed - dt)
+        emit_start = max(start, previous)
+        emit_end = min(end, self.elapsed)
+        emit_dt = max(0.0, emit_end - emit_start)
+        final_emission = previous < end <= self.elapsed
+        if self.running and (emit_dt > 0.0 or final_emission):
             # 🔴 **2026-10-06 用户一眼看出来: 1 秒档的沙流是"断续虚线", 5s/15s 是"连续的一条绳"。**
             #    根因: `_particle_motion_scale` 把初速与重力乘了倍率(1s 档 6.44)让粒子飞快穿过,
             #    **但生成率没跟着放大** ⇒ 同样多的粒子被摊在 6.4 倍的长度上
@@ -4812,24 +4901,20 @@ class HourglassWidget(Widget):
             #    生成率跟着 `motion_scale` 一起放大。1s 档 1500 → ~9500/s,
             #    而在途粒子数 rate×飞行时间 = ~1400, 与 5s 的 ~2300 **同量级**, 不是性能爆炸。
             rate = FLOW_BASE_RATE * self._particle_motion_scale
-            # 🔴 **同一类单位错**(2026-10-06, 与 `_neck_sand_side` 那条同源): `remaining` 是
-            #   **比例**不是秒, 原来写的 `remaining < 0.08` 是"最后 8% 的时长":
-            #   1s 档 = 0.08s(与设计意图恰好相同, 所以一直没被发现);
-            #   **50s 档 = 最后 4 秒**, 生成率一路降到 10% ⇒ 沙流"提前断粮",
-            #   与颈部沙柱提前排空叠在一起, 就是用户看到的"颈部一段时间没有沙子"。
-            #   改成**秒**: 窗口取 `_neck_fill_time`(与沙柱排空同一个窗口) ⇒ 沙流与沙柱同时收尾。
-            _rem_sec = remaining * self.duration
-            _taper = self._neck_fill_time
-            if _rem_sec < _taper:
-                rate *= max(0.1, (_rem_sec / _taper) ** 0.5)
             # 沙柱先接通出口; 在帧内均匀发射,避免每一帧生出一整排同龄沙粒。
-            emit_dt = min(dt, max(0.0, self.elapsed - self._neck_fill_time))
             self.particle_acc += emit_dt * rate
+            self._sand_pending += max(
+                0.0, self._released_fraction_at(emit_end)
+                - self._released_fraction_at(emit_start))
+            spawn_count = int(self.particle_acc)
+            if final_emission and self._sand_pending > 0.0:
+                spawn_count = max(1, math.ceil(self.particle_acc))
+            mass = self._sand_pending / spawn_count if spawn_count else 0.0
             x_clip = max(1.0, neck_w - ow)
             self._spawn_from = self.pn
             # 一次把本帧要生的量预留够, 不在循环里反复扩容。
-            self._p_grow(self.pn + int(self.particle_acc) + 2)
-            while self.particle_acc >= 1:
+            self._p_grow(self.pn + spawn_count + 2)
+            for spawn_index in range(spawn_count):
                 self.particle_acc -= 1
                 x_off = random.uniform(-x_clip, x_clip)
                 vy0 = -(random.uniform(90, 120) if random.random() < 0.05
@@ -4851,8 +4936,23 @@ class HourglassWidget(Widget):
                 self.pli[i] = 1.0 if is_light else 0.0
                 self.psz[i] = size
                 self.ptl[i] = trail_time
-                self.pdt[i] = self.particle_acc / rate
+                birth = emit_end - max(0.0, self.particle_acc) / rate
+                birth = max(emit_start, min(emit_end, birth))
+                self.pdt[i] = max(0.0, self.elapsed - birth)
+                if final_emission and spawn_index == spawn_count - 1:
+                    self.pvy[i] = -35.0 * motion_scale
+                if self._sand_resized:
+                    left = max(1e-6, self.duration - birth - 1.0 / 120)
+                    distance = max(0.0, gen_y - self._mound_top_at(float(self.px[i])))
+                    speed = max(0.0, distance / left - 225.0 * motion_scale ** 2 * left)
+                    self.pvy[i] = min(self.pvy[i], -speed)
+                self.pmass[i] = mass
                 self.pn = i + 1
+            if spawn_count:
+                self._sand_released += self._sand_pending
+                self._sand_pending = 0.0
+            if final_emission:
+                self.particle_acc = 0.0
 
         if _pm:
             _pm("phys_spawn")               # `pdt/sdt` 铺满 + 本帧生成循环
@@ -4969,6 +5069,7 @@ class HourglassWidget(Widget):
                     hit = y <= hy
                 hit_dt = 0.0
                 if hit:
+                    self._sand_landed += p.get("_sand_mass", 0.0)
                     d = old_y - hy
                     distance = d if d > 0 else 0
                     v = -old_vy
@@ -5052,8 +5153,14 @@ class HourglassWidget(Widget):
                 append_particle(p)
             self._p_from_dicts(new_list)
         self.mound_peak_offset = peak_offset
+        if abs(self._sand_landed - 1.0) < 1e-12:
+            self._sand_landed = 1.0
+        if self._sand_landed != getattr(self, "_landed_for_geometry", None):
+            self._landed_for_geometry = self._sand_landed
+            self._mound_shape_cache = self._mound_curve_cache = None
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
         self._p_refresh_view()
+        dt = effect_dt
 
         if _pm:
             _pm("phys_main")
@@ -5687,7 +5794,7 @@ class HourglassWidget(Widget):
         _key = (self.elapsed, upper_height, self.duration)
         if getattr(self, "_upper_level_key", None) == _key:
             return self._upper_level_val
-        p = 0.0 if self.duration <= 0 else min(1.0, self.elapsed / self.duration)
+        p = 1.0 - self._upper_sand_fraction()
         d, b = self._upper_funnel_params(p, upper_height)
         if d <= 0.0 or upper_height <= 0.0:
             val = upper_height
@@ -5892,7 +5999,7 @@ class HourglassWidget(Widget):
             band.flush()
             self._upper_band_color.a = 0.0
             return
-        p = 0.0 if self.duration <= 0 else min(1.0, self.elapsed / self.duration)
+        p = 1.0 - self._upper_sand_fraction()
         d, b = self._upper_funnel_params(p, upper_height)
         cx = self._cx
         Ri = self._R_inner
@@ -6319,21 +6426,27 @@ class HourglassWidget(Widget):
         self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
         self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
         self._draw_mound_shape(h_mound)
-        # ⚠️ 闸门含 `_done_at`: 漏完那一帧 upper_height 已是 0, 但沙柱还要排空 fill_t 秒
-        side = (self._neck_sand_side()
-                if (upper_height > 0 or self._done_at is not None) else [])
+        # The shared surface, not an independent completion timer, owns the neck.
+        side = self._neck_sand_side()
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
         transition = min(inlet - outlet, max(8, self._taper["t_in"] * 0.7))
         connected = bool(side and side[-1][1] <= outlet + 1e-6)
+        if connected:
+            transition = min(transition, max(0.0, side[0][1] - outlet))
         fade_top = outlet + transition
         neck_uv_scale = None if self._sand_material is None else 1.0 / diameter
         quads = self._neck_quads
         for i in range(len(quads)):
             if i < len(side) - 1:
                 (x0, y0), (x1, y1) = side[i], side[i + 1]
-                if connected and i == len(side) - 2:
-                    y1 = fade_top
+                if connected:
+                    if y0 <= fade_top:
+                        quads.zero(i)
+                        continue
+                    if y1 < fade_top:
+                        y1 = fade_top
+                        x1 = self._neck_width_at(y1)
                 pts = [self._cx - x0, y0, self._cx + x0, y0,
                        self._cx + x1, y1, self._cx - x1, y1]
                 if neck_uv_scale is not None:

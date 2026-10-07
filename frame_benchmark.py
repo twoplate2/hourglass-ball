@@ -576,6 +576,9 @@ class BenchmarkRunner:
         #    ⇒ **颈管沙柱不画了**。实测 2/2 复现(前置状态为"暂停"时肉眼可见:
         #    颈管中轴 x=540,y=1200 从沙色 (195,211,153) 变成玻璃色 (244,245,236))。
         "_done_at",
+        "_sand_released", "_sand_landed", "_sand_pending", "_sand_active",
+        "_sand_timing",
+        "_sand_resized",
     )
 
     def __init__(self, widget, on_case, on_finish, periods=PERIODS):
