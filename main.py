@@ -1575,8 +1575,10 @@ def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0
 class _SandMaterial:
     """一张预生成的沙体材质 + 它的**完整** UV(每帧截取时以它为基准)。"""
 
-    def __init__(self, size, rgba):
+    def __init__(self, size, rgba, shade=1.0, grad=0.10):
         self.rgba = rgba
+        self.flow_shade = shade
+        self.flow_grad = grad
         self.texture = Texture.create(size=(size, size), colorfmt="rgba")
         self.texture.wrap = "clamp_to_edge"
         self.texture.min_filter = "linear"
@@ -1777,7 +1779,7 @@ def sand_material(base, dark, light, size=None, grain=None, shade=None):
                                        grad=SAND_MATERIAL_GRAD)
             if rgba is None:
                 return None
-            material = _SandMaterial(size, rgba)
+            material = _SandMaterial(size, rgba, shade=shade, grad=SAND_MATERIAL_GRAD)
         except Exception as exc:
             print(f"sand material unavailable: {exc}")
             return None
@@ -1802,7 +1804,7 @@ def preview_sand_material(base, dark, light, grain, size=None):
                                    grad=SAND_MATERIAL_GRAD)
         if rgba is None:
             return None
-        return _SandMaterial(size, rgba)
+        return _SandMaterial(size, rgba, grad=SAND_MATERIAL_GRAD)
     except Exception as exc:
         print(f"sand preview unavailable: {exc}")
         return None
@@ -6115,6 +6117,20 @@ class HourglassWidget(Widget):
         self._sand_bands = []
         material = self._current_material()
         self._sand_material = material
+        self._sand_flow_contexts = ()
+        upper_flow = neck_flow = None
+        if material and os.environ.get("HG_SAND_FLOW", "1") != "0":
+            try:
+                from sand_flow_material import SandFlowContext
+                geometry = (cx, Ri, self._upper_sand_bot, self._taper["in_pts"][0][1])
+                upper_flow = SandFlowContext(geometry)
+                neck_flow = SandFlowContext(geometry)
+                self._sand_flow_contexts = (upper_flow, neck_flow)
+                if not getattr(self, "_sand_flow_logged", False):
+                    print("GPU sand flow active: upper reservoir + neck")
+                    self._sand_flow_logged = True
+            except Exception as exc:
+                print("GPU sand flow unavailable, keeping static material: %s" % exc)
         with self.canvas:
             for yc in (self._upper_y_c, self._lower_y_c):
                 bottom = yc - Ri
@@ -6122,9 +6138,16 @@ class HourglassWidget(Widget):
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilUse()
                 # 材质烘的就是 albedo ⇒ 前面必须是**白色**; 退回平色时才染 sand_base
-                color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
-                rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
-                                 texture=None if material is None else material.texture)
+                if yc == self._upper_y_c and upper_flow is not None:
+                    self.canvas.add(upper_flow)
+                    with upper_flow:
+                        color = Color(1, 1, 1, 1)
+                        rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
+                                         texture=material.texture)
+                else:
+                    color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
+                    rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
+                                     texture=None if material is None else material.texture)
                 # 沙面窄过渡: 与沙体**同一个 stencil**, 只在沙面内部多铺一条很窄的亮带
                 band_color = Color(*(tuple(self.sand_light) + (0.0,)))
                 band_rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
@@ -6148,6 +6171,9 @@ class HourglassWidget(Widget):
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
                 self._sand_chords.append((color, rect))
+        if neck_flow is not None:
+            self.canvas.add(neck_flow)
+        with neck_flow if neck_flow is not None else self.canvas:
             neck_tex = None if material is None else material.texture
             self._neck_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             # 颈部沙柱那 25 条逐段四边形 —— 同样是静态的一段折线, 合成一个 `Mesh`
@@ -6483,7 +6509,12 @@ class HourglassWidget(Widget):
             self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
 
         self._draw_stream()
-        self._draw_neck_grains(side)
+        if self._sand_flow_contexts and self._sand_material is not None:
+            for context in self._sand_flow_contexts:
+                context.update_flow(self.elapsed, self._particle_motion_scale,
+                                    self._sand_material, colors)
+        else:
+            self._draw_neck_grains(side)
         # 飞溅层: 装了批处理渲染器就走批处理, 否则走原来的**逐 `Rectangle`**。
         # (见文件尾 `_install_splash_renderer` 与 `tools/flow_splash_experiment.py`)
         _batch = getattr(self, "_splash_batch", None)
