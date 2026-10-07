@@ -421,11 +421,92 @@ def frame_statistics(intervals):
 
 
 class BenchmarkHoldArea(Widget):
+    """长按 3 秒进开发者菜单。**命中区比可见面积大得多**(见 `collide_point`)。
+
+    ## 为什么要把命中区做大(2026-10-07 用户要求)
+
+    用户原话:「把长按版本号出窗口的响应区域**大幅提高**, 至少增加 50% 的长度和宽度」。
+
+    底栏贴着屏幕的**最下沿**(下面只剩根布局 padding dp(6)) —— 那一带正是安卓的
+    系统手势区, 手指按在那儿很容易被系统先吃掉, 或者干脆按到屏幕外。而这块地方
+    在宽屏上其实**很宽**(`_fit_bottom_widths`: 版本区把余量全吃掉), 所以真正难按的
+    是**高度方向**。
+
+    ⇒ 宽 ×1.5(左右各 25%)、高 ×2 且**全部向上长**(不向下, 下面只有 6dp)。
+    **只改命中判定, 不动布局尺寸** —— 撑大 `size` 会把四个按钮挤走(`size_hint=(None,1)`
+    的定宽子控件在 `BoxLayout` 里不被压缩)。
+
+    ⚠️ 扩大区会盖到相邻按钮(左边两个)与画布底部一条。**两条都不抢**:
+    * 落在可用兄弟控件上的点 ⇒ 让给按钮(`_hits_sibling`)。右侧的 `开始/重置` 天然安全
+      —— `BoxLayout` 的 `children` 是**倒序**, 它们比本控件先派发; 左边两个在它之后,
+      所以必须自己挡, 否则按钮靠里的那几毫米会变成死区。
+    * 盖到画布那一条(高 ≈ dp(50))里**有 72.5% 原来是"点沙漏开始/暂停"的热区**(实测
+      `tools/_probe_hold_area.py`) ⇒ **只有"按住不放 ≥3 秒"才归我们, 短按一律还给画布**
+      (`_forward_tap`)。**扩大长按区不该顺手制造一块死区。**
+    """
+
+    HOLD_HIT_W = 1.5      # 命中区宽 = 可见宽 ×1.5(左右各让出 25%)
+    HOLD_HIT_UP = 1.0     # 命中区向上多长 = 一个自身高度 ⇒ 总高 = 可见高 ×2
+
     def __init__(self, activate, **kwargs):
         super().__init__(**kwargs)
         self._activate = activate
         self._touch = None
         self._hold_event = None
+        self._fired = False        # 这一下"长按真的触发了"没有(区分"触发"与"被取消")
+
+    def _in_visible(self, pos):
+        """点是不是落在**可见矩形**里 —— 判定"这一下要不要还给下面的画布"用。"""
+        return Widget.collide_point(self, *pos)
+
+    def _forward_tap(self, touch):
+        """把这一下**还给沙漏画布** —— 扩大区长出来的那一条里, **72.5%** 的地方原来
+        点一下是"开始/暂停"的热区(实测 `tools/_probe_hold_area.py`)。既然是我们把长按区
+        撑大的, 就不该顺手把这块变成死区 ⇒ **只有"按住不放"才归我们, 短按一律透传**。
+
+        ⚠️ 只透传给 `hourglass` 一个目标, 不做通用"找底下那个控件"(通用重放要模拟整个
+           `children` 遍历 + 旋转层变换, 风险远大于收益)。那一带上本来就只有画布。
+        """
+        from kivy.app import App
+        app = App.get_running_app()
+        hg = getattr(app, "hourglass", None) if app is not None else None
+        if hg is None:
+            return
+        try:
+            if hg.on_touch_down(touch):
+                hg.on_touch_up(touch)
+        except Exception:
+            pass
+
+    def _hit_rect(self):
+        """(x0, y0, x1, y1) —— 放大后的命中矩形, 单位与 `collide_point` 一致(父坐标)。"""
+        grow = self.width * (self.HOLD_HIT_W - 1.0) * 0.5
+        return (self.x - grow, self.y,
+                self.right + grow, self.top + self.height * self.HOLD_HIT_UP)
+
+    def _hits_sibling(self, x, y):
+        """这一点是不是落在某个**可用兄弟控件**上 —— 是的话让给它们, 别把按钮边缘变成死区。"""
+        parent = self.parent
+        if parent is None:
+            return False
+        for sib in parent.children:
+            if sib is self or getattr(sib, "disabled", False):
+                continue
+            try:
+                if sib.collide_point(x, y):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def collide_point(self, x, y):
+        # 原本的矩形先判 —— 视觉上"版本号"那一块永远算命中。
+        if super().collide_point(x, y):
+            return True
+        x0, y0, x1, y1 = self._hit_rect()
+        if not (x0 <= x <= x1 and y0 <= y <= y1):
+            return False
+        return not self._hits_sibling(x, y)
 
     def on_touch_down(self, touch):
         if not self.collide_point(*touch.pos) or self._touch is not None:
@@ -446,9 +527,14 @@ class BenchmarkHoldArea(Widget):
 
     def on_touch_up(self, touch):
         if touch.grab_current is self:
+            fired, pos = self._fired, touch.pos
             self._cancel_hold()
             touch.ungrab(self)
             self._touch = None
+            self._fired = False
+            # 短按(没到 3 秒)且落点在**可见矩形之外** ⇒ 这一下不是给我们的, 还给画布。
+            if not fired and not self._in_visible(pos):
+                self._forward_tap(touch)
             return True
         return super().on_touch_up(touch)
 
@@ -459,6 +545,7 @@ class BenchmarkHoldArea(Widget):
 
     def _held(self, _dt):
         self._hold_event = None
+        self._fired = True
         # LandLayer 在事件返回后会把 touch.pos 还原为屏幕坐标。
         if self._touch is not None:
             self._activate()

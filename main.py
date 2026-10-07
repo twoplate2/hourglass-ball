@@ -1653,7 +1653,16 @@ NECK_FILL = 0.25     # 颈部沙柱注满耗时(秒), 避免起跑瞬间"啪"地
 WARM_COST_FLOW = 6.0
 WARM_COST_SMALL = 1.5
 WARM_BUDGET_MS = 6.0
-WARM_SPLASH_CHUNKS = 4      # 用户设备实测飞溅峰值 1826 颗 ⇒ 4 块(每块 512)
+# 🔴 **每个沙流桶要预热 2 块**(2026-10-07, 1.218 出货后用户平板复测查出)。
+#    只预热第 0 块时, 峰值期有 3 个桶的粒子数**超过 512** ⇒ 那一帧现建第 1 块
+#    (设备实测 `index_assigns=1/2/3` 且 `vertex_rebuild=160/320/480 KiB`)。
+#    平板 1.218 的复测里, 全库 `图元 > 8ms` 的帧**恰好就是这 9 帧**(每档 3 帧,
+#    9.4~14.1ms) —— 也就是说加粗这一项**能一次拿掉剩下的全部尖峰**。
+#    代价只是**闲帧**(预热不发生在动画里), 但**顺序要紧**: 先把所有桶的第 0 块做完,
+#    再做第 1 块(见 `_collect_warm_jobs`) —— 这样预热被"开始"打断时先保住更要紧的那半。
+WARM_FLOW_CHUNKS = 2
+# 飞溅峰值(用户平板实测 3984 颗)⇒ 8 块(每块 512)。这几块钱小得多(4 顶点/颗)。
+WARM_SPLASH_CHUNKS = 8
 
 
 def _warm_enabled():
@@ -3501,11 +3510,17 @@ class HourglassWidget(Widget):
     # ---------- tick / 物理 ----------
 
     def _collect_warm_jobs(self):
-        """列出"待预热的块"。**沙流在前**(最贵, 也最先被用到), 后面是飞溅/颈部/闪光。"""
+        """列出"待预热的块"。**顺序 = 重要性**: 沙流第 0 块 → 沙流第 1 块 → 颈部 → 飞溅 → 闪光。
+
+        预热可能被"按下开始"打断(它只在没在跑的时候做), 所以**先把最要紧的那半做完** ——
+        沙流第 0 块是"所有桶同时第一次有内容"那一帧要用的, 缺了它那一帧会退回 40ms 级。
+        """
         jobs = []
-        for batch in (getattr(self, "_flow_batches", None) or {}).values():
-            if hasattr(batch, "warm"):
-                jobs.append((batch, 0, WARM_COST_FLOW))
+        flow = [b for b in (getattr(self, "_flow_batches", None) or {}).values()
+                if hasattr(b, "warm")]
+        for chunk in range(WARM_FLOW_CHUNKS):
+            for batch in flow:
+                jobs.append((batch, chunk, WARM_COST_FLOW))
         for item in (getattr(self, "_neck_batches", None) or ()):
             batch = item[1]
             if hasattr(batch, "warm"):
@@ -3517,7 +3532,7 @@ class HourglassWidget(Widget):
         flare = getattr(self, "_flare_batches", None)
         if flare is not None and hasattr(flare, "warm"):
             jobs.append((flare, 0, WARM_COST_SMALL))
-        jobs.reverse()                       # 用 `pop()` 从头取 ⇒ 沙流先做
+        jobs.reverse()                       # 用 `pop()` 从头取 ⇒ 上面的顺序名副其实
         return jobs
 
     def _warm_batches_step(self):
