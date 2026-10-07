@@ -787,6 +787,7 @@ class BenchmarkRunner:
             self._marks = _mk()
             self._mark_src._PROF_MARK = self._marks
         self._slow_marks = []          # [(帧时间, 分段串)] 只留最慢的几帧
+        self._phys_ran = False         # 本帧 `update_particles` 跑过没有(见 `measured` 里那段)
         for target, name, stage in (
                 (self.widget, "update_particles", "physics_ms"),
                 (self.widget, "redraw", "update_draw_ms"),
@@ -798,6 +799,14 @@ class BenchmarkRunner:
                 before = time.perf_counter()
                 if _stage == "physics_ms" and self._marks is not None:
                     self._marks.reset()          # 一帧的起点(物理在前, 重绘在后)
+                    self._phys_ran = True
+                elif (_stage == "update_draw_ms" and self._marks is not None
+                        and not self._phys_ran):
+                    # 🔴 **没在跑的那些帧(轮间静止等待)不调 `update_particles`** ⇒ 上一条的
+                    #    reset 也就不发生 ⇒ 打点会**跨帧累加**, 于是"最慢几帧"里混进一堆
+                    #    假值(实测把 26ms 的读数印成"沙流那一段 14.9ms")。
+                    #    这里补一次: 物理没跑过就从这一帧重开。
+                    self._marks.reset()
                 try:
                     return _original(*args, **kwargs)
                 finally:
@@ -806,6 +815,7 @@ class BenchmarkRunner:
                     # 额外记时间戳: 把 flip->flip 里四探针之外的部分拆开
                     self._stamps[_stage] = (before, after)
                     if _stage == "update_draw_ms" and self._marks is not None:
+                        self._phys_ran = False
                         snap = self._marks.snapshot()
                         if snap:
                             _ms = (after - before) * 1000.0

@@ -1822,15 +1822,25 @@ NECK_FILL = 0.25     # 颈部沙柱注满耗时(秒), 避免起跑瞬间"啪"地
 # 沙流块", 免得把 24+37 块挤在一帧里又造出一次冻结。
 WARM_COST_FLOW = 6.0
 WARM_COST_SMALL = 1.5
-WARM_BUDGET_MS = 6.0
-# 🔴 **每个沙流桶要预热 2 块**(2026-10-07, 1.218 出货后用户平板复测查出)。
-#    只预热第 0 块时, 峰值期有 3 个桶的粒子数**超过 512** ⇒ 那一帧现建第 1 块
-#    (设备实测 `index_assigns=1/2/3` 且 `vertex_rebuild=160/320/480 KiB`)。
-#    平板 1.218 的复测里, 全库 `图元 > 8ms` 的帧**恰好就是这 9 帧**(每档 3 帧,
-#    9.4~14.1ms) —— 也就是说加粗这一项**能一次拿掉剩下的全部尖峰**。
-#    代价只是**闲帧**(预热不发生在动画里), 但**顺序要紧**: 先把所有桶的第 0 块做完,
-#    再做第 1 块(见 `_collect_warm_jobs`) —— 这样预热被"开始"打断时先保住更要紧的那半。
-WARM_FLOW_CHUNKS = 2
+WARM_BUDGET_MS = 12.0     # 一帧最多建 2 块沙流(见下: 预热深度按几何算, 12ms 才赶得完)
+# 🔴 **每个沙流桶要预热几块, 现在是按几何算出来的, 不是一个常数**(2026-10-07 晚)。
+#    历史: 先 1 块 → 用户平板复测发现 3 个桶超 512 ⇒ 改 2 块 → 仍被抓到。
+#    1.221 的平板 log 里每档**必然有一帧** `图元` 9.2~12.5ms(稳态 2.0), 同帧
+#    `ia=1 / vrb=160 KiB` —— 就是"运行期现建一块沙流"(512 槽 × 20 顶点 × 4 float × 4B
+#    = 160 KiB, 设备 ~7.7ms)。落在 t=0.38 / 1.81 / 1.83s。
+#    ⚠️ **本机一直复现不出来**: 桶里有多少颗 ∝ 粒子的下落路程 ∝ 窗口高度。
+#       把桌面窗口调成平板的 1904×2890 之后**一次就复现**(`tools/_chunkneed*.py`):
+#       最热的桶峰值 **1525 颗** ⇒ 要 **3 块**, 而只预热了 2 块。
+#       ⇒ 这就是"桌面测不出来"的又一处: **不是慢, 是几何不够大**。
+#    ⇒ 判据改成"**在途粒子数上界 × 最热桶占比 / 块容量**":
+#       `在途 ≈ rate × 飞行时间 = (FLOW_BASE_RATE × motion_scale) × (natural / motion_scale)`
+#       = **FLOW_BASE_RATE × `_natural_flight_time`** —— 与 motion_scale 无关(两项正好抵消),
+#       所以 1s 档和 15s 档拿到同一个上界(与实测一致: 平板两档峰值都在 3100 附近)。
+#    ⚠️ 桶占比 0.55 是**实测的**: 色调合并后 5/9 的档落进最热的桶(`idx -= idx % 3` 前
+#       在 0 处被 clip), 其中 85% 是 size=2 ⇒ 0.556×0.85 ≈ 0.47, 再留 1.2× 余量。
+WARM_FLOW_CHUNKS = 2          # **下限**(短周期/小窗口时的值, 与原行为一致)
+WARM_FLOW_BUCKET_SHARE = 0.55  # 最热那个桶占在途粒子的比例上界(实测 0.49)
+WARM_FLOW_CHUNKS_MAX = 8      # 上限, 防病态几何把预热队列撑爆
 # 飞溅峰值(用户平板实测 3984 颗)⇒ 8 块(每块 512)。这几块钱小得多(4 顶点/颗)。
 WARM_SPLASH_CHUNKS = 8
 
@@ -3679,6 +3689,57 @@ class HourglassWidget(Widget):
 
     # ---------- tick / 物理 ----------
 
+    def _live_flow_bucket_keys(self):
+        """**可能**有内容的沙流桶 —— 由取色调的算式直接推出来, 不是"看它一直是空的"。
+
+        沙流那一行把色调档磨成 3 的倍数(`idx -= idx % 3`), 再叠上 `FLOW_TONE_CENTER`
+        的偏移与 `clip(0, last)` —— 把 `w` 的全部取值域(0..8, `np.minimum(w, 8)` 封顶)
+        代进去, 落在合并后的**只有 {0, 3, 6}**; 再加高光那一档(`key = n_colors`,
+        在 `_stream_pools` 里就是 `-1`)。
+        ⇒ `_stream_pools` 那 **24** 个桶里, 另外 **16 个永远拿不到颗粒**。
+
+        ⚠️ 两条路径的次序不同(numpy 先 clip 后合并, 标量先合并后 clip)⇒ 这里两种次序
+        都算一遍取并集, 免得将来改了一处就漏。
+        ⚠️ **只用来决定"预热哪些桶"** —— 画布结构(24 个组)一个字没动, 所以不涉及像素。
+        """
+        last = len(self._color_table) - 1
+        out = set()
+        for w in range(9):
+            a = w + (FLOW_TONE_CENTER - 4)
+            a = 0 if a < 0 else (last if a > last else a)
+            a -= a % 3
+            b = w + (FLOW_TONE_CENTER - 4)
+            b -= b % 3
+            b = 0 if b < 0 else (last if b > last else b)
+            out.add(a)
+            out.add(b)
+        out.add(-1)                      # 高光档
+        return out
+
+    def _warm_flow_depth(self, chunk_cap):
+        """每个沙流桶要预热几块 —— **由在途粒子数的上界推出来**, 不是常数。
+
+        为什么不是常数(2026-10-07 晚, 用户平板 1.221 的 log):
+        每档**必然有一帧** `图元` 9.2~12.5ms(稳态 2.0), 同帧 `ia=1 / vrb=160 KiB`
+        —— 运行期现建了一块沙流(160 KiB 顶点表, 设备 ~7.7ms)。
+        根因是**块容量固定 512, 而最热的那个桶峰值 1525 颗** ⇒ 要 3 块, 只备了 2 块。
+        桶里有多少颗 **∝ 粒子的下落路程 ∝ 窗口高度** ⇒ 平板上要 3 块, 我们桌面
+        400×800 的测试窗口永远只要 2 块 ⇒ **本机一直复现不出来**。
+
+        上界: `在途 ≈ rate × 飞行时间`, 而
+        `rate = FLOW_BASE_RATE × motion_scale`、`飞行时间 = natural / motion_scale`
+        ⇒ **`在途 ≈ FLOW_BASE_RATE × _natural_flight_time`**(与 motion_scale 无关)。
+        再乘最热桶的占比(实测 0.49, 取 0.55 留余量)除以块容量。
+
+        ⚠️ `_natural_flight_time` 用**当前**下沙面算距离 ⇒ 沙子落下去之后它会变小,
+        是**保守方向**(早期估得更大), 不会造成欠备。
+        """
+        if chunk_cap <= 0 or not getattr(self, "_geom_ready", False):
+            return WARM_FLOW_CHUNKS
+        in_flight = FLOW_BASE_RATE * self._natural_flight_time
+        need = int(math.ceil(WARM_FLOW_BUCKET_SHARE * in_flight / float(chunk_cap)))
+        return max(WARM_FLOW_CHUNKS, min(WARM_FLOW_CHUNKS_MAX, need))
+
     def _collect_warm_jobs(self):
         """列出"待预热的块"。**顺序 = 重要性**: 沙流第 0 块 → 沙流第 1 块 → 颈部 → 飞溅 → 闪光。
 
@@ -3686,9 +3747,16 @@ class HourglassWidget(Widget):
         沙流第 0 块是"所有桶同时第一次有内容"那一帧要用的, 缺了它那一帧会退回 40ms 级。
         """
         jobs = []
-        flow = [b for b in (getattr(self, "_flow_batches", None) or {}).values()
-                if hasattr(b, "warm")]
-        for chunk in range(WARM_FLOW_CHUNKS):
+        # 🔴 **只预热"可能有内容"的桶**(2026-10-07 晚): 24 个桶里只有 8 个拿得到颗粒
+        #    (见 `_live_flow_bucket_keys` 的推导)⇒ 另外 16 个桶的每一块都是**纯浪费**:
+        #    块一旦建好就恒画 `CHUNK` 个四边形(索引一次给满), 每帧白走一遍顶点着色器。
+        #    实测(平板几何 1904×2890): 预热 2 块时 24×2=48 块 = 24576 个四边形/帧,
+        #    其中真有内容的只有 ~11 块。滤掉死桶之后, **深度翻了倍但总量反而更小**。
+        live = self._live_flow_bucket_keys()
+        flow = [b for key, b in (getattr(self, "_flow_batches", None) or {}).items()
+                if key[0] in live and hasattr(b, "warm")]
+        depth = self._warm_flow_depth(flow[0].CHUNK if flow else 0)
+        for chunk in range(depth):
             for batch in flow:
                 jobs.append((batch, chunk, WARM_COST_FLOW))
         for item in (getattr(self, "_neck_batches", None) or ()):
