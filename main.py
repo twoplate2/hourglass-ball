@@ -561,10 +561,10 @@ SPLASH_SPEED_HI = float(os.environ.get("HG_SPLASH_SPD_HI", "0.42"))
 # `SPLASH_GAIN` = **唯一**的夸张旋钮(乘在比例上)。⚠️ 拉到 ~1.07 以上会越过 0.30 的物理界、
 #   闸门会翻红 —— 那是**有意的护栏**, 不要去放宽它。
 SPLASH_GAIN = float(os.environ.get("HG_SPLASH_GAIN", "1.0"))
-# 环境参数保留旧的“相对竖直线、单位弧度”语义; 默认换算为水平仰角 15–55 度。
+# 环境参数保留旧的“相对竖直线、单位弧度”语义; 默认换算为水平仰角 5–55 度。
 # 发射时再限制水平仰角不超过 60 度, 包括使用旧环境参数的情况。
 SPLASH_ANGLE_MIN = float(os.environ.get("HG_SPLASH_ANG_LO", str(math.radians(35))))
-SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", str(math.radians(75))))
+SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", str(math.radians(85))))
 SPLASH_HORIZONTAL_ANGLE_LIMIT = math.radians(60)
 SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))      # v4: 沙面上方 2px
 # ★ **每颗飞溅各有各的重力倍率** —— 用户 2026-10-06:「不同沙子的**轨迹是略有不同的**…
