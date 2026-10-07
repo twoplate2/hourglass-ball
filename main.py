@@ -2956,6 +2956,8 @@ class HourglassWidget(Widget):
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
         self._warm_queue = []               # 待预热的批处理块(见 _warm_batches_step)
         self._warm_src = (None, None)       # 上一批队列对应的批对象本身(重建即换新, 见那里的 ⚠️)
+        self._geom_key = None               # 上一次生效的 (w,h,x,y); 见 `_on_size` 的去抖
+        self._geom_pending = None           # 已排队但还没跑的几何重建(去抖用)
         self._sand_material = None          # 沙体材质纹理(见 sand_material); None = 平色填充
         # 拖动「沙子浓度」滑块时的低分辨率材质槽(见 preview_sand_material)。
         # 非 None 时它**优先于** _sand_material, 松手/换色即清空。
@@ -2977,6 +2979,34 @@ class HourglassWidget(Widget):
     # ---------- 几何(自适应; Kivy y 向上) ----------
 
     def _on_size(self, *_):
+        """尺寸/位置变化 → 重建几何。**启动时这条路会连发好几次, 每次都是整块画布重建。**
+
+        实测(桌面, 启动 3 秒内的 5 次): `#0 71.5ms(100x100 占位) / #1 42.8ms(与上次**尺寸
+        完全相同**, 纯浪费) / #2 41.4ms(只挪了 x/y) / #3 0ms(退化尺寸) / #4 51.4ms(布局
+        中途 756x168) / #5 44.6ms(最终 356x368)` —— **合计 ~250ms**, 全压在"第一帧能看见"
+        这条关键路径上。布局是会**分几帧稳定**下来的, 而每稳定一步就重付一次全款。
+
+        所以这里做两件事:
+        ① **尺寸+位置与上次完全一样 ⇒ 直接跳过**(启动时抓到 1 次纯重复);
+        ② **同一帧内的多次请求合并成一次**(排到下一帧执行, 已有待执行的先取消) ——
+           布局连发时只付最后一次的钱。代价是几何晚一帧生效, 而 `tick()` 本来就有
+           `_geom_ready` 守卫 ⇒ 那一两帧不发图元, 看不见。
+
+        🔴 **只在"Kivy 事件"这条路上去抖** —— 显式调用 `_rebuild_height_table()`
+        (改周期 / 改沙面起伏 / 工具探针)**一律立即生效**, 一个字节都不改:
+        `set_rough_level` 就是靠"调了就重建"来把新粗糙度烘进面积表的, 在那里加守卫
+        会**静默失效**(正是本项目最怕的那种)。
+        """
+        key = (self.width, self.height, self.x, self.y)
+        if self._geom_ready and key == self._geom_key:
+            return
+        self._geom_key = key
+        if self._geom_pending is not None:
+            self._geom_pending.cancel()
+        self._geom_pending = Clock.schedule_once(self._do_geom, -1)
+
+    def _do_geom(self, *_):
+        self._geom_pending = None
         self._rebuild_height_table()
 
     @property
