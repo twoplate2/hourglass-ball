@@ -5309,13 +5309,16 @@ class HourglassWidget(Widget):
             color.rgb = (1, 1, 1) if white else self.sand_base
         self._neck_quads.set_texture(tex)
         self._neck_solid_rect.texture = self._neck_fade_rect.texture = tex
+        self._jet_rect.texture = tex
         if white:
             # 材质烘的就是 albedo ⇒ 前面必须保持白色, 再染一层沙色会明显发暗
             self._neck_color.rgb = (1, 1, 1)
             self._neck_solid_color.rgb = self._neck_fade_color.rgb = (1, 1, 1)
+            self._jet_color.rgb = (1, 1, 1)
         else:
             self._neck_color.rgb = self.sand_base
             self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
+            self._jet_color.rgb = self.sand_base
         # 绑定已经是当前配色了 ⇒ 别让 redraw 的换色分支再拿缓存材质覆盖掉预览
         self._render_colors = (self.sand_base, self.sand_dark, self.sand_light)
         self.redraw()
@@ -6066,6 +6069,15 @@ class HourglassWidget(Widget):
             # 剩下的是"沙柱→敞开喇叭口"的自然边界)。
             self._neck_fade_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_fade_rect = Rectangle(size=(0, 0), texture=neck_tex)
+            # ★ **落沙射流**(2026-10-07, 用户:「颈部的沙子和其他沙子**分离**了」)。
+            #   第一原理(不引用任何旧注释): 出口往下那段空间里, 沙**只占"从出口流出的
+            #   一股柱状沙流"那么宽**, 其余是空气 —— 玻璃做成喇叭口是**玻璃**的形状,
+            #   不是沙的形状。真沙漏里那股沙流是**连续不透明的一柱**, 一路落到沙堆上,
+            #   **从不断开**。此前这段只画稀疏粒子 ⇒ 看着就是"颈部的沙到此为止"。
+            #   ⚠️ 旧实现当年试过的是「把整个**喇叭口形状**填满」——**形状错了**(会变成
+            #      "悬空的喇叭"); 正确的形状是**等宽的一柱**(半宽 = 孔径 `t_in`)。
+            self._jet_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
+            self._jet_rect = Rectangle(size=(0, 0), texture=neck_tex)
 
         # §5 表层滑动标记(专家 dingbu.md §5): 固定图元池, 不新增物理粒子。
         # ⚠️ **必须建在这里** —— 沙体之后。曾经建在上面那个 `with self.canvas:` 的 stencil 块里,
@@ -6263,6 +6275,7 @@ class HourglassWidget(Widget):
                     self._neck_quads.set_texture(material.texture)
                     self._neck_solid_rect.texture = material.texture
                     self._neck_fade_rect.texture = material.texture
+                    self._jet_rect.texture = material.texture      # 射流同材质, 免得读成另一种沙
             if self._sand_material is None:
                 # 退回平色时颈部才跟着染沙色; 有材质时前面必须保持白色(否则双重着色变暗)
                 self._neck_color.rgb = self.sand_base
@@ -6378,6 +6391,20 @@ class HourglassWidget(Widget):
             self._neck_solid_color.a = 1 - strength
         else:
             self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
+
+        # ---- 落沙射流: 出口 → 沙堆顶面, **等宽一柱**(见 `_jet_rect` 那段第一原理) ----
+        # 只在这一段的下界由**沙堆顶面**决定: 沙堆长上来它就变短, 长到出口就归零 ⇒
+        # 不需要任何"该不该填喇叭口"的分支, 也不会有悬空的喇叭。
+        # ⚠️ 闸门**不能**跟着 `side` —— 归零后颈部沙柱已排空(`side` 为空), 但在途的沙
+        #    还在往下落, 这时候把射流一起关掉就正好制造出用户报的那种"断开"。
+        #    真正该问的是"开始流了吗": 粒子也是从 `_neck_fill_time` 起才生成的。
+        _jet_bot = self.get_mound_top_y()
+        _jet_h = outlet - _jet_bot
+        if self.elapsed >= self._neck_fill_time and _jet_h > 1.0:
+            self._jet_rect.pos = (self._cx - self._taper["t_in"], _jet_bot)
+            self._jet_rect.size = (2 * self._taper["t_in"], _jet_h)
+        else:
+            self._jet_rect.size = (0, 0)
 
         self._draw_stream()
         self._draw_neck_grains(side)
