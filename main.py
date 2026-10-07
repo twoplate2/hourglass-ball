@@ -137,6 +137,15 @@ from kivy.config import Config          # ⚠️ 必须在下面那个 if **之�
 #  启动即死 NameError: name 'Config' is not defined。桌面测不出来 —— 这行只在
 #  Android 分支执行, 而 ast.parse 只查语法不查名字。见 README 经验教训。)
 
+def _maxfps_path():
+    """`maxfps` 标记文件的路径(**与 main.py 同目录**)。
+
+    ⚠️ 开发菜单里那个「帧率节奏」开关写的**就是**这个文件, 两边必须同一个表达式 ——
+    写成两处迟早分叉(写了半天没生效, 还找不到原因)。
+    """
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "maxfps")
+
+
 def _maxfps_knob():
     """Kivy 帧率上限(安卓出厂 = `"0"` = 完全不睡, 节拍交给 vsync)。
 
@@ -162,7 +171,7 @@ def _maxfps_knob():
         except ValueError:
             pass
     try:
-        _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "maxfps")
+        _p = _maxfps_path()
         if os.path.exists(_p):
             with open(_p) as fh:
                 return str(int(float(fh.read().strip() or 0)))
@@ -7430,6 +7439,41 @@ class HourglassApp(App):
             fmt=lambda lb: "约 %.1f 像素" % (_rough_level(lb) * 2 * 445.63))
         _mid(rough_box)
         self._dev_level_btns = {"grain": grain_btns, "rough": rough_btns}
+
+        # ---- 帧率节奏(写 `maxfps` 标记文件, **重启后生效**)(2026-10-07) ----
+        # 为什么把它放进菜单: 这是**唯一还够得着的 low 帧杠杆**。平板 15s 档的掉格帧里
+        # 每一列都同倍涨(物理 1.73 / 图元 1.95 / Canvas 2.10 / tick尾 2.19)而**粒子 0.99**,
+        # ⇒ 那 ~5% 是**整帧被拖慢 ~1.9×**, 不是哪一栏算多了。要让 3.93ms 的中位活在
+        # 1.9× 拖慢下仍塞进 6.06ms, 得砍到 ~3.0ms(−25%) —— 已知候选都够不着
+        # (marker 批 0.10 / 颈部懒建 0.046 / 图集 0.10 / 减粒子 0)。剩下就是**节奏**:
+        # Kivy 的睡眠地板 `(11/15)/cap` 在 cap=120 时是 6.111ms, 与 165Hz 一格(6.06ms)
+        # 几乎重合 ⇒ **睡眠变成抖动的缓冲**。DanZhu 同机实测: cap=120 ⇒ 平均 160.5 /
+        # 1%Low 118.9; cap=165 ⇒ 165.1 / 112.1(**平均 −3% 换尾部 +6%**)。
+        # ⚠️ **模拟器上量不出来**(它的呈现节拍被宿主锁死, 且面板格不是 6.06ms)
+        #    ⇒ 只能在用户自己的 165Hz 平板上 A/B ⇒ 装个开关, 免得还要 adb。
+        # ⚠️ 只写文件、**不改默认**: 出厂仍是「最高」。
+        PACE = (("最高", 0), ("144", 144), ("120", 120))
+
+        def pick_pace(lb):
+            try:
+                with open(_maxfps_path(), "w") as fh:
+                    fh.write(str(dict(PACE)[lb]))
+            except Exception as exc:
+                print("pace knob write failed (%s)" % (exc,))
+            refresh_pace(lb)
+
+        _cur = "最高"
+        try:
+            with open(_maxfps_path()) as fh:
+                _v = int(float(fh.read().strip() or 0))
+            _cur = {n: lb for lb, n in PACE}.get(_v, "最高")
+        except Exception:
+            pass
+        pace_box, refresh_pace, pace_btns = make_levels(
+            "帧率节奏", [lb for lb, _n in PACE], _cur, pick_pace,
+            fmt=lambda lb: "当前 %s · 重启 app 生效" % _cur)
+        _mid(pace_box)
+        self._dev_level_btns["pace"] = pace_btns
 
         _mid(Widget(size_hint=(1, None), height=dp(6)))
         bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",
