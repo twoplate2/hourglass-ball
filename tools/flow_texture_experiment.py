@@ -171,6 +171,9 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             # 固定 capacity = CHUNK: u 步长与分块无关, shader 只需一个 uniform。
             capacity = self.CHUNK
             data = bytearray(capacity * TEXELS_PER_PARTICLE * 4)
+            # 🔴 **先整块中性化**(2026-10-07): 索引马上要一次给满(见下), 用不到的槽位
+            #    **会被画出来** —— 零端点在画布原点留一簇小方块(不是"看不见")。
+            data[:] = PAD_ENDPOINT * capacity
             texture = Texture.create(
                 size=(capacity * TEXELS_PER_PARTICLE, 1), colorfmt="rgba")
             texture.mag_filter = texture.min_filter = "nearest"
@@ -191,6 +194,17 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
             part[5:7] = texture, data
             part[7].texture = texture
             part[0].vertices = vertices
+            # 🔴 **索引在建块时就一次给满**(2026-10-07, 用户平板 165Hz 的 log 查出)。
+            #    原来只有 `warm()` 过的那几块才给满, **运行期才建的块** `part[4]` 从
+            #    "当时的颗数"起步 ⇒ 桶还在长大 ⇒ `count > previous` **每帧都成立** ⇒
+            #    每帧重赋一次索引(每次整块顶点表重建 160 KiB)。平板实测: 15s 档
+            #    **91 次**赋值 / 14.5 MB 顶点数据, 每次都打在 `图元` 上 —— 那一档最慢的
+            #    几帧(9.7 / 9.2ms)恰好就是 `ia=1, KiB=160` 的帧。
+            #    ⚠️ 而**预热在 165Hz 上跑不完**: 0.5s 宽限 ÷ 每块 ≈6ms ⇒ 一帧只塞得下
+            #       一块 ⇒ 只有 ~41 块赶得上, 后面颈部/飞溅的块全在运行期建 ⇒
+            #       **光靠"预热"救不了**, 必须让"运行期建的块"与"预热过的块"行为一致。
+            part[0].indices = indices
+            part[4] = capacity
         return part
 
     def warm(self, chunk=0):
