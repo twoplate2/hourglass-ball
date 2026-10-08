@@ -478,7 +478,7 @@ MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则
 #   ⚠️ 这是**观感取舍**: 觉得稀了就把这个数调回去(一行)。
 SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "600"))
 SPLASH_HIT_CHANCE = 0.50
-# 🔴 **2026-10-06 用户裁决: 「这个实际上和周期没有关系」** ⇒ 飞溅**不随周期变**。
+# 同口径仍用同一水位; 超细颈部按有效内宽缩放, 不按上球剩余量减弱。
 #   曾按 `∝ 在途主流粒子数` 做过(比例跨 14 倍 → 4.2 倍), 但那必然让长周期变少(50s 只剩 45%)
 #   ⇒ **作废**。默认 0 = 走定率 `SPLASH_BG_RATE`; 非 0 可恢复"按比例"(留作对照臂)。
 SPLASH_BG_PER_PARTICLE = float(os.environ.get("HG_SPLASH_PER_PARTICLE", "0.0"))
@@ -566,7 +566,7 @@ SPLASH_GAIN = float(os.environ.get("HG_SPLASH_GAIN", "1.0"))
 SPLASH_ANGLE_MIN = float(os.environ.get("HG_SPLASH_ANG_LO", str(math.radians(30))))
 SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", str(math.radians(89.99))))
 SPLASH_HORIZONTAL_ANGLE_LIMIT = math.radians(60)
-SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))      # v4: 沙面上方 2px
+SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))  # 粗沙柱保留 2.9 的起点偏移。
 # ★ **每颗飞溅各有各的重力倍率** —— 用户 2026-10-06:「不同沙子的**轨迹是略有不同的**…
 #   可以重复, 但是**不要都是一个曲线**」。
 #   只靠角度/初速不同, 出来的仍是**一族标准抛物线**, 读起来同构。
@@ -2973,6 +2973,10 @@ class HourglassWidget(Widget):
         self._contact_hits = deque(maxlen=256)
         self._effect_random = None
         self._splash_reference_speed = None
+        self._splash_density = 1.0
+        self._splash_cap = SPLASH_MAX
+        self._splash_origin_blend = 1.0
+        self._splash_speed_scale = 1.0
         self._splash_stats = dict.fromkeys(
             ("born_air", "born_roll", "pool_full", "settled", "glass", "reentered", "expired"), 0)
         self.flares = []
@@ -3088,10 +3092,11 @@ class HourglassWidget(Widget):
     @property
     def neck_w(self):
         """颈部半宽,log 插值:短周期→宽,长周期→窄,上下限保证沙流可视"""
-        w = self.width
-        lo = max(dp(7), round(w * 7.0 / 380.0))     # 最细: 管内壁仍有空间
-        hi = round(w * 17.0 / 380.0)                 # 最粗: 不压过球的比例
-        dur = max(1.0, self.duration)
+        return self._neck_width_for_duration(self.duration)
+
+    def _neck_width_for_duration(self, duration):
+        lo, hi = self._neck_width_limits()
+        dur = max(1.0, duration)
         if dur <= 5:
             return hi
         if dur >= 36000:
@@ -3100,6 +3105,12 @@ class HourglassWidget(Widget):
         t = (math.log(dur) - lo_d) / (hi_d - lo_d)
         t = max(0.0, min(1.0, t))
         return round(lo + (hi - lo) * (1 - t))
+
+    def _neck_width_limits(self):
+        w = self.width
+        lo = max(dp(7), round(w * 7.0 / 380.0))     # 最细: 管内壁仍有空间
+        hi = round(w * 17.0 / 380.0)                 # 最粗: 不压过球的比例
+        return lo, hi
 
     @property
     def speed_factor(self):
@@ -3188,6 +3199,18 @@ class HourglassWidget(Widget):
         # 球壁 →(相切) 贝塞尔曲线 →(相切) 短直筒 的连续轮廓。只改渲染, 不动 raw/守恒。
         t_out = nw                                   # 管外壁半宽
         t_in = max(1.0, nw - ow)                     # 管内壁半宽(= 沙柱/粒子通道)
+        # 只按同窗口内的实际口径比较: 最粗 150%, 最细按比例且不低于 15%。
+        narrowest, widest = self._neck_width_limits()
+        widest_inner = max(1.0, widest - ow)
+        narrowest_inner = max(1.0, narrowest - ow)
+        self._splash_density = max(0.15, min(1.5, 1.5 * (t_in / widest_inner)))
+        self._splash_cap = max(1, round(SPLASH_MAX * self._splash_density)) if SPLASH_MAX else 0
+        width_fraction = max(0.0, min(1.0, (t_in - narrowest_inner)
+                                     / max(1e-9, widest_inner - narrowest_inner)))
+        self._splash_origin_blend = width_fraction * width_fraction * (3.0 - 2.0 * width_fraction)
+        # 观感目标: 同角度和重力下射程正比于速度平方, 实际落点仍受坡面影响。
+        range_fraction = 1.0 / 3.0 + (2.0 / 3.0) * self._splash_origin_blend
+        self._splash_speed_scale = math.sqrt(range_fraction)
         shoulder = math.sqrt(max(0.0, R * R - Ri * Ri))
         # 过渡起点必须 ≥ 肩台半宽, 否则起点以上仍是那条扁平暗带(细颈时尤其明显)
         w_out = min(R * 0.45, max(t_out + 2.0, TAPER_K * nw, shoulder * 1.06))
@@ -4545,10 +4568,10 @@ class HourglassWidget(Widget):
             step_dt = float(pdt[i])
             first_contact = self._record_contact(x, -vy)
             hy = None
-            if rand() < 0.25:
+            if rand() < 0.25 * self._splash_density:
                 hy = _hit_hy(k, x)
                 append_flare({"x": x, "y": hy, "end": now + 0.08})
-            selected = rand() < SPLASH_HIT_CHANCE
+            selected = rand() < SPLASH_HIT_CHANCE * self._splash_density
             if selected or first_contact:
                 if hy is None:
                     hy = _hit_hy(k, x)
@@ -4560,7 +4583,7 @@ class HourglassWidget(Widget):
                 if sp >= 0:                      # -1 = 撞上存活上限, 没生成(见 SPLASH_MAX)
                     self.sdt[sp] = step_left if step_left > 0 else 0
                 if first_contact:
-                    for _ in range(2):
+                    for _ in range(round(2 * self._splash_density)):
                         sp = self._eject_splash(x, hy, -vy)
                         if sp >= 0:
                             self.sdt[sp] = max(0.0, step_left)
@@ -4591,7 +4614,7 @@ class HourglassWidget(Widget):
         px = SPLASH_PX_BASE * max(1.0, self._R_inner / 140.0)
         size = tuple(round(k * px) for k in rng.choice(SPLASH_SIZE_MIX))
         gd = rng.uniform(SPLASH_GRAV_LO, SPLASH_GRAV_HI)
-        if SPLASH_MAX and self._sn >= SPLASH_MAX:
+        if self._splash_cap and self._sn >= self._splash_cap:
             self._splash_stats["pool_full"] += 1
             return -1
         profile = self._mound_profile
@@ -4607,13 +4630,16 @@ class HourglassWidget(Widget):
         # 视觉散粒代表持续撞击, 力度以首次实测撞击为基准, 前后最多温和变化 10%。
         reference = self._splash_reference_speed or float(v_impact)
         strength = reference * (0.90 + 0.10 * min(1.0, v_impact / reference))
-        speed = strength * gain
+        speed = strength * gain * self._splash_speed_scale
         vx, vy = side * math.sin(angle) * speed, abs(math.cos(angle)) * speed
         scale = self._particle_motion_scale
         gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
                            else scale ** SPLASH_G_SCALE) * gd
         roof = self._lower_sand_bot + profile.bounds(x - self._cx)[1]
-        lift = min(SPLASH_LIFT_PX, max(0.0, roof - y_surface - size[1] * 0.5))
+        # 细柱贴底, 粗柱保持旧版可见起点; 过渡只依赖有效内宽, 不依赖剩余沙量。
+        half_height = size[1] * 0.5
+        wanted_lift = half_height + (SPLASH_LIFT_PX - half_height) * self._splash_origin_blend
+        lift = min(max(0.0, wanted_lift), max(0.0, roof - y_surface - half_height))
         clearance = max(0.0, roof - y_surface - lift - size[1] * 0.5)
         vy = min(vy, math.sqrt(2.0 * gravity * clearance))
         i = self._s_append(x, y_surface + lift, vx, vy, size[0] * 0.5, size[1] * 0.5, gd)
@@ -4713,6 +4739,7 @@ class HourglassWidget(Widget):
             self._bg_splash_acc = 0.0
             return
         rate = SPLASH_BG_PER_PARTICLE * self.pn if SPLASH_BG_PER_PARTICLE > 0 else SPLASH_BG_RATE
+        rate *= self._splash_density
         self._bg_splash_acc += dt * rate
         count = min(24, int(self._bg_splash_acc))
         self._bg_splash_acc = min(self._bg_splash_acc - count, rate / 60.0)
@@ -5010,9 +5037,9 @@ class HourglassWidget(Widget):
                     #    "闪光、弹跳、滑落起点全部使用该颗粒的接触 y, 不再统一放到一条水平线上")。
                     #    原来放在标量 mound_top 上 —— 审计实测出生点比该颗粒**当地沙面**
                     #    高 p50=7.5px / p90=12.6px / max=15.4px(92% 的命中 >1px)。
-                    if rand() < 0.25:
+                    if rand() < 0.25 * self._splash_density:
                         append_flare({"x": x, "y": hy, "end": now + 0.08})
-                    selected = rand() < SPLASH_HIT_CHANCE
+                    selected = rand() < SPLASH_HIT_CHANCE * self._splash_density
                     if selected or first_contact:
                         # ★ 唯一的飞溅模型(与 numpy 路径同一个函数, 随机数顺序一致)
                         step_left = step_dt - hit_dt
@@ -5020,7 +5047,7 @@ class HourglassWidget(Widget):
                         if sp >= 0:                  # -1 = 撞上存活上限
                             self.sdt[sp] = step_left if step_left > 0 else 0
                         if first_contact:
-                            for _ in range(2):
+                            for _ in range(round(2 * self._splash_density)):
                                 sp = self._eject_splash(x, hy, -vy)
                                 if sp >= 0:
                                     self.sdt[sp] = max(0.0, step_left)

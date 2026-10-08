@@ -10,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "benchmark_logs" / "contact_flow_2_9"
+OUT = ROOT / "benchmark_logs" / "contact_flow_2_10"
 
 
 def run():
@@ -131,6 +131,8 @@ def run():
                     for _ in range(160):
                         i = w._eject_splash(x, w._mound_top_at(x), impact)
                         assert i >= 0
+                        expected_lift = w.shh[i] + (m.SPLASH_LIFT_PX - w.shh[i]) * w._splash_origin_blend
+                        assert abs(w.sy[i] - w._mound_top_at(x) - expected_lift) <= 1e-9
                         vx, vy = float(w.svx[i]), float(w.svy[i])
                         assert vx > 0 and vy > 0
                         assert np.arctan2(vy, abs(vx)) <= np.deg2rad(60) + 1e-12
@@ -176,7 +178,7 @@ def run():
                 self.advance(1.6)
                 assert w.pn == 0 and w._sn == 0 and not w.running
                 stats = dict(w._splash_stats)
-                assert self.peak <= m.SPLASH_MAX
+                assert self.peak <= w._splash_cap
                 w.reset()
                 w.redraw()
                 assert w._sn == 0 and not w._contact_hits and w._last_impact_clock is None
