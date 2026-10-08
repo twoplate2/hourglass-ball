@@ -4583,10 +4583,36 @@ class HourglassWidget(Widget):
                 if sp >= 0:                      # -1 = 撞上存活上限, 没生成(见 SPLASH_MAX)
                     self.sdt[sp] = step_left if step_left > 0 else 0
                 if first_contact:
-                    for _ in range(round(2 * self._splash_density)):
+                    for _ in range(self._first_contact_extra(rand)):
                         sp = self._eject_splash(x, hy, -vy)
                         if sp >= 0:
                             self.sdt[sp] = max(0.0, step_left)
+
+    def _first_contact_extra(self, rand):
+        """首次触面**追加几颗** —— 随机取整(2026-10-09, 用户要求)。
+
+        原写法 `round(2 * _splash_density)`, 而 `density ∈ [0.15, 1.5]`
+        ⇒ `2×density ∈ [0.3, 3.0]` ⇒ `round()` 之后**只有 {0, 1, 2, 3} 四个取值**。
+        实测它们在**整条时长轴上只形成 3 个台阶**(23.3s / 610s / 15933s 各跳一格),
+        跨过台阶时**每一次**首次触面都同时多一颗或少一颗 ⇒ 观感上是"档"而不是连续变化。
+
+        **随机取整**: 整数部分照给, 小数部分按概率补一颗 ⇒ 长期平均**精确等于** `2×density`,
+        台阶消失。这就是"平均意义上的连续"——单次永远是整数颗, 但观众看到的是整体疏密。
+
+        两条硬约束(踩过就白改):
+        ① **`density == 1.5` 时绝不抽随机数**。那时 `want = 3.0`、`frac = 0.0`,
+           把它写在 `frac > 0.0 and rand() < frac` 里靠短路跳过 —— 若写成 `rand() < frac`
+           会**照样消耗一个随机数**, 整条流平移 ⇒ 用户已经确认过的"粗柱(≤5s)保持 2.9 + 加量
+           150%"那一档会跟着变。这是本函数的**唯一**关键点。
+        ② 两条物理路径(`_replay_hits` 与标量分支)必须**同一个 RNG**(都用 `random.random`),
+           否则 `tools/test_physics_equiv.py` 的标量/numpy 逐位等价会红。
+        """
+        want = 2.0 * self._splash_density
+        n = int(want)
+        frac = want - n
+        if frac > 0.0 and rand() < frac:
+            n += 1
+        return n
 
     def _record_contact(self, x, speed):
         first = self._splash_reference_speed is None
@@ -5047,7 +5073,7 @@ class HourglassWidget(Widget):
                         if sp >= 0:                  # -1 = 撞上存活上限
                             self.sdt[sp] = step_left if step_left > 0 else 0
                         if first_contact:
-                            for _ in range(round(2 * self._splash_density)):
+                            for _ in range(self._first_contact_extra(rand)):
                                 sp = self._eject_splash(x, hy, -vy)
                                 if sp >= 0:
                                     self.sdt[sp] = max(0.0, step_left)
