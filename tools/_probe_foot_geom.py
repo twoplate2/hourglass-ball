@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("KIVY_METRICS_DENSITY", "2.75")
 _SZ = [int(x) for x in os.environ.get("FOOT_SIZE", "1904x2890").split("x")]
+_P = float(os.environ.get("FOOT_PERIOD", "50"))
 os.environ["HG_FLOW_RENDERER"] = "texture"
 
 TAG = (sys.argv[1] if len(sys.argv) > 1 else "cur")
@@ -22,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="footgeom-") as home:
     import main as m
     from kivy.clock import Clock
     from kivy.core.window import Window
-    m.HourglassWidget.load_config = lambda *_: {"duration": 50.0}
+    m.HourglassWidget.load_config = lambda *_: {"duration": _P}
     m.HourglassWidget.save_config = lambda *_: None
     m.HourglassWidget._make_sound_proxy = lambda *_: None
     m.HourglassWidget._make_completion_sound = lambda *_: None
@@ -42,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="footgeom-") as home:
             self.root._anchor.do_layout()
             self.hourglass.parent.do_layout()
             w = self.hourglass
-            w.set_duration(50.0)
+            w.set_duration(_P)
             w.reset()
             w._rebuild_height_table()
             w.toggle()

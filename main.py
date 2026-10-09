@@ -1917,6 +1917,8 @@ NECK_FREE = os.environ.get("HG_NECK_FREE", "1") == "1"
 # 出口以下的自由收缩段(vena contracta)。关掉用 `HG_NECK_TAPER=0`。
 NECK_TAPER = os.environ.get("HG_NECK_TAPER", "1") == "1"
 NECK_TAPER_SEGS = 4          # 收缩段节点数(前 40px 均分)
+# 前沿的**穹顶**量(以半宽为单位): 边缘比中轴高出这么多。`0` = 平头(2.14 的行为)。
+NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.80"))
 WARM_SPLASH_CHUNKS = 8
 
 
@@ -3642,6 +3644,16 @@ class HourglassWidget(Widget):
                 #    ⇒ 多出来的那一大截是**凭空画的沙**。真实的下沿 = `_falling_front()`。
                 _front = self._falling_front()
                 _w = self._neck_width_at(_join)
+                # 🔴 **2026-10-09: 前沿不能是一刀平。** 用户看 2.14 截图问「沙柱头部也是平的
+                #    合理吗」—— 量出来**起伏 0.0px**(前沿说了算时, 沙柱最后两个节点的 y
+                #    完全相同, `tools/_probe_front_shape.py`)。物理上该是**穹顶**: 孔口处的
+                #    速度剖面 `v(x) = v0·sqrt(1-(x/R)²)` 中间快(Janda 等在 2D 料斗孔口的
+                #    自相似实测), 所以**中轴领先、两边落后**。
+                #    `HG_NECK_DOME` = 边缘比中轴高出的量, 以**半宽**为单位(0 = 平头 = 2.14)。
+                _bulge = NECK_FRONT_DOME * _w
+
+                def _front_at(_dx):
+                    return _front + _bulge * (_dx / _w) ** 2 if _w > 1e-6 else _front
                 _yc, _Ri = self._lower_y_c, self._R_inner
                 _c = self._mound_contact_h
                 _bot = self._lower_sand_bot
@@ -3649,12 +3661,13 @@ class HourglassWidget(Widget):
                 def _end_at(_dx):
                     _my = _bot + _c(_dx)
                     _wl = _yc + math.sqrt(max(0.0, _Ri * _Ri - _dx * _dx))
+                    _fr = _front_at(_dx) if NECK_FRONT else _front
                     if _my > _wl:
                         # D6: 堆面那条腿越了球内壁 ⇒ 夹回来。
                         # **前沿**越了不算越界 —— 出口以下、管径以内是**喇叭口**,
                         # 那是玻璃的一部分(球内壁那条线到球顶就没了)。
-                        return max(_front, _wl) if NECK_FRONT else _wl
-                    return max(_my, _front) if NECK_FRONT else _my
+                        return max(_fr, _wl) if NECK_FRONT else _wl
+                    return max(_my, _fr) if NECK_FRONT else _my
 
                 # 🔴 **自由收缩段**: 出口 → 下沿, 半宽按 `_free_width_ratio` 收窄
                 #    (vena contracta + A·v=常数, 与粒子同一条式子)。收缩集中在前 40px,
