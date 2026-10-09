@@ -824,14 +824,24 @@ def _twoimpl_probe():
                                    "twoimpl"), "r") as fh:
                 text = fh.read().strip()
         except Exception:
-            return 0
+            return _TWOIMPL_DEFAULT
     try:
         n = int(text)
     except (TypeError, ValueError):
-        return 0
-    return n if n in (0, 1, 2, 3) else 0
+        return _TWOIMPL_DEFAULT
+    return n if n in (0, 1, 2, 3) else _TWOIMPL_DEFAULT
 
 
+# 🔴 **2026-10-09: 出厂默认 = 3**(把"柱与粒子同一条式子"这条 docstring 声明兑现)。
+#    换掉出货行为要能一句话回退 ⇒ 写 `twoimpl` 文件内容 `0`(或 `HG_TWOIMPL=0`)即可。
+#    依据(全部实测, 详见 shazhu_cuxi_plan.md F6 与 A4 闸门):
+#      · 收益: 柱/云在同一深度的半宽差 0.205·t_in ⇒ 桌面 2.27 / 模拟器 4 / 平板 12.8px 归零。
+#      · 代价: `poke = 柱半宽 − 云外缘` 最坏 +2.603 → +2.935px(深段, 两档都有, 属既有);
+#              0–40px 近场由"藏在云内 −1.300"变为"冒出 **+0.254px**"(亚像素, 低于像素栅格)。
+#      · ⇒ 用"≤0.33px 的 poke"换掉"4~13px 的柱云错位"。
+#    ⚠️ 两套实现之所以能长期漂移, 正因为漂移让柱子留在云里面 —— 所以**任何**让两者一致的
+#      修法都会让 poke 变大; 这不是本档的缺陷, 是这个几何的固有代价。
+_TWOIMPL_DEFAULT = 3
 _TWOIMPL = _twoimpl_probe()
 FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.70")) if _sm is None else _sm
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
