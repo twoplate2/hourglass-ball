@@ -147,7 +147,7 @@ class SandFlowContext(RenderContext):
         self["sand_mix"] = 0.0
         self["sand_tail"] = (0.0, 0.0, 1.0)
         self["sand_free"] = (0.0, 0.0, 1.0, 0.0)
-        self["sand_seam_band"] = float(os.environ.get("HG_SEAM_BAND", "0.06"))
+        self["sand_seam_band"] = float(os.environ.get("HG_SEAM_BAND", "0"))
         self["sand_neck_anchor"] = float(os.environ.get("HG_SEAM_ANCHOR", "0.021"))
         self._material_key = None
         self._clock_key = None
