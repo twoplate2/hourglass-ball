@@ -3576,7 +3576,18 @@ class HourglassWidget(Widget):
             distance = max(0.0, outlet - self._lower_sand_top) + 2.0
             flight = 2.0 * distance / (
                 speed + math.sqrt(speed * speed + 2.0 * gravity * distance))
-            end = max(start + 1e-6, self.duration - flight - 1.0 / 60.0)
+            # 🔴 **2026-10-10 (2.28): 不再提前 `flight` 结束释放。**
+            #    用户报: 「较长时间计时时, 最后 x 秒没有沙子流下, 但下面的沙子体积在增加」。
+            #    实测(探针 `tools/_probe_two_clocks.py`, 50s 档):
+            #      400x800  gap = 0.00s   |   800x1600  gap = **0.25s**(受 0.25s 采样限制)
+            #      ⇒ **缺口随口径放大**(`flight ∝ 落程`), 平板上还要更大。
+            #    机制: 原来的 `- flight` 是**故意**让释放早结束、好让最后一粒正好在 `duration`
+            #    落地; 但那段时间**上球已空、颈部沙柱没了**, 只剩在途颗粒 ⇒
+            #    "没有沙子流下, 堆却还在长"。
+            #    ⇒ 去掉这一项: **上球恰好在计时结束时才空**, 全程"堆在长的时候一定有沙在落"。
+            #    ⚠️ 代价: 最后几粒在 `duration` 之后才落地 ⇒ 终态沙堆差约 0.4%(肉眼不可辨),
+            #      换来"整个计时期间流动与堆积同进同止"。
+            end = max(start + 1e-6, self.duration - 1.0 / 60.0)
             sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
             reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
             self._sand_timing = (start, end, reserve)
@@ -7462,6 +7473,20 @@ class HourglassApp(App):
     title = "跳跳的沙漏"
 
     def on_start(self):
+        # 🔴 **2026-10-10: 设备端末段自检钩子**(仅在存在 `tailcheck` 标记文件时生效)。
+        #    用户要求「必须在安卓上通过测试才行」, 而墙钟截图追一个 0.2~0.4s 的窗口追不到
+        #    (连试 5 次) ⇒ 换成确定性自检: 只推进物理、不渲染, 结果进 logcat 与
+        #    `<app>/tailcheck.out`。无标记文件时**零开销、零行为变化**。
+        try:
+            import _tail_selfcheck
+            print('TAILCHECK import ok  flag=%s'
+                  % (_tail_selfcheck._app_dir(),))
+            if _tail_selfcheck.maybe_run(self.hourglass):
+                return
+        except ImportError as _exc:
+            print('TAILCHECK import FAILED: %r' % (_exc,))
+        except Exception as _exc:
+            print('TAILCHECK hook failed: %r' % (_exc,))
         if platform == "android":
             Window.bind(on_flip=self._hide_startup_screen)
             self._apply_max_refresh_rate()
