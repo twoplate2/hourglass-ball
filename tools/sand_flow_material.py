@@ -31,6 +31,7 @@ uniform vec2 sand_lighting; // shade, vertical gradient
 uniform float sand_clock;
 uniform float sand_mix;
 uniform vec3 sand_tail; // mean top, grain-front amplitude, tube half-width
+uniform vec4 sand_free; // outlet y, 边缘松散度, tube half-width, 前沿 y (<=0 关闭)
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -86,6 +87,25 @@ void main(void) {
         float top = sand_tail.x + sand_tail.y * clamp((left - right) * 0.7, -1.0, 1.0);
         coverage = 1.0 - smoothstep(top - 0.5, top + 0.5, sand_position.y);
     }
+    if (sand_free.x > 0.0 && sand_position.y < sand_free.x) {
+        // 出口以下那股沙**不再被玻璃约束** —— 它现在是"落下来的一把沙"。
+        // 用户判词: 「沙柱看起来是个规整的矩形」 —— 两条边死直、平行、通体实心。
+        // 两条边**各用各的噪声**(不是镜像: 玻璃没了, 没有"平均宽度不变"这条约束),
+        // 于是宽度会随深度呼吸, 边缘毛掉; 内 62% 保持实心。
+        float u = 0.5 + (sand_position.x - sand_geometry.x) / (2.0 * sand_free.z);
+        float n = grain(vec2(u, sand_clock * 0.25 + 0.53));
+        float n2 = grain(vec2(1.0 - u, sand_clock * 0.25 + 0.29));
+        float rim = smoothstep(0.62, 1.0, abs(u) * 2.0);
+        coverage *= 1.0 - rim * (0.25 + 0.75 * clamp(u < 0.5 ? n : n2, 0.0, 1.0))
+                          * sand_free.y;
+    }
+    if (sand_free.w > 0.0 && sand_position.y < sand_free.w) {
+        // 前沿(在途沙的最低点): 不许切成一刀平。1~5px 的零均值锯齿。
+        float l2 = grain(vec2(sand_position.x * 0.35, sand_clock * 0.22 + 0.11));
+        coverage *= smoothstep(0.0, 1.0,
+                               clamp((sand_free.w - sand_position.y) / (1.0 + 4.0 * l2),
+                                     0.0, 1.0));
+    }
     gl_FragColor = frag_color * vec4(mix(original.rgb, flowing, sand_mix),
                                      original.a * coverage);
 }
@@ -103,11 +123,14 @@ class SandFlowContext(RenderContext):
         self["sand_clock"] = 0.0
         self["sand_mix"] = 0.0
         self["sand_tail"] = (0.0, 0.0, 1.0)
+        self["sand_free"] = (0.0, 0.0, 1.0, 0.0)
         self._material_key = None
         self._clock_key = None
         self._tail_key = None
+        self._free_key = None
 
-    def update_flow(self, elapsed, speed_scale, material, palette, tail=(0.0, 0.0, 1.0)):
+    def update_flow(self, elapsed, speed_scale, material, palette,
+                    tail=(0.0, 0.0, 1.0), free=(0.0, 0.0, 1.0, 0.0)):
         key = (material, palette)
         if key != self._material_key:
             self._material_key = key
@@ -124,6 +147,9 @@ class SandFlowContext(RenderContext):
         if tail != self._tail_key:
             self._tail_key = tail
             self["sand_tail"] = tuple(map(float, tail))
+        if free != self._free_key:
+            self._free_key = free
+            self["sand_free"] = tuple(map(float, free))
 
 
 MOUND_VERTEX_SHADER = """

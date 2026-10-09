@@ -1902,6 +1902,21 @@ WARM_FLOW_CHUNKS_MAX = 8      # 上限, 防病态几何把预热队列撑爆
 #    **用户看完并排图后定的就是这一版**(并排图 benchmark_logs/_vid/seam/ZOOM49b.png)。
 #    关掉它用 `HG_NECK_JOIN=0`(回退到"下沿钉在玻璃线上"的老行为), 便于 A/B 与取证。
 NECK_JOIN = os.environ.get("HG_NECK_JOIN", "1") == "1"
+# 🔴 2026-10-09: 颈部沙柱往下长到**在途沙的前沿**为止, 不是长到沙堆面为止。
+#    **用户当场指出的**: 「你tmd自己能不能用50s这个周期去跑下模拟, 搞个截图, 看看前2秒
+#    是否合理?」—— 实测(50s 档, 平板口径)前 2 秒里, 柱子**从出口一路插到球内底**、且
+#    **一个粒子都没有**(沙还在半路), 是一根贯穿整个下球的棍子。这正是 1.238 的死因:
+#    下沿钉在 `get_mound_top_y()` 上, 而开局那几秒沙堆还在球底 ⇒ 那个标量 ≈ **球内底**。
+#    前沿 = `min(self.py[:self.pn])` = **沙真的落到了哪儿** ⇒ 开局只有一小截, 沙落到底
+#    自然与沙堆接上。关掉用 `HG_NECK_FRONT=0`(回退成"长到沙堆面", 即 2.13 的行为)。
+NECK_FRONT = os.environ.get("HG_NECK_FRONT", "1") == "1"
+# 🔴 2026-10-09: 出口以下那段沙柱的**边缘要毛**。用户判词:「沙柱看起来是个**规整的矩形**」
+#    —— 两条边死直、平行、通体实心。玻璃在出口就结束了, 以下没有任何东西约束它。
+#    关掉用 `HG_NECK_FREE=0`。
+NECK_FREE = os.environ.get("HG_NECK_FREE", "1") == "1"
+# 出口以下的自由收缩段(vena contracta)。关掉用 `HG_NECK_TAPER=0`。
+NECK_TAPER = os.environ.get("HG_NECK_TAPER", "1") == "1"
+NECK_TAPER_SEGS = 4          # 收缩段节点数(前 40px 均分)
 WARM_SPLASH_CHUNKS = 8
 
 
@@ -3497,6 +3512,58 @@ class HourglassWidget(Widget):
         v1, y1 = table[k]
         return y0 + (y1 - y0) * max(0.0, min(1.0, (fraction - v0) / max(1e-12, v1 - v0)))
 
+    def _free_width_ratio(self, depth):
+        """自由射流在**出口以下 depth 处**的半宽收缩比 (1.0 = 与孔径同宽)。
+
+        文献给的形状(不用自己造轮子): 从孔口射出的射流先收缩成 vena contracta
+        —— 液体收缩到孔面积的 ~0.6(直径比 √0.6 ≈ 0.77); 颗粒流的排出系数实测
+        `C_D² = 0.53 ± 0.01`(对比液体的 0.63), 折算**直径比 √0.53 ≈ 0.73**;
+        再往下按 `A·v = 常数` 继续收窄。
+
+        **这个式子不是新造的**: `update_particles` 里每颗粒子用的就是它
+        (`target = sqrt(source_speed / v_at_y)`, 下限 `FLOW_SHRINK_MIN = 0.70` —— 与
+        文献的 0.73 基本重合)。柱子照抄它, 画出来的柱子和粒子云才**同宽**;
+        否则柱子从粒子外面鼓出来 —— 用户看到的正是"一块**规整的矩形**"。
+        ⚠️ 数字必须与 `update_particles` 保持一致, 改一边就得分叉。
+        """
+        if not NECK_TAPER or depth <= 0.0:
+            return 1.0
+        ms = self._particle_motion_scale
+        v0 = 60.0 * ms
+        v_at = math.sqrt(v0 * v0 + 2.0 * 450.0 * ms * ms * depth)
+        target = math.sqrt(v0 / v_at)
+        if target <= FLOW_SHRINK_MIN:
+            return FLOW_SHRINK_MIN
+        return 1.0 + (target - 1.0) * min(1.0, depth / 40.0)
+
+    def _falling_front(self):
+        """在途沙的**前沿**(最低点, Kivy y 向上 ⇒ 越小越低)—— 沙柱往下长到哪儿为止。
+
+        为什么需要它(2026-10-09, 用户当场指出): 沙柱的下沿原来是钉在**碰撞面**
+        (`get_mound_top_y()`)上的, 而 50s 档前 2 秒沙堆还趴在球底 ⇒ 那个标量 ≈
+        **下球内底** ⇒ 柱子**从出口一路插到球底**, 而同一时刻**一个粒子都没有**
+        (沙还在半路)。画面上就是一根凭空贯穿下球的棍子(1.238 同一死因,
+        用户判词「你不要顾头不顾腚」)。前沿 = 沙**真的**落到了哪儿。
+
+        🔴 **用解析式, 不用 `min(self.py[:self.pn])`**(第一版就是后者, 退了一条)。原因:
+        粒子**一触面就消失** ⇒ 逐帧取 min 得到的前沿永远比堆面高**一帧的落程**
+        (实测 +14.4~14.8px, 三个周期全中), 于是刚接上的接缝又被这 14px 重新开出来
+        (`verify_hourglass.py` 的 `drawn column meets the drawn mound` 当场翻红)。
+        解析前沿是**同一条自由落体**、但会一路穿过堆面 ⇒ `max(堆面, 前沿)` 自动交还,
+        末段与 2.13 **逐位相同**。实测两者一致: t=1.0 解析 1205.1 / 粒子 1205.7;
+        t=2.0 解析 582.7 / 粒子 583.9。
+        ⚠️ 初速/重力必须与 `update_particles` 同源(`motion_scale` 那两处), 否则短周期档分叉。
+        """
+        y_end = 2 * self._neck_y - self._taper["y_bot"]
+        if not NECK_FRONT:
+            return self._lower_sand_bot
+        ms = self._particle_motion_scale
+        tau = self.elapsed - self._neck_fill_time       # 第一颗沙离口的时刻
+        if tau <= 0.0:
+            return y_end
+        v0, g = 60.0 * ms, 450.0 * ms * ms
+        return max(y_end - (v0 * tau + 0.5 * g * tau * tau), self._lower_sand_bot)
+
     def _neck_sand_side(self):
         """颈部只有一个自由表面; 上球耗尽后从上往下排空。"""
         tp = self._taper
@@ -3568,14 +3635,40 @@ class HourglassWidget(Widget):
                 #    最后一条四边形因此是个 apex 朝上的三角形, 正好把那块空楔填掉。
                 #    ⚠️ 这条四边形**不再单调下降**(y 从 1316.8 回到 1319.3), 是有意的:
                 #      绘制循环只要求两个相邻节点, 不要求单调; 但**容量要够**(见 `_neck_quads`)。
+                #
+                # 🔴 **2026-10-09 (F5): 但下沿也不能一头扎到堆面 —— 要先看"沙落到了哪儿"。**
+                #    堆面是**碰撞面**, 不是**在途沙**。50s 档前 2 秒实测: 柱子在
+                #    `[出口, 球内底]` 整段实心, 而同一时刻**一个粒子都没有**(沙还在半路)。
+                #    ⇒ 多出来的那一大截是**凭空画的沙**。真实的下沿 = `_falling_front()`。
+                _front = self._falling_front()
                 _w = self._neck_width_at(_join)
                 _yc, _Ri = self._lower_y_c, self._R_inner
                 _c = self._mound_contact_h
-                for _frac in (1.0, 0.0):
-                    _dx = _w * _frac
-                    _yy = self._lower_sand_bot + _c(_dx)
-                    _wall = _yc + math.sqrt(max(0.0, _Ri * _Ri - _dx * _dx))
-                    side.append((_dx, min(_yy, _wall)))
+                _bot = self._lower_sand_bot
+
+                def _end_at(_dx):
+                    _my = _bot + _c(_dx)
+                    _wl = _yc + math.sqrt(max(0.0, _Ri * _Ri - _dx * _dx))
+                    if _my > _wl:
+                        # D6: 堆面那条腿越了球内壁 ⇒ 夹回来。
+                        # **前沿**越了不算越界 —— 出口以下、管径以内是**喇叭口**,
+                        # 那是玻璃的一部分(球内壁那条线到球顶就没了)。
+                        return max(_front, _wl) if NECK_FRONT else _wl
+                    return max(_my, _front) if NECK_FRONT else _my
+
+                # 🔴 **自由收缩段**: 出口 → 下沿, 半宽按 `_free_width_ratio` 收窄
+                #    (vena contracta + A·v=常数, 与粒子同一条式子)。收缩集中在前 40px,
+                #    所以那几个节点按 40px 均分采, 而不是按整段落程均分。
+                _w_end = _w * self._free_width_ratio(bottom - _end_at(_w))
+                _y_endw, _y_end0 = _end_at(_w_end), _end_at(0.0)
+                _span = bottom - _y_endw
+                if _span > 1.0:
+                    for _k in range(1, NECK_TAPER_SEGS + 1):
+                        _d = 40.0 * _k / float(NECK_TAPER_SEGS)
+                        if _d < _span - 1.0:
+                            side.append((_w * self._free_width_ratio(_d), bottom - _d))
+                side.append((_w_end, _y_endw))
+                side.append((0.0, _y_end0))
         return side
 
     def _mound_apex(self):
@@ -5806,7 +5899,7 @@ class HourglassWidget(Widget):
         return val
 
     def _upper_surface_drop(self, dx, d, b):
-        """上球沙面在 dx 处的**下陷量**(≥0, px): `d · [max(0,1-(dx/b)²)]²`。
+        """上球沙面在 dx 处的**下陷量**(≥0, px): `d · [max(0,1-(dx/b)²)]`。
 
         ⚠️ 恒 ≥ 0 ⇒ 沙面只会**低于或等于**平面高度 ⇒ 现有"矩形 + 按高度截 UV"机制不用动,
            只在它上面加一遍 carve 抠掉多出来的那块(与下球 `_draw_mound_shape` 同一套写法)。
@@ -6220,7 +6313,12 @@ class HourglassWidget(Widget):
             #      ⇒ 循环走不到最后 1 段(正是延伸段), **不报错、不崩、只是没画出来** ——
             #      现象是"改了但画面上几乎没变"。**容量必须 ≥ 节点数 − 1**。
             #    (复核: 27 节点在容量 25 下丢的是**最后 1 段**, 不是两段 —— 逐项算过。)
-            self._neck_quads = _QuadBand(len(self._taper["in_pts"]) + 3, texture=neck_tex)
+            # 🔴 2026-10-09 再改: 自由收缩段又插了 `NECK_TAPER_SEGS` 个节点
+            #    (`_neck_sand_side` 的 `_free_width_ratio` 那一段) ⇒ 上限变成
+            #    `len(in_pts) + 2 + NECK_TAPER_SEGS`, 这里取 `+8` 留余量。
+            #    ⚠️ **改 `_neck_sand_side` 的节点数就要回这里改容量** —— 少一格是静默的
+            #      (循环画不到最后一段, 不报错)。
+            self._neck_quads = _QuadBand(len(self._taper["in_pts"]) + 8, texture=neck_tex)
             self._neck_solid_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_solid_rect = Rectangle(size=(0, 0), texture=neck_tex)
             # 沙柱下段(孔口往上 transition 那段): 直接画不透明的沙色矩形。
@@ -6536,6 +6634,19 @@ class HourglassWidget(Widget):
                 # Enlarge only the draw bound; the shader cuts a zero-mean grain front.
                 tail_front = (mean_top, amplitude, self._taper["t_in"])
                 side = [(side[0][0], mean_top + amplitude)] + side[1:]
+        # 🔴 **2026-10-09 (F6): 出口以下那段是"落下来的一把沙", 不是"一块板"。**
+        #    用户判词: 「沙柱看起来是个**规整的矩形**」(附 v2.13 截图)。玻璃在出口就没了,
+        #    以下没有任何东西约束它 —— 两条边该是毛的。材质着色器里按镜像噪声吃最外一圈
+        #    (内 62% 保持实心), 平均宽度不变。关掉用 `HG_NECK_FREE=0`。
+        free_front = (0.0, 0.0, 1.0, 0.0)
+        if (NECK_FREE and side and self._sand_flow_contexts
+                and self._sand_material is not None):
+            # 下沿只在**前沿说了算**的时候才毛 —— 沙堆涨上来之后下沿就是堆面,
+            # 在接缝上打毛边会把 2.13 刚接上的缝重新"开"出来。
+            _mound0 = self._lower_sand_bot + self._mound_contact_h(0.0)
+            _front0 = self._falling_front()
+            _cut = _front0 if _front0 < _mound0 - 1e-9 else 0.0
+            free_front = (outlet, 1.0, self._taper["t_in"], _cut)
         transition = min(inlet - outlet, max(8, self._taper["t_in"] * 0.7))
         connected = bool(side and side[-1][1] <= outlet + 1e-6)
         if connected:
@@ -6601,7 +6712,8 @@ class HourglassWidget(Widget):
             for i, context in enumerate(self._sand_flow_contexts):
                 context.update_flow(self.elapsed, self._particle_motion_scale,
                                     self._sand_material, colors,
-                                    tail_front if i == 1 else (0.0, 0.0, 1.0))
+                                    tail_front if i == 1 else (0.0, 0.0, 1.0),
+                                    free_front if i == 1 else (0.0, 0.0, 1.0, 0.0))
         else:
             self._draw_neck_grains(side)
         # 飞溅层: 装了批处理渲染器就走批处理, 否则走原来的**逐 `Rectangle`**。

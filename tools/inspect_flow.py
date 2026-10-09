@@ -37,6 +37,11 @@ def main():
     #    `--only-tail` **复用默认目标集里已有的末段点**(0.98/1、4.98/5、14.98/15、59.98/60),
     #    不新造时间窗参数。
     parser.add_argument("--only-tail", action="store_true")
+    # 🔴 2026-10-09: **开局档** —— steady 模式切掉前 0.5s(`_lo=0.5`), 而
+    #    "沙柱在沙还没落到之前就画出来"这个缺陷**恰恰只出现在开局**(50s 档前 2 秒,
+    #    用户当场指出)。这一档把 steady 周期的时间窗换成 **[0.25s, 2.5s]**。
+    parser.add_argument("--early-window", type=int, default=0,
+                        help="开局档: 在 steady 周期上取 N 帧, 时间窗 [0.25, 2.5]s")
     args = parser.parse_args()
     output = ROOT / "benchmark_logs" / ("flow_visual_" + args.label)
     output.mkdir(exist_ok=True)
@@ -107,6 +112,9 @@ def main():
             _p, _n = float(args.steady_period), max(2, args.steady_frames)
             _lo, _hi = 0.5, _p * 0.92          # 切掉前 0.5s 注满与末 8% 收尾
             targets = [(_p, _lo + (_hi - _lo) * i / (_n - 1)) for i in range(_n)]
+        if args.early_window:
+            _p, _n = float(args.steady_period or 50.0), max(2, args.early_window)
+            targets = [(_p, 0.25 + 2.25 * i / (_n - 1)) for i in range(_n)]
         if args.only_tail:
             # 只留末段(≥0.9 周期)。缝的窗口从 **94~95% 相位**开始(5s 与 50s 实测一致),
             # 所以 0.9 这个门槛一定落在它前面。

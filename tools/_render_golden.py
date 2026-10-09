@@ -75,6 +75,11 @@ CASES = (("batch", ENV, ARGS),
                    "HG_SAND_MATERIAL": "grain"}, ARGS),
          ("flat", FLAT_ENV, ARGS),
          ("tail", ENV, ("--only-tail",)),
+         # 🔴 2026-10-09 新增**开局臂**: 50s 周期 × t∈[0.25,2.5]s。
+         #    steady 臂切掉前 0.5s ⇒ "沙柱画到沙前面去"那一类缺陷**没有一帧能看见**;
+         #    用户当场指出的正是这一档(「你tmd自己能不能用50s这个周期去跑下模拟,
+         #    搞个截图, 看看前2秒是否合理?」)。
+         ("early", ENV, ("--steady-period", "50", "--early-window", "12")),
          ("tail_line", LINE_ENV, ("--only-tail",)))
 
 
