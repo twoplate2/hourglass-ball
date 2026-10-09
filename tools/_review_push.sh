@@ -29,7 +29,15 @@ W=$(cd "$ROOT" && pwd -W)
 
 # main.py 运行时**按名字 import** 的 tools 模块(见 main.py:60 与 :5459-5469)。
 # 改了其中任何一个, 或改了 main.py 里与它们交换的键, 都必须一起推 —— 否则设备上是错配的一对。
-TOOLS_MODULES="flow_numpy.py flow_texture_experiment.py flow_batch_experiment.py flow_gpu_experiment.py flow_splash_experiment.py marker_batch_experiment.py prof_android.py"
+# 🔴 2026-10-09: **清单改成自动推导**。手维护的那张漏了 `splash_motion.py` ⇒
+#    直推后设备上那个模块**彻底消失**(脚本会 `rm -f tools/*.pyc`, 而它没被放回去)
+#    ⇒ 一按开始就 `ModuleNotFoundError: No module named 'splash_motion'` 崩掉进程。
+#    这条不是"静默回退"(那个 import 没有 try/except), 是**硬崩**。
+#    ⇒ 从 main.py 的运行时 import 里推, 再加下面那份已知清单兜底。
+AUTO_MODULES="$(cd "$ROOT" && grep -ohE '(from|import) +[a-z_][a-z0-9_]*' main.py   | awk '{print $2}' | sort -u | while read -r _m; do
+      [ -f "tools/$_m.py" ] && echo "$_m.py"; done | tr '
+' ' ')"
+TOOLS_MODULES="$AUTO_MODULES sand_flow_material.py flow_numpy.py flow_texture_experiment.py flow_batch_experiment.py flow_gpu_experiment.py flow_splash_experiment.py marker_batch_experiment.py prof_android.py splash_motion.py"
 # ⚠️ **新增一个被 main.py 运行时 import 的 tools 模块, 必须加进这一行** ——
 #   2026-10-07 踩过: 漏加 `flow_splash_experiment.py` ⇒ 设备上 `import` 失败 ⇒
 #   main.py 的 except 捕获后**静默回退**原路径 ⇒ 设备 A/B 量出来"两条路径一模一样"

@@ -135,6 +135,28 @@ void main(void) {
 """
 
 
+def _flag_float(name, fname):
+    """`HG_<name>` 环境变量优先(桌面), 其次与 main.py 同目录的 `<fname>` 标记文件。
+
+    🔴 安卓 app **读不到宿主 shell 的环境变量** ⇒ 设备上做单变量对照只能写标记文件
+    (app 私有目录, 与 `flowrate` / `maxfps` / `blit.off` 同一套):
+        adb shell "echo 0.30 > /data/data/org.shalou.hourglass/files/app/seamband"
+    两个都没有 ⇒ None ⇒ 走出货默认值。
+    """
+    env = os.environ.get(name)
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), fname), "r") as fh:
+            text = fh.read().strip()
+        return float(text) if text else None
+    except Exception:
+        return None
+
+
 class SandFlowContext(RenderContext):
     def __init__(self, geometry, vertex_shader=VERTEX_SHADER, fragment_shader=FRAGMENT_SHADER):
         super().__init__(use_parent_projection=True, use_parent_modelview=True)
@@ -147,8 +169,10 @@ class SandFlowContext(RenderContext):
         self["sand_mix"] = 0.0
         self["sand_tail"] = (0.0, 0.0, 1.0)
         self["sand_free"] = (0.0, 0.0, 1.0, 0.0)
-        self["sand_seam_band"] = float(os.environ.get("HG_SEAM_BAND", "0"))
-        self["sand_neck_anchor"] = float(os.environ.get("HG_SEAM_ANCHOR", "0.021"))
+        _sb = _flag_float("HG_SEAM_BAND", "seamband")
+        self["sand_seam_band"] = 0.0 if _sb is None else float(_sb)
+        _sa = _flag_float("HG_SEAM_ANCHOR", "seamanchor")
+        self["sand_neck_anchor"] = 0.021 if _sa is None else float(_sa)
         self._material_key = None
         self._clock_key = None
         self._tail_key = None

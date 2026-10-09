@@ -39,7 +39,8 @@ with tempfile.TemporaryDirectory(prefix="junc-") as home:
     import main as m
     from kivy.clock import Clock
     from kivy.core.window import Window
-    m.HourglassWidget.load_config = lambda *_: {"duration": PERIOD}
+    m.HourglassWidget.load_config = lambda *_: {"duration": PERIOD,
+                                                "color_name": os.environ.get("JSAND", "金沙")}
     m.HourglassWidget.save_config = lambda *_: None
     m.HourglassWidget._make_sound_proxy = lambda *_: None
     m.HourglassWidget._make_completion_sound = lambda *_: None

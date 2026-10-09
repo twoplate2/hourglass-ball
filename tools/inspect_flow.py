@@ -233,11 +233,24 @@ def main():
                     if not all(math.isclose(a, b, abs_tol=1e-4)
                                for a, b in zip(logical, (widget._cx, widget._neck_y))):
                         raise AssertionError("Neck crop rotation disagrees with the application")
+                # 🔴 2026-10-09: 裁图窗口原来是**写死的 ±52 × ±62 像素**，与口径无关 ⇒
+                #    在平板口径(1904×2890, t_in≈27.6)下它只框住**柱子内部的一小块**，
+                #    拼出来的"三臂并排图"看着几乎一样 —— 图是废的，而当时没先验量具。
+                #    改成**按几何派生**：半宽 ∝ 孔径，下边界从**出口**再往下让 150px
+                #    (收缩段只有 40px 是写死的，必须保证它在框里)。
+                #    ⚠️ 桌面口径下上边界与半宽与旧版**一致**(52 > 2.6·t_in=15.4)，
+                #       只有下边界变深(326.8 → 229.4)——这是有意的，旧的下边界**根本没框到收缩段**。
+                _tp = widget._taper
+                _outlet = 2.0 * widget._neck_y - _tp["y_bot"]
+                _half_w = max(52.0, 2.6 * _tp["t_in"])
+                _top = center_y + 62.0
+                _bot = min(center_y - 62.0,
+                           _outlet - max(150.0, 3.0 * _tp["t_in"]))
                 crop = image.crop((
-                    round((center_x - 52) * x_scale),
-                    round((height - center_y - 62) * y_scale),
-                    round((center_x + 52) * x_scale),
-                    round((height - center_y + 62) * y_scale)))
+                    max(0, round((center_x - _half_w) * x_scale)),
+                    max(0, round((height - _top) * y_scale)),
+                    min(requested[0], round((center_x + _half_w) * x_scale)),
+                    min(requested[1], round((height - _bot) * y_scale))))
                 crop.resize((416, 496), Image.Resampling.NEAREST).save(
                     output / f"neck-{period}-time-{elapsed:.2f}.png")
 

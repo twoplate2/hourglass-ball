@@ -775,7 +775,65 @@ def _inv_norm(p):
 #    但**没有记原因** —— 从没人问过用户。
 #    ⇒ 做成开关(默认 0.70 = **零行为改动**), 好让"0.70 vs 0.50 看起来差多少"变成可判的。
 #    ⚠️ 值通过 `consts` 传给 numpy 路径, 两条路径**不可能**再各写各的。
-FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.70"))
+def _shrink_min_probe():
+    """`HG_FLOW_SHRINK_MIN` 环境变量优先(桌面), 其次与 main.py 同目录的 `shrinkmin` 标记文件。
+
+    🔴 **环境变量到不了安卓 app**(项目已记录: `main.py` 里那一整套 `HG_*` 在设备上一律取默认值)
+    ⇒ 要在设备上做"收多细"的单变量对照, 只能写标记文件(app 私有目录, 与 `flowrate` /
+    `maxfps` / `seamband` 同一套):
+        adb shell "echo 0.50 > /data/data/org.shalou.hourglass/files/app/shrinkmin"
+        adb shell rm  /data/data/org.shalou.hourglass/files/app/shrinkmin   # 回默认
+    两个都没有 ⇒ None ⇒ 走出货默认值。
+    """
+    env = os.environ.get("HG_FLOW_SHRINK_MIN")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "shrinkmin"), "r") as fh:
+            text = fh.read().strip()
+        return float(text) if text else None
+    except Exception:
+        return None
+
+
+_sm = _shrink_min_probe()
+
+
+def _twoimpl_probe():
+    """柱/云两套实现的**对齐档位**(0/1/2), 桌面走 `HG_TWOIMPL`, 设备走同目录 `twoimpl` 标记文件。
+
+      **0 = 出货行为(与今天逐位一致)** —— 柱: 提前 return + ramp; 零点 = 出口
+      **1** —— 柱改成「先钳 target 再 ramp」(= 粒子那条路径的钳位序, 连续, 无早退断点)
+      **2** —— 在 1 之上, 再把柱的**零点**从"出口"挪到 `_lower_ball_cut`(= 粒子那套的原点)
+
+    为什么要有它: AP 两名攻击手独立测得 `_free_width_ratio` 的 docstring「update_particles
+    里每颗粒子用的就是它」**是假的** —— 两条路径在**零点**(差 shift px)与**钳位顺序**上都不同,
+    实测最大差 0.2866·t_in(桌面 2.27px / 平板 8.3px)。要让它们口径一致必须先能**分别**开这两味,
+    否则分不清是哪一味造成画面变化。
+    默认 0 ⇒ **不动出货**; 视觉改动要并排图交用户判(项目红线)。
+    """
+    env = os.environ.get("HG_TWOIMPL")
+    text = env if env else ""
+    if not text:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "twoimpl"), "r") as fh:
+                text = fh.read().strip()
+        except Exception:
+            return 0
+    try:
+        n = int(text)
+    except (TypeError, ValueError):
+        return 0
+    return n if n in (0, 1, 2, 3) else 0
+
+
+_TWOIMPL = _twoimpl_probe()
+FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.70")) if _sm is None else _sm
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -3530,10 +3588,22 @@ class HourglassWidget(Widget):
         """
         if not NECK_TAPER or depth <= 0.0:
             return 1.0
+        if _TWOIMPL >= 2:
+            # 零点挪到粒子那套的原点: 粒子的 `below_tube = _lower_ball_cut - y`,
+            # 而本函数的 `depth = 出口 - y` ⇒ 等价的粒子深度 = depth - shift,
+            # shift = 出口 - _lower_ball_cut（`_lower_ball_cut` 在出口**下方** ⇒ shift > 0）。
+            depth -= (2.0 * self._neck_y - self._taper["y_bot"]) - self._lower_ball_cut
+            if depth <= 0.0:
+                return 1.0
         ms = self._particle_motion_scale
         v0 = 60.0 * ms
         v_at = math.sqrt(v0 * v0 + 2.0 * 450.0 * ms * ms * depth)
         target = math.sqrt(v0 / v_at)
+        if _TWOIMPL >= 1:
+            # 与 `update_particles` 逐字同序: **先钳 target, 再乘 ramp** ⇒ 连续, 无早退断点。
+            if target <= FLOW_SHRINK_MIN:
+                target = FLOW_SHRINK_MIN
+            return 1.0 + (target - 1.0) * min(1.0, depth / 40.0)
         if target <= FLOW_SHRINK_MIN:
             return FLOW_SHRINK_MIN
         return 1.0 + (target - 1.0) * min(1.0, depth / 40.0)
@@ -5053,7 +5123,13 @@ class HourglassWidget(Widget):
         g_abs = abs(g)
         source_speed = 60.0 * motion_scale
         source_speed_squared = source_speed * source_speed
-        lower_cut = self._lower_ball_cut
+        # 🔴 **`twoimpl=3`: 粒子的收缩零点从"下球截口"改到"直筒出口"**(= 柱子那套的零点)。
+        #    物理上**出口才是自由落体的起点** —— 粒子本来就是在出口生成的; `_lower_ball_cut`
+        #    比出口低 shift px(桌面 9.1 / 平板 31.6)⇒ 现在粒子**晚收**了 shift px。
+        #    ⚠️ 标量版与 `flow_numpy` 版**共用这一处取值**(向量版从 consts 读 `lower_cut`)
+        #       ⇒ 改这一行同时作用于两条路, 不会造成新旧分叉。
+        lower_cut = ((2.0 * self._neck_y - self._taper["y_bot"]) if _TWOIMPL >= 3
+                     else self._lower_ball_cut)
         # ★ **收缩饱和阈值**(2026-10-06, 外部评审 §4.2 提出, 我验算过推导):
         #   `target = sqrt(v0 / sqrt(v0² + 2gb))`, 钳到 `m = FLOW_SHRINK_MIN`。
         #   `target <= m  ⟺  v0 / sqrt(v0²+2gb) <= m²  ⟺  sqrt(v0²+2gb) >= v0/m²
