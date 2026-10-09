@@ -103,8 +103,11 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
             #    (生产值见 main.py 的 `FLOW_SHRINK_MIN`, 默认 0.70)
             if target <= c["shrink_min"]:
                 target = c["shrink_min"]
-            if below_tube < 40.0:
-                shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
+            # ⚠️ ramp 也**从 `c` 读**(与 `flow_numpy` 同一个键)。原来这里硬编码 `40.0` ——
+            #    2026-10-09 把收缩 ramp 从 40px 摊到 200px 时, **正是这道闸门抓到了两边分叉**
+            #    (生产值见 main.py 的 `FLOW_SHRINK_RAMP`)。手抄的常数 = 迟早两边各写各的。
+            if below_tube < c["shrink_ramp"]:
+                shrink = 1.0 + (target - 1.0) * (below_tube / c["shrink_ramp"])
             else:
                 shrink = target
         x = cx + x_offset * shrink + math.sin(fallen_dist * 0.07 + wobble_phase) \
@@ -160,12 +163,18 @@ def main():
         "mound_top": 70.0,
         "g": -450.0,
         "g_abs": 450.0,
-        "shrink_min": 0.70,
+        # 🔴 2026-10-09: 这两个**从 main 读**, 不再手抄(手抄的常数迟早两边各写各的):
+        "shrink_min": flow_numpy.DEFAULT_SHRINK_MIN,
+        "shrink_ramp": flow_numpy.DEFAULT_SHRINK_RAMP,
         # ★ **饱和阈值**(与 main.py 里那段的算法逐字一致): `b_sat = v0²(m⁻⁴-1)/(2g)`,
         #   再加 1px 缓冲带。向量化路径用它短路掉两次 `np.power`。
         #   ⚠️ 本文件下面那份**标量参考**走的是**原式**(不短路) ⇒ 这条对照正好在验
         #      "短路版与全量版逐位相同" —— 这正是这条优化需要的那条判据。
-        "shrink_sat": (60.0 * 60.0 * (0.70 ** -4.0 - 1.0) / (2 * 450.0) + 1.0),
+        # 🔴 2026-10-09: 原来这里手抄了 0.70 —— 生产 floor 改成 0.50 后,
+        #    饱和短路提前在 13.7px 触发(应为 61px), 两边立刻分叉。
+        #    b_sat = v0^2(m^-4 - 1)/(2g) 用的是**当前的** m, 必须跟着走。
+        "shrink_sat": (60.0 * 60.0 * (flow_numpy.DEFAULT_SHRINK_MIN ** -4.0 - 1.0)
+                       / (2 * 450.0) + 1.0),
         "source_speed": 60.0,
         "source_speed_squared": 3600.0,
         "lower_cut": 300.0,

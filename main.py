@@ -867,6 +867,15 @@ _TWOIMPL = _twoimpl_probe()
 #      需要引入第二个常数(把整个收缩强度统一乘一个 <1 的系数), 那要同时改
 #      `_free_width_ratio` / `update_particles` 标量 / `flow_numpy` 三处 + 饱和点 `b_sat`。
 #      本轮**不做**(用户只要"幅度小一点")。
+# 🔴 **2026-10-09 (2.24): 收缩摊开的长度(px)。原来是写死的 40px。**
+#    用户看 2.23 判: 「应该是**逐渐收窄, 然后几乎不变**, 现在还是**突然变窄**, 不太合理」。
+#    根因: 收缩是三段拼的, **全挤在前 60px** —— d=0 起 40px 的线性 ramp 到 0.549,
+#    d=60 下限 0.50 咬合, 之后恒定 ⇒ **90% 的收窄发生在最上面 10% 的长度里**。
+#    改法: 把 ramp 从 40px 摊到 **200px** ⇒ d=40 只收到 0.910、d=100 到 0.754、
+#    d=200 才到 0.50, 之后恒定 —— 正好是"逐渐收窄, 然后几乎不变"。
+#    ⚠️ **三处必须同值**(柱 `_free_width_ratio` / 粒子标量 / `flow_numpy`), 否则柱云分叉。
+#    ⚠️ 这是**观感尺度常数**, 不是物理量 —— 想更缓/更急就改这一个数。
+FLOW_SHRINK_RAMP = 200.0
 FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.50")) if _sm is None else _sm
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
@@ -3646,10 +3655,10 @@ class HourglassWidget(Widget):
             # 与 `update_particles` 逐字同序: **先钳 target, 再乘 ramp** ⇒ 连续, 无早退断点。
             if target <= FLOW_SHRINK_MIN:
                 target = FLOW_SHRINK_MIN
-            return 1.0 + (target - 1.0) * min(1.0, depth / 40.0)
+            return 1.0 + (target - 1.0) * min(1.0, depth / FLOW_SHRINK_RAMP)
         if target <= FLOW_SHRINK_MIN:
             return FLOW_SHRINK_MIN
-        return 1.0 + (target - 1.0) * min(1.0, depth / 40.0)
+        return 1.0 + (target - 1.0) * min(1.0, depth / FLOW_SHRINK_RAMP)
 
     def _falling_front(self):
         """在途沙的**前沿**(最低点, Kivy y 向上 ⇒ 越小越低)—— 沙柱往下长到哪儿为止。
@@ -3790,7 +3799,7 @@ class HourglassWidget(Widget):
                 _span = bottom - _y_endw
                 if _span > 1.0:
                     for _k in range(1, NECK_TAPER_SEGS + 1):
-                        _d = 40.0 * _k / float(NECK_TAPER_SEGS)
+                        _d = FLOW_SHRINK_RAMP * _k / float(NECK_TAPER_SEGS)
                         if _d < _span - 1.0:
                             side.append((_w * self._free_width_ratio(_d), bottom - _d))
                     # 🔴 **N1(2026-10-09): 40px 之后补节点。** 不做这一步, `d>40px` 那一段
@@ -3801,7 +3810,7 @@ class HourglassWidget(Widget):
                     _extra = []
                     for _k in range(1, NECK_FREE_EXTRA_SEGS + 1):
                         _d = _span * (_k / float(NECK_FREE_EXTRA_SEGS + 1)) ** 1.4
-                        if 40.0 + 2.0 < _d < _span - 2.0:
+                        if FLOW_SHRINK_RAMP + 2.0 < _d < _span - 2.0:
                             _extra.append(_d)
                     for _d in _extra:
                         side.append((_w * self._free_width_ratio(_d), bottom - _d))
@@ -5233,6 +5242,7 @@ class HourglassWidget(Widget):
             if pn:
                 consts = {
                     "g": g, "g_abs": g_abs, "mound_top": mound_top,
+                    "shrink_ramp": FLOW_SHRINK_RAMP,
                     "gen_y": gen_y, "lower_cut": lower_cut,
                     "lower_top": lower_top, "lower_center": lower_center,
                     "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
@@ -5332,8 +5342,8 @@ class HourglassWidget(Widget):
                         if target <= FLOW_SHRINK_MIN:
                             target = FLOW_SHRINK_MIN
                     # 平滑过渡区长度(px)
-                    if below_tube < 40.0:
-                        shrink = 1.0 + (target - 1.0) * (below_tube / 40.0)
+                    if below_tube < FLOW_SHRINK_RAMP:
+                        shrink = 1.0 + (target - 1.0) * (below_tube / FLOW_SHRINK_RAMP)
                     else:
                         shrink = target
                 x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \

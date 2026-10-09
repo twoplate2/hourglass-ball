@@ -29,6 +29,15 @@ numpy 的 `power` 走通用 `pow`, 与硬件 `sqrtsd` 的舍入在某些输入�
 
 import numpy as np
 
+# 🔴 **2026-10-09: 这两个默认值的单一来源。**
+#    `main.py` 把 `shrink_ramp` / `shrink_min` **显式**传进 consts(见 `update_particles`
+#    附近的 consts dict), 所以生产路径两个数一定一致; 这里只是给**没传键的调用方**
+#    (如 `tools/test_physics_equiv.py` 的对照) 一个不会各自漂移的默认。
+#    历史: 测试里原来**手抄**了 `40.0` —— 2026-10-09 把 ramp 摊到 200px 时两边立刻分叉,
+#    正是这道闸门把它抓红的。
+DEFAULT_SHRINK_RAMP = 200.0
+DEFAULT_SHRINK_MIN = 0.50
+
 
 def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     """把 [0:n) 的粒子推进一帧。原地改 py/pvy/px。
@@ -143,8 +152,9 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
         target = np.where(target <= _smin, _smin, target)
         if sat.any():                     # 只把饱和那批覆写成下限(其余原样)
             np.copyto(target, _smin, where=sat)
-    shrink_body = np.where(below_tube < 40.0,
-                           1.0 + (target - 1.0) * (below_tube / 40.0),
+    RAMP = float(c.get('shrink_ramp', DEFAULT_SHRINK_RAMP))
+    shrink_body = np.where(below_tube < RAMP,
+                           1.0 + (target - 1.0) * (below_tube / RAMP),
                            target)
     shrink = np.where(y > c["lower_cut"], 1.0, shrink_body)
 
