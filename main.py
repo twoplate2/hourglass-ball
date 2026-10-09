@@ -843,7 +843,22 @@ def _twoimpl_probe():
 #      修法都会让 poke 变大; 这不是本档的缺陷, 是这个几何的固有代价。
 _TWOIMPL_DEFAULT = 3
 _TWOIMPL = _twoimpl_probe()
-FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.70")) if _sm is None else _sm
+# 🔴 **2026-10-09: 下限 0.70 → 0.20。** 用户报「目前的沙珠是一个规整的直线」。
+#    量出来: 设备 1080×1920 柱子从出口往下 431 行, 左/右缘对**直线**的残差只有 2.49/2.73px。
+#    **两个成因, 缺一不可**(单独修任一个都无效, 都实测过):
+#      ① 节点分布 —— 自由段只有 4 个节点挤在出口下 40px, 之后是一条直线弦(见
+#         `NECK_FREE_EXTRA_SEGS`)。单改节点: 当前律在 40px 后恒 0.70 ⇒ 多打的点仍共线。
+#      ② **平台的来源就是这个 0.70 下限** —— `target` 在 d≈12.7px 处就跌到 0.70, 之后
+#         恒等于它。单改下限三臂(0.70/0.35/0.10)实测直度残差几乎不动(2.49→2.29→2.26),
+#         只是那条**直线变陡**(底宽 37→22→20)。
+#    ⇒ 两件一起做才出曲线。取证: `shrinkmin=0.10` 臂里 `b_sat = 4(m⁻⁴−1) ≈ 4·10⁴ px`
+#      远超落程 ⇒ **提前饱和短路永不触发, 走的就是无钳位的 A·v 律**。
+#    ⚠️ **一个常数同时管两条路**(`_free_width_ratio` 的柱 + `update_particles`/`flow_numpy`
+#      的粒子), 所以柱与云仍然**同一条式子**、不会重新分叉 —— 这正是 2.19 立下的约束。
+#    ⚠️ 0.20 是**安全底**: 本式在整段落程上的渐近值约 **0.32~0.33**(desktop span≈317px →
+#       (1/(1+317/4))^0.25 = 0.334; 平板 span≈390 → 0.317), 所以 0.20 **在可见范围内永不咬合**,
+#       它只在病态几何下兜底。
+FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.20")) if _sm is None else _sm
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
@@ -1985,6 +2000,15 @@ NECK_FREE = os.environ.get("HG_NECK_FREE", "1") == "1"
 # 出口以下的自由收缩段(vena contracta)。关掉用 `HG_NECK_TAPER=0`。
 NECK_TAPER = os.environ.get("HG_NECK_TAPER", "1") == "1"
 NECK_TAPER_SEGS = 4          # 收缩段节点数(前 40px 均分)
+# 🔴 **2026-10-09: 自由段的**额外**节点数(N1)。**
+#    用户报「目前的沙珠是一个规整的直线」—— 量出来是真的: 设备 1080×1920 上柱子
+#    从出口往下 431 行, 左/右缘对**直线**回归的残差只有 2.49 / 2.73px ⇒ 两条边就是直线。
+#    根因**不是**宽度律, 是**节点分布**: 自由段只有 d=10/20/30/40 四个节点(全挤在出口下 40px),
+#    之后直接跳到"前沿"那一点 ⇒ **d>40px 的那 ~350px 就是一条直线弦**, 选什么律都画成直线。
+#    实测佐证: 把下限 0.70 → 0.35 → 0.10 三臂, 直度残差几乎不动(2.49→2.29→2.26),
+#    只是那条直线变陡(底宽 37→22→20)。⇒ 不加密节点, "该收多细"的讨论都落不到画面上。
+#    布点: **前 40px 仍用 4 个(收缩段要密)**, 40px 之后按 `span·(k/(K+1))^1.4` 前密后疏补 K 个。
+NECK_FREE_EXTRA_SEGS = 10
 # 前沿的**穹顶**量(以半宽为单位): 边缘比中轴高出这么多。`0` = 平头(2.14 的行为)。
 NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.80"))
 WARM_SPLASH_CHUNKS = 8
@@ -3760,8 +3784,30 @@ class HourglassWidget(Widget):
                         _d = 40.0 * _k / float(NECK_TAPER_SEGS)
                         if _d < _span - 1.0:
                             side.append((_w * self._free_width_ratio(_d), bottom - _d))
+                    # 🔴 **N1(2026-10-09): 40px 之后补节点。** 不做这一步, `d>40px` 那一段
+                    #    永远是**一条直线弦**(用户报的"规整的直线"), 任何宽度律都画不出来。
+                    #    前密后疏: `d = span·(k/(K+1))^1.4`; 太靠近收缩段(<=40px)或端点(>=span-2)
+                    #    的丢掉 —— 那两个位置已有节点。**这一步本身零视觉变化**(当前律在 40px
+                    #    后恒 0.70, 多打的点仍落在同一条直线上)。
+                    _extra = []
+                    for _k in range(1, NECK_FREE_EXTRA_SEGS + 1):
+                        _d = _span * (_k / float(NECK_FREE_EXTRA_SEGS + 1)) ** 1.4
+                        if 40.0 + 2.0 < _d < _span - 2.0:
+                            _extra.append(_d)
+                    for _d in _extra:
+                        side.append((_w * self._free_width_ratio(_d), bottom - _d))
                 side.append((_w_end, _y_endw))
                 side.append((0.0, _y_end0))
+        # 🔴 **容量断言(2026-10-09)。** `_neck_quads` 装不下时, 绘制循环
+                #    `for i in range(len(quads))` **静默丢掉最后几段, 一行报错都没有** ——
+                #    项目踩过(`len(side)=27 > 容量 25`, 画面"一点没变"而原因查了很久)。
+                #    容量表达式必须与 `_build_dynamic_canvas` 里那一处**逐字一致**。
+        _cap = len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS
+        if len(side) - 1 > _cap:
+            raise AssertionError(
+                "颈部沙柱节点 %d 段 > _neck_quads 容量 %d —— 超容量是**静默丢弃**, "
+                "请同步改 `_build_dynamic_canvas` 里 `_QuadBand(...)` 的容量"
+                % (len(side) - 1, _cap))
         return side
 
     def _mound_apex(self):
@@ -6417,7 +6463,8 @@ class HourglassWidget(Widget):
             #    `len(in_pts) + 2 + NECK_TAPER_SEGS`, 这里取 `+8` 留余量。
             #    ⚠️ **改 `_neck_sand_side` 的节点数就要回这里改容量** —— 少一格是静默的
             #      (循环画不到最后一段, 不报错)。
-            self._neck_quads = _QuadBand(len(self._taper["in_pts"]) + 8, texture=neck_tex)
+            self._neck_quads = _QuadBand(
+                len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS, texture=neck_tex)
             self._neck_solid_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_solid_rect = Rectangle(size=(0, 0), texture=neck_tex)
             # 沙柱下段(孔口往上 transition 那段): 直接画不透明的沙色矩形。
