@@ -93,6 +93,18 @@ void main(void) {
     float seam_w = (seam_b > 0.0)
         ? smoothstep(-seam_b, seam_b, sand_position.y - sand_geometry.z)
         : step(0.0, sand_position.y - sand_geometry.z);
+    // 🔴 **2026-10-09 实测结论: 这一行对画面**没有任何作用** —— 别再往这里下功夫。**
+    //    机制: 本函数最后一句是 `mix(original.rgb, flowing, sand_mix)`, 而
+    //    `sand_mix = smoothstep(min(1, elapsed/0.3))` ⇒ **elapsed > 0.3s 后恒为 1.0**
+    //    ⇒ `original.rgb` 被 `flowing` **完全替换**, 只剩 `original.a`(两侧都是 1)。
+    //    判据(可复现): 给这一行加单变量开关, 同一口径同一时刻两臂渲染
+    //    **逐字节完全相同**(period-15-time-2.00 / 7.50 / 14.98 三帧全同)。
+    //    ⇒ 2.16→2.17→2.18 那一串(含 2.18「未通过量化判据前不许上线」)改的都是这一行,
+    //      **它们全部没有上过画面**; 2.16 把它诊断成"根因是各图元自己的 `tex_coord0`"
+    //      本身也是错的。
+    //    交界处另做了**双向标定**的滑窗判据(见 `tools/_probe_junction_img.py`):
+    //      跨界 |dmu| = 1.26 (t=7.50) / 1.56 (t=2.00), 而同图别处 32 个滑窗中位 1.18/0.81
+    //      —— **交界不是异常点**; 正对照(给管顶以下 +12 灰阶)能让它升到 10.74, 尺子有分辨力。
     vec4 original = mix(texture2D(texture0, fract(uv_neck)),
                         texture2D(texture0, uv_ball), seam_w);
     vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
