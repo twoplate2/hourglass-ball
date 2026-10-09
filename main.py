@@ -589,6 +589,11 @@ SPLASH_GRAV_HI = float(os.environ.get("HG_SPLASH_GRAV_HI", "1.55"))
 SPLASH_SIZE_MIX = ((1, 1),)
 SPLASH_PX_BASE = float(os.environ.get("HG_SPLASH_PX", "1.0"))   # 基准像素(再乘屏幕缩放)
 
+# 飞溅**射程下限**(= 最细颈那档的射程 / 最粗颈那档的射程)。2026-10-09 由用户从 1/3 定为 1/4。
+# ⚠️ 射程 ∝ 速度² ⇒ 实际用的是 `sqrt(下限 + (1−下限)·blend)`, 所以改这里会同时改
+#    `_splash_speed_scale` —— **是个观感量, 出货前必须出并排图交用户判**。
+SPLASH_RANGE_FLOOR = float(os.environ.get("HG_SPLASH_RANGE_FLOOR", "0.25"))
+
 # 颈部颗粒的**标量兜底路径**开关 —— **只为对照**。`HG_NECK_SCALAR=1` 强制走老的单颗循环:
 # 向量化那版必须与它在 `random.seed(23)` 下**逐像素 0 差异**(否则量出来的加速是拿画面对错的)。
 NECK_SCALAR = os.environ.get("HG_NECK_SCALAR") == "1"
@@ -1893,6 +1898,10 @@ WARM_FLOW_CHUNKS = 2          # **下限**(短周期/小窗口时的值, 与原�
 WARM_FLOW_BUCKET_SHARE = 0.55  # 最热那个桶占在途粒子的比例上界(实测 0.49)
 WARM_FLOW_CHUNKS_MAX = 8      # 上限, 防病态几何把预热队列撑爆
 # 飞溅峰值(用户平板实测 3984 颗)⇒ 8 块(每块 512)。这几块钱小得多(4 顶点/颗)。
+# 🔴 2026-10-09: 颈部沙柱的下沿**跟着沙走**(而不是钉在玻璃的"管口"线上)。
+#    **用户看完并排图后定的就是这一版**(并排图 benchmark_logs/_vid/seam/ZOOM49b.png)。
+#    关掉它用 `HG_NECK_JOIN=0`(回退到"下沿钉在玻璃线上"的老行为), 便于 A/B 与取证。
+NECK_JOIN = os.environ.get("HG_NECK_JOIN", "1") == "1"
 WARM_SPLASH_CHUNKS = 8
 
 
@@ -3209,7 +3218,12 @@ class HourglassWidget(Widget):
                                      / max(1e-9, widest_inner - narrowest_inner)))
         self._splash_origin_blend = width_fraction * width_fraction * (3.0 - 2.0 * width_fraction)
         # 观感目标: 同角度和重力下射程正比于速度平方, 实际落点仍受坡面影响。
-        range_fraction = 1.0 / 3.0 + (2.0 / 3.0) * self._splash_origin_blend
+        # 🔴 **2026-10-09 用户定: 下限 1/3 → 1/4**(最细颈那档的飞溅射程 = 最粗档的 **25%**,
+        #    原先 33%)。射程 ∝ 速度² ⇒ `speed = sqrt(下限 + (1−下限)·blend)`。
+        #    只动**射程**这一个量; 数量(`_splash_density`)/上限(`_splash_cap`)/贴底
+        #    (`_splash_origin_blend`) 各自独立, 一个字没动。
+        range_fraction = (SPLASH_RANGE_FLOOR
+                          + (1.0 - SPLASH_RANGE_FLOOR) * self._splash_origin_blend)
         self._splash_speed_scale = math.sqrt(range_fraction)
         shoulder = math.sqrt(max(0.0, R * R - Ri * Ri))
         # 过渡起点必须 ≥ 肩台半宽, 否则起点以上仍是那条扁平暗带(细颈时尤其明显)
@@ -3516,6 +3530,52 @@ class HourglassWidget(Widget):
         side = [(self._neck_width_at(top), top)]
         side.extend((x, y) for x, y in pts if bottom < y < top)
         side.append((self._neck_width_at(bottom), bottom))
+        # 🔴 **2026-10-09: 沙柱的下沿不许钉在玻璃线上。**
+        #    用户原话:「管子里的沙的处理有问题, 完全不符合直觉」「不可能是让沙堆涨上去吧?
+        #    而是自己落下来」。病根在**形状的来源**: 这根沙柱的轮廓是照抄**玻璃内壁**
+        #    (`in_pts`) 描的, 下沿钉死在 `y_end`(= 玻璃直筒的下端) —— 于是同一坨沙
+        #    在玻璃线以上是"一整块实心"、以下换成"撒下去的一把沙", 在一条**玻璃线**上
+        #    被一刀切平。**沙不认识"管口"这条线。**
+        #    改法(无魔数, 且天然有界): 下沿 = `max(沙堆面, 下球内壁的顶)` ——
+        #      · 沙堆还没长上来 ⇒ 下沿 = 球内顶(沙柱穿过喇叭口, 到球顶为止)
+        #      · 沙堆长进喇叭口 ⇒ 下沿 = 沙堆面, **自动接上**
+        #      · 下探量 ≤ 喇叭口高 + 沙堆已探入的那一小段 ⇒ **不可能变成"贯穿下球的杆"**
+        #        (这正是 1.238 的死因: 它的锚是**标量** `get_mound_top_y()`, 堆≈0 时
+        #         那个标量等于**球内底**, 用户判词「你不要顾头不顾腚」)
+        #    ⚠️ 只在"沙柱已经到过玻璃线"之后生效 —— 注满动画期间不许跳(否则前 0.25s
+        #      那段落砂动画会被整段跳过)。
+        if NECK_JOIN and bottom <= y_end + 1e-6:
+            # 🔴 **2026-10-09 更正(D1)**: 这里原来写的是
+            #    `_join = max(self.get_mound_top_y(), self._lower_sand_top)`,
+            #    注释还说"沙堆长进喇叭口 ⇒ 下沿 = 沙堆面**自动接上**" —— **那是错的**:
+            #    **第二项永远不赢, `max` 是死代码。** 构造性证明(逐字赋值, 不是近似):
+            #      `contact = clamp(apex+off, floor, roof)`, 而 dx=0 时 `roof = 2·radius`;
+            #      `_MoundProfile` 全仓库**只用 `Ri` 构造**(3254/3300), 与 `_lower_sand_top`
+            #      里的同一个 `Ri` ⇒ `get_mound_top_y() ≤ _lower_sand_bot + 2Ri = _lower_sand_top` ∎
+            #    实测复核: 1/5/15/50s × 96 帧, 第一项胜出 **0** 帧。
+            #    ⇒ **真实机制不是"跟沙走", 而是"把切口从【出口】挪到了【球内顶】"** ——
+            #      换了条固定的线而已。t=48/49 看着"正好接上", 是因为**两边同时被钉在
+            #      同一个球内顶**上, 不是它接上去的。
+            #    ⚠️ 将来若有人给 `_MoundProfile` 换一个 ≠ `Ri` 的半径, 这条等式会**静默失效**
+            #       (`verify_hourglass.py` 里有断言守着它)。
+            _join = self._lower_sand_top
+            if _join < bottom - 1e-9:
+                # 🔴 **2026-10-09 (D6): 下沿要跟着【堆面】走, 不是一条水平线。**
+                #    柱子是**恒宽**的(`_neck_width_at(y<y_bot)` 兜底返回 `t_in`), 而堆面
+                #    在中轴最高、向两侧低下去 —— 水平下沿会在两只角上**悬空**
+                #    `t_in²/(2Ri)`(平板 1s/5s 档 **2.54px**, 桌面 0.37px)。
+                #    改成两个节点: `(t_in, 堆面(t_in))` → `(0, 堆面(0))`,
+                #    最后一条四边形因此是个 apex 朝上的三角形, 正好把那块空楔填掉。
+                #    ⚠️ 这条四边形**不再单调下降**(y 从 1316.8 回到 1319.3), 是有意的:
+                #      绘制循环只要求两个相邻节点, 不要求单调; 但**容量要够**(见 `_neck_quads`)。
+                _w = self._neck_width_at(_join)
+                _yc, _Ri = self._lower_y_c, self._R_inner
+                _c = self._mound_contact_h
+                for _frac in (1.0, 0.0):
+                    _dx = _w * _frac
+                    _yy = self._lower_sand_bot + _c(_dx)
+                    _wall = _yc + math.sqrt(max(0.0, _Ri * _Ri - _dx * _dx))
+                    side.append((_dx, min(_yy, _wall)))
         return side
 
     def _mound_apex(self):
@@ -6067,7 +6127,6 @@ class HourglassWidget(Widget):
         self.canvas.clear()
         cx, Ri = self._cx, self._R_inner
         self._sand_chords = []
-        self._sand_bands = []
         material = self._current_material()
         self._sand_material = material
         self._sand_flow_contexts = ()
@@ -6103,10 +6162,14 @@ class HourglassWidget(Widget):
                     color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
                     rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
                                      texture=None if material is None else material.texture)
-                # 沙面窄过渡: 与沙体**同一个 stencil**, 只在沙面内部多铺一条很窄的亮带
-                band_color = Color(*(tuple(self.sand_light) + (0.0,)))
-                band_rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0))
-                self._sand_bands.append((band_color, band_rect))
+                # 🔴 **2026-10-09 删**: 这里原来还建一条「沙面窄过渡亮带」
+                #    (`_sand_bands`, 两球各一条直边 Rectangle)。它**早就作废了** ——
+                #    下球改由 `_draw_mound_shape`、上球改由 `_draw_upper_shape`
+                #    沿**真实轮廓逐段**画亮带(见 `redraw` 里那段注释), 直边矩形跟不上起伏,
+                #    留着会与曲线带叠成两条。它此后**每帧都被强制 `size=(0,0)/a=0`**,
+                #    全仓库没有任何一处把它设回可见 ⇒ **可证的死层**(占用 4 条指令 + 每帧
+                #    ~6 次属性写, 一个像素都画不出)。
+                #    证据: `_render_golden --check` 两臂各 60/60 **逐图一致**(删它必须 0 像素差)。
                 if yc == self._upper_y_c:
                     # 上球: 漏斗 carve(专家 dingbu.md §4) —— 与下球同一套写法, 段数同样按节点数定
                     n_seg_u = max(1, MOUND_SHAPE_NODES)
@@ -6148,7 +6211,16 @@ class HourglassWidget(Widget):
             # 颈部沙柱那 25 条逐段四边形 —— 同样是静态的一段折线, 合成一个 `Mesh`
             # (逐帧只更新顶点, 指令数 25×2 → 2)。它有**逐条自定义 uv**(见 `_neck_sand_side`),
             # 所以走 `set(i, pts, uvs)`; 换材质时走 `set_texture()`。
-            self._neck_quads = _QuadBand(TAPER_SEGS + 1, texture=neck_tex)
+            # 🔴 2026-10-09: 容量**跟着 `in_pts` 走**, 不再写死。
+            #    沙柱节点数 = 1(顶) + (in_pts 里 `bottom<y<top` 的点, 最多 `len(in_pts)-1`)
+            #              + 1(出口) + 1(下沿跟沙走的延伸) ⇒ 上限 = `len(in_pts) + 2` **个节点**,
+            #    而绘制循环 `for i in range(len(quads))` 画的是**段**, 需要 `节点数-1` 格。
+            #    ⇒ 取 `len(in_pts) + 3` 留两格余量。
+            #    ⚠️ **第一版写死 `TAPER_SEGS + 1`(=25) 就是这次的坑**: 节点 27 > 容量 25
+            #      ⇒ 循环走不到最后 1 段(正是延伸段), **不报错、不崩、只是没画出来** ——
+            #      现象是"改了但画面上几乎没变"。**容量必须 ≥ 节点数 − 1**。
+            #    (复核: 27 节点在容量 25 下丢的是**最后 1 段**, 不是两段 —— 逐项算过。)
+            self._neck_quads = _QuadBand(len(self._taper["in_pts"]) + 3, texture=neck_tex)
             self._neck_solid_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_solid_rect = Rectangle(size=(0, 0), texture=neck_tex)
             # 沙柱下段(孔口往上 transition 那段): 直接画不透明的沙色矩形。
@@ -6229,7 +6301,15 @@ class HourglassWidget(Widget):
         self._stream_np = {}
         self._stream_np_only = False
         self._stream_counts = {key: 0 for key in self._stream_pools}
-        self._reserve_stream_lines()
+        # 🔴 **2026-10-09: 批处理沙流渲染器接管时, 这次预留是纯白做。**
+        #    `_reserve_stream_lines` 预建的那批 `Line` 会被
+        #    `flow_texture_experiment.build_texture_batches` 当场 `pool.clear()` 丢掉
+        #    (它按桶直接写端点纹理)。实测(桌面 15s 档) **20.8ms/次**, 而
+        #    改周期 / 转屏 / 分屏 / 启动**每一次**画布重建都要付。
+        #    标记由渲染器自己置位(它 `build_texture_batches` 里的 `try/finally`);
+        #    它失败时会 `_reserve_stream_lines()` 补回来 ⇒ 回退到 Line 池时图元照旧齐备。
+        if not getattr(self, "_stream_batched", False):
+            self._reserve_stream_lines()
 
         self._flare_group = InstructionGroup()
         self.canvas.add(self._flare_group)
@@ -6382,9 +6462,7 @@ class HourglassWidget(Widget):
                 # 退回平色时颈部才跟着染沙色; 有材质时前面必须保持白色(否则双重着色变暗)
                 self._neck_color.rgb = self.sand_base
                 self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
-            # 沙面窄过渡那条带永远用亮端(与材质与否无关)
-            for band_color, _rect in self._sand_bands:
-                band_color.rgb = self.sand_light
+            # (2026-10-09 删: 这里原来刷 `_sand_bands` 那条作废亮带的颜色 —— 带子已删)
             self._mound_band_color.rgb = self.sand_light
             # ⚠️ **上球那条也要刷**(2026-10-05 r9-1号 查出漏了): 它原来只在
             #    `_build_dynamic_canvas()` 创建时取一次 sand_light, 换沙色后**一直是旧色**,
@@ -6433,14 +6511,13 @@ class HourglassWidget(Widget):
         # 沙面窄过渡(评审 meishu2.md §4.3): 紧贴沙面**内部**的一条窄亮带。
         # 下沙用 get_mound_top_y() —— 与**粒子碰撞面**同一个值, 保证"落点与可见表面一致"。
         # ⚠️ 沙体薄时按可见厚度按比例减弱, 否则会剩一条悬空的独立亮线。
-        # ⚠️ 下球那条由 `_draw_mound_shape` 沿真实轮廓逐段画(直边矩形跟不上起伏,
-        #    会留下悬空亮台/缺口 —— 评审 1 号指出), 这里只画上球那条。
         # ⚠️ **两条旧的直边亮带都作废了**: 下球改由 `_draw_mound_shape`、上球改由
-        #    `_draw_upper_shape` 沿真实轮廓逐段画。留着会与曲线带叠成两条
-        #    (一条平一条弯) —— 2026-10-05 上球漏斗落地后自查出的回归。
-        for _band_color, _band_rect in self._sand_bands:
-            _band_rect.size = (0, 0)
-            _band_color.a = 0.0
+        #    `_draw_upper_shape` 沿真实轮廓逐段画(直边矩形跟不上起伏, 会留下悬空亮台/
+        #    缺口 —— 评审 1 号指出; 留着还会与曲线带叠成两条, 一条平一条弯)。
+        # 🔴 **2026-10-09: 那两条作废的 `_sand_bands` 已经彻底删除**(创建/换色/每帧清零
+        #    三处一起删) —— 它们此后每帧都被强制 `size=(0,0)/a=0`, 全仓库没有任何一处
+        #    把它们设回可见 ⇒ **可证的死层**。删它必须 0 像素差: `_render_golden --check`
+        #    两臂各 60/60 逐图一致。
         self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
         self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
         self._draw_mound_shape(h_mound)
@@ -6469,7 +6546,13 @@ class HourglassWidget(Widget):
         for i in range(len(quads)):
             if i < len(side) - 1:
                 (x0, y0), (x1, y1) = side[i], side[i + 1]
-                if connected:
+                if connected and not NECK_JOIN:
+                    # 🔴 2026-10-09: 这段 clip 的管辖区**只有 `[outlet, fade_top]`**
+                    #    (那一段由两片**不透明**矩形画, 且矩形建在四边形**之后**、
+                    #    画在它上面 ⇒ 放开这里不会双重曝光, 面板 1号 已实测)。
+                    #    开了 `NECK_JOIN` 之后沙柱要往下延伸, 而延伸段正好落在
+                    #    `y0 <= fade_top` 那一侧 —— 第一版没放开这里, 画面上**一点没变**。
+                    #    (这条 clip 的来历见 `NECK_REDESIGN.md`: 当年"出口硬线"的产物。)
                     if y0 <= fade_top:
                         quads.zero(i)
                         continue
@@ -6841,7 +6924,17 @@ class HourglassWidget(Widget):
             _nk_mark("neck_enter")
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         length = max(1e-6, self._taper["y_bot"] - outlet)
-        top_y, bottom_y = side[0][1], side[-1][1]
+        # 🔴 **2026-10-09: 纵向跨度必须钉在【出口】, 不能取 `side[-1][1]`。**
+        #    `NECK_JOIN` 让沙柱下沿往下多探一段之后, `side[-1][1]` 比出口更低,
+        #    于是 `span = top_y − bottom_y` 变大、映射 `y = top_y − t·span` 把**每一颗**
+        #    颗粒都往下多推 `t·(出口 − 下沿)` ⇒ **整条颗粒层的纵向映射被拉长**(不是平移)。
+        #    实测(复核实测, 冻结帧, flat 路径): 同帧差 **4349px, 其中出口以上 3627px**
+        #    —— 而四条金标准臂**一条都不走 flat**, 所以这个回归当时没人看得见
+        #    (现在 `CASES` 里有 `flat` 臂了)。
+        #    改前 `side[-1][1]` 恒等于 `outlet` ⇒ 这一改让 flat 路径**逐位回到旧行为**;
+        #    `ys/xs` 里那个更低的延伸节点只在 `y < outlet` 时才被 `half_w_at` 取到,
+        #    而那时没有颗粒会映射过去。
+        top_y, bottom_y = side[0][1], outlet
         span = max(1e-6, top_y - bottom_y)
         scale = self._particle_motion_scale
         twice_gravity = 900 * scale * scale

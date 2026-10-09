@@ -7,5 +7,5 @@ WT="/tmp/hg_$LABEL"
 rm -rf "$WT"
 git worktree add -f "$WT" "$REV" >/dev/null 2>&1
 mkdir -p "$WT/benchmark_logs"
-( cd "$WT" && python tools/inspect_flow.py --label "$LABEL" --steady-period 15 --steady-frames 30 >/dev/null 2>&1 )
+( cd "$WT" && python tools/inspect_flow.py --label "$LABEL" ${RENDER_ARGS:---steady-period 15 --steady-frames 30} >/dev/null 2>&1 )
 echo "RENDER_DONE $LABEL -> C:/Users/liangpan/AppData/Local/Temp/hg_$LABEL/benchmark_logs/flow_visual_$LABEL"

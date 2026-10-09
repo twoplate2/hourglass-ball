@@ -50,21 +50,42 @@ STORE = ROOT / "tools" / "render_golden.fp.json"
 # 固定的渲染集 —— 与 `tools/_pixdiff.py` 的默认屏蔽区**必须一致**
 ARGS = ("--steady-period", "15", "--steady-frames", "30")
 MASK = (196, 756, 232, 784)          # 底栏版本号
+# 🔴 **2026-10-09: 每条臂都显式钉死 `HG_SAND_MATERIAL`。**
+#    原来四条臂的 env 里都没有它, 而 `render()` 是 `dict(os.environ); e.update(env)`
+#    ⇒ 宿主机 shell 里若带着 `HG_SAND_MATERIAL=flat`, 四条臂会**整体换路**,
+#    而指纹是缓存的死值 —— 静默失真, 谁也不会发现。
 ENV = {"HG_SPLASH_RENDERER": "batch", "HG_NECK_RENDERER": "batch",
-       "HG_FLOW_RENDERER": "texture"}
-CASES = (("batch", ENV),
+       "HG_FLOW_RENDERER": "texture", "HG_SAND_MATERIAL": "grain"}
+# 🔴 **2026-10-09 加了两条"末段臂"**(见 `inspect_flow.py` 的 `--only-tail`)。
+#    原来那两条都走 steady 模式, 而 steady **按设计切掉末 8%**
+#    (`inspect_flow.py` 那行的注释原文:「切掉前 0.5s 注满与末 8% 收尾」)⇒
+#    "末段那条缝"这一族**在闸门里没有一帧能看见**; 1.237 那次与本次是同一个洞咬了两次。
+#    顺带补上 `flow=line` 那条**回退路** —— 它原来从未进过指纹(两臂都是 texture)。
+LINE_ENV = {"HG_SPLASH_RENDERER": "batch", "HG_NECK_RENDERER": "line",
+            "HG_FLOW_RENDERER": "line", "HG_SAND_MATERIAL": "grain"}
+# 🔴 **2026-10-09 新增 flat 臂**: 关掉沙体材质 ⇒ `redraw` 走 `else` 分支、
+#    `_draw_neck_grains` **真的被调用**。在此之前**一条臂都没走这条路**,
+#    而"沙柱下沿跟沙走"这个改动**唯一会改变像素的就是它**(复核实测: flat 下同帧差
+#    4349px, 其中出口以上 3627px)。**兜底路径必须自己走出来对一遍。**
+FLAT_ENV = {"HG_SPLASH_RENDERER": "batch", "HG_NECK_RENDERER": "batch",
+            "HG_FLOW_RENDERER": "texture", "HG_SAND_MATERIAL": "flat"}
+CASES = (("batch", ENV, ARGS),
          # 非批处理那条路(桌面默认)也记一份 —— 它走的是 `_sync_rects_arrays`
-         ("rect", {"HG_NECK_RENDERER": "line", "HG_FLOW_RENDERER": "texture"}))
+         ("rect", {"HG_NECK_RENDERER": "line", "HG_FLOW_RENDERER": "texture",
+                   "HG_SAND_MATERIAL": "grain"}, ARGS),
+         ("flat", FLAT_ENV, ARGS),
+         ("tail", ENV, ("--only-tail",)),
+         ("tail_line", LINE_ENV, ("--only-tail",)))
 
 
-def render(label, env):
+def render(label, env, extra_args=ARGS):
     out = ROOT / "benchmark_logs" / ("flow_visual_" + label)
     if out.exists():
         shutil.rmtree(out)
     e = dict(os.environ)
     e.update(env)
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "inspect_flow.py"),
-                        "--label", label] + list(ARGS),
+                        "--label", label] + list(extra_args),
                        cwd=str(ROOT), env=e, capture_output=True)
     if not out.exists():
         raise RuntimeError("渲染没产出(%s): rc=%d\n%s"
@@ -104,8 +125,8 @@ def main():
     args = ap.parse_args()
 
     got = {}
-    for tag, env in CASES:
-        d = render("%s_%s" % (args.label, tag), env)
+    for tag, env, cargs in CASES:
+        d = render("%s_%s" % (args.label, tag), env, cargs)
         got[tag] = image_hashes(d)
         print("%-6s 图 %d 张" % (tag, len(got[tag])))
 

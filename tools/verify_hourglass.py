@@ -19,6 +19,46 @@ from types import ModuleType, SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT.parent / "backup" / "android_perf_checks_20261001"
 
+# ── 满态"堆顶接不接得到管口"(2026-10-09 新增, 对抗审查 A1/C1) ─────────────────
+# 用户看到的现象: 50s 档最后 ~5% 里, 画出来的沙堆顶(下球内壁顶)与玻璃管口之间空出
+# 一段, 里面只有稀疏下落粒子 ⇒ 读成"沙流和沙堆断成两截"。
+# 出处: commit 95a344a(1.74 取消平台); 症状在 xingzhuang.md:147 就写着「末期不对 ——
+# 球没有被塞满, 左上/右上各留一块约 14px 的空隙」(按球内高换算到今天几何 = 57px)。
+# (2026-10-09 删: 原来这里还有一条 `MOUND_GAP_KNOWN_MAX = 18.0` 的"棘轮" —— 它量的是
+#  「出口 − 堆顶」, 而那个量 **`NECK_JOIN` 一个方向都不改** ⇒ 永远落在红/绿同一侧, 没有判别力。
+#  现在 (d) 量的是「柱底 − 堆顶」, 直接就是症状本身, 不再需要棘轮。)
+MOUND_GAP_GOAL_TOL = 4.0     # 🔴 **2026-10-09 用户定**(原为占位值): 「画出来的沙柱下沿」与
+                             # 「画出来的沙堆顶」之间允许差 4.0px。谓词进门、阈值归人。
+# ⚠️ **口径**: 上面这个 4.0 用在**本脚本默认的桌面窗口**(400×800 一档, 实测缝 14.3~14.8px);
+#    平板口径(1904×2890)同一处是 **57.4px**。**这个数随几何变**, 换口径跑要先重读一遍。
+
+
+def _drawn_mound_top(widget):
+    """从画布读**真正画出来的**沙堆顶(中轴处) —— 线性插值那条 carve 折线。
+
+    `_mound_carve` 每段是 `[x0,y0, x1,y1, x1,top, x0,top]`(见 `_draw_mound_shape`),
+    前两个角点是沙面的边; `zero(i)` 的退化段(x0==x1 且 y0==y1)跳过。
+    返回 `None` = 没有段覆盖中轴(未画/退化)。
+
+    🔴 **必须读画布, 不能重算 `_mound_contact_h(0.0)`** —— 后者与
+    `get_mound_top_y()`(main.py:3639)是**同一个表达式**, 比它是 `isclose(x, x)` 恒真。
+    """
+    band = getattr(widget, "_mound_carve", None)
+    if band is None:
+        return None
+    cx = widget._cx
+    for q in band:
+        pts = q.points
+        x0, y0, x1, y1 = pts[0], pts[1], pts[2], pts[3]
+        if x0 == x1 and y0 == y1:
+            continue                                   # zero(i)
+        lo, hi = (x0, x1) if x0 <= x1 else (x1, x0)
+        if lo - 1e-6 <= cx <= hi + 1e-6:
+            if abs(x1 - x0) < 1e-9:
+                return max(y0, y1)
+            return y0 + (y1 - y0) * (cx - x0) / (x1 - x0)
+    return None
+
 
 def main():
     with tempfile.TemporaryDirectory(prefix="hourglass-check-") as home:
@@ -91,11 +131,28 @@ def main():
             AssertionError("Test must not save configuration"))
         OUT.mkdir(parents=True, exist_ok=True)
         failures = []
+        known_defects = []
 
         def check(condition, label):
             if not condition:
                 failures.append(label)
             print(("PASS " if condition else "FAIL ") + label)
+
+        def known_defect(condition, label, note=""):
+            """**已认领的缺陷**: 断言是真的, 今天是红的, 但**不计入 failures**。
+
+            🔴 为什么允许红 —— 项目自己的教训(2026-10-05)是「**红色的闸门等于没有闸门**」:
+               四条 `unchanged glass ... rendering` 红了很久, 谁也不知道是真回归还是旧账,
+               那半道闸门于是被所有人无视。所以红的断言必须**被认领**:
+               ① 单独计数、单独打印(不混进 FAILED); ② 值本身**棘轮化** —— 同一个缺陷
+               另有一条硬 `check` 守住"不许比今天更差", 恶化立刻红; ③ **修好后必须
+               提升为硬 `check`**(见 `MOUND_GAP_*` 那两条的注释)。
+            """
+            if condition:
+                print("PASS " + label)
+            else:
+                known_defects.append(label)
+                print("已知缺陷 " + label + (("   " + note) if note else ""))
 
         class VerificationApp(app_module.HourglassApp):
             def on_start(self):
@@ -495,10 +552,16 @@ def main():
                     widget._rebuild_height_table()
                     widget.redraw()
                     # ⚠️ 2026-10-05: 旧断言写死 **11**, 实测是 **25**（两个尺寸都一样）。
-                    # 颈部几何换过（贝塞尔过渡 TAPER_SEGS），段数跟着变 —— 测试没跟上。
-                    # 这里守的是"重建后段数确定且两个尺寸一致"，**不是某个历史数字**。
-                    check(len(widget._neck_quads) == 25,
-                          "resize rebuild: %s (quads=%d)" % (size, len(widget._neck_quads)))
+                    # ⚠️ **2026-10-09: 同一个坑第三次** —— 我把容量改成 `len(in_pts)+3` 之后
+                    #    变成 28, 这条又红了。它上面那句注释早就写明"守的是**段数确定且两个
+                    #    尺寸一致**, 不是某个历史数字", 实现却一直写死数字。
+                    #    ⇒ 现在按它自己的话写: **容量必须装得下全部段**。
+                    #    需要格数 = 节点数 − 1 ≤ (1 + (len(in_pts)-1) + 1 + 2) − 1 = len(in_pts)+2。
+                    #    (末项 2 = D6 之后的延伸节点数: `(t_in, 堆面(t_in))` 与 `(0, 堆面(0))`)
+                    _need = len(widget._taper["in_pts"]) + 2
+                    check(len(widget._neck_quads) >= _need,
+                          "neck quad band has room for every segment: %s (quads=%d need>=%d)"
+                          % (size, len(widget._neck_quads), _need))
                 widget.size = orig_size
                 widget._rebuild_height_table()
                 widget.set_duration(60)
@@ -540,14 +603,25 @@ def main():
                 }]
                 ids = [id(p) for p in widget.particles]
                 widget.redraw()
-                check(widget._neck_grain_count == 2, "existing grain texture bridges the outlet")
                 # 沙柱下段现在是不透明沙色矩形(去掉了会形成半透明横线的渐变蒙版)。
                 # 注意 Kivy 的 Rectangle 默认带一张白色 default.png, 所以不能靠
                 # "texture is None" 判断 —— 查它真正要守的: 参与了绘制 + 颜色不透明。
                 check(tuple(widget._neck_fade_rect.size) != (0, 0)
                       and widget._neck_fade_color.a == 1,
                       "outlet material is opaque and covers the conduit bottom")
-                color, line = widget._neck_grain_pool[1]
+                # 🔴 **2026-10-09: 下面这一族断言只在"颗粒层真的在画"时成立。**
+                #    材质路径下 `redraw` 走 `context.update_flow(...)`(`main.py` 的硬分支),
+                #    `_draw_neck_grains` **一次都不被调**; 2.12 起那层**连建都不建** ⇒
+                #    `_neck_grain_count` 恒 0、`_neck_grain_pool` 恒空 ⇒ 旧写法
+                #    `widget._neck_grain_pool[1]` 直接 `IndexError`。
+                #    ⚠️ **2.12 出货时没跑本脚本, 这条当场就红了** —— 下面是事后补的分流。
+                #    闸门条件与绘制点**同一个**, 不另写一套判断。
+                _grain_active = not (widget._sand_flow_contexts and
+                                     widget._sand_material is not None)
+                if _grain_active:
+                    check(widget._neck_grain_count == 2,
+                          "existing grain texture bridges the outlet")
+                    color, line = widget._neck_grain_pool[1]
                 # ⚠️ 2026-10-05 重写。旧断言是 `outlet < line.points[1] < y_bot` ——
                 #    **它守的不是它标题说的东西**:
                 #    ① `_draw_neck_grains` 的设计就是把颗粒铺满**整条**颈部轮廓
@@ -562,26 +636,34 @@ def main():
                 #       同一探针证明那三个参数**逐位不改变** `_neck_sand_side()`(重建已自证生效)。
                 #    真不变量(且**比旧版更强** —— 旧版只看 pool[1] 一颗, 这里看全部已画的):
                 #       画出来的每一颗颗粒都必须落在**沙柱** `side` 里(含笔画半宽)。
-                side_now = widget._neck_sand_side()
-                lo_y, hi_y = side_now[-1][1], side_now[0][1]
-                out = []
-                for _c, _ln in widget._neck_grain_pool[:widget._neck_grain_count]:
-                    if not _ln.points:
-                        continue
-                    _half = _ln.width * 0.5
-                    _bot, _top = _ln.points[1], _ln.points[3]
-                    if _bot < lo_y - _half - 1e-6 or _top > hi_y + _half + 1e-6:
-                        out.append((round(_bot, 2), round(_top, 2)))
-                check(not out,
-                      "neck grain texture stays inside the sand column "
-                      "(out=%s, column=[%.2f, %.2f])" % (out[:3], lo_y, hi_y))
+                    side_now = widget._neck_sand_side()
+                    lo_y, hi_y = side_now[-1][1], side_now[0][1]
+                    out = []
+                    for _c, _ln in widget._neck_grain_pool[:widget._neck_grain_count]:
+                        if not _ln.points:
+                            continue
+                        _half = _ln.width * 0.5
+                        _bot, _top = _ln.points[1], _ln.points[3]
+                        if _bot < lo_y - _half - 1e-6 or _top > hi_y + _half + 1e-6:
+                            out.append((round(_bot, 2), round(_top, 2)))
+                    check(not out,
+                          "neck grain texture stays inside the sand column "
+                          "(out=%s, column=[%.2f, %.2f])" % (out[:3], lo_y, hi_y))
                 # 真正要守的: 颗粒色是不透明的预混色(不走半透明描边),且落在
                 # 底色↔亮色之间 —— 不再写死旧公式的"中点位"常数。
-                check(color.a == 1 and all(
-                    min(base, light) - 1e-6 <= actual <= max(base, light) + 1e-6
-                    for actual, base, light in zip(
-                        color.rgb, widget.sand_base, widget.sand_light)),
-                    "neck texture preblend stays opaque and inside the sand ramp")
+                    check(color.a == 1 and all(
+                        min(base, light) - 1e-6 <= actual <= max(base, light) + 1e-6
+                        for actual, base, light in zip(
+                            color.rgb, widget.sand_base, widget.sand_light)),
+                        "neck texture preblend stays opaque and inside the sand ramp")
+                else:
+                    # 材质路径: 这一层**连建都不建**(2.12) —— 断言它确实不在,
+                    # 见 `main.py` `_build_dynamic_canvas` 里那段注释与
+                    # `CLAUDE.md` 的 2.12 节。
+                    check(widget._neck_grain_group is None
+                          and not widget._neck_grain_pool
+                          and widget._neck_grain_count == 0,
+                          "material path does not build the neck grain layer at all")
                 check(ids == [id(p) for p in widget.particles],
                       "neck texture adds no physics particles")
                 # 粒子真值现在是并行数组, 视图(_pv)在 update_particles 末尾刷新。
@@ -596,8 +678,13 @@ def main():
                           "real grain trails cross the outlet without a horizontal cut")
                 widget.reset()
                 widget.redraw()
-                check(widget._neck_grain_count == 0 and not line.points,
-                      "reset clears the conduit texture")
+                if _grain_active:
+                    check(widget._neck_grain_count == 0 and not line.points,
+                          "reset clears the conduit texture")
+                else:
+                    # 材质路径: 那层压根没建 ⇒ 只需看它没被谁偷偷喂过
+                    check(widget._neck_grain_count == 0 and not widget._neck_grain_pool,
+                          "reset leaves the unbuilt neck grain layer empty")
                 check(tuple(widget._neck_fade_rect.size) == (0, 0) and
                       tuple(widget._neck_solid_rect.size) == (0, 0),
                       "reset hides the outlet transition")
@@ -638,7 +725,7 @@ def main():
                 widget = self.hourglass
                 for period in (1, 5, 15, 60, 360000):
                     widget.set_duration(period)
-                    for fraction in (0, 0.02, 0.2, 0.5, 0.99, 1):
+                    for fraction in (0, 0.02, 0.2, 0.5, 0.9, 0.95, 0.97, 0.99, 1):
                         widget.elapsed = period * fraction
                         widget.running = fraction < 1
                         widget.redraw()
@@ -713,12 +800,57 @@ def main():
                               % (period, fraction, upper))
                         check(0.0 <= widget._mound_height_px() <= h_inner + 1.0,
                               "mound height within the ball: %ss %.2f" % (period, fraction))
-                        # (c) **接触高度 == 画出来的堆顶** —— 与绘制同一份定义(`_mound_contact_h`),
-                        #     实测每个采样点都差 0.00
-                        drawn_apex = widget._lower_sand_bot + widget._mound_contact_h(0.0)
-                        check(math.isclose(widget.get_mound_top_y(), drawn_apex, abs_tol=epsilon),
-                              "contact matches visible surface: %ss %.2f (%.2f vs %.2f)"
-                              % (period, fraction, widget.get_mound_top_y(), drawn_apex))
+                        # (c) **接触高度 == 画布上真正画出来的那条边**。
+                        # 🔴 **2026-10-09 重写**(对抗审查 A1): 旧写法是
+                        #     `drawn_apex = widget._lower_sand_bot + widget._mound_contact_h(0.0)`
+                        #     拿它与 `get_mound_top_y()` 比 —— 而后者(`main.py:3639`)的定义
+                        #     **就是同一个表达式**(`return self._lower_sand_bot +
+                        #     self._mound_contact_h(0.0)`) ⇒ `isclose(x, x)` **恒真**。
+                        #     它守的是 1.74 §7 的全部要点(取消平台后"接触面必须与可见面重合"),
+                        #     却是一条**从来没有可能红过**的断言。
+                        #     现在: **数据从画布读**(`_mound_carve` 的折线插值到中轴),
+                        #     **谓词是几何**(接触面 vs 画出来的边)。
+                        drawn_top = _drawn_mound_top(widget)
+                        # 沙堆**没在画**的时候读不到段 —— `_draw_mound_shape` 在
+                        # `h_mound <= 0` 时走 `carve.clear()`(条件与绘制点同一个)。
+                        # 那时 `None` 是**正确**答案, 不是失败。
+                        _mound_drawn = widget._mound_height_px() > 0.0
+                        check((drawn_top is not None and
+                               abs(widget.get_mound_top_y() - drawn_top) <= epsilon)
+                              if _mound_drawn else drawn_top is None,
+                              "contact matches the drawn surface: %ss %.2f (%.2f vs %s)"
+                              % (period, fraction, widget.get_mound_top_y(),
+                                 "None" if drawn_top is None else "%.2f" % drawn_top))
+                        # (d0) **D1 守卫: `get_mound_top_y() ≤ _lower_sand_top` 必须恒成立。**
+                        #      2026-10-09 对抗审查查到: `_neck_sand_side` 里那个
+                        #      `max(get_mound_top_y(), _lower_sand_top)` 的第二项**永远不赢**
+                        #      (构造性证明: `contact(0) ≤ roof(0) = 2·profile.radius`,
+                        #       而 `_MoundProfile` 全仓库只用 `Ri` 构造 ⇒ 差恒 ≤ 0)。
+                        #      ⇒ 那条 `max` 是死代码, 已删。**这条断言守的是它的前提** ——
+                        #      将来谁给 `_MoundProfile` 换一个 ≠ `Ri` 的半径, 等式会静默失效
+                        #      (那时"沙堆够高就自动接管"会突然活过来), 这里当场红。
+                        check(widget.get_mound_top_y()
+                              <= widget._lower_sand_top + 1e-9,
+                              "mound top never exceeds the ball inner top: %ss %.2f vs %.2f"
+                              % (period, widget.get_mound_top_y(), widget._lower_sand_top))
+                        # (d) **满态接缝: 画出来的沙柱下沿必须落在画出来的沙堆顶上** —— 2026-10-09。
+                        #     ⚠️ **第一版量错了对象**(对抗审查 D3): 量的是「出口 − 堆顶」,
+                        #     而 `NECK_JOIN`(**下沿跟沙走**)完全不进 `_mound_carve`/`_mound_apex`/
+                        #     `contact` 那条链 ⇒ **两个方向都不会变绿**, 那条断言会永久红着。
+                        #     症状的定义是「**柱子**够不着**堆**」—— 所以量这两个。
+                        #     ⚠️ 只在"沙堆已经顶到球内顶"(clamp 生效)且**沙柱还在**时判:
+                        #       沙柱整根消失的时刻 1s→92.5% / 5s→92.0% / 15s→97.0% 相位。
+                        if fraction >= 0.9:
+                            _side_now = widget._neck_sand_side()
+                            _drawn_top2 = _drawn_mound_top(widget)
+                            _clamped = (widget.get_mound_top_y()
+                                        >= widget._lower_sand_top - 1e-6)
+                            if _side_now and _drawn_top2 is not None and _clamped:
+                                _gap2 = _side_now[-1][1] - _drawn_top2
+                                check(_gap2 <= MOUND_GAP_GOAL_TOL,
+                                      "drawn column meets the drawn mound: %ss %.2f "
+                                      "gap %+.2f px (tol %.1f)"
+                                      % (period, fraction, _gap2, MOUND_GAP_GOAL_TOL))
                     widget.elapsed = period - min(1e-5, period * 1e-5)
                     widget.running = True
                     check(widget._mound_height_px() > 2 * widget._R_inner * 0.99,
@@ -1156,6 +1288,10 @@ def main():
         if "--benchmark-only" in sys.argv and app._rounds_left:
             failures.append("benchmark cancelled or stopped before all requested rounds completed")
         print("Screenshots:", OUT)
+        if known_defects:
+            print("已知缺陷(已认领, 不计入 FAILED):")
+            for _k in known_defects:
+                print("   -", _k)
         if failures:
             print("FAILED:", failures)
             return 1

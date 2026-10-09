@@ -31,6 +31,12 @@ def main():
                         help="覆写 speed_factor(仅测量脚手架, 不改几何)")
     parser.add_argument("--steady-period", type=float, default=None)
     parser.add_argument("--steady-frames", type=int, default=30)
+    # 🔴 2026-10-09: **末段档** —— steady 模式**按设计切掉末 8%**(见下面 `_lo,_hi` 那行),
+    #    于是"缝 / 末期"这一类缺陷在闸门里**没有任何一帧**能看见
+    #    (1.237 那次与"末段那条缝"是同一个洞咬了两次)。
+    #    `--only-tail` **复用默认目标集里已有的末段点**(0.98/1、4.98/5、14.98/15、59.98/60),
+    #    不新造时间窗参数。
+    parser.add_argument("--only-tail", action="store_true")
     args = parser.parse_args()
     output = ROOT / "benchmark_logs" / ("flow_visual_" + args.label)
     output.mkdir(exist_ok=True)
@@ -101,6 +107,10 @@ def main():
             _p, _n = float(args.steady_period), max(2, args.steady_frames)
             _lo, _hi = 0.5, _p * 0.92          # 切掉前 0.5s 注满与末 8% 收尾
             targets = [(_p, _lo + (_hi - _lo) * i / (_n - 1)) for i in range(_n)]
+        if args.only_tail:
+            # 只留末段(≥0.9 周期)。缝的窗口从 **94~95% 相位**开始(5s 与 50s 实测一致),
+            # 所以 0.9 这个门槛一定落在它前面。
+            targets = [(p, e) for p, e in targets if e >= 0.9 * p]
         records = []
 
         class VisualApp(module.HourglassApp):

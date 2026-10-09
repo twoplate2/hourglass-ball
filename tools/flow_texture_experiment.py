@@ -443,16 +443,38 @@ def install(widget_class):
     build = widget_class._build_dynamic_canvas
 
     def build_texture_batches(self):
-        build(self)
-        self._stream_np_only = True      # 上游只建下标数组桶(见 `_group_stream_particles`)
-        units = glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS)[0]
-        if units < 1:
-            raise RuntimeError("Vertex texture sampling is unavailable")
-        context = RenderContext(use_parent_projection=True, use_parent_modelview=True)
-        context.shader.vs = VERTEX_SHADER
-        context.shader.fs = FRAGMENT_SHADER
-        if not context.shader.success:
-            raise RuntimeError("Endpoint texture shader failed to compile")
+        # 🔴 **2026-10-09: 先声明"沙流这一族由我接管", 再让基类建画布。**
+        #    基类(`main._build_dynamic_canvas`)据此**跳过 `_reserve_stream_lines()`** ——
+        #    它预建的那批 `Line` 会被本函数下面 `pool.clear()` 当场丢掉(批处理按桶
+        #    直接写端点纹理), 而实测(桌面 15s 档)**一次 20.8ms**, 改周期 / 转屏 /
+        #    分屏 / 启动**每一次**画布重建都要付。
+        #    ⚠️ 标记用 `try/finally` 保证不漏出去; **失败路径必须把预留补回来**
+        #      (回退到 Line 池时那些图元是真的要用的) —— 见下面的 `except`。
+        self._stream_batched = True
+        try:
+            build(self)
+        finally:
+            self._stream_batched = False
+        try:
+            self._stream_np_only = True  # 上游只建下标数组桶(见 `_group_stream_particles`)
+            # 量具开关: 逼它走"编译失败"那条回退路, 验回退口自己走得通
+            # (照 `HG_FLARE_FORCE_FAIL` 那套; 设备上读不到环境变量, 只给桌面用)。
+            if os.environ.get("HG_FLOW_FORCE_FAIL"):
+                raise RuntimeError("HG_FLOW_FORCE_FAIL: forced fallback (量具用)")
+            units = glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS)[0]
+            if units < 1:
+                raise RuntimeError("Vertex texture sampling is unavailable")
+            context = RenderContext(use_parent_projection=True, use_parent_modelview=True)
+            context.shader.vs = VERTEX_SHADER
+            context.shader.fs = FRAGMENT_SHADER
+            if not context.shader.success:
+                raise RuntimeError("Endpoint texture shader failed to compile")
+        except Exception:
+            # 退回 Line 路径: ① 桶不能停在"只建下标"模式 ② 预留必须补回来,
+            # 否则回退路径一个图元都没有(池子是空的)。
+            self._stream_np_only = False
+            self._reserve_stream_lines()
+            raise
         # 用 RenderContext 的 __setitem__ 设 uniform(shader[...] 在 Kivy 2.3.0 上不支持
         # 下标赋值, 2.3.1 才加 —— 设备上是 2.3.0, 写 context.shader[...] 会 TypeError 崩)。
         context[TEXEL_STEP_UNIFORM] = TEXEL_STEP

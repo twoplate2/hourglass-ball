@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 ORIGIN_MODE = os.environ.get("HG_SMOKE_ORIGIN", "smooth")
 assert ORIGIN_MODE in ("flat", "linear", "smooth")
-RANGE_RATIO = float(os.environ.get("HG_SMOKE_RANGE", str(1.0 / 3.0)))
+# ⚠️ 这里**不能**写 `m.SPLASH_RANGE_FLOOR` —— `import main as m` 在下面第 21 行,
+#    在这之前引用它是 undefined name(CI 有一条 pyflakes 早退闸门专抓这个)。
+#    基准值随生产走时, 改 `main.SPLASH_RANGE_FLOOR` 要同步改这里。
+RANGE_RATIO = float(os.environ.get("HG_SMOKE_RANGE", "0.25"))
 assert 0.0 < RANGE_RATIO <= 1.0
 
 with tempfile.TemporaryDirectory(prefix="splash-origin-") as home:
@@ -63,8 +66,10 @@ with tempfile.TemporaryDirectory(prefix="splash-origin-") as home:
                 w.set_duration(period)
                 w.reset()
                 blend = w._splash_origin_blend
-                assert abs(w._splash_speed_scale ** 2 - (1.0 + 2.0 * blend) / 3.0) < 1e-12
-                if abs(RANGE_RATIO - 1.0 / 3.0) > 1e-12:
+                assert abs(w._splash_speed_scale ** 2
+                           - (m.SPLASH_RANGE_FLOOR
+                              + (1.0 - m.SPLASH_RANGE_FLOOR) * blend)) < 1e-12
+                if abs(RANGE_RATIO - m.SPLASH_RANGE_FLOOR) > 1e-12:
                     w._splash_speed_scale = math.sqrt(RANGE_RATIO + (1.0 - RANGE_RATIO) * blend)
                 if ORIGIN_MODE != "smooth":
                     narrow, wide = w._neck_width_limits()
