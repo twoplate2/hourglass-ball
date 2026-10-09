@@ -68,18 +68,33 @@ void main(void) {
     //    ⚠️ **`SAND_SEAM_BAND = 0` 时 `smoothstep` 退化成阶跃 ⇒ 逐字等于旧行为**
     //      (球区取球那套、颈区取颈那套), 所以这是个纯"过渡"改动, 可无损回退。
     //    ⚠️ 颈那侧 `v` 会为负 ⇒ 必须 `fract`(纹理本来就按可平铺噪声用, `grain()` 里也 fract)。
+    // 🔴 **2026-10-09 修: 这两行原来是 `SAND_NECK_UV_ANCHOR` / `SAND_SEAM_BAND`, 而这两个
+    //    名字**全仓库没有任何 `#define`** —— 它们是**大写伪装成宏的未声明标识符**;
+    //    真正的 uniform 叫小写 `sand_neck_anchor` / `sand_seam_band`(见 `GRAIN_FRAGMENT_HEADER`
+    //    与 `SandFlowContext.__init__` 的 `self["sand_neck_anchor"]`)。
+    //    再加上 `float diameter` **声明在第一次使用之后** ⇒ **整个 fragment shader 编译失败**:
+    //        ERROR: 0:58/0:59/0:63: 'diameter' : undeclared identifier
+    //        ERROR: 0:60: 'SAND_NECK_UV_ANCHOR' : undeclared identifier
+    //        ERROR: 0:63: 'SAND_SEAM_BAND' : undeclared identifier
+    //    ⇒ `SandFlowContext.__init__` 抛 RuntimeError ⇒ `main.py:6338` 捕获 ⇒
+    //      `_sand_flow_contexts = ()` ⇒ **上球/颈部的 GPU 平流整条不执行**, 退回静态材质。
+    //    后果(用户 2026-10-09 报 + 录像实测): **上球沙子一个像素都不动** ——
+    //      v2.13(15:24 提交) 上球沙体隔 8 帧变化 **23.6% / 23.5% / 22.2%**;
+    //      v2.19 同期 **0.00%, max 通道差 0**。设备 logcat 同步复现同一组报错。
+    //    引入于 **2.17 `0e478c0`**(颈部交界做过渡); 2.18 只把带宽设 0 而**没有修 shader 源码**,
+    //    所以"等于旧行为"没有兑现 —— 旧行为是**有平流**的。
+    float diameter = max(2.0, sand_geometry.y * 2.0);
     vec2 uv_ball = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                         (sand_position.y - sand_geometry.z) / diameter);
-    vec2 uv_neck = vec2(uv_ball.x, SAND_NECK_UV_ANCHOR - uv_ball.y);
+    vec2 uv_neck = vec2(uv_ball.x, sand_neck_anchor - uv_ball.y);
     // ⚠️ 带宽是**球直径的比例**不是像素 —— 桌面 400×800(直径≈196) 与平板 1904×2890
     //    (直径≈1132) 差 5.8 倍, 写死像素会在平板上缩得看不见。
-    float seam_b = SAND_SEAM_BAND * diameter;
+    float seam_b = sand_seam_band * diameter;
     float seam_w = (seam_b > 0.0)
         ? smoothstep(-seam_b, seam_b, sand_position.y - sand_geometry.z)
         : step(0.0, sand_position.y - sand_geometry.z);
     vec4 original = mix(texture2D(texture0, fract(uv_neck)),
                         texture2D(texture0, uv_ball), seam_w);
-    float diameter = max(2.0, sand_geometry.y * 2.0);
     vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                    (sand_position.y - sand_geometry.z) / diameter);
     vec2 from_mouth = vec2((sand_position.x - sand_geometry.x) / diameter,
