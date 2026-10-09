@@ -2248,3 +2248,41 @@ return n
 守卫: `tools/_probe_first_contact_extra.py`(判据①②③, 自带负对照用法) ·
 A/B 渲染 `tools/_splash_ab_frames.py`(**版本无关**, 2.9/2.10/2.11 的树都能跑)。
 `_render_golden`: 改前翻红(负对照) → 重标 → 60/60 一致。
+
+## 🔴 材质路径下颈部颗粒层"连建都不建"(2026-10-09, 2.12)
+
+**用户报的(转述另一位 AI 的观察)**:「颈部颗粒层在 GPU 材质路径下是个**挂着的死层** —— 每帧白走、一个像素都不画」。
+用户要求「换 ai 确认,确认成功就去修」⇒ 走了**跨模型确认 → 修复**这条路。
+
+**代码事实**(`main.py` `redraw` 的绘制点是硬分支):
+
+    if self._sand_flow_contexts and self._sand_material is not None:
+        context.update_flow(...)          # ← 材质路径
+    else:
+        self._draw_neck_grains(side)      # ← 只有这条才画
+
+⇒ 材质成功时那 320 对 `Color+Line` **永远不画**,但照样常驻画布、每帧 `apply()`,
+而且 `_collect_warm_jobs` 还会为它**白建 32 块顶点表**。
+
+**改法**: `_build_dynamic_canvas` 里用**与绘制点完全同一个条件**决定建不建那层
+(`self._neck_grain_group = None` / 否则照旧建 + 挂)。`install_neck` 的 wrapper 见
+`group is None` 直接 `_neck_batches = None` ⇒ **32 个颈批与 32 个预热作业一起消失**(那条分支早就存在)。
+
+**实测(出货渲染器配置)**:
+
+| 检查 | 结果 |
+|---|---|
+| 画布指令(`_probe_canvas_instr.py`) | **327 → 262**(−65, 整个 neck 族) |
+| 预热队列 | **73 → 41 块**(−32) |
+| `_render_golden --check` | **两臂各 60/60 逐图一致**(0 像素差) |
+| `test_physics_equiv.py` | PASS(判别性 4696 次命中) |
+| **回退三口** | `HG_SAND_FLOW=0` / `HG_SAND_MATERIAL=flat` / shader 编译失败 ⇒ 这层**照旧是活的** |
+
+⚠️ **判别量是 `len(_neck_grain_pool)`(材质=0 / 回退=320)**,不是"两分支都建成空 list" ——
+2026-10-09 的对抗审查把后者**实测证伪**(`main.py:6188` 无条件清空一次,但 **append 只在 else**);
+该错句曾被我写进 AP 简报,两位专家各自 census 推翻。**判据:A10 的验收就读这个 len 双量。**
+
+⚠️ **本项目前科**:1.215/1.216 动"颈部少挂 Color 指令"产出过 13000px 说不清的差异,两次回退。
+本改动**过了** `_render_golden --check` 逐图 0 差异 ⇒ 与那两次不同,是"删掉了证明不画的功"。
+
+**未做的事(留档)**:那一层**没有删**,只是材质路径下不建 —— 回退路径仍需要它。

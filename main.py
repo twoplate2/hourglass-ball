@@ -6173,17 +6173,33 @@ class HourglassWidget(Widget):
             self._surface_marker_group.add(_c)
             self._surface_marker_group.add(_l)
             self._surface_marker_pool.append((_c, _l))
-        self._neck_grain_group = InstructionGroup()
-        self.canvas.add(self._neck_grain_group)
+        # 🔴 **2026-10-09: 材质路径下这一层"连建都不建"**(跨模型两位独立确认)。
+        #    `redraw` 的绘制点是硬分支: `if _sand_flow_contexts and _sand_material is not None`
+        #    走 `context.update_flow(...)`、**else** 才调 `_draw_neck_grains` ⇒ 材质路径下
+        #    这一层**永远不画**(实测: 60 帧 0 次调用, 两条路径都测了)。
+        #    但它照样常驻画布每帧 apply: 桌面 `line` 档 **961 条**, 出货 batch 档 **65 条**
+        #    (普查实测 327→262, 差 65 = 整个 neck 族);
+        #    而且 `_collect_warm_jobs` 还会为它**白建 32 块**顶点表(材质路径下永远不喂)。
+        #    ⇒ 不建 ⇒ `install_neck` 的 wrapper 见 `group is None` 直接 `_neck_batches = None`,
+        #      32 个颈批与 32 个预热作业**一起消失**(那条分支早就在, 不用改)。
+        #    ⚠️ **回退路径必须一字不变**: `HG_SAND_FLOW=0` / `HG_SAND_MATERIAL=flat` /
+        #      shader 编译失败时 `_draw_neck_grains` 是**活的**, 这层照旧要建。
+        #    ⚠️ 本项目有前科: 1.215/1.216 动"颈部少挂 Color 指令"产出过 13000px 说不清的差异,
+        #      两次回退。本改动**必须**过 `_render_golden --check` 逐图 0 差异, 否则回退。
         self._neck_grain_pool = []
         self._neck_grain_count = 0
-        # Project existing grains upstream; they do not add physics particles.
-        for _ in range(320):   # 🔴 128→320: 15s 档候选 281 ⇒ 原池丢 54%(丢的是喇叭口那批)
-            color = Color(*self.sand_base)
-            line = Line(points=[], width=1)
-            self._neck_grain_group.add(color)
-            self._neck_grain_group.add(line)
-            self._neck_grain_pool.append((color, line))
+        if self._sand_flow_contexts and self._sand_material is not None:
+            self._neck_grain_group = None          # 不建、不挂 ⇒ 0 条指令、0 次 apply
+        else:
+            self._neck_grain_group = InstructionGroup()
+            self.canvas.add(self._neck_grain_group)
+            # Project existing grains upstream; they do not add physics particles.
+            for _ in range(320):   # 🔴 128→320: 15s 档候选 281 ⇒ 原池丢 54%(丢的是喇叭口那批)
+                color = Color(*self.sand_base)
+                line = Line(points=[], width=1)
+                self._neck_grain_group.add(color)
+                self._neck_grain_group.add(line)
+                self._neck_grain_pool.append((color, line))
 
         with self.canvas:
             self._contact_grain_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
