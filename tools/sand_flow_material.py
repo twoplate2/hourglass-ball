@@ -5,6 +5,7 @@ Only grain detail is advected; the palette and broad lighting stay in world spac
 """
 
 import math
+import os
 
 from kivy.graphics import Color, Mesh, RenderContext
 
@@ -32,6 +33,8 @@ uniform float sand_clock;
 uniform float sand_mix;
 uniform vec3 sand_tail; // mean top, grain-front amplitude, tube half-width
 uniform vec4 sand_free; // outlet y, 边缘松散度, tube half-width, 前沿 y (<=0 关闭)
+uniform float sand_seam_band;   // 交界过渡半带宽(**球直径的比例**); <=0 ⇒ 阶跃(旧行为)
+uniform float sand_neck_anchor; // 颈部那套 UV 的 v 锚点(= main.py 的 NECK_UV_ANCHOR)
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -55,7 +58,27 @@ float grain(vec2 uv) {
 
 FRAGMENT_SHADER = GRAIN_FRAGMENT_HEADER + """
 void main(void) {
-    vec4 original = texture2D(texture0, tex_coord0);
+    // 🔴 **2026-10-09: 交界处做过渡。** 用户报的:「上面沙漏瓶子沙子的渲染, 和沙流沙柱的
+    //    渲染, 这2个渲染是不同的, 所以可以看到界限」—— 放大看确认为**质地变了**(球那头
+    //    颗粒明显、细柱那头平), 不是一条硬线。用户要「做个过渡」。
+    //    做法: 把**两边各自的取样式逐字写出来**, 按到交界的距离交叉淡入淡出 ——
+    //      · 球那套: 矩形 `tex_coords` = 按高度截的完整纹理 ⇒ `v = (y − 上球沙底)/直径`
+    //      · 颈那套: `v = NECK_UV_ANCHOR + (上球沙底 − y)/直径`
+    //    交界 = `sand_geometry.z`(= 上球沙底), 正好是 shader 已有的量。
+    //    ⚠️ **`SAND_SEAM_BAND = 0` 时 `smoothstep` 退化成阶跃 ⇒ 逐字等于旧行为**
+    //      (球区取球那套、颈区取颈那套), 所以这是个纯"过渡"改动, 可无损回退。
+    //    ⚠️ 颈那侧 `v` 会为负 ⇒ 必须 `fract`(纹理本来就按可平铺噪声用, `grain()` 里也 fract)。
+    vec2 uv_ball = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
+                        (sand_position.y - sand_geometry.z) / diameter);
+    vec2 uv_neck = vec2(uv_ball.x, SAND_NECK_UV_ANCHOR - uv_ball.y);
+    // ⚠️ 带宽是**球直径的比例**不是像素 —— 桌面 400×800(直径≈196) 与平板 1904×2890
+    //    (直径≈1132) 差 5.8 倍, 写死像素会在平板上缩得看不见。
+    float seam_b = SAND_SEAM_BAND * diameter;
+    float seam_w = (seam_b > 0.0)
+        ? smoothstep(-seam_b, seam_b, sand_position.y - sand_geometry.z)
+        : step(0.0, sand_position.y - sand_geometry.z);
+    vec4 original = mix(texture2D(texture0, fract(uv_neck)),
+                        texture2D(texture0, uv_ball), seam_w);
     float diameter = max(2.0, sand_geometry.y * 2.0);
     vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                    (sand_position.y - sand_geometry.z) / diameter);
@@ -124,6 +147,8 @@ class SandFlowContext(RenderContext):
         self["sand_mix"] = 0.0
         self["sand_tail"] = (0.0, 0.0, 1.0)
         self["sand_free"] = (0.0, 0.0, 1.0, 0.0)
+        self["sand_seam_band"] = float(os.environ.get("HG_SEAM_BAND", "0.06"))
+        self["sand_neck_anchor"] = float(os.environ.get("HG_SEAM_ANCHOR", "0.021"))
         self._material_key = None
         self._clock_key = None
         self._tail_key = None
