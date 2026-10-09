@@ -35,8 +35,8 @@ import numpy as np
 #    (如 `tools/test_physics_equiv.py` 的对照) 一个不会各自漂移的默认。
 #    历史: 测试里原来**手抄**了 `40.0` —— 2026-10-09 把 ramp 摊到 200px 时两边立刻分叉,
 #    正是这道闸门把它抓红的。
-DEFAULT_SHRINK_RAMP = 200.0
-DEFAULT_SHRINK_MIN = 0.50
+DEFAULT_SHRINK_RAMP = 92.0
+DEFAULT_SHRINK_MIN = 0.87
 
 
 def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):

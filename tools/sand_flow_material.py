@@ -145,7 +145,10 @@ void main(void) {
         float u = 0.5 + (sand_position.x - sand_geometry.x) / (2.0 * sand_free.z);
         float n = grain(vec2(u, sand_clock * 0.25 + 0.53));
         float n2 = grain(vec2(1.0 - u, sand_clock * 0.25 + 0.29));
-        float rim = smoothstep(0.62, 1.0, abs(u) * 2.0);
+        // 🔴 2026-10-09: 打边带 0.62 -> 0.45 —— 用户第三条要求「宽度就有一定随机,
+        //    否则就是一个矩形了」。实测 0.62 时边缘起伏只有 rms 1.8px(底宽 44px 的 4.1%),
+        //    偏弱; 拓到 0.45 让外侧 28% 参与打散。
+        float rim = smoothstep(0.45, 1.0, abs(u) * 2.0);
         coverage *= 1.0 - rim * (0.25 + 0.75 * clamp(u < 0.5 ? n : n2, 0.0, 1.0))
                           * sand_free.y;
     }
