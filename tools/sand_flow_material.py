@@ -242,13 +242,29 @@ void main(void) {
     //    `HG_ADV_CONT` 两臂, 差 **5894 px**; 我先前那个窗口落在**空玻璃**上, 所以量到 0 —— 又踩一次)。
     float adv = (sand_adv_cont > 0.0
                  && sand_free.x > 0.0 && sand_position.y < sand_free.x) ? t : a;
+    // 🔴 **2026-10-11: 自由段**关掉第二相位**(`sec = 0`)。**
+    //    两件事:
+    //    ① **它是多余的**: 第二相位的全部作用是"藏住 `fract` 的回跳", 而自由段
+    //       现在用**连续时间 `adv = t`**, 根本没有回跳可藏。
+    //    ② **它带着一个真 bug**: `n2`(右边那条边)原来喂的是 `b = fract(t+0.5)`,
+    //       那是**另一条时间轴**、净位移恒为 0 ⇒ **右边不动、左边在动**, 两条边会错开。
+    //       现在 `sec = 0` ⇒ 两条边都走 `adv`(同速)。
+    //    ⚠️ **我一度以为它也解释了 K=1 下"材质朝上 250px/s"** —— **那是错的**:
+    //      关掉第二相位之后实测**仍然 −250**(见 `sand_free_drift` 那段)。
+    //      真因是**周期性纹理的车轮效应**(探针在 dt=0.004 下的量子就是 250px/s)。
+    //    `sec = 1` 的区域 ⇒ **逐字旧行为**。
+    float sec = (sand_adv_cont > 0.0
+                 && sand_free.x > 0.0 && sand_position.y < sand_free.x) ? 0.0 : 1.0;
     float delta = luma(texture2D(texture0, fract(uv)).rgb) - luma(sand_base);
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
     vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
-    float ga = grain(uv - velocity * adv + floor(t) * jump);
-    float gb = grain(uv - velocity * (adv + 0.5) + floor(t + 0.5) * jump + vec2(0.5));
-    float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
+    float ga = grain(uv - velocity * adv + floor(t) * jump * sec);
+    float gb = grain(uv - velocity * (adv + 0.5 * sec)
+                     + floor(t + 0.5) * jump * sec + vec2(0.5));
+    float detail = (sec < 0.5)
+        ? ga
+        : (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
     vec2 luv = (sand_wrap_light > 0.0) ? vec2(uv.x, fract(uv.y)) : uv;
     float tone = clamp(lighting(luv) + detail, -1.0, 1.0);
     vec3 target = tone >= 0.0 ? sand_light : sand_dark;
@@ -287,9 +303,12 @@ void main(void) {
                         (sand_free.x - sand_position.y) / diameter);
         vec2 evel = vec2(velocity.x, -velocity.y);
         vec2 ejmp = vec2(jump.x, -jump.y);
-        float n = grain(euv - evel * adv + floor(t) * ejmp);
-        float n2 = grain(vec2(1.0 - euv.x, euv.y) - evel * b
-                         + floor(t + 0.5) * ejmp + vec2(0.37, 0.11));
+        // ⚠️ 自由段 `sec=0` ⇒ 两条边都走 `adv`(**同速**)。原来 n2 用的是 `b = fract(t+0.5)`
+        //    —— 那是**另一条时间轴**, 净位移恒为 0 ⇒ **右边不动、左边在动**, 两条边会错开。
+        float adv2 = (sec < 0.5) ? adv : b;
+        float n = grain(euv - evel * adv + floor(t) * ejmp * sec);
+        float n2 = grain(vec2(1.0 - euv.x, euv.y) - evel * adv2
+                         + floor(t + 0.5) * ejmp * sec + vec2(0.37, 0.11));
         // 🔴 **2026-10-10: `euv.y` 是"从出口往下量" ⇒ 向下为正, 而 `velocity`/`jump`
         //    是按**球体 uv(y 向上)**定的 ⇒ y 分量必须翻号。**
         //    不翻的后果(**分场实测**, 调试通道 `uvdebug` 3(覆盖率) vs 4(颗粒), 同一状态、
@@ -339,7 +358,7 @@ void main(void) {
             vec2 huv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                             (sand_free.x - sand_position.y) / diameter);
             // ⚠️ `huv.y` 同样向下为正 ⇒ 用翻过号的 `evel`/`ejmp`(见上面 `euv` 那段实测)。
-            float hn = grain(huv - evel * adv + floor(t) * ejmp);
+            float hn = grain(huv - evel * adv + floor(t) * ejmp * sec);
             // 🔴 **2026-10-10 补: 出口处必须渐入。**
             //    `sand_free.x`(= 出口)是这套掩码的**硬边界**: 出口以上 coverage 恒 1、
             //    以下才打洞 ⇒ `step` 正好在出口那一行造出一条**横向分界线**。
@@ -495,6 +514,16 @@ class SandFlowContext(RenderContext):
                 ("sand_bite", "HG_SAND_BITE", "sandbite", 0.15),
                 ("sand_alpha", "HG_SAND_ALPHA", "sandalpha", 0.93),
                 # 出口以下的漂移速度系数: 0 = 关(= 逐字等于旧行为), 1.0 = 完全跟自由落体
+                # ⚠️ **2026-10-11: 试过 0.0 → 1.0, 又退回 0.0 —— 它是错的解药。**
+                #    用户的诉求(「沙柱下落的时候速度应该几乎一样…有的沙子速度非常慢」)
+                #    指向这一条, 但**实测否决**: K 扫描(清粒子, dt=0.004, 行1290):
+                #        K=0.05 期望 +26 → 实测 **0**
+                #        K=0.4  期望+206 → 实测 **−250**(z 82)
+                #        K=1.0  期望+514 → 实测 **−250**(z 40)
+                #    `−250px/s` 正是探针在 dt=0.004 下的**最小量子(1px/帧)**,
+                #    且**与 K 无关** ⇒ 这是**周期性纹理的车轮效应**: 材质纹理特征尺度只有
+                #    ~3px, 8px/帧时任何速度都读不出来。**⇒ 把底纹加速不是解药,
+                #    它只会变成频闪/倒转。** 快的运动只能靠**模糊**(粒子拖尾)表达。
                 ("sand_free_drift", "HG_FREE_DRIFT", "freedrift", 0.0),
                 # 二值洞的阈值: <0 = 关(逐字旧行为); **越大洞越多**(step(th,hn))。
                 # 🔴 2026-10-10 定为出货默认 0.10（配合 `main.TRAIL_SCALE = 0.8`）。
