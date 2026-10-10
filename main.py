@@ -7222,7 +7222,12 @@ class HourglassWidget(Widget):
                 if _ln.points:
                     _ln.points = []
         self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
-        if not NECK_MOUNDSHAPE_OFF:
+        if NECK_MOUNDSHAPE_OFF:
+            # 真清空(不是跳过): 跳过会让指令留在画布上继续画上一帧
+            for _b in (self._mound_carve, self._mound_band):
+                if _b is not None:
+                    _b.clear(); _b.flush()
+        else:
             self._draw_mound_shape(h_mound)
         # The shared surface, not an independent completion timer, owns the neck.
         side = self._neck_sand_side()
@@ -7283,8 +7288,7 @@ class HourglassWidget(Widget):
         # `_build_dynamic_canvas` 里的注释); `neck_flow is None` 时主带本来就在外面,
         # 不需要第二条。
         fband = getattr(self, "_neck_free_band", None)
-        if NECK_FREE_OFF:          # 消融: 只清"自由段带"(不动主带)
-            fband = None
+
         fn = len(fband) if fband is not None else 0
         fi = 0
 
@@ -7330,6 +7334,11 @@ class HourglassWidget(Widget):
                 _emit(quads, i, x0, y0, x1, y1)
             else:
                 quads.zero(i)
+        if NECK_FREE_OFF:          # 消融: 只清"自由段带"(真清空, 不是把段挪回主带)
+            for _k in range(fn):
+                fband.zero(_k)
+            fi = fn
+            fband.clear(); fband.flush()
         for _k in range(fi, fn):
             fband.zero(_k)
         if fband is not None:
