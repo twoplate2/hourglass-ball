@@ -440,9 +440,17 @@ class SandFlowContext(RenderContext):
                 # 由 `main.NECK_FREE_RAMP_TUBES`(单位=颈管高的倍数)换算后喂进来。
                 ("sand_free_ramp", "HG_FREE_RAMP", "freeramp", 0.0),
                 # 颈部不许比球底更暗: 0 = 旧行为(颈管被压暗成高反差斑块)
-                ("sand_neck_light", "HG_NECK_LIGHT", "necklight", 0.0),
+                # 🔴 **2026-10-10 出货默认 0.0 → 1.0**。用户 2.37 截图(蓝沙):
+                #    「这个叫修了?」—— 整条柱子**比上球沙体与沙堆都暗**。
+                #    实测(PC 400×875 / 蓝沙 / t=7.40, 管内均值 vs 出口以下均值):
+                #        默认 0  → 差 **+2.4**       两个都开 → 差 **+0.2**
+                #    注释里原本就写着「用户看到的『颜色分层非常明显』就是它」, 只是没落到默认值。
+                ("sand_neck_light", "HG_NECK_LIGHT", "necklight", 1.0),
                 ("sand_uv_debug", "HG_UV_DEBUG", "uvdebug", 0.0),
-                ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 0.0),
+                # 🔴 **2026-10-10 出货默认 0.0 → 1.0**: `tone` 的 `lighting` 必须与
+                #    `grain()` 里减掉的那一个用**同一个坐标**, 否则颈部多出一个系统偏置
+                #    (实测颈部 |tone| 0.227 vs 上球 0.112 —— 2 倍, 画面上就是"斑块")。
+                ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 1.0),
                 ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
