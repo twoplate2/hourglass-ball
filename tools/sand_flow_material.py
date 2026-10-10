@@ -242,8 +242,17 @@ void main(void) {
         // 两条边**各用各的噪声**(不是镜像: 玻璃没了, 没有"平均宽度不变"这条约束),
         // 于是宽度会随深度呼吸, 边缘毛掉; 内 62% 保持实心。
         float u = 0.5 + (sand_position.x - sand_geometry.x) / (2.0 * sand_free.z);
-        float n = grain(vec2(u, sand_clock * 0.25 + 0.53));
-        float n2 = grain(vec2(1.0 - u, sand_clock * 0.25 + 0.29));
+        // 🔴 **2026-10-10: 边缘场也必须含 y、而且被平流** —— 与下面洞场**同一条教训**。
+        //    `n`/`n2` 原来的第二个采样坐标是 `sand_clock * 0.25`(**整帧同值**)
+        //    ⇒ 同一帧里沿 y 恒定 ⇒ 两条边在**构造上就是笔直的竖线**,
+        //    宽度不会"随深度呼吸"(`sand_clock` 只让整条边**整体**左右呼吸)。
+        //    用户判词:「沙柱就只有一个问题了, **边缘是个竖线 太规整了**, 和现实中的差异太大」。
+        //    修法与洞场逐字同款(洞场当年就是被这条咬过才改的, 见下面 `hn` 那段的注释):
+        //    按球径归一的**二维**坐标 + `flowing` 那一套平流偏移 ⇒ 边随沙走、跟着落。
+        vec2 euv = vec2(u, (sand_free.x - sand_position.y) / diameter);
+        float n = grain(euv - velocity * a + floor(t) * jump);
+        float n2 = grain(vec2(1.0 - u, euv.y) - velocity * b
+                         + floor(t + 0.5) * jump + vec2(0.37, 0.11));
         // 🔴 **2026-10-10 修 D1: 掩码位置错了。**
         //    `u` 在 左缘=0 / 中轴=0.5 / 右缘=1 ⇒ 原来的 `abs(u)*2` 是
         //    **左缘 0、中轴 1、右缘 1** ⇒ 与"两条边毛掉、内 62% 实心"**正好相反**
@@ -419,8 +428,13 @@ class SandFlowContext(RenderContext):
         #     adb shell "echo 0.93 > <app>/sandalpha"    # 覆盖率上限
         #     删掉文件 = 回出厂默认
         for _key, _env, _fname, _dflt in (
-                # 🔴 **2026-10-10 出货默认 0.35 → 0.85**(设备实测定的, 见 `sand_core` 的注释)。
-                ("sand_core", "HG_SAND_CORE", "sandcore", 0.85),
+                # 🔴 **2026-10-10 三次裁定: 0.35 → 0.85 → **0.6**。**
+                #    0.85 是压"白毛"时定的, 但它把打散压到**外侧只有 7.5% 半宽**
+                #    (20px 的柱子上不到 1 像素) ⇒ 差**亚像素** ⇒ 边场等于没做。
+                #    用户随后判词:「沙柱就只有一个问题了, **边缘是个竖线 太规整了**,
+                #    和现实中的差异太大」。0.6 让外侧 40% 半宽参与 ⇒ 边缘可见地起伏。
+                #    白毛的真因是**没有渐入**(`sand_free_ramp`), 那个已经修好了。
+                ("sand_core", "HG_SAND_CORE", "sandcore", 0.6),
                 ("sand_edge", "HG_SAND_EDGE", "sandedgemul", 1.0),
                 ("sand_bite", "HG_SAND_BITE", "sandbite", 0.15),
                 ("sand_alpha", "HG_SAND_ALPHA", "sandalpha", 0.93),
