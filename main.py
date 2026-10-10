@@ -1591,6 +1591,41 @@ def _trail_scale_probe():
         return None
 
 
+def _stream_spread_probe():
+    """粒子**出生点沿 y 摊开的范围**(设备像素)。`HG_STREAM_SPREAD` 环境变量优先,
+    其次与 main.py 同目录的 `streamspread` 标记文件。默认 0 = 逐字旧行为。
+
+    为什么要有它: 所有粒子都在同一条 y(`gen_y`)上出生 ⇒ 粒子层的**上边缘是一条几何直线**,
+    而出口以上只有材质面 ⇒ 用户看到一条"死横线"(实测: 柱心高通 std 在出口由 2.1 跳到 3.9,
+    再往下 9.5~23)。摊开之后那条边缘变成一条有范围的随机带。
+    """
+    env = os.environ.get("HG_STREAM_SPREAD")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "streamspread"), "r") as fh:
+            text = fh.read().strip()
+        return float(text) if text else None
+    except Exception:
+        return None
+
+
+_SPREAD = _stream_spread_probe()
+# 🔴 **2026-10-10 定为出货默认 2.0 × 直筒高度**(瓶颈 = `_tube_h = h*0.055`)。
+#    用户:「过渡层不用太高, 不超过瓶颈高度的 2 倍吧。或者 1 倍」(1× / 2× 都行, 我定)
+#    标定(桌面 1904×2890, tube_h=159px; 柱心 ±25px 高通std, 出口以上 1.83 为基准):
+#        spread 0   → 刚过出口 3.93  (阶跃 2.15×)
+#        spread 140 = 0.88×tube    → 3.23  (1.76×)   ← 1× 基本没用
+#        spread 320 = 2.0×tube     → 2.72  (1.49×)   ← **选定**
+#        spread 700 = 4.4×tube     → 1.65  (0.90×)   ← 线没了, 但柱子明显变稀
+#    ⇒ 取用户给的上限 2×: 1× 实测几乎无效, 再大就开始牺牲密度。
+#    ⚠️ 是**比例的**不是像素 —— 写死像素会在平板/手机上差好几倍。
+STREAM_SPREAD_RATIO = 2.0 if _SPREAD is None else max(0.0, _SPREAD)
+
 TRAIL_SCALE = _trail_scale_probe()
 # 🔴 **2026-10-10 定为出货默认 0.8**（用户对着 `benchmark_logs/_vid/ladder2.png` 判的：
 #    「最右边 2 个的沙子更真实，不过太稀疏了」⇒ 要那两格的质感、但更密）。
@@ -5237,7 +5272,16 @@ class HourglassWidget(Widget):
                 i = self.pn
                 self.px[i] = cx + x_off
                 self.pxo[i] = x_off
-                self.py[i] = gen_y
+                # 🔴 **2026-10-10: 出生点沿 y 随机摊开 —— 消掉出口那条"死横线"。**
+                #    用户:「表现的随机一些, 有个范围, 而不是一直在某个横线前后变化」。
+                #    实测(桌面 1904×2890, t=7.64, 柱心 ±25px 的高通 std):
+                #        出口以上 = 0.7~2.5(只有材质面) → 出口 = 3.9 → 再往下 = 9.5~23(粒子)
+                #    阶跃正好落在出口 —— 因为**所有粒子都在同一条 y 上出生**
+                #    (`gen_y`), 粒子层的上边缘是一条几何直线。
+                #    ⚠️ **不能新抽随机数**: 那会平移整条随机数流、把同 seed 的逐像素对照全废掉。
+                #    改用**已经抽好的** `phase` 推偏移(均匀分布于一个周期内) —— 逐位等价的老闸门
+                #    在 `STREAM_SPREAD_RATIO = 0` 时照样成立。
+                self.py[i] = gen_y - phase / math.tau * (STREAM_SPREAD_RATIO * self._tube_h)
                 self.pvy[i] = vy0
                 self.pwp[i] = phase
                 self.pwa[i] = amp
