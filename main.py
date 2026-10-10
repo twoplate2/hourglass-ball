@@ -506,6 +506,8 @@ SAND_PREVIEW_SIZE = 128
 # 代价: 每个沙体**新增一次局部绘制**(面积≈可见弦长×带宽), 不是零成本 —— 要单独计费。
 SAND_SURFACE_BAND = 3.0     # 带宽(逻辑像素)
 SAND_SURFACE_ALPHA = 0.55   # 亮度上限(轻推, 不是白线; 0.32 时被颗粒噪声淹没)
+SAND_BAND_NECK_FADE = 20.0  # 锥顶离颈部还有多少 px 时把沙堆亮带淡到 0
+MOUND_BAND_NECK_FADE = _neck_marker("moundbandfade")
 SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 # ⚠️ **满球时没有自由表面** —— 亮带(横跨直径的一条 3px 矩形)会被球面 stencil 裁成一个
 #    贴着内壁顶点的**透镜形亮弧**(实测 57px 宽 × 3px 高), 眼睛读成"沙和玻璃顶之间有缺口"
@@ -6679,8 +6681,18 @@ class HourglassWidget(Widget):
         bottom = self._lower_sand_bot
         top = bottom + 2.0 * self._R_inner + MOUND_CREST_MARGIN   # == redraw 里矩形的顶
         apex = self._mound_apex()
-        self._mound_band_color.a = SAND_SURFACE_ALPHA * min(
-            1.0, max(0.0, h_mound / SAND_SURFACE_FADE))
+        _mb = SAND_SURFACE_ALPHA * min(1.0, max(0.0, h_mound / SAND_SURFACE_FADE))
+        if MOUND_BAND_NECK_FADE:
+            # 🔴 **2026-10-10: 锥顶逼近颈部时把亮带淡掉。**
+            #    实测(PC 400x875, 10s 档 t=8): 堆涨上来后, 这条 `sand_light` 高光带正好落在
+            #    颈部下沿, 在 16px 宽的柱子里读成一块**平的、亮 4~7 级**的纯色条
+            #    (x∈[194,209] 行∈[460,472], 命中 314 px, 色 (221,170,101) =
+            #     `sand_light` 按 α=0.31 叠加 ⇒ 正是 0.55 × 堆高淡入 0.57)。用户报的"颜色分层"。
+            #    上球那条带 (`_upper_band_color`) 有 `(1-apex_fade)`, 但那只在接近满球时起作用,
+            #    管不到这里 —— 这里要的是"锥顶接近颈部"这个条件。
+            _gap = (self._lower_y_c + self._R_inner) - (self._lower_sand_bot + apex)
+            _mb *= min(1.0, max(0.0, _gap / SAND_BAND_NECK_FADE))
+        self._mound_band_color.a = _mb
         knots = self._mound_knots(apex)
         cols = []
         # ★ **每列只解一次 `bounds` / `shape_at`**(2026-10-06 性能, 外部评审 §5.1 的实例)。
