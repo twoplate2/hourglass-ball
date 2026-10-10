@@ -4300,10 +4300,17 @@ class HourglassWidget(Widget):
                 #    速度剖面 `v(x) = v0·sqrt(1-(x/R)²)` 中间快(Janda 等在 2D 料斗孔口的
                 #    自相似实测), 所以**中轴领先、两边落后**。
                 #    `HG_NECK_DOME` = 边缘比中轴高出的量, 以**半宽**为单位(0 = 平头 = 2.14)。
-                # 🔴 **2026-10-10**: 穹顶再按"前沿已经落下去多远"封顶(见 `NECK_FRONT_DOME`)。
-                #    沙刚冒头时 `_fall ≈ 0` ⇒ 穹顶 ≈ 0 ⇒ **平着出场**, 不是先探出一个尖。
-                _fall = max(0.0, bottom - _front)
-                _bulge = min(NECK_FRONT_DOME * _w, NECK_FRONT_DOME_SPAN * _fall)
+                # 🔴 **2026-10-11 四改: 穹顶不再按 `_fall` 封顶(它把顺序搞反了), 抖动改成
+                #    按柱长**平滑渐入**(有下限, 不再出生即归零)。**
+                #    用户判词: 「刚开始的时候**有一个很尖尖的头, 突然又不尖了**, 很奇怪, 很固化」。
+                #    设备开场逐帧(10 帧)实测的序列正是: **平 → V 尖 → 突然变钝**。
+                #    根因: `_fall = bottom - _falling_front()`, 而**出生时粒子前沿还没生成**
+                #    ⇒ 它取到一个很远的 y ⇒ `_fall` 大 ⇒ 穹顶**满值**(V 尖); 真前沿一出来
+                #    `_fall` 骤降 ⇒ 穹顶≈0 ⇒ **一瞬间从尖变钝** —— 那个"固化"就是这一跳。
+                #    现在: 穹顶用**常数**(`NECK_FRONT_DOME*_w`, 不再跟前沿走),
+                #    抖动 = 满幅 × `clamp(_span/30, 0.3, 1)`(**渐入且出生就有 30%**)
+                #    ⇒ 形状连续、不跳, 且一出生就带不规则。
+                _bulge = NECK_FRONT_DOME * _w
 
                 def _front_at(_dx):
                     return _front + _bulge * (_dx / _w) ** 2 if _w > 1e-6 else _front
@@ -4362,7 +4369,9 @@ class HourglassWidget(Widget):
                     #    ⇒ 形状**不规则但连续**, 相邻节点不会跳。
                     #    ⚠️ 幅度**同时**受柱长封顶 —— 沙刚冒头时柱长只有几像素, 抖十几像素
                     #    就成了"尖刺王冠"(2.43 用户截图点名过)。
-                    _amp = min(FLOW_FRONT_WOBBLE * _w_end, 0.30 * max(_span, 1.0))
+                    # 幅度 = 满幅 × 按柱长**平滑渐入**(30px 到顶), 下限 0.3 ⇒
+                    # **出生时就有三成不规则**(不是一根光溜溜的尖), 且不跳变。
+                    _amp = FLOW_FRONT_WOBBLE * _w_end * min(1.0, max(0.3, _span / 30.0))
                     _wob = (_amp * (0.55 * math.sin(_f * 2.7 + _et * 1.3 + _ph)
                                     + 0.30 * math.sin(_f * 6.1 - _et * 2.1 + _ph * 1.7)
                                     + 0.15 * math.sin(_f * 11.3 + _et * 3.1 + _ph * 2.3)))

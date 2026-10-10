@@ -131,6 +131,13 @@ uniform float sand_ctx_tag;
 // 调试: `jump` 的 y 分量系数(默认 1.0)。两相位沿 v 的固有错开, 与 `sand_flow_vy` 合起来
 // 才能把"纵向平流抹开"这条**完整**关掉(只关 `flowvy` 不够 —— `jump.y` 仍分开 32 纹素)。
 uniform float sand_jump_y;
+// 🔴 **2026-10-11: 自由段那个颜色场的「纹理尺度」(1 = 不变, <1 = 更粗)。**
+//    用户判词: 「沙子下落的时候有 2 个速度差异大的层, **应该是速度接近、颗粒不同**」。
+//    实测(K 扫描, 见 `sand_free_drift` 那段): 材质纹理的特征尺度只有 ~3px,
+//    8px/帧时**任何速度都读不出来**(周期性纹理的车轮效应) ⇒ 把底纹挪快只会频闪。
+//    ⇒ 要让「同一个速度」能读出来, 底纹必须**更粗**(特征尺度 ≫ 每帧位移)。
+//    做法: 把整个采样参数乘一个系数(**位置与平流一起乘**) ⇒ 屏幕上速度不变、纹理变粗。
+uniform float sand_free_coarse;
 // 🔴 **2026-10-10: 平流用连续时间**(见下面 `adv` 那段)。0 = 旧行为(每周期回跳, 净位移 0)。
 uniform float sand_adv_cont;
 
@@ -259,8 +266,11 @@ void main(void) {
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
     vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
-    float ga = grain(uv - velocity * adv + floor(t) * jump * sec);
-    float gb = grain(uv - velocity * (adv + 0.5 * sec)
+    // 自由段(sec=0)把整个采样参数乘 `sand_free_coarse` —— **位置和平流一起乘**,
+    // 所以屏幕上的速度不变、只把纹理放大(颗粒变粗)。其余区域系数恒 1 ⇒ 逐字旧行为。
+    float ck = (sec < 0.5) ? sand_free_coarse : 1.0;
+    float ga = grain((uv - velocity * adv) * ck + floor(t) * jump * sec);
+    float gb = grain((uv - velocity * (adv + 0.5 * sec)) * ck
                      + floor(t + 0.5) * jump * sec + vec2(0.5));
     float detail = (sec < 0.5)
         ? ga
@@ -551,6 +561,8 @@ class SandFlowContext(RenderContext):
                 #    (实测颈部 |tone| 0.227 vs 上球 0.112 —— 2 倍, 画面上就是"斑块")。
                 ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 1.0),
                 ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0),
+                # 自由段纹理尺度(1 = 不变, <1 = 更粗)。见 `sand_free_coarse` 的注释。
+                ("sand_free_coarse", "HG_FREE_COARSE", "freecoarse", 1.0),
                 ("sand_adv_cont", "HG_ADV_CONT", "advcont", 1.0),
                 ("sand_edge_lo", "HG_EDGE_LO", "edgelo", 0.78),
                 ("sand_edge_hi", "HG_EDGE_HI", "edgehi", 1.12)):
