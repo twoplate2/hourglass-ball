@@ -39,15 +39,45 @@ def _load(label, t):
     return np.asarray(Image.open(p).convert("RGB"), dtype=float) if p.exists() else None
 
 
-def _sand_mask(row):
-    return (row[:, 0] - row[:, 2] > 40) & (row[:, 2] < 215)
+_REF = np.array([[253.0, 246.0, 227.0],     # BG_COLOR      #fdf6e3
+                 [234.0, 243.0, 248.0],     # GLASS_FILL    #eaf3f8
+                 [95.0, 107.0, 112.0]],    # GLASS_OUTLINE #5f6b70
+                dtype=float)
+# 🔴 **2026-10-10: 沙色判据改成与配色无关(1-近邻分类)。**
+#    旧版写死 `(r-b>40)&(b<215)` —— 只对**暖色沙**成立:
+#      金沙 sat≈121 ✅ 红沙 134 ✅ | 蓝沙 122(但 r−b 是**负的**) ❌ | 绿沙 106 ❌
+#      紫沙 67 ❌ | **黑沙 sat 只有 10** ❌
+#    ⇒ 六种配色里有**四种**, A1/A2/A3/A7 根本量不出来, 而它们一直挂在验收表上。
+#    第一版改成"离三个基准都 >12 就算沙" —— **失败**: 抗锯齿过渡像素被算进来,
+#    柱子每行跨度被撑大 ⇒ `WMAX` 选出的行整体偏移 ⇒ **A1 彻底失去分辨力**
+#    (已知错 1.27 / 已知对 1.11, 扫遍 WMAX 都分不开)。
+#    现在: 沙的代表色从**下球沙堆内部**自标定(那里永远是沙), 再与三个非沙基准比**谁更近**
+#    ⇒ 与配色无关、无阈值(阈值就是上一版失败的原因)。
+#    ⚠️ 改 `main.py` 里那三个常量要同步改这里。
+_SAND_PATCH = (620, 700, 180, 220)          # (y0, y1, x0, x1) 下球沙堆内部
 
 
-def _stream_rows(X, y0=280, y1=900):
+def _sand_ref(X):
+    y0, y1, x0, x1 = _SAND_PATCH
+    return X[y0:y1, x0:x1].reshape(-1, 3).mean(axis=0)
+
+
+def _sand_mask(row, ref=None):
+    """`row` 是 (N,3) 像素; 返回"是沙"的 bool。**与沙色预设无关**。"""
+    if ref is None:
+        ref = _REF.mean(axis=0)
+    refs = np.vstack([np.asarray(ref, dtype=float).reshape(1, 3), _REF])
+    d = np.abs(row[:, None, :] - refs[None, :, :]).max(axis=2)
+    return d.argmin(axis=1) == 0
+
+
+def _stream_rows(X, y0=280, y1=900, ref=None):
     """自适应取"细柱"段: 每行沙色跨度 < WMAX 且 ≥6px。"""
+    if ref is None:
+        ref = _sand_ref(X)
     rows, spans, edges = [], [], []
     for y in range(y0, min(y1, X.shape[0])):
-        xs = np.nonzero(_sand_mask(X[y]))[0]
+        xs = np.nonzero(_sand_mask(X[y], ref))[0]
         if xs.size < 6:
             continue
         w = int(xs[-1] - xs[0] + 1)
@@ -58,7 +88,7 @@ def _stream_rows(X, y0=280, y1=900):
 
 def _rowstd(X, rows):
     out = []
-    for y, (l, r) in zip(rows, _stream_rows(X)[2]):
+    for y, (l, r) in zip(rows, _stream_rows(X, ref=_sand_ref(X))[2]):
         x0, x1 = l + GAP, r - GAP
         if x1 - x0 < 6:
             continue
@@ -98,12 +128,12 @@ def check(label, t="3.00", t0="0.00"):
         a5 = "缺图"
     else:
         col = X0[560:900, 200].astype(int)
-        n = int((((col[:, 0] - col[:, 2]) > 40) & (col[:, 2] < 215)).sum())
+        n = int(_sand_mask(col, _sand_ref(X0)).sum())
         a5 = "OK(0)" if n == 0 else "!! 沙色 %d px" % n
     print("  %-16s 细柱 %3d 行(宽 %d~%d) | A1 比=%.2f %s | A2 平填行=%2d %s | "
           "A4 毛度 %.2f %s | A5 %s"
           % (label, rows.size, spans.min(), spans.max(), a1,
-             "OK" if 0.6 <= a1 <= 1.5 else "!!", a2, "OK" if a2 <= 2 else "!!",
+             "OK" if a1 >= 1.0 else "!!", a2, "OK" if a2 <= 2 else "!!",
              a4, "OK" if a4 >= 1.0 else "!!", a5))
 
 
@@ -118,7 +148,8 @@ def pair_pool(a_lab, b_lab, t="3.00"):
     A, B = _load(a_lab, t), _load(b_lab, t)
     if A is None or B is None:
         print("  pair(%s, %s) 缺图" % (a_lab, b_lab)); return None
-    rows, _spans, edges = _stream_rows(A)
+    _ref = _sand_ref(A)
+    rows, _spans, edges = _stream_rows(A, ref=_ref)
     if rows.size < 20:
         print("  pair(%s, %s) 细柱段只有 %d 行, 不作数" % (a_lab, b_lab, rows.size)); return None
     d = np.abs(A - B).max(axis=2)
