@@ -3941,9 +3941,13 @@ class HourglassWidget(Widget):
                 if hasattr(node, "vertices"):
                     vv = list(node.vertices)
                     if len(vv) >= 4 and (len(vv) % 4 == 0):
-                        xs = vv[0::4]; ys = vv[1::4]
+                        xs0 = vv[0::4]; ys0 = vv[1::4]
                     else:
-                        xs = vv[0::2]; ys = vv[1::2]
+                        xs0 = vv[0::2]; ys0 = vv[1::2]
+                    # 🔴 **必须排掉 `zero()` 掉的四边形**(x,y 同时为 0) —— 否则每个
+                    #    `_QuadBand` 的包围盒都被拉到原点, 一律显示 y=[0..X], 等于没量。
+                    xs = [x for x, y in zip(xs0, ys0) if not (x == 0.0 and y == 0.0)]
+                    ys = [y for x, y in zip(xs0, ys0) if not (x == 0.0 and y == 0.0)]
                     if xs and ys:
                         bb = (min(xs), min(ys), max(xs), max(ys))
                 elif hasattr(node, "points"):
@@ -3973,6 +3977,26 @@ class HourglassWidget(Widget):
                     walk(c, depth + 1)
                 return
             leaf(node, "")
+
+        # 紧凑树: 只看结构, 回答"Rectangle 到底在不在"
+        try:
+            tops = list(self.canvas.children)
+            print("NECKDUMP canvas 顶层 %d 个" % len(tops))
+            for k, c in enumerate(tops):
+                cn = type(c).__name__
+                sub = getattr(c, "children", None)
+                if sub:
+                    kinds = {}
+                    for s in list(sub):
+                        kinds[type(s).__name__] = kinds.get(type(s).__name__, 0) + 1
+                    print("NECKDUMP   [%2d] %-18s children=%d %s"
+                          % (k, cn, len(list(sub)), kinds))
+                else:
+                    print("NECKDUMP   [%2d] %-18s (leaf)" % (k, cn))
+            ids = [id(r) for _c, r in getattr(self, "_sand_chords", [])]
+            print("NECKDUMP _sand_chords=%d 个 rect, id=%s" % (len(ids), ids))
+        except Exception as exc:
+            print("NECKDUMP tree failed: %s" % exc)
 
         for holder in ("before", "", "after"):
             try:
