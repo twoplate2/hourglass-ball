@@ -326,8 +326,12 @@ NECK_MARKER_OFF = _neck_marker("markeroff")
 NECK_ABL5_OFF = _neck_marker("abl5")
 NECK_POOL_OFF = _neck_marker("pooloff")
 NECK_FREE_ONTOP = _neck_marker("freeontop")
+MAT_OVER_ALPHA = 0.62   # 材质铺层的透明度(见 _mat_over_rect)
 # 🔴 2026-10-10 **出货默认开**(修掉 PC 颈部那条平亮分层)。`nomatover` 标记可关。
-NECK_MAT_OVER = not _neck_marker("nomatover")
+# 🔴 **2026-10-10 回退: 默认关。** 用户判词「你tmd直接把沙柱下落的间隙/沙子给删了」——
+#    这一层把粒子流整个盖住, 等于删掉"看得见沙在落"这件事(项目红线)。
+#    要试仍可显式打开: `matover` 标记文件。
+NECK_MAT_OVER = _neck_marker("matover")
 # 🔴 2026-10-10 定为**出货默认开**: 见 `_mat_over_rect` 那段的注释。标记 `nomatover` 可关。
 
 
@@ -7526,16 +7530,39 @@ class HourglassWidget(Widget):
             #    建在 6700 行而池子在 7012 行, 结果整图只差 1px。
             #    `redraw` 首次运行时画布已建完 ⇒ 此时 `with self.canvas:` 是**追加到末尾**。
             with self.canvas:
-                self._mat_over_color = Color(1, 1, 1, 1)
+                # 半透明: 让**下落的粒子透出来** —— 用户要的是上球那种"看得见沙在落",
+                # 全不透明会把它盖成一根静止的棒(用户 2026-10-10 截图判「还是不太对」)。
+                self._mat_over_color = Color(1, 1, 1, MAT_OVER_ALPHA)
                 self._mat_over_rect = Rectangle(
                     pos=(0, 0), size=(0, 0), texture=self._sand_material.texture)
         if self._mat_over_rect is not None:
+            # 🔴 **2026-10-10 回归修复(用户开机即见)**: 下沿**绝不能**只取堆面。
+            #    堆≈0 时 `_mound_contact_h(0.0)` = 0 ⇒ 下沿 = 球内底 ⇒ 这根矩形从出口
+            #    **一路插到球底**, 在空的下球里画出一根蓝柱 —— 正是 1.238 的死因
+            #    (用户判词「你不要顾头不顾腚」)。
+            #    正解(项目自己写的): 下沿 = `max(堆面, 在途沙前沿)`; 前沿是**解析式**、
+            #    开局就在出口附近 ⇒ 柱子自然只有一小截, 沙落到哪儿它长到哪儿。
+            #    再加一道闸: **没开始 / 没有在途沙就整个不画**。
             _y0 = (2.0 * self._neck_y - self._taper["y_bot"])          # 出口
-            _y1 = self._lower_sand_bot + self._mound_contact_h(0.0)     # 堆面
+            _on = (self.elapsed > 0.0 and self.pn > 0)
+            _y1 = max(self._lower_sand_bot + self._mound_contact_h(0.0),
+                      self._falling_front()) if _on else _y0
             _h = max(0.0, _y0 - _y1)
             _w = self._taper["t_in"]
             self._mat_over_rect.pos = (self._cx - _w, _y1)
             self._mat_over_rect.size = (2.0 * _w, _h)
+            # 🔴 **uv 必须与颈部四边形同密度**(`_emit` 那套), 不能吃 Rectangle 的默认 0..1:
+            #    默认 uv 会把整张 512² 材质**横压纵拉**铺在 20x500 的矩形上 ⇒ 一条没有纹理的
+            #    竖条("规整的矩形棒", 1.238 事故里用户骂过的)。用户 2026-10-10 截图: 「还是不太对」。
+            _d = 2.0 * self._R_inner
+            if _d > 1.0:
+                _su = 1.0 / _d
+                _ub = self._upper_sand_bot
+                _u0, _u1 = 0.5 - _w * _su, 0.5 + _w * _su
+                _v1 = NECK_UV_ANCHOR + (_ub - _y1) * _su
+                _v0 = NECK_UV_ANCHOR + (_ub - _y0) * _su
+                self._mat_over_rect.tex_coords = (
+                    _u0, _v1, _u1, _v1, _u1, _v0, _u0, _v0)
         if NECK_POOL_OFF:
             # 🔴 **干净消融: 粒子流的 24 个桶**(画布上最后、最上层的一族, kids 81~379)。
             #    清 points 必须在 `_draw_stream()` **之后** —— 它是填 points 的那个,
