@@ -3935,7 +3935,16 @@ class HourglassWidget(Widget):
 
         def leaf(node, path):
             cls = type(node).__name__
-            if cls in ("Color", "BindTexture", "StencilPush", "StencilPop",
+            if cls == "Color":
+                try:
+                    r, g, b, a = node.rgba
+                    if 0.25 <= a <= 0.40:
+                        print("NECKDUMP  **Color a=%.3f rgba=(%.3f,%.3f,%.3f) id=%d"
+                              % (a, r, g, b, id(node)))
+                except Exception:
+                    pass
+                return
+            if cls in ("BindTexture", "StencilPush", "StencilPop",
                        "StencilUse", "StencilUnUse", "PushMatrix", "PopMatrix",
                        "Rotate", "Translate", "Scale", "MatrixInstruction"):
                 return
