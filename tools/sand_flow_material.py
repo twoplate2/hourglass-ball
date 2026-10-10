@@ -68,6 +68,15 @@ uniform float sand_free_drift;
 uniform float sand_hole_th;
 // 洞的**渐入长度**(像素, 按球径比例给): <=0 ⇒ 不渐入(出口处会有横向分界线)。
 uniform float sand_hole_ramp;
+// 🔴 **2026-10-10 (孔隙率随深度升高)**: 洞的**密度**沿深度继续增长。
+//    用户: 「沙柱中沙子的空隙率是不变的, 应该不符合现实, 应该随着重力的影响,
+//    孔隙率越来越高, 这样的话, 衔接也更自然」。
+//    为什么需要它: `sand_hole_ramp` 只把洞**渐入**到出厂值, 之后就**平**了;
+//    而粒子的墨量在那个带里是渐入的 ⇒ 两者相减, 净孔隙率变成"**上松下密**"(方向反了,
+//    实测: 设备 2.29 的过渡带洞里上多下少)。把阈值随深度继续抬高 ⇒ 洞越来越多 ⇒
+//    与粒子层同向叠加, 整条柱子才是"越往下越松"。
+//    `= 0` ⇒ 逐字等于只做渐入的那一版。
+uniform float sand_hole_grow;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -229,7 +238,12 @@ void main(void) {
             //    按回 1(`mix(1.0, solid, allow)`), **不是** `max(solid, allow)` ——
             //    后者实测正好写反: 近出口没抑制住洞、深处反而把洞**全关**了
             //    (深度 100px 以下露出背景 0.0%)。
-            float solid = step(sand_hole_th, hn);        // 1 = 保留沙, 0 = 挖掉
+            float depth01 = (sand_free.x - sand_position.y) / diameter;
+            // 孔隙率随深度升高: 阈值越大洞越多(`step(th,hn)` 是"hn >= th 才保留沙")。
+            // 用 `sqrt` 而不是线性 —— 与"落速 ∝ √深度"同族, 也让近口那段不要涨太快。
+            float th = sand_hole_th
+                     + sand_hole_grow * sqrt(max(0.0, depth01 - sand_hole_ramp));
+            float solid = step(th, hn);                  // 1 = 保留沙, 0 = 挖掉
             float ramp_px = sand_hole_ramp * diameter;
             if (ramp_px > 0.0) {
                 // 阈值线性渐入那一版实测**没用**: `hn` 的分布在 0 附近有尖峰
@@ -314,7 +328,9 @@ class SandFlowContext(RenderContext):
                 #    标定见 `main.py` 的 `_trail_scale_probe`；梯子图 `_vid/ladder2.png`。
                 ("sand_hole_th", "HG_HOLE_TH", "holeth", 0.10),
                 # 渐入长度 = 这个系数 × 球径。0 = 关(负对照: 出口会出现分界线)
-                ("sand_hole_ramp", "HG_HOLE_RAMP", "holeramp", 0.08)):
+                ("sand_hole_ramp", "HG_HOLE_RAMP", "holeramp", 0.08),
+                # 孔隙率随深度增长的系数: 0 = 关(只剩渐入)
+                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.8)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None
