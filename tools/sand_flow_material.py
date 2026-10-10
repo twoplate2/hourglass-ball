@@ -237,7 +237,11 @@ void main(void) {
     //    ⇒ 图案**前进一个周期再原地弹回**, **净位移恒为 0** ⇒ 速度再大也不动。
     //    ⇒ 全部改用连续时间 `adv`(权重仍走 `fract`, 交叉淡化照旧)。
     //    `sand_adv_cont = 0` ⇒ 逐字回到旧行为(可作负对照)。
-    float adv = (sand_adv_cont > 0.0) ? t : a;
+    // 🔴 **2026-10-10 收紧: 只作用于**出口以下**。** 用户:「**不要影响上层沙子的材质**」。
+    //    第一版是全局的 ⇒ 上球沙体被改成竖条纹(实测: 用"确定是沙"的窗口比
+    //    `HG_ADV_CONT` 两臂, 差 **5894 px**; 我先前那个窗口落在**空玻璃**上, 所以量到 0 —— 又踩一次)。
+    float adv = (sand_adv_cont > 0.0
+                 && sand_free.x > 0.0 && sand_position.y < sand_free.x) ? t : a;
     float delta = luma(texture2D(texture0, fract(uv)).rgb) - luma(sand_base);
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;

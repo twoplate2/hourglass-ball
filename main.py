@@ -4325,9 +4325,12 @@ class HourglassWidget(Widget):
                 for _k in range(NECK_FRONT_SEGS + 1):
                     _f = 1.0 - _k / float(NECK_FRONT_SEGS)
                     _dx = _w_end * _f
-                    _wob = (FLOW_FRONT_WOBBLE * _w_end
-                            * (0.62 * math.sin(_f * 5.3 + _et * 1.7 + _ph)
-                               + 0.38 * math.sin(_f * 11.9 - _et * 2.3 + _ph * 1.7)))
+                    # 🔴 **2026-10-10: 抖动的幅度必须按**柱长**封顶, 不能只看半宽。**
+                    #    沙刚冒出孔口时柱长只有几像素, 而 `0.35*_w_end` 是十几个像素
+                    #    ⇒ 那个小沙滴被抖成一顶**尖刺王冠**(用户 2.43 截图点名)。
+                    _amp = min(FLOW_FRONT_WOBBLE * _w_end, 0.22 * max(_span, 1.0))
+                    _wob = (_amp * (0.62 * math.sin(_f * 5.3 + _et * 1.7 + _ph)
+                                    + 0.38 * math.sin(_f * 11.9 - _et * 2.3 + _ph * 1.7)))
                     side.append((_dx, _end_at(_dx) - _wob))
                 # 🔴 **诊断用(2026-10-10)**: 设备实测"出口以下固体只占 ~28%"(`flowrate=1` 一臂),
                 #    而这段代码看着应当把出口一直填到 `_end_at()`。**别再推理, 把它读出来。**
