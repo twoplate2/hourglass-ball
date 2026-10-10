@@ -92,6 +92,20 @@ uniform float sand_flow_vy;
 //    **这就是用户说的那条横向分界线。**
 //    `= 0` ⇒ 逐字旧行为(可直接当负对照); `> 0` ⇒ 打散按深度从 0 渐入到全功率。
 uniform float sand_free_ramp;
+// 🔴 **2026-10-10: 颈部不许比球底更暗**(0 = 旧行为)。
+//    `lighting()` 里有一项 `sand_lighting.y * (uv.y - 0.5)`, 而**颈部的 `uv.y` 是负的**
+//    (`uv.y = (y − 上球内底)/球径`, 管子在上球内底以下好几个球径的位置) ⇒ 整条管子被推到
+//    纵向梯度的暗端。后果有两层:
+//      ① 均值: 走着色器时颈管比上球暗 **7.6 级**(平色渲染时只差 1.7 级 ⇒ 那 6 级是着色器加的);
+//      ② 反差: `tone = clamp(lighting + detail, −1, 1)` 被压成**恒负** ⇒
+//         `flowing = mix(sand_base, sand_dark, |tone|)` **恒在暗支**、且 |tone| 摆幅很大
+//         ⇒ 画面上是**高反差的大斑块**, 而上球 tone 在 0 附近换号 ⇒ 细而淡的颗粒。
+//    用户看到的"颜色分层非常明显"就是它(与上球的细颗粒在玻璃肩那一行硬切)。
+//    `= 1` ⇒ 颈部取 `max(uv.y, 0)`, 即与球底同色阶(球体内 `uv.y ≥ 0`, 所以只影响颈部)。
+uniform float sand_neck_light;
+// 调试: >0 ⇒ 直接把 `uv` 画成颜色(R=uv.x, G=uv.y, 都 clamp 到 0..1) —— 用来**读出**
+// 着色器在颈部/球体各自采到的 uv, 而不是靠推。`necklight` 旁边给个 `uvdebug` 标记文件。
+uniform float sand_uv_debug;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -100,7 +114,9 @@ float lighting(vec2 uv) {
     float x = uv.x * 2.0 - 1.0;
     float edge = clamp((x * x - 0.64) / 0.36, 0.0, 1.0);
     edge = edge * edge * (3.0 - 2.0 * edge);
-    return sand_lighting.x * (sand_lighting.y * (uv.y - 0.5)
+    // 颈部(uv.y < 0)默认会被推到梯度暗端 —— 见 `sand_neck_light` 的注释。
+    float vy = (sand_neck_light > 0.0) ? max(uv.y, 0.0) : uv.y;
+    return sand_lighting.x * (sand_lighting.y * (vy - 0.5)
                               - 0.07 * x - 0.16 * edge);
 }
 float grain(vec2 uv) {
@@ -292,6 +308,21 @@ void main(void) {
                                clamp((sand_free.w - sand_position.y) / (1.0 + 4.0 * l2),
                                      0.0, 1.0));
     }
+    // 调试通道(`uvdebug` 标记文件): 1=uv  2=tone(正为红/负为绿, 幅度=|tone|)
+    //                           3=coverage  4=detail(颗粒本身)
+    if (sand_uv_debug > 0.5) {
+        float m = sand_uv_debug;
+        if (m < 1.5) {
+            gl_FragColor = vec4(clamp(uv, 0.0, 1.0), 0.0, 1.0);
+        } else if (m < 2.5) {
+            gl_FragColor = vec4(max(tone, 0.0), max(-tone, 0.0), 0.0, 1.0);
+        } else if (m < 3.5) {
+            gl_FragColor = vec4(coverage, coverage, coverage, 1.0);
+        } else {
+            gl_FragColor = vec4(max(detail, 0.0), max(-detail, 0.0), 0.0, 1.0);
+        }
+        return;
+    }
     gl_FragColor = frag_color * vec4(mix(original.rgb, flowing, sand_mix),
                                      original.a * coverage);
 }
@@ -362,7 +393,10 @@ class SandFlowContext(RenderContext):
                 ("sand_flow_vy", "HG_FLOW_VY", "flowvy", 1.0),
                 # 出口以下"打散"的渐入长度(球径比例): 0 = 旧行为(有分界线)。
                 # 由 `main.NECK_FREE_RAMP_TUBES`(单位=颈管高的倍数)换算后喂进来。
-                ("sand_free_ramp", "HG_FREE_RAMP", "freeramp", 0.0)):
+                ("sand_free_ramp", "HG_FREE_RAMP", "freeramp", 0.0),
+                # 颈部不许比球底更暗: 0 = 旧行为(颈管被压暗成高反差斑块)
+                ("sand_neck_light", "HG_NECK_LIGHT", "necklight", 0.0),
+                ("sand_uv_debug", "HG_UV_DEBUG", "uvdebug", 0.0)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None

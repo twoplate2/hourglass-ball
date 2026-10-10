@@ -313,6 +313,13 @@ def _neck_log_on():
 
 
 NECK_NOUV_ON = _neck_marker("necknouv")
+NECK_QUADS_OFF = _neck_marker("neckquads")
+NECK_MOUND_OFF = _neck_marker("neckmound")
+NECK_MOUNDSHAPE_OFF = _neck_marker("neckmshape")
+NECK_CARVE_OFF = _neck_marker("neckcarve")
+NECK_RECTS_OFF = _neck_marker("neckrects")
+NECK_MISC_OFF = _neck_marker("neckmisc")
+NECK_DUMP_ON = _neck_marker("neckdump")
 
 
 def _neck_nouv_on():
@@ -3912,6 +3919,49 @@ class HourglassWidget(Widget):
         v0, g = 60.0 * ms, 450.0 * ms * ms
         return max(y_end - (v0 * tau + 0.5 * g * tau * tau), self._lower_sand_bot)
 
+    def _neck_dump_canvas(self):
+        """**直接问画布**: 列出每条指令的包围盒 —— 判"哪一行是谁画的"用, 不再逐个消融猜。"""
+        tag = int(self.elapsed)
+        if tag == getattr(self, "_neck_dump_t", -1):
+            return
+        self._neck_dump_t = tag
+        win_h = self.height
+        print("NECKDUMP t=%.1f widget h=%.1f w=%.1f" % (self.elapsed, self.height, self.width))
+
+        def walk(node, depth, path):
+            ch = getattr(node, "children", None)
+            if ch:
+                for k, c in enumerate(ch):
+                    walk(c, depth + 1, path + "/%d" % k)
+                return
+            cls = type(node).__name__
+            bb = None
+            try:
+                if hasattr(node, "vertices") and getattr(node, "vertices", None):
+                    vv = list(node.vertices)
+                    xs = vv[0::4]; ys = vv[1::4]
+                    if not xs:
+                        xs = vv[0::2]; ys = vv[1::2]
+                elif hasattr(node, "points"):
+                    pts = list(node.points)
+                    xs = pts[0::2]; ys = pts[1::2]
+                    if xs and ys:
+                        bb = (min(xs), min(ys), max(xs), max(ys))
+                elif hasattr(node, "pos") and hasattr(node, "size"):
+                    bb = (node.pos[0], node.pos[1],
+                          node.pos[0] + node.size[0], node.pos[1] + node.size[1])
+            except Exception:
+                bb = None
+            if bb is None or bb[3] - bb[1] < 1 or bb[2] - bb[0] < 1:
+                return
+            if cls in ("Color", "BindTexture", "StencilPush", "StencilPop",
+                       "StencilUse", "StencilUnUse", "PushMatrix", "PopMatrix"):
+                return
+            print("NECKDUMP   %-22s %-28s y=[%.1f..%.1f] x=[%.1f..%.1f]"
+                  % (cls, path[-24:], bb[1], bb[3], bb[0], bb[2]))
+
+        walk(self.canvas, 0, "")
+
     def _neck_sand_side(self):
         """颈部只有一个自由表面; 上球耗尽后从上往下排空。"""
         tp = self._taper
@@ -6618,6 +6668,8 @@ class HourglassWidget(Widget):
                 band.set(i, [x0, y0, x1, y1, x1, y1 - w, x0, y0 - w])
             else:
                 band.zero(i)
+        if NECK_CARVE_OFF:          # 消融: 判"行468-545那条亮带"是 carve 还是 band
+            carve.clear()
         carve.flush()
         band.flush()
         if flow is not None:
@@ -7034,6 +7086,8 @@ class HourglassWidget(Widget):
         #   ② 轮廓以上的沙由 carve 抠掉, 所以矩形只管"铺满", 上沿永远取球内顶 + 余量。
         #   ⇒ 与 `_draw_mound_shape` 里 carve 的上沿是**同一个值**。
         mound_draw = (2.0 * self._R_inner + MOUND_CREST_MARGIN) if h_mound > 0 else 0.0
+        if NECK_MOUND_OFF:      # 消融: 判"行468以下那一列"是不是下球沙体矩形画的
+            mound_draw = 0.0
         for index, ((_color, rect), height) in enumerate(
                 zip(self._sand_chords, (up_draw, mound_draw))):
             rect.size = (diameter, height)
@@ -7052,11 +7106,19 @@ class HourglassWidget(Widget):
         #    三处一起删) —— 它们此后每帧都被强制 `size=(0,0)/a=0`, 全仓库没有任何一处
         #    把它们设回可见 ⇒ **可证的死层**。删它必须 0 像素差: `_render_golden --check`
         #    两臂各 60/60 逐图一致。
-        self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
+        if not NECK_MISC_OFF:                               # 消融: 行466-523 到底谁画的
+            self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
         self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
-        self._draw_mound_shape(h_mound)
+        if not NECK_MOUNDSHAPE_OFF:
+            self._draw_mound_shape(h_mound)
         # The shared surface, not an independent completion timer, owns the neck.
         side = self._neck_sand_side()
+        # 🔴 **消融(2026-10-10)**: 标记文件 `<app>/neckquads` ⇒ 把颈部沙柱四边形整条清空。
+        #    目的只有一个 —— **判出"颈部可见的那一列到底是谁画的"**。这轮在这一点上错过两回:
+        #    先按"它走着色器"去调 `lighting`/`uv`, 量到"没反应"; 又按"它在 context 里"去解释
+        #    2.31/2.32 的逐像素等同。**先把这个问答清楚, 后面所有颈部测量才有对象。**
+        if NECK_QUADS_OFF:
+            side = []
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
         tail_front = (0.0, 0.0, 1.0)
@@ -7188,6 +7250,8 @@ class HourglassWidget(Widget):
         if connected:
             pos = (self._cx - self._taper["t_in"], outlet)
             size = (2 * self._taper["t_in"], transition)
+            if NECK_RECTS_OFF:      # 消融: 判"管子那一段的平色"是不是这两条矩形画的
+                size = (0, 0)
             self._neck_solid_rect.pos = self._neck_fade_rect.pos = pos
             self._neck_solid_rect.size = self._neck_fade_rect.size = size
             if neck_uv_scale is not None:
@@ -7203,8 +7267,11 @@ class HourglassWidget(Widget):
         else:
             self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
 
-        self._project_stream_contact()
-        self._draw_contact_grains()
+        if NECK_DUMP_ON:
+            self._neck_dump_canvas()
+        if not NECK_MISC_OFF:
+            self._project_stream_contact()
+            self._draw_contact_grains()
         self._draw_stream()
         if self._sand_flow_contexts and self._sand_material is not None:
             for i, context in enumerate(self._sand_flow_contexts):
