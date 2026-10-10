@@ -3952,6 +3952,21 @@ class HourglassWidget(Widget):
 
         def leaf(node, path):
             _path = path
+            if type(node).__name__ == "Mesh" and hasattr(node, "vertices"):
+                try:
+                    vv = list(node.vertices)
+                    xs = vv[0::4]; ys = vv[1::4]; us = vv[2::4]; vs = vv[3::4]
+                    keep = [i for i in range(len(xs)) if not (xs[i] == 0.0 and ys[i] == 0.0)]
+                    if keep:
+                        U = [us[i] for i in keep]; V = [vs[i] for i in keep]
+                        print("NECKUV %-14s pos y=[%.0f..%.0f] x=[%.0f..%.0f]  "
+                              "uv.u=[%.4f..%.4f] (Δ%.4f)  uv.v=[%.4f..%.4f] (Δ%.4f)"
+                              % (_path[-14:], min(ys[i] for i in keep), max(ys[i] for i in keep),
+                                 min(xs[i] for i in keep), max(xs[i] for i in keep),
+                                 min(U), max(U), max(U) - min(U),
+                                 min(V), max(V), max(V) - min(V)))
+                except Exception:
+                    pass
             cls = type(node).__name__
             if cls == "Color":
                 try:
