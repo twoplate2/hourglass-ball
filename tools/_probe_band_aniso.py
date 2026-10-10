@@ -51,7 +51,11 @@ def classify(a):
     return out
 
 
-def hp2d(p, k=K):
+def hp2d(p, k=None):
+    # 🔴 核宽必须**随窗口缩放**: 固定 25px 核作用在 21px 宽的窗口上会把横向自相关整个吃掉,
+    #    读出来的"横半长 0.5"是滤波器给的, 不是画面 (2026-10-10 栽过, 报了个假的 6.6)。
+    if k is None:
+        k = max(3, min(K, (min(p.shape) // 3) | 1))
     h, w = p.shape
     c = np.cumsum(np.cumsum(p, 0), 1)
     c = np.pad(c, ((1, 0), (1, 0)))
@@ -80,6 +84,12 @@ def half_len(a, axis, maxlag=MAXLAG):
 def measure(img, y0, y1, x0, x1, min_sand=0.95, label=""):
     cls = classify(img[y0:y1, x0:x1])
     keep = (cls == 1).mean(axis=1) >= min_sand
+    # 🔴 **纹理门控**: 颜色是沙但**是平的**(常数)的行必须丢掉 —— 平坦行在纵向自相关里
+    #    是"完美相关", 会把竖半长整个顶上去 (2026-10-10: 颈部窗口混进 3 行 lum≡177 的
+    #    平沙, 就把比从 ~1 顶到 5.9)。**颜色同质 ≠ 纹理同质。**
+    lum0 = img[y0:y1, x0:x1] @ np.array([0.299, 0.587, 0.114])
+    hp0 = np.abs(lum0 - np.convolve(lum0.mean(axis=1), np.ones(5) / 5, "same")[:, None])
+    keep &= hp0.std(axis=1) >= 1.0
     n = int(keep.sum())
     if n < 8:
         return None, n, (y1 - y0)
@@ -104,16 +114,42 @@ def run(p, y0, y1, x0, x1, minsand):
 
 
 def selftest():
+    """🔴 **必须在目标窗口尺寸上标定** —— 宽窗口上正常的尺, 窄窗口上可能整个失效。"""
     img = np.asarray(Image.open(_SELF_PNG).convert("RGB"), dtype=np.float64)
-    print("  正对照 上球沙体内部 (应当全行通过, 比在 0.5~2.0):")
-    run(_SELF_PNG, 330, 390, 150, 250, 0.95)
-    print("  负对照 同一块人为塞入 1/3 行玻璃色 (应当丢掉那些行):")
-    bad = img.copy()
-    bad[350:370, 150:250] = GLASS
-    res, n, tot = measure(bad, 330, 390, 150, 250, 0.95)
-    print("     同质行 %d/%d  (期望 ≈%d)" % (n, tot, tot - 20))
-    ok = n <= tot - 18
-    print("     => %s" % ("门槛可用" if ok else "!! 门槛没拦住跨界行"))
+    ok = True
+    lum = img @ np.array([0.299, 0.587, 0.114])
+
+    # ① 已知各向同性, **宽**窗口(80px): 应 ≈1.0
+    r, n, tot = measure(img, 600, 700, 160, 240, 0.95)
+    print("  ① 沙堆 80px 宽窗口      同质 %d/%d  比 %.2f   %s" % (n, tot, r[2], "OK" if 0.5 <= r[2] <= 2.0 else "!!"))
+    ok &= 0.5 <= r[2] <= 2.0
+
+    # ② **同样各向同性, 但窗口压到 21px**(= 颈部的实际宽度): 仍应 ≈1.0
+    r2, n2, t2 = measure(img, 600, 700, 199, 220, 0.95)
+    print("  ② 沙堆 21px 宽窗口      同质 %d/%d  比 %.2f   %s  ← **这条决定尺在颈部能不能用**"
+          % (n2, t2, r2[2], "OK" if 0.5 <= r2[2] <= 2.0 else "!! 窄窗口会假报各向异性"))
+    ok &= 0.5 <= r2[2] <= 2.0
+
+    # ③b **平坦行门控**: 同一窗口, 把一半行换成常数 ⇒ 必须丢掉那些行
+    flat = img.copy(); flat[650:680, 160:240] = np.array([217.0, 163.0, 96.0])
+    _, n3, t3 = measure(flat, 600, 700, 160, 240, 0.95)
+    print("  ③b 塞入 30 行平沙        同质 %d/%d   %s" % (n3, t3, "OK 丢掉了" if n3 <= t3 - 25 else "!! 没拦住平沙"))
+    ok &= n3 <= t3 - 25
+
+    # ③ 负对照: 同一 21px 窗口, 把画面纵向拉伸 3 倍 ⇒ 必须报出来
+    st = np.repeat(lum[600:650, 199:220], 3, axis=0)
+    Q = hp2d(st)
+    pv, ph = half_len(Q, 0), half_len(Q, 1)
+    print("  ③ 同窗口 纵向拉伸 3x     比 %.2f   %s" % (pv / max(ph, 1e-6),
+          "OK 有分辨力" if pv / max(ph, 1e-6) > 2.0 else "!! 分辨力不足"))
+    ok &= pv / max(ph, 1e-6) > 2.0
+
+    # ④ 跨界行必须被丢掉
+    bad = img.copy(); bad[640:660, 160:240] = GLASS
+    _, n4, t4 = measure(bad, 600, 700, 160, 240, 0.95)
+    print("  ④ 塞入 20 行玻璃        同质 %d/%d   %s" % (n4, t4, "OK 丢掉了" if n4 <= t4 - 18 else "!! 没拦住"))
+    ok &= n4 <= t4 - 18
+    print("  => %s" % ("尺可用(四档全过)" if ok else "!! 尺不可用"))
     return ok
 
 
