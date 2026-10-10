@@ -1660,6 +1660,14 @@ FLOW_TONE_QUANT = (max(1, int(float(_TQ))) if _TQ
 #    调它的判据是 `tools/_accept_check.py` 的 A1(柱内颗粒量 / 上球 ∈[0.6,1.5])
 #    与 A2(连续平填行 ≤2), 外加并排图。
 FLOW_GRAIN_GAIN = float(os.environ.get("HG_GRAIN_GAIN", "1.0"))
+# 🔴 **2026-10-10: 末段出生带的两个形状参数**(见 `update_particles` 里那一段注释)。
+#    `FLOW_TAIL_NARROW`: 颈管快空时出生带收到原来的几成宽(1.0 = 不收窄 = 旧行为)。
+#    `FLOW_TAIL_TAPER` : 同时把横向分布从 uniform 收成 `|u|^p`(1.0 = 不变 = 旧行为)。
+#    适应症: 末段那批沙**同时出生、同速下落** ⇒ 铺满整管宽的一块**板**(用户:「就是一个矩形啊」)。
+FLOW_TAIL_NARROW = float(os.environ.get("HG_TAIL_NARROW", "0.45"))
+FLOW_TAIL_TAPER = float(os.environ.get("HG_TAIL_TAPER", "2.6"))
+# 收尾段占**整个计时**的比例(0.04 = 最后 4%)。见 `update_particles` 里那一段。
+FLOW_TAIL_SPAN = float(os.environ.get("HG_TAIL_SPAN", "0.04"))
 # 🔴 **2026-10-10: 沙流颗粒的线宽上限。0 = 不限制(出货行为: 85% 是 2px)。**
 #    为什么要它: 出口以下的**可见面就是粒子层**(覆盖柱宽 89%), 而它的墨是
 #    `2px 宽 × 5~8px 高` 的块 ⇒ 读起来是"块"不是"颗粒"(用户判词「精细度都不够」)。
@@ -5717,10 +5725,34 @@ class HourglassWidget(Widget):
             if final_emission and self._sand_pending > 0.0:
                 spawn_count = max(1, math.ceil(self.particle_acc))
             mass = self._sand_pending / spawn_count if spawn_count else 0.0
-            x_clip = max(1.0, neck_w - ow)
             self._spawn_from = self.pn
             # 一次把本帧要生的量预留够, 不在循环里反复扩容。
             self._p_grow(self.pn + spawn_count + 2)
+            # 🔴 **2026-10-10: 沙快流完时, 下来的沙要**变细、边要毛**。**
+            #    用户判词(末段截图): 「当最后消失的时候, 颈部的沙子太规范不合理,
+            #    **就是一个矩形啊** …… 是不是也可以更类似沙子一些?」
+            #    实测定位: 那一块**主要是粒子**(`pooloff` 消融把框内 **269/360 px** 清掉,
+            #    全图差异也正好 269px), 不是那两条 `Rectangle`(`neckrects` 消融 0px)、
+            #    也不是沙柱主带(`neckquads` 消融 0px)。
+            #    ⇒ 病根是**出生带**: `x_clip = neck_w - ow`(整管宽) + `uniform`(两边齐平)
+            #      ⇒ 最后一批沙同一 y、同一速度落下来就是**一块板**。
+            #    两层修:
+            #      ① `_band`  : 颈内余量越少 ⇒ 出生带越窄(整管宽 → `FLOW_TAIL_NARROW`)
+            #      ② `_taper` : 同时把分布从 uniform 收成 `|u|^p`(两端稀、中轴密)
+            #         ⇒ 边界不再是刀切, 而是一股**带毛边的细流**。
+            #    ⚠️ **不新增随机数** —— `random.uniform` 照调一次, 只对抽到的值做重映射
+            #      ⇒ 抽取顺序与次数与旧版逐字相同(`_taper == 1.0` 时**逐位**等于旧行为)。
+            #    🔴 **2026-10-10 二次修: `_neck_rem` 原来用 `reserve` 归一, 而 `reserve` 是
+            #      颈管**体积**占比(PC 上 ≈ 0.0019) ⇒ 只在最后 **0.02 秒**起效
+            #      —— 实测 t=9.59~9.95 逐帧差 **0 像素**, 等于没做。
+            #      改成**按剩余时间比例**(`FLOW_TAIL_SPAN` = 收尾段占整个计时的比例)。
+            #    用户补充判词:「主要是**随机一些、不规范一些**可能更好。**每次都不一样更好**」
+            #      ⇒ 收尾指数**逐颗不同**(用已经抽好的 `amp` 抖动), 不做成一条固定曲线。
+            _released_frac = self._released_fraction_at(min(self.elapsed, end))
+            _tail = min(1.0, max(0.0, (1.0 - _released_frac) / max(1e-6, FLOW_TAIL_SPAN)))
+            _band = FLOW_TAIL_NARROW + (1.0 - FLOW_TAIL_NARROW) * _tail
+            x_clip = max(1.0, (neck_w - ow) * _band)
+            _taper = 1.0 + (FLOW_TAIL_TAPER - 1.0) * (1.0 - _tail)
             for spawn_index in range(spawn_count):
                 self.particle_acc -= 1
                 x_off = random.uniform(-x_clip, x_clip)
@@ -5728,6 +5760,11 @@ class HourglassWidget(Widget):
                 # 后续字段沿用既有抽取顺序; 窄颈时 size 短路, 不抽额外随机数。
                 phase = random.uniform(0, math.tau)
                 amp = random.uniform(0.4, 1.0)
+                if _taper != 1.0:
+                    # 逐颗抖动指数(0.7~1.3 倍) ⇒ 收尾不是一条固定曲线, 每次都不一样
+                    _p = _taper * (0.7 + 0.6 * amp)
+                    _u = x_off / x_clip
+                    x_off = x_clip * math.copysign(abs(_u) ** _p, _u)
                 is_light = random.random() < 0.10
                 size = (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1
                 if FLOW_WIDTH_CAP and size > FLOW_WIDTH_CAP:
