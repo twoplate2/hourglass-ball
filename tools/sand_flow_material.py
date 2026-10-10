@@ -106,6 +106,15 @@ uniform float sand_neck_light;
 // 调试: >0 ⇒ 直接把 `uv` 画成颜色(R=uv.x, G=uv.y, 都 clamp 到 0..1) —— 用来**读出**
 // 着色器在颈部/球体各自采到的 uv, 而不是靠推。`necklight` 旁边给个 `uvdebug` 标记文件。
 uniform float sand_uv_debug;
+// 🔴 **2026-10-10: `tone` 那行的 `lighting` 必须和 `grain()` 里减掉的那一个用同一个坐标。**
+//    `grain(u)` 返回 `delta/span − lighting(fract(u))`; 而 `tone = lighting(uv) + detail`。
+//    球体里 `uv.y ∈ [0,1]` ⇒ `fract` 不变, 两者抵消 ✓;
+//    **颈部 `uv.y` 是负的**(管子在上球内底以下) ⇒ `fract` 把它折到 0.88~1.0,
+//    于是 `lighting(uv)` 与 `lighting(fract(uv))` 差了一大截, **抵消不掉** ⇒ 颈部多出一个
+//    系统偏置。实测(设备/桌面同代码, 行 424..464 只取"确定由颈部四边形画"的行):
+//      颈部 |tone| **0.227** vs 上球 **0.112** —— **2 倍**, 画面上就是"斑块"而不是细颗粒。
+//    `= 1` ⇒ `tone` 改用 `lighting(vec2(uv.x, fract(uv.y)))`(球体上逐位不变)。
+uniform float sand_wrap_light;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -202,13 +211,15 @@ void main(void) {
     float t = sand_clock + jitter;
     float a = fract(t);
     float b = fract(t + 0.5);
+    float delta = luma(texture2D(texture0, fract(uv)).rgb) - luma(sand_base);
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
     vec2 jump = vec2(0.125, 0.0625);
     float ga = grain(uv - velocity * a + floor(t) * jump);
     float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
     float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
-    float tone = clamp(lighting(uv) + detail, -1.0, 1.0);
+    vec2 luv = (sand_wrap_light > 0.0) ? vec2(uv.x, fract(uv.y)) : uv;
+    float tone = clamp(lighting(luv) + detail, -1.0, 1.0);
     vec3 target = tone >= 0.0 ? sand_light : sand_dark;
     vec3 flowing = mix(sand_base, target, abs(tone));
     float coverage = 1.0;
@@ -318,8 +329,19 @@ void main(void) {
             gl_FragColor = vec4(max(tone, 0.0), max(-tone, 0.0), 0.0, 1.0);
         } else if (m < 3.5) {
             gl_FragColor = vec4(coverage, coverage, coverage, 1.0);
-        } else {
+        } else if (m < 4.5) {
             gl_FragColor = vec4(max(detail, 0.0), max(-detail, 0.0), 0.0, 1.0);
+        } else if (m < 5.5) {                 // ga: crossfade 之前那一次 grain 采样
+            gl_FragColor = vec4(max(ga, 0.0), max(-ga, 0.0), 0.0, 1.0);
+        } else if (m < 6.5) {                 // delta: 纹理亮度 − sand_base 亮度(未归一)
+            gl_FragColor = vec4(max(delta, 0.0) * 4.0, max(-delta, 0.0) * 4.0, 0.0, 1.0);
+        } else if (m < 7.5) {                 // wa: crossfade 权重
+            gl_FragColor = vec4(wa, wb, 0.0, 1.0);
+        } else if (m < 8.5) {                 // sand_position 本体(x/800, y/800)
+            gl_FragColor = vec4(sand_position.x / 800.0, sand_position.y / 800.0,
+                                0.0, 1.0);
+        } else {                              // 同一批顶点里的 vTexCoords0
+            gl_FragColor = vec4(tex_coord0.x, tex_coord0.y, 0.0, 1.0);
         }
         return;
     }
@@ -396,7 +418,8 @@ class SandFlowContext(RenderContext):
                 ("sand_free_ramp", "HG_FREE_RAMP", "freeramp", 0.0),
                 # 颈部不许比球底更暗: 0 = 旧行为(颈管被压暗成高反差斑块)
                 ("sand_neck_light", "HG_NECK_LIGHT", "necklight", 0.0),
-                ("sand_uv_debug", "HG_UV_DEBUG", "uvdebug", 0.0)):
+                ("sand_uv_debug", "HG_UV_DEBUG", "uvdebug", 0.0),
+                ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 0.0)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None

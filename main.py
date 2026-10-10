@@ -320,6 +320,7 @@ NECK_CARVE_OFF = _neck_marker("neckcarve")
 NECK_RECTS_OFF = _neck_marker("neckrects")
 NECK_MISC_OFF = _neck_marker("neckmisc")
 NECK_DUMP_ON = _neck_marker("neckdump")
+NECK_GEOM_ON = _neck_marker("neckgeom")
 
 
 def _neck_nouv_on():
@@ -7239,6 +7240,17 @@ class HourglassWidget(Widget):
                       "drawn_y=[%.1f..%.1f] outlet=%.1f"
                       % (self.elapsed, len(side), len(quads), _nz,
                          _ymin, _ymax, outlet))
+                if len(side) >= 2 and getattr(self, "_neck_vdump_t", -1) != _tag:
+                    self._neck_vdump_t = _tag
+                    for _j in (0, len(side) // 2, len(side) - 2):
+                        _o = _j * 16
+                        print("NECKV seg%d  quads._v[%d:%d] = %s"
+                              % (_j, _o, _o + 16,
+                                 " ".join("%.2f" % v for v in quads._v[_o:_o + 16])))
+                        if fband is not None:
+                            print("NECKV seg%d  fband._v[%d:%d] = %s"
+                                  % (_j, _o, _o + 16,
+                                     " ".join("%.2f" % v for v in fband._v[_o:_o + 16])))
                 if len(side) >= 2:
                     _i = len(side) - 2
                     _o = _i * 16
@@ -7267,6 +7279,17 @@ class HourglassWidget(Widget):
         else:
             self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
 
+        if NECK_GEOM_ON:
+            _tag = int(self.elapsed)
+            if _tag != getattr(self, "_neck_geom_t", -1):
+                self._neck_geom_t = _tag
+                print("NECKGEOM t=%.1f widget pos=(%.1f,%.1f) size=(%.1f,%.1f) "
+                      "cx=%.1f Ri=%.2f up_bot=%.2f y_bot=%.2f neck_y=%.2f t_in=%.2f "
+                      "diameter=? | Window.size=%s"
+                      % (self.elapsed, self.x, self.y, self.width, self.height,
+                         self._cx, self._R_inner, self._upper_sand_bot,
+                         self._taper["y_bot"], self._neck_y, self._taper["t_in"],
+                         str(Window.size)))
         if NECK_DUMP_ON:
             self._neck_dump_canvas()
         if not NECK_MISC_OFF:
