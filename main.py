@@ -2110,6 +2110,16 @@ NECK_FRONT = os.environ.get("HG_NECK_FRONT", "1") == "1"
 #    —— 两条边死直、平行、通体实心。玻璃在出口就结束了, 以下没有任何东西约束它。
 #    关掉用 `HG_NECK_FREE=0`。
 NECK_FREE = os.environ.get("HG_NECK_FREE", "1") == "1"
+# 🔴 **2026-10-10: 颈部颗粒提亮层在材质路径下是否保留。默认 "1" = 保留(旧行为)。**
+#    2.12 把它在材质路径下**整个禁掉**(理由: 那 320 条 Line 一个像素都画不出来)——
+#    不画是对的, 但**它的提亮作用也一起没了**。1080 口径逐层消融实测(同一冻结帧 t=7.64):
+#        无粒子(只材质板)  柱心−沙体 = **+39.9 级**(板很亮)
+#        无板(只粒子)      柱心−沙体 = **+3.7 级**(粒子偏暗)
+#        full(两者都有)    柱心−沙体 = **+1.6 级**  ← 粒子把亮板整个盖住
+#        v1.2(用户说好看)   柱心−沙体 = **+11.3 级**
+#    ⇒ 柱子的可见面是**暗粒子**, 而 v1.2 因为这一层活着而亮 ~10 级;
+#      出口那条亮度阶跃**同一个原因**(粒子在出口从无到有, 而它比板暗 ~36 级)。
+#    `HG_NECK_GRAINS=0` 可退回 2.12 的行为。
 # 出口以下的自由收缩段(vena contracta)。关掉用 `HG_NECK_TAPER=0`。
 NECK_TAPER = os.environ.get("HG_NECK_TAPER", "1") == "1"
 NECK_TAPER_SEGS = 4          # 收缩段节点数(前 40px 均分)
@@ -2122,6 +2132,7 @@ NECK_TAPER_SEGS = 4          # 收缩段节点数(前 40px 均分)
 #    只是那条直线变陡(底宽 37→22→20)。⇒ 不加密节点, "该收多细"的讨论都落不到画面上。
 #    布点: **前 40px 仍用 4 个(收缩段要密)**, 40px 之后按 `span·(k/(K+1))^1.4` 前密后疏补 K 个。
 NECK_FREE_EXTRA_SEGS = 10
+NECK_GRAINS_IN_MATERIAL = os.environ.get("HG_NECK_GRAINS", "0") != "0"
 # 前沿的**穹顶**量(以半宽为单位): 边缘比中轴高出这么多。`0` = 平头(2.14 的行为)。
 NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.80"))
 WARM_SPLASH_CHUNKS = 8
@@ -6638,7 +6649,8 @@ class HourglassWidget(Widget):
         #      两次回退。本改动**必须**过 `_render_golden --check` 逐图 0 差异, 否则回退。
         self._neck_grain_pool = []
         self._neck_grain_count = 0
-        if self._sand_flow_contexts and self._sand_material is not None:
+        if (self._sand_flow_contexts and self._sand_material is not None
+                and not NECK_GRAINS_IN_MATERIAL):
             self._neck_grain_group = None          # 不建、不挂 ⇒ 0 条指令、0 次 apply
         else:
             self._neck_grain_group = InstructionGroup()
@@ -6995,6 +7007,10 @@ class HourglassWidget(Widget):
                                     tail_front if i == 1 else (0.0, 0.0, 1.0),
                                     free_front if i == 1 else (0.0, 0.0, 1.0, 0.0))
         else:
+            self._draw_neck_grains(side)
+        if (NECK_GRAINS_IN_MATERIAL and self._neck_grain_group is not None
+                and self._sand_flow_contexts and self._sand_material is not None):
+            # 材质路径下把提亮层也画上 —— 见 `NECK_GRAINS_IN_MATERIAL` 的注释与消融数据。
             self._draw_neck_grains(side)
         # 飞溅层: 装了批处理渲染器就走批处理, 否则走原来的**逐 `Rectangle`**。
         # (见文件尾 `_install_splash_renderer` 与 `tools/flow_splash_experiment.py`)
