@@ -323,6 +323,7 @@ NECK_DUMP_ON = _neck_marker("neckdump")
 NECK_GEOM_ON = _neck_marker("neckgeom")
 NECK_FREE_OFF = _neck_marker("neckfree")
 NECK_MARKER_OFF = _neck_marker("markeroff")
+NECK_ABL5_OFF = _neck_marker("abl5")
 
 
 def _neck_nouv_on():
@@ -7214,6 +7215,26 @@ class HourglassWidget(Widget):
         #    两臂各 60/60 逐图一致。
         if not NECK_MISC_OFF:                               # 消融: 行466-523 到底谁画的
             self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
+        if NECK_ABL5_OFF:
+            # 🔴 干净消融(五项一起): 上球沙体矩形 / 上球 carve+band / contact grains /
+            #    splash+dust+flare 三组 / 表层标记。**只跳过更新是空转, 必须清图形。**
+            for _idx, ((_c, _r), _h) in enumerate(zip(self._sand_chords,
+                                                     (0.0, 0.0))):
+                if _idx == 0:
+                    _r.size = (0, 0)
+            for _b in (self._upper_carve, self._upper_band):
+                if _b is not None:
+                    _b.clear(); _b.flush()
+            if self._contact_grains is not None:
+                self._contact_grains.clear(); self._contact_grains.flush()
+            for _g in (self._splash_group, self._dust_group, self._flare_group,
+                       self._surface_marker_group):
+                if _g is not None:
+                    for _ch in list(_g.children):
+                        if hasattr(_ch, "points"):
+                            _ch.points = []
+                        elif hasattr(_ch, "size"):
+                            _ch.size = (0, 0)
         if NECK_MARKER_OFF:
             # 🔴 **干净消融**: 必须**真清空 points**。只"跳过更新"是空转 —— 图形指令留在
             #    画布上会继续画上一帧的 points（`neckmshape`/`neckmisc`/`neckfree` 三次
