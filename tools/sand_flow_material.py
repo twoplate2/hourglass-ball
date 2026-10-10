@@ -120,6 +120,8 @@ uniform float sand_ctx_tag;
 // 调试: `jump` 的 y 分量系数(默认 1.0)。两相位沿 v 的固有错开, 与 `sand_flow_vy` 合起来
 // 才能把"纵向平流抹开"这条**完整**关掉(只关 `flowvy` 不够 —— `jump.y` 仍分开 32 纹素)。
 uniform float sand_jump_y;
+// 🔴 **2026-10-10: 平流用连续时间**(见下面 `adv` 那段)。0 = 旧行为(每周期回跳, 净位移 0)。
+uniform float sand_adv_cont;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -216,12 +218,21 @@ void main(void) {
     float t = sand_clock + jitter;
     float a = fract(t);
     float b = fract(t + 0.5);
+    // 🔴 **2026-10-10: 平流的**时间项**必须连续。**
+    //    用户判词:「沙柱里面那个**不规则的大颗粒给人的感觉是向上移动**」。
+    //    实测(调试档 `HG_UV_DEBUG=10` 把 `-velocity.y` 画成红): `sand_free_drift` 0/1/8
+    //    ⇒ 出口以下红度 162/166/**189** ⇒ **药是接上线的**; 可颗粒就是不动。
+    //    根因: 下面每一条采样都写成 `... - velocity * a`(`a = fract(t)`)
+    //    ⇒ 图案**前进一个周期再原地弹回**, **净位移恒为 0** ⇒ 速度再大也不动。
+    //    ⇒ 全部改用连续时间 `adv`(权重仍走 `fract`, 交叉淡化照旧)。
+    //    `sand_adv_cont = 0` ⇒ 逐字回到旧行为(可作负对照)。
+    float adv = (sand_adv_cont > 0.0) ? t : a;
     float delta = luma(texture2D(texture0, fract(uv)).rgb) - luma(sand_base);
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
     vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
-    float ga = grain(uv - velocity * a + floor(t) * jump);
-    float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
+    float ga = grain(uv - velocity * adv + floor(t) * jump);
+    float gb = grain(uv - velocity * (adv + 0.5) + floor(t + 0.5) * jump + vec2(0.5));
     float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
     vec2 luv = (sand_wrap_light > 0.0) ? vec2(uv.x, fract(uv.y)) : uv;
     float tone = clamp(lighting(luv) + detail, -1.0, 1.0);
@@ -250,7 +261,7 @@ void main(void) {
         //    修法与洞场逐字同款(洞场当年就是被这条咬过才改的, 见下面 `hn` 那段的注释):
         //    按球径归一的**二维**坐标 + `flowing` 那一套平流偏移 ⇒ 边随沙走、跟着落。
         vec2 euv = vec2(u, (sand_free.x - sand_position.y) / diameter);
-        float n = grain(euv - velocity * a + floor(t) * jump);
+        float n = grain(euv - velocity * adv + floor(t) * jump);
         float n2 = grain(vec2(1.0 - u, euv.y) - velocity * b
                          + floor(t + 0.5) * jump + vec2(0.37, 0.11));
         // 🔴 **2026-10-10 修 D1: 掩码位置错了。**
@@ -288,7 +299,7 @@ void main(void) {
             //    于是洞跟着沙走、尺度约等于材质颗粒(~4px)。
             vec2 huv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                             (sand_free.x - sand_position.y) / diameter);
-            float hn = grain(huv - velocity * a + floor(t) * jump);
+            float hn = grain(huv - velocity * adv + floor(t) * jump);
             // 🔴 **2026-10-10 补: 出口处必须渐入。**
             //    `sand_free.x`(= 出口)是这套掩码的**硬边界**: 出口以上 coverage 恒 1、
             //    以下才打洞 ⇒ `step` 正好在出口那一行造出一条**横向分界线**。
@@ -369,6 +380,11 @@ void main(void) {
                                 0.0, 1.0);
         } else if (m < 8.5) {                 // 同一批顶点里的 vTexCoords0
             gl_FragColor = vec4(tex_coord0.x, tex_coord0.y, 0.0, 1.0);
+        } else if (m < 10.5) {
+            // 🔴 **2026-10-10: 把 `-velocity.y` 直接画成红** —— 用来回答
+            //    "自由段那条 `sand_free_drift` 到底有没有接到采样上"。
+            //    0=黑(几乎不动), 越红=平流越快。两臂(`HG_FREE_DRIFT` 0 vs 8)一比就知道。
+            gl_FragColor = vec4(clamp(-velocity.y * 0.4, 0.0, 1.0), 0.0, 0.0, 1.0);
         } else {                              // 这个像素属于哪个 context
             gl_FragColor = vec4(sand_ctx_tag / 4.0, 0.0, 0.0, 1.0);
         }
@@ -465,7 +481,8 @@ class SandFlowContext(RenderContext):
                 #    `grain()` 里减掉的那一个用**同一个坐标**, 否则颈部多出一个系统偏置
                 #    (实测颈部 |tone| 0.227 vs 上球 0.112 —— 2 倍, 画面上就是"斑块")。
                 ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 1.0),
-                ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0)):
+                ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0),
+                ("sand_adv_cont", "HG_ADV_CONT", "advcont", 1.0)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None
@@ -529,8 +546,8 @@ void main(void) {
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
     vec2 jump = vec2(0.125, 0.0625);
-    float ga = grain(uv - velocity * a + floor(t) * jump);
-    float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
+    float ga = grain(uv - velocity * adv + floor(t) * jump);
+    float gb = grain(uv - velocity * (adv + 0.5) + floor(t + 0.5) * jump + vec2(0.5));
     float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
     float tone = clamp(lighting(uv) + detail, -1.0, 1.0);
     vec3 flowing = mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
