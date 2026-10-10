@@ -117,6 +117,9 @@ uniform float sand_uv_debug;
 uniform float sand_wrap_light;
 // 调试: 每个 `SandFlowContext` 一个标记值, 画成颜色 ⇒ **直接读出"这个像素是哪个 context 画的"**。
 uniform float sand_ctx_tag;
+// 调试: `jump` 的 y 分量系数(默认 1.0)。两相位沿 v 的固有错开, 与 `sand_flow_vy` 合起来
+// 才能把"纵向平流抹开"这条**完整**关掉(只关 `flowvy` 不够 —— `jump.y` 仍分开 32 纹素)。
+uniform float sand_jump_y;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -216,7 +219,7 @@ void main(void) {
     float delta = luma(texture2D(texture0, fract(uv)).rgb) - luma(sand_base);
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
-    vec2 jump = vec2(0.125, 0.0625);
+    vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
     float ga = grain(uv - velocity * a + floor(t) * jump);
     float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
     float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
@@ -425,7 +428,8 @@ class SandFlowContext(RenderContext):
                 # 颈部不许比球底更暗: 0 = 旧行为(颈管被压暗成高反差斑块)
                 ("sand_neck_light", "HG_NECK_LIGHT", "necklight", 0.0),
                 ("sand_uv_debug", "HG_UV_DEBUG", "uvdebug", 0.0),
-                ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 0.0)):
+                ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 0.0),
+                ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None
