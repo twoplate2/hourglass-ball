@@ -92,6 +92,17 @@ uniform float sand_flow_vy;
 //    **这就是用户说的那条横向分界线。**
 //    `= 0` ⇒ 逐字旧行为(可直接当负对照); `> 0` ⇒ 打散按深度从 0 渐入到全功率。
 uniform float sand_free_ramp;
+uniform float sand_edge_lo;
+uniform float sand_edge_hi;
+// 🔴 **2026-10-10: 可见边缘由**噪声**决定, 不由几何决定。**
+//    用户判词:「整个边缘非常奇怪, 说不规整吧, **他额外带了一层直线**」。
+//    实测: 关掉材质(平色四边形)+ 抽掉粒子 ⇒ 柱子是**边缘笔直的矩形**
+//    ⇒ 那条直线就是**几何轮廓**(`_neck_sand_side` 的自由段), 而毛边是这里腐蚀出来的,
+//    在轮廓**里面** ⇒ 外面永远留一条直边。
+//    改法两层(配合 `main.FLOW_FREE_MARGIN` 把几何加宽 1.35 倍):
+//      每颗粒所在行取**该侧自己的噪声**(`nz`, 已含 y 与平流) 当"沙到多宽为止",
+//      在它附近把 coverage 收到 0 ⇒ 边界随深度起伏、左右两条边各不相关。
+//    `sand_edge_hi <= 0` ⇒ 关掉(逐字旧行为, 可作负对照)。
 // 🔴 **2026-10-10: 颈部不许比球底更暗**(0 = 旧行为)。
 //    `lighting()` 里有一项 `sand_lighting.y * (uv.y - 0.5)`, 而**颈部的 `uv.y` 是负的**
 //    (`uv.y = (y − 上球内底)/球径`, 管子在上球内底以下好几个球径的位置) ⇒ 整条管子被推到
@@ -284,6 +295,11 @@ void main(void) {
         //    否则就是一个矩形/梯形了」** ⇒ 打散深度从 `0.25+0.75n` 放宽到
         //    `sand_bite_min + (1-它)*n`, 且整条再乘 `sand_edge`。
         float nz = clamp(u < 0.5 ? n : n2, 0.0, 1.0);
+        // 🔴 可见边缘: 由这一行自己的噪声决定"沙到多宽为止"(见上面 `sand_edge_lo/hi`)
+        if (sand_edge_hi > 0.0) {
+            float cut = mix(sand_edge_lo, sand_edge_hi, 0.5 + 0.5 * nz);
+            coverage *= 1.0 - smoothstep(cut - 0.07, cut + 0.07, r01);
+        }
         coverage *= 1.0 - rim * (sand_bite + (1.0 - sand_bite) * nz)
                           * sand_edge * sand_free.y * fr;
         // 🔴 核心不再 100% 不透明 —— 否则同色全不透明的它会把**粒子层完全吃掉**
@@ -482,7 +498,9 @@ class SandFlowContext(RenderContext):
                 #    (实测颈部 |tone| 0.227 vs 上球 0.112 —— 2 倍, 画面上就是"斑块")。
                 ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 1.0),
                 ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0),
-                ("sand_adv_cont", "HG_ADV_CONT", "advcont", 1.0)):
+                ("sand_adv_cont", "HG_ADV_CONT", "advcont", 1.0),
+                ("sand_edge_lo", "HG_EDGE_LO", "edgelo", 0.78),
+                ("sand_edge_hi", "HG_EDGE_HI", "edgehi", 1.12)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None

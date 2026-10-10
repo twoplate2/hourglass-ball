@@ -1660,6 +1660,13 @@ FLOW_TONE_QUANT = (max(1, int(float(_TQ))) if _TQ
 #    调它的判据是 `tools/_accept_check.py` 的 A1(柱内颗粒量 / 上球 ∈[0.6,1.5])
 #    与 A2(连续平填行 ≤2), 外加并排图。
 FLOW_GRAIN_GAIN = float(os.environ.get("HG_GRAIN_GAIN", "1.0"))
+# 🔴 **2026-10-10: 出口以下那段沙柱的**几何**要加宽, 让它的硬边退到看不见的地方。**
+#    病(用户判词): 「整个边缘非常奇怪, 说不规整吧, **他额外带了一层直线**」。
+#    实测: 把材质关掉(平色四边形)、把粒子抽掉, 柱子就是一个**边缘笔直的矩形**
+#    ⇒ 那条直线是**几何轮廓**; 而"毛"的那层是着色器在轮廓**里面**腐蚀出来的
+#    ⇒ 外面永远留一条直边。可见边缘改由着色器里那条**噪声门槛**决定(见
+#    `sand_edge_lo/hi`), 几何只负责"够宽, 别露头"。1.0 = 旧行为。
+FLOW_FREE_MARGIN = float(os.environ.get("HG_FREE_MARGIN", "1.35"))
 # 🔴 **2026-10-10: 末段出生带的两个形状参数**(见 `update_particles` 里那一段注释)。
 #    `FLOW_TAIL_NARROW`: 颈管快空时出生带收到原来的几成宽(1.0 = 不收窄 = 旧行为)。
 #    `FLOW_TAIL_TAPER` : 同时把横向分布从 uniform 收成 `|u|^p`(1.0 = 不变 = 旧行为)。
@@ -2356,6 +2363,14 @@ NECK_TAPER_SEGS = 4          # 收缩段节点数(前 40px 均分)
 #    只是那条直线变陡(底宽 37→22→20)。⇒ 不加密节点, "该收多细"的讨论都落不到画面上。
 #    布点: **前 40px 仍用 4 个(收缩段要密)**, 40px 之后按 `span·(k/(K+1))^1.4` 前密后疏补 K 个。
 NECK_FREE_EXTRA_SEGS = 10
+# 🔴 **2026-10-10: 沙柱**头部**(前沿那一段)沿宽度打几个节点。**
+#    用户判词(附截图): 「这个头部的形状也不对, **固定一个三角形啊**」。
+#    病: 前沿原来只用**两个节点**(最外一个点 + 中轴一个点), 而前沿是条抛物线
+#    (`_front_at = _front + _bulge·(dx/w)²`) ⇒ 两点之间是**一条直弦** ⇒ 画出来就是个三角。
+#    改: 沿半宽打 `NECK_FRONT_SEGS` 段 + 一层**随时间和位置起伏**的抖动
+#    (`FLOW_FRONT_WOBBLE`, 相位每次启动不同 ⇒ 每轮头部形状都不一样)。
+NECK_FRONT_SEGS = 5
+FLOW_FRONT_WOBBLE = float(os.environ.get("HG_FRONT_WOBBLE", "0.35"))
 NECK_GRAINS_IN_MATERIAL = os.environ.get("HG_NECK_GRAINS", "0") != "0"
 # 前沿的**穹顶**量(以半宽为单位): 边缘比中轴高出这么多。`0` = 平头(2.14 的行为)。
 NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.80"))
@@ -3468,6 +3483,8 @@ class HourglassWidget(Widget):
         self._upper_cols = None             # `_upper_area` 的布局缓存(dx/floor/roof)
         self._neck_tone_tab = None          # 颈部颗粒的色调查表(见 _draw_neck_grains)
         self._neck_tone_last = None         # 每槽上次写过的颜色(值没变就不写)
+        # 头部抖动相位: 每次启动不同(不消耗 random 流) ⇒ 每轮头部形状不一样
+        self._front_seed = (time.perf_counter() * 7.13) % 6.283
         self._completion_triggered = False
         self._done_at = None                 # 漏完时刻(颈管排空用), 未漏完为 None
         self._completion_token = 0          # 作废"待弹的完成提示"用, 见 _schedule_completion_popup
@@ -4280,14 +4297,15 @@ class HourglassWidget(Widget):
                 # 🔴 **自由收缩段**: 出口 → 下沿, 半宽按 `_free_width_ratio` 收窄
                 #    (vena contracta + A·v=常数, 与粒子同一条式子)。收缩集中在前 40px,
                 #    所以那几个节点按 40px 均分采, 而不是按整段落程均分。
-                _w_end = _w * self._free_width_ratio(bottom - _end_at(_w))
+                _w_end = _w * self._free_width_ratio(bottom - _end_at(_w)) * FLOW_FREE_MARGIN
                 _y_endw, _y_end0 = _end_at(_w_end), _end_at(0.0)
                 _span = bottom - _y_endw
                 if _span > 1.0:
                     for _k in range(1, NECK_TAPER_SEGS + 1):
                         _d = FLOW_SHRINK_RAMP * _k / float(NECK_TAPER_SEGS)
                         if _d < _span - 1.0:
-                            side.append((_w * self._free_width_ratio(_d), bottom - _d))
+                            side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
+                                         bottom - _d))
                     # 🔴 **N1(2026-10-09): 40px 之后补节点。** 不做这一步, `d>40px` 那一段
                     #    永远是**一条直线弦**(用户报的"规整的直线"), 任何宽度律都画不出来。
                     #    前密后疏: `d = span·(k/(K+1))^1.4`; 太靠近收缩段(<=40px)或端点(>=span-2)
@@ -4299,9 +4317,18 @@ class HourglassWidget(Widget):
                         if FLOW_SHRINK_RAMP + 2.0 < _d < _span - 2.0:
                             _extra.append(_d)
                     for _d in _extra:
-                        side.append((_w * self._free_width_ratio(_d), bottom - _d))
-                side.append((_w_end, _y_endw))
-                side.append((0.0, _y_end0))
+                        side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
+                                     bottom - _d))
+                # 🔴 头部: 沿宽度打点 + 抖动(见 `NECK_FRONT_SEGS` 的注释)
+                _ph = getattr(self, "_front_seed", 0.0)
+                _et = self.elapsed
+                for _k in range(NECK_FRONT_SEGS + 1):
+                    _f = 1.0 - _k / float(NECK_FRONT_SEGS)
+                    _dx = _w_end * _f
+                    _wob = (FLOW_FRONT_WOBBLE * _w_end
+                            * (0.62 * math.sin(_f * 5.3 + _et * 1.7 + _ph)
+                               + 0.38 * math.sin(_f * 11.9 - _et * 2.3 + _ph * 1.7)))
+                    side.append((_dx, _end_at(_dx) - _wob))
                 # 🔴 **诊断用(2026-10-10)**: 设备实测"出口以下固体只占 ~28%"(`flowrate=1` 一臂),
                 #    而这段代码看着应当把出口一直填到 `_end_at()`。**别再推理, 把它读出来。**
                 #    标记文件 `<app>/necklog`(非空) ⇒ 每秒打一行。
@@ -4320,7 +4347,7 @@ class HourglassWidget(Widget):
                 #    `for i in range(len(quads))` **静默丢掉最后几段, 一行报错都没有** ——
                 #    项目踩过(`len(side)=27 > 容量 25`, 画面"一点没变"而原因查了很久)。
                 #    容量表达式必须与 `_build_dynamic_canvas` 里那一处**逐字一致**。
-        _cap = len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS
+        _cap = len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS + NECK_FRONT_SEGS
         if len(side) - 1 > _cap:
             raise AssertionError(
                 "颈部沙柱节点 %d 段 > _neck_quads 容量 %d —— 超容量是**静默丢弃**, "
@@ -7144,7 +7171,8 @@ class HourglassWidget(Widget):
             #    ⚠️ **改 `_neck_sand_side` 的节点数就要回这里改容量** —— 少一格是静默的
             #      (循环画不到最后一段, 不报错)。
             self._neck_quads = _QuadBand(
-                len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS, texture=neck_tex)
+                len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS + NECK_FRONT_SEGS,
+                texture=neck_tex)
             self._neck_solid_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_solid_rect = Rectangle(size=(0, 0), texture=neck_tex)
             # 沙柱下段(孔口往上 transition 那段): 直接画不透明的沙色矩形。
