@@ -6732,13 +6732,21 @@ class HourglassWidget(Widget):
         self._sand_flow_contexts = ()
         self._mound_surface_flow = None
         self._splash_pixel = Window.system_size[0] / max(1.0, Window.width)
-        upper_flow = neck_flow = None
+        upper_flow = neck_flow = mound_flow = None
         if material and os.environ.get("HG_SAND_FLOW", "1") != "0":
             try:
                 from sand_flow_material import SandFlowContext
                 geometry = (cx, Ri, self._upper_sand_bot, self._taper["in_pts"][0][1])
                 upper_flow = SandFlowContext(geometry, tag=1.0)
                 neck_flow = SandFlowContext(geometry, tag=2.0)
+                # 下球沙体也走同一条 GPU 材质管线(标记 moundflowall, 默认关)。
+                # 实测: 上球那张 Rectangle 在 upper_flow 里(走着色器), 下球那张挂在
+                # self.canvas 上(普通贴图) —— 两者在**沙堆锥顶那一行**硬接, 一边 GPU
+                # 平流细颗粒、一边整块拉伸的贴图 ⇒ 用户看到的那条"颜色分层"。
+                if material and _neck_marker("moundflowall"):
+                    mound_flow = SandFlowContext(
+                        (cx, Ri, self._lower_sand_bot, self._taper["in_pts"][-1][1]),
+                        tag=3.0)
                 self._sand_flow_contexts = (upper_flow, neck_flow)
                 if not getattr(self, "_sand_flow_logged", False):
                     print("GPU sand flow active: upper reservoir + neck")
@@ -6755,6 +6763,12 @@ class HourglassWidget(Widget):
                 if yc == self._upper_y_c and upper_flow is not None:
                     self.canvas.add(upper_flow)
                     with upper_flow:
+                        color = Color(1, 1, 1, 1)
+                        rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
+                                         texture=material.texture)
+                elif yc == self._lower_y_c and mound_flow is not None:
+                    self.canvas.add(mound_flow)
+                    with mound_flow:
                         color = Color(1, 1, 1, 1)
                         rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
                                          texture=material.texture)
