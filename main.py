@@ -324,6 +324,8 @@ NECK_GEOM_ON = _neck_marker("neckgeom")
 NECK_FREE_OFF = _neck_marker("neckfree")
 NECK_MARKER_OFF = _neck_marker("markeroff")
 NECK_ABL5_OFF = _neck_marker("abl5")
+NECK_POOL_OFF = _neck_marker("pooloff")
+NECK_FREE_ONTOP = _neck_marker("freeontop")
 
 
 def _neck_nouv_on():
@@ -3936,6 +3938,22 @@ class HourglassWidget(Widget):
         seen = [0]
         try:
             _c = list(self.canvas.children)
+            _names = ("_splash_group", "_dust_group", "_flare_group",
+                      "_surface_marker_group", "_neck_grain_group",
+                      "_upper_carve", "_mound_carve", "_upper_band", "_mound_band",
+                      "_neck_quads", "_neck_free_band", "_contact_grains",
+                      "_upper_flow", "_neck_flow")
+            for _i in range(max(0, len(_c) - 22), len(_c)):
+                _o = _c[_i]
+                _who = [nm for nm in _names if getattr(self, nm, None) is _o]
+                _sub = getattr(_o, "children", None)
+                print("NECKORD [%2d] %-18s %-22s kids=%s"
+                      % (_i, type(_o).__name__, (_who[0] if _who else ""),
+                         len(list(_sub)) if _sub else 0))
+        except Exception as exc:
+            print("NECKORD failed: %s" % exc)
+        try:
+            _c = list(self.canvas.children)
             for _i in (52, 51, 53):
                 if _i < len(_c):
                     _o = _c[_i]
@@ -6931,12 +6949,32 @@ class HourglassWidget(Widget):
         #    但整条移出会改到**出口以上**(实测最大通道差 25 / 2653 px) ⇒ 只搬"出口以下"。
         #    出口以上仍走着色器(流动颗粒), 出口以下是普通材质四边形。
         self._neck_free_band = None
+        if neck_flow is not None and NECK_FREE_ONTOP:
+            # 🔴 **2026-10-10: 把材质带提到粒子之上。**
+            #    实测根因(两条独立消融: `HG_FLOW_RATE=1` 与清空 `_stream_pools` 都把
+            #    颈部下沿那块 16x13 的纯色贴片从 314px 打到 5px): 那块"分层"就是**下落沙流
+            #    自己** —— 2px 的 Line 在出口附近密到并成一块, 颜色统一 ⇒ 读成平的色带。
+            #    而 2.32 加的 `_neck_free_band`(材质画的、正确词汇)**画了却被它盖住**
+            #    (清它只差 1px)。用户口径就是「把上球那套用到颈部」⇒ 让材质当可见面。
+            #    **不减任何粒子**, 只改画布次序。
+            pass
         if neck_flow is not None:
             with self.canvas:
                 self._neck_free_color = (Color(1, 1, 1, 1) if material
                                          else Color(*self.sand_base))
                 self._neck_free_band = _QuadBand(
                     NECK_TAPER_SEGS + NECK_FREE_EXTRA_SEGS + 6, texture=neck_tex)
+            if NECK_FREE_ONTOP:
+                # 提到最上层: 先摘下来, 再按序追加到画布末尾
+                for _ins in (self._neck_free_color, self._neck_free_band.bind,
+                             self._neck_free_band.mesh):
+                    try:
+                        self.canvas.remove(_ins)
+                    except Exception:
+                        pass
+                self.canvas.add(self._neck_free_color)
+                self.canvas.add(self._neck_free_band.bind)
+                self.canvas.add(self._neck_free_band.mesh)
 
         # §5 表层滑动标记(专家 dingbu.md §5): 固定图元池, 不新增物理粒子。
         # ⚠️ **必须建在这里** —— 沙体之后。曾经建在上面那个 `with self.canvas:` 的 stencil 块里,
@@ -7455,6 +7493,15 @@ class HourglassWidget(Widget):
             self._project_stream_contact()
             self._draw_contact_grains()
         self._draw_stream()
+        if NECK_POOL_OFF:
+            # 🔴 **干净消融: 粒子流的 24 个桶**(画布上最后、最上层的一族, kids 81~379)。
+            #    清 points 必须在 `_draw_stream()` **之后** —— 它是填 points 的那个,
+            #    放前面会被立刻覆盖。清在前面那次 `after51` 崩了, 就是因为它清到了
+            #    别人本帧还要按下标读的 `points`。
+            for _g, _c, _lines in self._stream_pools.values():
+                for _ln in _lines:
+                    if _ln.points:
+                        _ln.points = []
         if self._sand_flow_contexts and self._sand_material is not None:
             for i, context in enumerate(self._sand_flow_contexts):
                 context.update_flow(self.elapsed, self._particle_motion_scale,
