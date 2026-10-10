@@ -330,7 +330,7 @@ class SandFlowContext(RenderContext):
                 # 渐入长度 = 这个系数 × 球径。0 = 关(负对照: 出口会出现分界线)
                 ("sand_hole_ramp", "HG_HOLE_RAMP", "holeramp", 0.08),
                 # 孔隙率随深度增长的系数: 0 = 关(只剩渐入)
-                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.8)):
+                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.0)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None

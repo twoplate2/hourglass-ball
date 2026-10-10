@@ -1624,7 +1624,7 @@ _SPREAD = _stream_spread_probe()
 #        spread 700 = 4.4×tube     → 1.65  (0.90×)   ← 线没了, 但柱子明显变稀
 #    ⇒ 取用户给的上限 2×: 1× 实测几乎无效, 再大就开始牺牲密度。
 #    ⚠️ 是**比例的**不是像素 —— 写死像素会在平板/手机上差好几倍。
-STREAM_SPREAD_RATIO = 2.0 if _SPREAD is None else max(0.0, _SPREAD)
+STREAM_SPREAD_RATIO = 0.0 if _SPREAD is None else max(0.0, _SPREAD)
 
 TRAIL_SCALE = _trail_scale_probe()
 # 🔴 **2026-10-10 定为出货默认 0.8**（用户对着 `benchmark_logs/_vid/ladder2.png` 判的：
