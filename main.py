@@ -1631,14 +1631,34 @@ FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
 #   把中点下移到 2 恰好抵消这个可见性偏差(每档 ≈ +2.5R/+3.5G/+3.6B)。
 #   ⚠️ 改它之前先重量一次直方图 —— 这个数是**量出来的**, 不是推出来的。
 FLOW_TONE_CENTER = 2
+# 🔴 **2026-10-10: 开关(也是回退口)**: `0` = 退回"出生相位 → 色调档"的老取色。
+#    **出货默认 0** —— 这条路径**试过、量过、没帮上忙**, 留着只作以后排查:
+#      · 自证过它真的执行(`HG_GRAIN_TONE=0` vs `=1` ⇒ 9352 px 不同);
+#      · 但柱内高频 std 反而从 1.79 掉到 0.97、均值从 170 抬到 181(偏亮偏平)
+#        —— 因为"亮度就近取 `_flow_table` 档"会在色表两端截断(色表只有 ±10 R 级,
+#        而材质纹理的亮度偏离更大) ⇒ 颗粒挤向最亮那一档。
+#    真正解决「精细度不够」的是 **`FLOW_WIDTH_CAP = 1` + `TRAIL_SCALE = 0.5`**
+#    (把墨块从 2px×(5~8)px 变成 1px×(2~3)px), 与取色无关。
+FLOW_GRAIN_TONE = os.environ.get("HG_GRAIN_TONE", "0") != "0"
 # 🔴 **2026-10-10: 色调档的量化步长。**
-#    `3` = 旧行为: `idx -= idx % 3` 把 7 个可达档磨成 **{0, 3, 6} 三档**
+#    `3` = 旧行为: `idx -= idx % 3` 把可达档磨成 **{0, 3, 6} 三档**
 #          (桶数 22→8, 是 2026-10-07 的性能优化)。
-#    `1` = 不量化: 7 档全用。
-#    **为什么要试它**: 出口以下那一段的**可见面是粒子层**(实测覆盖柱宽 71~100%,
-#    材质被压在下面), 而粒子层每条只有 2px 宽 × 2~7px 高、色调终身固定 ⇒
-#    它比材质面"平"。这一档就是用来把"平是不是来自色调档太少"单独劈出来的。
-FLOW_TONE_QUANT = max(1, int(float(os.environ.get("HG_TONE_QUANT", "3"))))
+#    `1` = 不量化。
+#    默认值**跟随取色路径**: 走材质颗粒场时必须不量化(否则细颗粒被磨成 3 档,
+#    `HG_GRAIN_GAIN` 也就测不出差别 —— 2026-10-10 实测过这个坑)。
+_TQ = os.environ.get("HG_TONE_QUANT")
+FLOW_TONE_QUANT = (max(1, int(float(_TQ))) if _TQ
+                   else (1 if FLOW_GRAIN_TONE else 3))
+# 🔴 **2026-10-10: 沙流颗粒"从材质颗粒场取色"时的放大系数。**
+#    1.0 = 原样用材质纹理的亮度偏离; 更大 ⇒ 颗粒对比更强(但会与底下的材质面对不上)。
+#    调它的判据是 `tools/_accept_check.py` 的 A1(柱内颗粒量 / 上球 ∈[0.6,1.5])
+#    与 A2(连续平填行 ≤2), 外加并排图。
+FLOW_GRAIN_GAIN = float(os.environ.get("HG_GRAIN_GAIN", "1.0"))
+# 🔴 **2026-10-10: 沙流颗粒的线宽上限。0 = 不限制(出货行为: 85% 是 2px)。**
+#    为什么要它: 出口以下的**可见面就是粒子层**(覆盖柱宽 89%), 而它的墨是
+#    `2px 宽 × 5~8px 高` 的块 ⇒ 读起来是"块"不是"颗粒"(用户判词「精细度都不够」)。
+#    ⚠️ 只盖结果, **不挪随机数流** —— 位置/相位/寿命一字不变。
+FLOW_WIDTH_CAP = int(float(os.environ.get("HG_FLOW_WIDTH", "1")))
 # 调色板**每档多少 R 级**(等距, 见 `_flow_tone`)。整条 R 跨度 = 2×5×STEP。
 # 2.0 ⇒ 跨 20 级; 配合中点 2 之后实际用到第 0~6 档 = **R 207~219**,
 # 与**沙堆实测的 208~219** 基本重合(这是"不发黑"的判据)。
@@ -1787,7 +1807,15 @@ _SPREAD = _stream_spread_probe()
 STREAM_SPREAD_RATIO = 2.0 if _SPREAD is None else max(0.0, _SPREAD)
 
 TRAIL_SCALE = _trail_scale_probe()
-# 🔴 **2026-10-10 定为出货默认 0.8**（用户对着 `benchmark_logs/_vid/ladder2.png` 判的：
+# 🔴 **2026-10-10 定为出货默认 0.5**(此前是 0.8)。
+#    为什么改: 用户对 2.35 的判词是**「精细度都不够」**。实测(PC 400×875 / 10s / t=7.40,
+#    柱内高频 std 中位, 材质面自身 = 2.73; 配合下面 `FLOW_WIDTH_CAP=1`):
+#        拖尾 0.8(=2.35) → 1.79      拖尾 0.5 → **2.93**      拖尾 0.25 → 2.85
+#    0.5 与 0.25 差在噪声内, 取更保守的 0.5。
+#    ⚠️ 旧记录里"拖尾 0.2/0.4 ⇒ 太稀疏"是在**底下那层材质只有 28% 不透明**的年代量的
+#      (见 `sand_flow_material.py` 里 `coverage = solid` 那一段); 现在底层是 98~100%
+#      实心的颗粒面, 实测 1px 墨 + 拖尾 0.5 时柱内**背景色 0.0%、沙色 99.8%** ⇒ 不会稀。
+#    旧标定(供参考): 1.0 → 背景 0.0% / 各向异性 2.34~2.51; 0.8 → 9.4% / 1.88~2.23;
 #    「最右边 2 个的沙子更真实，不过太稀疏了」⇒ 要那两格的质感、但更密）。
 #    标定（固定 `holeth=0.10`、只改这一个旋钮，柱内露出背景占比 / 柱区竖横自相关比）：
 #        1.0 → 0.0% / 2.34~2.51     0.8 → **9.4%** / 1.88~2.23（选定）
@@ -1795,7 +1823,7 @@ TRAIL_SCALE = _trail_scale_probe()
 #        v1.2(用户说好看) 参照 = 16.7% / 1.54~1.70
 #    ⚠️ **密度与各向同性由这一个旋钮反向拉扯** —— 越密越"竖"。0.6 是同时复刻 v1.2 的那一档；
 #      0.8 是"比 v1.2 更密"的那一档。改它之前先回去看那张梯子图。
-TRAIL_SCALE = 0.8 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
+TRAIL_SCALE = 0.5 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
 
 # `_apply_max_refresh_rate()` 把 `Display.getSupportedModes()` 的**整个列表**写在这里,
 # 由基准日志的 `refresh_modes=` 带出来(桌面/无安卓时为 None)。
@@ -4528,6 +4556,82 @@ class HourglassWidget(Widget):
         self._hilite_color = (self.sand_light if FLOW_HILITE_T >= 1.0
                               else lerp_rgb(self.sand_base, self.sand_light,
                                             FLOW_HILITE_T))
+        # 色调档的**亮度**表: 给 `_stream_grain_idx` 做"就近取档"用(单调, 可二分)。
+        _lw = (0.299, 0.587, 0.114)
+        self._flow_lum = tuple(c[0] * _lw[0] + c[1] * _lw[1] + c[2] * _lw[2]
+                               for c in self._flow_table)
+        self._material_lum = None          # (id(material), 亮度场) —— 见下
+        # ⚠️ **必须在这里算**(而不是在 `_material_luminance` 的缓存未命中分支里):
+        #    那条分支按 `id(material)` 命中就早退, 而本函数每次换配色都会把它清成 0
+        #    ⇒ 基准一旦是 0, `tgt = 0 + g` 恒大于色表上界 ⇒ **所有颗粒饱和到最亮那一档**
+        #    (实测症状: 柱内均值 174→181、高频 std 反而降到 0.97、`HG_GRAIN_GAIN`
+        #     换三档画面逐像素相同)。2026-10-10 栽过一次。
+        self._mat_lum_base = (self.sand_base[0] * 0.299 + self.sand_base[1] * 0.587
+                              + self.sand_base[2] * 0.114) * 255.0
+
+    def _material_luminance(self):
+        """材质纹理的**亮度场** `(size, size) float32`, 按 material 身份缓存。
+
+        面积 512² = 262144 个 float32(1 MiB), 只在换材质时算一次。
+        """
+        m = self._sand_material
+        if m is None or _np is None:
+            return None
+        key = id(m)
+        if self._material_lum is not None and self._material_lum[0] == key:
+            return self._material_lum[1]
+        try:
+            a = _np.frombuffer(bytes(m.rgba), dtype=_np.uint8)
+            size = int(round((a.size // 4) ** 0.5))
+            a = a[:size * size * 4].reshape(size, size, 4).astype(_np.float32)
+            lum = (a[:, :, 0] * 0.299 + a[:, :, 1] * 0.587 + a[:, :, 2] * 0.114)
+        except Exception:
+            return None
+        self._material_lum = (key, lum)
+        return lum
+
+    def _stream_grain_idx(self, xs, ys, phases):
+        """**沙流颗粒的色调改从材质那张颗粒场里取** —— 让沙流与沙体说同一套词汇。
+
+        ## 为什么(2026-10-10, 用户判词「精细度都不够」)
+
+        出口以下的**可见面其实就是粒子层**(实测覆盖柱宽 **89%**, 材质被压在下面),
+        而粒子的色调原来只由**出生相位**决定、再量化到 `{0,3,6}` 三档;
+        更要命的是它**按档序提交、后提交的压在上面**(`FLOW_TONE_CENTER` 的注释里
+        记着这件事: 中点定 5 时"[0..5] 全被盖住") ⇒ 可见色被最高档支配
+        ⇒ 叠出来是一层**平的涂抹**, 与上球那张 2~4px 的细颗粒场不是一套词汇。
+        (旁证: 把出生点沿 y 摊开 2×直筒高只把 std 从 1.01 抬到 1.79, 材质面自身是 2.73
+         —— **形状变了, 词汇没变**。)
+
+        ## 做法
+
+        在**与着色器完全相同的 uv 约定**下采样材质纹理的亮度:
+            `u = 0.5 + (x − cx)/diameter`,  `v = (y − 上球内底)/diameter`
+        再叠一个**每颗粒自己的相位偏移**(同一张场、不同实现 ⇒ 统计同族, 但不与底下
+        那张逐像素相同 ⇒ 粒子仍然看得见"沙在落"); 偏离 base 的幅度再乘
+        `FLOW_GRAIN_GAIN` 放大, 最后**就近取 `_flow_table` 的档**。
+
+        返回 `w`(与旧路径同一个语义: `idx = w + (FLOW_TONE_CENTER−4)`), 形状同 `xs`。
+        """
+        lum = self._material_luminance()
+        if lum is None or _np is None:
+            return None
+        d = max(2.0, 2.0 * self._R_inner)
+        u = 0.5 + (xs - self._cx) / d
+        v = (ys - self._upper_sand_bot) / d
+        # 每颗粒自己的偏移(相位已在 [0,2π)) ⇒ 同一张噪声场、不同实现
+        u = u + (phases * 0.15915494309189535)      # ×1/(2π)
+        v = v + (phases * 0.07957747154594767)      # ×1/(4π)
+        size = lum.shape[0]
+        ix = (u * size).astype(_np.int64) % size
+        iy = (v * size).astype(_np.int64) % size
+        g = lum[iy, ix] - self._mat_lum_base
+        g = g * FLOW_GRAIN_GAIN
+        # 就近取档: `_flow_lum` 单调 ⇒ 二分
+        tgt = self._mat_lum_base + g
+        idx = _np.searchsorted(_np.asarray(self._flow_lum), tgt)
+        idx = _np.clip(idx, 0, len(self._flow_lum) - 1)
+        return idx - (FLOW_TONE_CENTER - 4)
 
     def _make_sound_proxy(self, name):
         """按音效名新建 _SoundProxy(构造失败返回 None,不抛)。"""
@@ -5598,6 +5702,10 @@ class HourglassWidget(Widget):
                 amp = random.uniform(0.4, 1.0)
                 is_light = random.random() < 0.10
                 size = (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1
+                if FLOW_WIDTH_CAP and size > FLOW_WIDTH_CAP:
+                    # 🔴 2026-10-10: **只压线宽, 不动随机数流**(上面那次 `random.random()`
+                    #    照抽, 只是结果被盖掉) ⇒ 同 seed 下粒子的位置/相位/寿命一字不变。
+                    size = FLOW_WIDTH_CAP
                 trail_time = random.uniform(0.018, 0.032)
                 i = self.pn
                 self.px[i] = cx + x_off
@@ -7709,10 +7817,19 @@ class HourglassWidget(Widget):
                 #   —— 逐位相同, 直接换成整片视图。
                 if sel.size == n:
                     _pw, _pl, _ps = self.pwp[:n], self.pli[:n], self.psz[:n]
+                    _xs_i, _ys_i = self.px[:n], y_all[:n]
                 else:
                     _pw, _pl, _ps = self.pwp[:n][sel], self.pli[:n][sel], self.psz[:n][sel]
+                    _xs_i, _ys_i = self.px[:n][sel], y_all[:n][sel]
                 w = (_pw * tone_scale).astype(np.int64)
                 np.minimum(w, 8, out=w)
+                # 🔴 **2026-10-10: 色调改从材质那张颗粒场里取** —— 让沙流与沙体说同一套
+                #    词汇。旧路径(出生相位 → 三档)叠出来是一层平涂抹, 见
+                #    `_stream_grain_idx` 的 docstring。取不到材质 ⇒ 原样退回旧路径。
+                _g = (self._stream_grain_idx(_xs_i, _ys_i, _pw)
+                      if FLOW_GRAIN_TONE else None)
+                if _g is not None:
+                    w = _g.astype(np.int64)
                 # **以 base 居中**(见 `_rebuild_color_table` 的 `_flow_table` 注释):
                 # 不再有"越往下越亮"的深度斜率 —— 沙堆没有那条斜率, 沙流也不该有。
                 idx = w + (FLOW_TONE_CENTER - 4)
@@ -7782,6 +7899,21 @@ class HourglassWidget(Widget):
         by_key = [[buckets.get((i, s)) for s in (1, 2)]
                   for i in list(range(n_colors)) + [-1]]
         light_row = by_key[n_colors]
+        # 🔴 **2026-10-10: 标量路径也必须从材质颗粒场取色。**
+        #    ⚠️ 上一版只改了 numpy 路径 ⇒ 桌面(393 颗 < `_NUMPY_MIN=800`)走的是**标量**
+        #    ⇒ 整整一轮 A/B 是**空转**(三档 `HG_GRAIN_GAIN` 的画面逐像素完全相同)。
+        #    **改色调一定要两条路径一起改** —— 判据: 同一个 `HG_GRAIN_GAIN` 换值画面必须变。
+        _gx = self.px[:pv.n]
+        _gidx = None
+        if FLOW_GRAIN_TONE and not pv.use_np and _np is not None and pv.n:
+            _ysa = _np.asarray(ys[:pv.n])
+            _sel = _np.flatnonzero(~(_ysa >= outlet))
+            if _sel.size:
+                _g = self._stream_grain_idx(_gx[_sel], _ysa[_sel],
+                                            _np.asarray(phases[:pv.n])[_sel])
+                if _g is not None:
+                    _gidx = _np.zeros(pv.n, dtype=_np.int64)
+                    _gidx[_sel] = _g
         for i in range(pv.n):
             y = ys[i]
             if y >= outlet:
@@ -7789,10 +7921,13 @@ class HourglassWidget(Widget):
             if lights[i]:
                 row = light_row
             else:
-                w = int(phases[i] * tone_scale)
-                if w > 8:
-                    w = 8
-                index = w + (FLOW_TONE_CENTER - 4)
+                if _gidx is not None:
+                    index = int(_gidx[i])
+                else:
+                    w = int(phases[i] * tone_scale)
+                    if w > 8:
+                        w = 8
+                    index = w + (FLOW_TONE_CENTER - 4)
                 index -= index % FLOW_TONE_QUANT      # ← 与 numpy 路径一起改(见上)
                 if index < 0:
                     index = 0
@@ -7920,8 +8055,16 @@ class HourglassWidget(Widget):
             self._stream_counts[key] = len(indices)
 
     def _particle_trail(self, particle, motion_scale=None):
+        """**逐字镜像 `_draw_stream` 里那段拖尾算式**(含 `TRAIL_SCALE`)。
+
+        ⚠️ **2026-10-10 之前它漏了 `TRAIL_SCALE`** ⇒ 两个后果:
+          ① `tools/inspect_flow.py` 的 `max_trail_px` 是个**瞎的见证者** ——
+             我把 `HG_TRAIL_SCALE` 从 0.8 换成 0.2, 它照样报 8.45, 害我一度以为那一臂空转;
+          ② `verify_hourglass.py` 的 "individual short trails preserve granular detail"
+             写死 `== 8` ⇒ 从 `TRAIL_SCALE` 进来的那天起就一直是红的(陈旧判据)。
+        """
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
-        trail = max(2.0, abs(particle["vy"]) * particle["trail_time"] / scale)
+        trail = max(2.0, abs(particle["vy"]) * particle["trail_time"] / scale * TRAIL_SCALE)
         return trail * (1.0 - self._pv.tail_blend) + self._pv.tail_blend
 
     def _hide_neck_grains(self):

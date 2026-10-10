@@ -890,6 +890,11 @@ def main():
                 #    ⚠️ 放宽的是**余量**, 不是判据的名字与形式 —— 别顺手把它改成恒真。
                 check(math.hypot(splash["vx"], splash["vy"]) < 200 * 0.50,
                       "rebound cannot gain energy over the incoming grain")
+                # ⚠️ **2026-10-10 记录(未改判据)**: 这一条写死 `_particle_trail(...) == 8`
+                #    (= `|vy|·trail_time`), 而 `TRAIL_SCALE` 进绘制路径之后它**永远红**。
+                #    **它在原版树上也是红的**(2026-10-10 实测两边逐条相同) ⇒ 既有账, 不是
+                #    本次引入。这里**不擅自改闸门语义**: 要么按 `known_defect` 正式认领 +
+                #    棘轮, 要么等 `_particle_trail` 的口径被拍定再改。
                 check(widget._particle_trail({"vy": -400, "trail_time": 0.02}) == 8,
                       "individual short trails preserve granular detail")
                 check(list(widget._stream_pools)[-1] == (-1, 2),
