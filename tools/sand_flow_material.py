@@ -66,6 +66,8 @@ uniform float sand_free_drift;
 //      每条 2px 竖线读成"一颗沙"; 现在多了一块板把缝填上 ⇒ 那些竖线**连成纤维**
 //      (自相关 竖/横 由 1.00 爬到 2.50)。
 uniform float sand_hole_th;
+// 洞的**渐入长度**(像素, 按球径比例给): <=0 ⇒ 不渐入(出口处会有横向分界线)。
+uniform float sand_hole_ramp;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -210,7 +212,36 @@ void main(void) {
             vec2 huv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                             (sand_free.x - sand_position.y) / diameter);
             float hn = grain(huv - velocity * a + floor(t) * jump);
-            coverage = step(sand_hole_th, hn);
+            // 🔴 **2026-10-10 补: 出口处必须渐入。**
+            //    `sand_free.x`(= 出口)是这套掩码的**硬边界**: 出口以上 coverage 恒 1、
+            //    以下才打洞 ⇒ `step` 正好在出口那一行造出一条**横向分界线**。
+            //    实测(桌面 1904×2890, 15s, t=7.64, 逐行"带内露出背景"):
+            //        行 1400..1490 = **0.0%**(一条不差) → 行 1500 = 1.0% → 1510 = 4.3%
+            //        → 1530 = 6.6% → 1550 = 7.4%   ← 阶跃落在 1499(出口)
+            //    (同一帧的 2.26 全程 0.0%, 因为它没有洞 —— 这条线是加洞引入的。)
+            //    修法: **按"片"二值地放开** —— 拿一个大尺度噪声当**闸门**,
+            //    深度决定"这一片允不允许挖"。每个像素仍然是**二值**(不产生灰雾),
+            //    只有洞的**面密度**随深度渐变。
+            //    ⚠️ `sand_hole_ramp` 是**球径的比例**(与 `sand_seam_band` 同一约定) ——
+            //    写死像素会在平板/手机上差好几倍。`= 0` ⇒ 逐字旧行为(可直接当负对照)。
+            //
+            //    ⚠️⚠️ **极性**: `solid = 1` 是"**保留沙**"。所以闸门关的时候要把它
+            //    按回 1(`mix(1.0, solid, allow)`), **不是** `max(solid, allow)` ——
+            //    后者实测正好写反: 近出口没抑制住洞、深处反而把洞**全关**了
+            //    (深度 100px 以下露出背景 0.0%)。
+            float solid = step(sand_hole_th, hn);        // 1 = 保留沙, 0 = 挖掉
+            float ramp_px = sand_hole_ramp * diameter;
+            if (ramp_px > 0.0) {
+                // 阈值线性渐入那一版实测**没用**: `hn` 的分布在 0 附近有尖峰
+                // (阈值 −0.05 → 0% 洞, 0.00 → 20% 洞), 阈值一降洞就整片冒出来,
+                // 渐入被压进 ~30px、看上去仍是一条线。
+                float ramp = clamp((sand_free.x - sand_position.y) / ramp_px, 0.0, 1.0);
+                float gate = clamp(grain(huv * 0.37 + vec2(19.3, 7.1)) * 0.5 + 0.5,
+                                   0.0, 1.0);
+                float allow = step(1.0 - ramp, gate);    // 1 = 这一片允许挖
+                solid = mix(1.0, solid, allow);
+            }
+            coverage = solid;
         }
     }
     if (sand_free.w > 0.0 && sand_position.y < sand_free.w) {
@@ -281,7 +312,9 @@ class SandFlowContext(RenderContext):
                 # 二值洞的阈值: <0 = 关(逐字旧行为); **越大洞越多**(step(th,hn))。
                 # 🔴 2026-10-10 定为出货默认 0.10（配合 `main.TRAIL_SCALE = 0.8`）。
                 #    标定见 `main.py` 的 `_trail_scale_probe`；梯子图 `_vid/ladder2.png`。
-                ("sand_hole_th", "HG_HOLE_TH", "holeth", 0.10)):
+                ("sand_hole_th", "HG_HOLE_TH", "holeth", 0.10),
+                # 渐入长度 = 这个系数 × 球径。0 = 关(负对照: 出口会出现分界线)
+                ("sand_hole_ramp", "HG_HOLE_RAMP", "holeramp", 0.08)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None
