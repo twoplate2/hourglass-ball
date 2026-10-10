@@ -1,0 +1,131 @@
+# -*- coding: utf-8 -*-
+"""**同质性门控**的纹理各向异性 —— 修掉"固定窗口跨越玻璃/沙边界"这个伪影。
+
+## 为什么要有它(2026-10-10 教训)
+
+我用固定窗口(行 430–466 × x 190–211)量颈部, 报了"各向异性 3.3", 并在两条消息里
+拿它当判据。后来把颈部两带清空后发现: **那个窗口里有一半行是玻璃(234,243,248)**
+⇒ 那个数是"平玻璃 + 沙"的混合统计, 不是纹理。
+**固定窗口必须逐行验同质性, 否则量到的是窗口形状, 不是画面。**
+
+## 判据
+
+逐行把窗口内像素分成三类(沙 / 玻璃 / 其它), **只保留沙占比 ≥ `--min-sand` 的行**;
+按"绘制者"分区太复杂, 先用颜色分区 —— 玻璃色 `GLASS_FILL` 是已知的单一来源。
+再在留下的子块上算 ACF 半长(先做二维箱式高通, 核两向同尺寸)。
+
+## 自检(必过, 两种状态各跑一次)
+
+- **正对照(已知同质)**: 上球沙体内部 ⇒ 必须报"全行通过", 且 竖/横 落在 0.5~2.0。
+- **负对照(已知跨界)**: 给该块人为塞入 1/3 行玻璃色 ⇒ 必须**丢掉那些行**,
+  且剩下的子块与"原块只取沙行"逐位一致。
+
+用法:
+    python tools/_probe_band_aniso.py <png> <y0> <y1> <x0> <x1> [--min-sand 0.95] [--selftest]
+"""
+import sys
+from pathlib import Path
+
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+import numpy as np
+from PIL import Image
+
+GLASS = np.array([234.0, 243.0, 248.0])
+K = 25
+MAXLAG = 25
+
+
+def classify(a):
+    """0=其它, 1=沙, 2=玻璃。"""
+    r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+    sand = (r - b > 40) & (b < 215)
+    glass = (np.abs(a - GLASS).max(axis=2) < 12)
+    out = np.zeros(a.shape[:2], dtype=np.int8)
+    out[sand] = 1
+    out[glass] = 2
+    return out
+
+
+def hp2d(p, k=K):
+    h, w = p.shape
+    c = np.cumsum(np.cumsum(p, 0), 1)
+    c = np.pad(c, ((1, 0), (1, 0)))
+    y0 = np.clip(np.arange(h) - k // 2, 0, h); y1 = np.clip(np.arange(h) + k // 2 + 1, 0, h)
+    x0 = np.clip(np.arange(w) - k // 2, 0, w); x1 = np.clip(np.arange(w) + k // 2 + 1, 0, w)
+    s = c[np.ix_(y1, x1)] - c[np.ix_(y0, x1)] - c[np.ix_(y1, x0)] + c[np.ix_(y0, x0)]
+    n = (y1 - y0)[:, None] * (x1 - x0)[None, :]
+    return p - s / np.maximum(n, 1)
+
+
+def half_len(a, axis, maxlag=MAXLAG):
+    a = a - a.mean(axis=axis, keepdims=True)
+    v = float((a * a).mean())
+    if v <= 1e-9:
+        return float("nan")
+    prev, prevL = 1.0, 0
+    for L in range(1, maxlag + 1):
+        x, y = (a[L:, :], a[:-L, :]) if axis == 0 else (a[:, L:], a[:, :-L])
+        c = float((x * y).mean()) / v
+        if c <= 0.5:
+            return prevL + (0.5 - prev) / (c - prev) * (L - prevL) if c != prev else float(L)
+        prev, prevL = c, L
+    return float(maxlag)
+
+
+def measure(img, y0, y1, x0, x1, min_sand=0.95, label=""):
+    cls = classify(img[y0:y1, x0:x1])
+    keep = (cls == 1).mean(axis=1) >= min_sand
+    n = int(keep.sum())
+    if n < 8:
+        return None, n, (y1 - y0)
+    lum = img[y0:y1, x0:x1] @ np.array([0.299, 0.587, 0.114])
+    P = lum[keep]
+    Q = hp2d(P)
+    pv, ph = half_len(Q, 0), half_len(Q, 1)
+    return (pv, ph, pv / max(ph, 1e-6)), n, (y1 - y0)
+
+
+def run(p, y0, y1, x0, x1, minsand):
+    img = np.asarray(Image.open(p).convert("RGB"), dtype=np.float64)
+    res, n, tot = measure(img, y0, y1, x0, x1, minsand)
+    tag = Path(p).stem
+    if res is None:
+        print("  %-22s y[%d..%d] x[%d..%d]  同质行 %d/%d ⇒ **样本不足, 不作数**"
+              % (tag, y0, y1, x0, x1, n, tot))
+        return
+    pv, ph, r = res
+    print("  %-22s y[%d..%d] x[%d..%d]  同质行 %d/%d ⇒ 竖%.2f 横%.2f **比 %.2f**"
+          % (tag, y0, y1, x0, x1, n, tot, pv, ph, r))
+
+
+def selftest():
+    img = np.asarray(Image.open(_SELF_PNG).convert("RGB"), dtype=np.float64)
+    print("  正对照 上球沙体内部 (应当全行通过, 比在 0.5~2.0):")
+    run(_SELF_PNG, 330, 390, 150, 250, 0.95)
+    print("  负对照 同一块人为塞入 1/3 行玻璃色 (应当丢掉那些行):")
+    bad = img.copy()
+    bad[350:370, 150:250] = GLASS
+    res, n, tot = measure(bad, 330, 390, 150, 250, 0.95)
+    print("     同质行 %d/%d  (期望 ≈%d)" % (n, tot, tot - 20))
+    ok = n <= tot - 18
+    print("     => %s" % ("门槛可用" if ok else "!! 门槛没拦住跨界行"))
+    return ok
+
+
+_SELF_PNG = "benchmark_logs/flow_visual_pc_now/period-10.0-time-8.00.png"
+
+if __name__ == "__main__":
+    if "--selftest" in sys.argv:
+        sys.exit(0 if selftest() else 1)
+    p = sys.argv[1]
+    y0, y1, x0, x1 = (int(v) for v in sys.argv[2:6])
+    ms = 0.95
+    if "--min-sand" in sys.argv:
+        ms = float(sys.argv[sys.argv.index("--min-sand") + 1])
+    _SELF_PNG = p
+    run(p, y0, y1, x0, x1, ms)

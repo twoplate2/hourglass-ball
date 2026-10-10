@@ -321,6 +321,7 @@ NECK_RECTS_OFF = _neck_marker("neckrects")
 NECK_MISC_OFF = _neck_marker("neckmisc")
 NECK_DUMP_ON = _neck_marker("neckdump")
 NECK_GEOM_ON = _neck_marker("neckgeom")
+NECK_FREE_OFF = _neck_marker("neckfree")
 
 
 def _neck_nouv_on():
@@ -7228,6 +7229,8 @@ class HourglassWidget(Widget):
         # `_build_dynamic_canvas` 里的注释); `neck_flow is None` 时主带本来就在外面,
         # 不需要第二条。
         fband = getattr(self, "_neck_free_band", None)
+        if NECK_FREE_OFF:          # 消融: 只清"自由段带"(不动主带)
+            fband = None
         fn = len(fband) if fband is not None else 0
         fi = 0
 
