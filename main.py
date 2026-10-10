@@ -3932,15 +3932,31 @@ class HourglassWidget(Widget):
         print("NECKDUMP t=%.1f widget pos=(%.1f,%.1f) size=(%.1f,%.1f)"
               % (self.elapsed, self.x, self.y, self.width, self.height))
         seen = [0]
+        try:
+            _c = list(self.canvas.children)
+            for _i in (52, 51, 53):
+                if _i < len(_c):
+                    _o = _c[_i]
+                    _who = [nm for nm in ("_splash_group", "_dust_group", "_flare_group",
+                                          "_surface_marker_group", "_neck_grain_group",
+                                          "_stream_pools", "_upper_carve", "_mound_carve",
+                                          "_upper_band", "_mound_band", "_neck_quads",
+                                          "_neck_free_band", "_upper_flow", "_neck_flow")
+                            if getattr(self, nm, None) is _o]
+                    print("NECKDUMP canvas.children[%d] = %s  %s"
+                          % (_i, type(_o).__name__, _who or "?"))
+        except Exception as exc:
+            print("NECKDUMP who failed: %s" % exc)
 
         def leaf(node, path):
+            _path = path
             cls = type(node).__name__
             if cls == "Color":
                 try:
                     r, g, b, a = node.rgba
-                    if 0.25 <= a <= 0.40:
-                        print("NECKDUMP  **Color a=%.3f rgba=(%.3f,%.3f,%.3f) id=%d"
-                              % (a, r, g, b, id(node)))
+                    if 0.25 <= a <= 0.42:
+                        print("NECKDUMP  **Color a=%.3f rgb=(%.3f,%.3f,%.3f) path=%s"
+                              % (a, r, g, b, _path))
                 except Exception:
                     pass
                 return
@@ -3980,15 +3996,13 @@ class HourglassWidget(Widget):
             print("NECKDUMP  %-20s y=[%8.1f..%8.1f] x=[%8.1f..%8.1f] tex=%s n=%d"
                   % (cls, bb[1], bb[3], bb[0], bb[2], tn, seen[0]))
 
-        def walk(node, depth):
-            if depth > 6:
-                return
+        def walk(node, depth, path):
             ch = getattr(node, "children", None)
             if ch:
-                for c in list(ch):
-                    walk(c, depth + 1)
+                for k, c in enumerate(list(ch)):
+                    walk(c, depth + 1, path + "/%s[%d]" % (type(c).__name__, k))
                 return
-            leaf(node, "")
+            leaf(node, path)
 
         # 紧凑树: 只看结构, 回答"Rectangle 到底在不在"
         try:
@@ -4014,7 +4028,7 @@ class HourglassWidget(Widget):
             try:
                 c = getattr(self.canvas, holder) if holder else self.canvas
                 print("NECKDUMP --- canvas.%s ---" % (holder or "self"))
-                walk(c, 0)
+                walk(c, 0, holder or "canvas")
             except Exception as exc:
                 print("NECKDUMP walk %s failed: %s" % (holder, exc))
 
