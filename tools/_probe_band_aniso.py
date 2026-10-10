@@ -88,7 +88,11 @@ def measure(img, y0, y1, x0, x1, min_sand=0.95, label=""):
     #    是"完美相关", 会把竖半长整个顶上去 (2026-10-10: 颈部窗口混进 3 行 lum≡177 的
     #    平沙, 就把比从 ~1 顶到 5.9)。**颜色同质 ≠ 纹理同质。**
     lum0 = img[y0:y1, x0:x1] @ np.array([0.299, 0.587, 0.114])
-    hp0 = np.abs(lum0 - np.convolve(lum0.mean(axis=1), np.ones(5) / 5, "same")[:, None])
+    kk = min(5, max(3, (lum0.shape[1] // 3) | 1))
+    ker = np.ones(kk) / kk
+    # **逐行**沿 x 做高通(上一版错在对"行均值"卷积 ⇒ 门控形同虚设)
+    hp0 = lum0 - np.apply_along_axis(lambda r: np.convolve(r, ker, "same"), 1, lum0)
+    hp0 = hp0[:, kk // 2:-(kk // 2)]
     keep &= hp0.std(axis=1) >= 1.0
     n = int(keep.sum())
     if n < 8:
