@@ -381,7 +381,13 @@ def _neck_free_ramp_tubes():
                                "freeramptubes"), "r") as fh:
             return max(0.0, float(fh.read().strip() or 0))
     except Exception:
-        return 0.0
+        # 🔴 **2026-10-10 出货默认 0.0 → 1.0**(= 1× 直筒高; 用户口径「不超过瓶颈高度的 2 倍」)。
+        #    设备实测(1080×1920 / MuMu / 同一状态, 柱内高频 std 中位):
+        #        2.34(出口以下是普通纹理)      **2.53**   边缘硬、实心, 但词汇与上球不同
+        #        2.36(走着色器, ramp=0)         **5.81**   两边糊出白毛、出口处一团糊
+        #        2.36 + ramp=1.0 + core=0.85    **4.34**   边缘干净 + 上球那套细颗粒  ← 选定
+        #    ⇒ 打散**必须按深度渐入**, 否则出口那一行瞬间满功率 ⇒ 糊。
+        return 1.0
 
 
 NECK_FREE_RAMP_TUBES = _neck_free_ramp_tubes()
@@ -1659,6 +1665,19 @@ FLOW_GRAIN_GAIN = float(os.environ.get("HG_GRAIN_GAIN", "1.0"))
 #    `2px 宽 × 5~8px 高` 的块 ⇒ 读起来是"块"不是"颗粒"(用户判词「精细度都不够」)。
 #    ⚠️ 只盖结果, **不挪随机数流** —— 位置/相位/寿命一字不变。
 FLOW_WIDTH_CAP = int(float(os.environ.get("HG_FLOW_WIDTH", "1")))
+# 🔴 **设备可达通路**: `FLOW_WIDTH_CAP` 原来是**只读环境变量**的, 而环境变量到不了安卓 app
+#    ⇒ 设备上根本没法做这个单变量对照(本项目的老坑)。这里补一个与 `main.py` 同目录的
+#    标记文件 `flowwidth`(内容 = 线宽上限, `0` = 不限):
+#        adb shell "echo 2 > /data/data/org.shalou.hourglass/files/app/flowwidth"
+#        adb shell rm  /data/data/org.shalou.hourglass/files/app/flowwidth     # 回出货默认 1
+try:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "flowwidth"), "r") as _fh:
+        _fw = _fh.read().strip()
+        if _fw:
+            FLOW_WIDTH_CAP = int(float(_fw))
+except Exception:
+    pass
 # 调色板**每档多少 R 级**(等距, 见 `_flow_tone`)。整条 R 跨度 = 2×5×STEP。
 # 2.0 ⇒ 跨 20 级; 配合中点 2 之后实际用到第 0~6 档 = **R 207~219**,
 # 与**沙堆实测的 208~219** 基本重合(这是"不发黑"的判据)。

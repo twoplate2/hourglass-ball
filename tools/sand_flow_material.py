@@ -419,7 +419,8 @@ class SandFlowContext(RenderContext):
         #     adb shell "echo 0.93 > <app>/sandalpha"    # 覆盖率上限
         #     删掉文件 = 回出厂默认
         for _key, _env, _fname, _dflt in (
-                ("sand_core", "HG_SAND_CORE", "sandcore", 0.35),
+                # 🔴 **2026-10-10 出货默认 0.35 → 0.85**(设备实测定的, 见 `sand_core` 的注释)。
+                ("sand_core", "HG_SAND_CORE", "sandcore", 0.85),
                 ("sand_edge", "HG_SAND_EDGE", "sandedgemul", 1.0),
                 ("sand_bite", "HG_SAND_BITE", "sandbite", 0.15),
                 ("sand_alpha", "HG_SAND_ALPHA", "sandalpha", 0.93),
