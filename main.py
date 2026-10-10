@@ -6965,16 +6965,27 @@ class HourglassWidget(Widget):
                 self._neck_free_band = _QuadBand(
                     NECK_TAPER_SEGS + NECK_FREE_EXTRA_SEGS + 6, texture=neck_tex)
             if NECK_FREE_ONTOP:
-                # 提到最上层: 先摘下来, 再按序追加到画布末尾
-                for _ins in (self._neck_free_color, self._neck_free_band.bind,
-                             self._neck_free_band.mesh):
+                # 提到最上层: 先摘下来, 再按序追加到画布末尾。
+                # ⚠️ **不能吞异常** —— 第一版就是 try/except pass, 结果 `remove` 全失败、
+                #    三个 `add` 变成重复挂载, 画面 0 变化而日志一声不响。
+                _n0 = len(list(self.canvas.children))
+                _rm = []
+                for _nm, _ins in (("color", self._neck_free_color),
+                                  ("bind", self._neck_free_band.bind),
+                                  ("mesh", self._neck_free_band.mesh)):
                     try:
                         self.canvas.remove(_ins)
-                    except Exception:
-                        pass
+                        _rm.append(_nm)
+                    except Exception as _e:
+                        _rm.append("%s!%s" % (_nm, type(_e).__name__))
                 self.canvas.add(self._neck_free_color)
                 self.canvas.add(self._neck_free_band.bind)
                 self.canvas.add(self._neck_free_band.mesh)
+                _n1 = len(list(self.canvas.children))
+                _kids = list(self.canvas.children)
+                print("FREEONTOP remove=%s  n %d -> %d  mesh_is_last=%s"
+                      % (",".join(_rm), _n0, _n1,
+                         _kids[-1] is self._neck_free_band.mesh))
 
         # §5 表层滑动标记(专家 dingbu.md §5): 固定图元池, 不新增物理粒子。
         # ⚠️ **必须建在这里** —— 沙体之后。曾经建在上面那个 `with self.canvas:` 的 stencil 块里,
