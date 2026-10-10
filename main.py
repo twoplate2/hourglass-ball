@@ -1504,6 +1504,19 @@ FLOW_TONE_CENTER = 2
 # 2.0 ⇒ 跨 20 级; 配合中点 2 之后实际用到第 0~6 档 = **R 207~219**,
 # 与**沙堆实测的 208~219** 基本重合(这是"不发黑"的判据)。
 FLOW_TONE_STEP = 2.0
+# 🔴 **2026-10-10: 沙流的"随深度变亮"斜率**(档/整条柱高)。默认 0 = 保持 10-06 的"以 base 居中"。
+#    来历: 2026-10-06 用户报「沙子流和沙层颜色差异过大」⇒ 当时把这条斜率**删掉**了
+#    (注释原文:「不再有'越往下越亮'的深度斜率 —— 沙堆没有那条斜率, 沙流也不该有」),
+#    实测依据是沙流底部比沙堆亮 13R/21G/20B。
+#    **但现在(1080 口径 = 真机物理像素)量到的东西相反**:
+#        v1.2(用户说好看的旧版)  柱心−沙体 = **+11.3 级**, 且沿柱身四段 171.5→184.7(**+13.2**)
+#        2.31(现在)              柱心−沙体 = **+1.6 级**, 沿柱身四段 168.9→173.0(**+4.1**)
+#    ⇒ **两次用户判词在这一根轴上相反**。所以做成梯度臂, 不悄悄改默认值。
+_flow_slope = os.environ.get("HG_FLOW_SLOPE")
+try:
+    FLOW_TONE_SLOPE = 0.0 if _flow_slope is None else float(_flow_slope)
+except ValueError:
+    FLOW_TONE_SLOPE = 0.0
 
 # 🔴 沙流的**基础生成率**(颗/秒) —— **与周期无关**(2026-10-06, 用户报「沙流和沙堆差距过大」)。
 #
@@ -7107,6 +7120,13 @@ class HourglassWidget(Widget):
                 # **以 base 居中**(见 `_rebuild_color_table` 的 `_flow_table` 注释):
                 # 不再有"越往下越亮"的深度斜率 —— 沙堆没有那条斜率, 沙流也不该有。
                 idx = w + (FLOW_TONE_CENTER - 4)
+                if FLOW_TONE_SLOPE:
+                    # 深度 0(出口) → 1(球内底), 线性加档。
+                    _span = max(1.0, float(getattr(self, "_lower_sand_bot", 0.0)) - outlet)
+                    _dep = (outlet - y_all[:n]) / _span
+                    if sel.size != n:
+                        _dep = _dep[sel]
+                    idx = idx + (np.clip(_dep, 0.0, 1.0) * FLOW_TONE_SLOPE).astype(np.int64)
                 np.clip(idx, 0, last, out=idx)
                 # ★ 色调研磨成 4 档(每 3 档取 1) —— 桶数 22 → 8。见 /tmp/patch_buckets.py
                 idx -= idx % 3
