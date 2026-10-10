@@ -506,7 +506,7 @@ SAND_PREVIEW_SIZE = 128
 # 代价: 每个沙体**新增一次局部绘制**(面积≈可见弦长×带宽), 不是零成本 —— 要单独计费。
 SAND_SURFACE_BAND = 3.0     # 带宽(逻辑像素)
 SAND_SURFACE_ALPHA = 0.55   # 亮度上限(轻推, 不是白线; 0.32 时被颗粒噪声淹没)
-SAND_BAND_NECK_FADE = 20.0  # 锥顶离颈部还有多少 px 时把沙堆亮带淡到 0
+SAND_BAND_NECK_FADE = 45.0  # 锥顶离**颈部下沿**还有多少 px 时把沙堆亮带淡到 0
 MOUND_BAND_NECK_FADE = _neck_marker("moundbandfade")
 SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 # ⚠️ **满球时没有自由表面** —— 亮带(横跨直径的一条 3px 矩形)会被球面 stencil 裁成一个
@@ -6690,9 +6690,20 @@ class HourglassWidget(Widget):
             #     `sand_light` 按 α=0.31 叠加 ⇒ 正是 0.55 × 堆高淡入 0.57)。用户报的"颜色分层"。
             #    上球那条带 (`_upper_band_color`) 有 `(1-apex_fade)`, 但那只在接近满球时起作用,
             #    管不到这里 —— 这里要的是"锥顶接近颈部"这个条件。
-            _gap = (self._lower_y_c + self._R_inner) - (self._lower_sand_bot + apex)
+            _gap = self._lower_sand_top - (self._lower_sand_bot + apex)
             _mb *= min(1.0, max(0.0, _gap / SAND_BAND_NECK_FADE))
         self._mound_band_color.a = _mb
+        if NECK_GEOM_ON:
+            _tag = int(self.elapsed)
+            if getattr(self, "_mbg_t", -1) != _tag:
+                self._mbg_t = _tag
+                _al = self._lower_y_c + self._R_inner
+                _ap = self._lower_sand_bot + apex
+                print("MBG t=%.1f h_mound=%.1f apex=%.1f low_bot=%.1f low_yc=%.1f Ri=%.1f "
+                      "ball_top=%.1f contour_apex=%.1f gap=%.1f band_a=%.3f"
+                      % (self.elapsed, h_mound, apex, self._lower_sand_bot,
+                         self._lower_y_c, self._R_inner, _al, _ap, _al - _ap,
+                         self._mound_band_color.a))
         knots = self._mound_knots(apex)
         cols = []
         # ★ **每列只解一次 `bounds` / `shape_at`**(2026-10-06 性能, 外部评审 §5.1 的实例)。
