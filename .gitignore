@@ -29,3 +29,14 @@ _rev_nolip.py
 #    `<name>0001.png`, **命名务必带 `_probe_` 前缀**。
 /*_probe_*.png
 /probe_*.png
+
+# 流水线/面板 agent 留下的 main.py 整份副本与一次性探针(2026-10-10) —— 不入库
+_p1*_main.py
+_p2*_main.py
+_a_attack/
+luodi.md
+tools/sand_flow_material_k9*.py
+tools/_atk_*.py
+tools/_p1*.py
+tools/_p2*.py
+tools/_p1*.sh

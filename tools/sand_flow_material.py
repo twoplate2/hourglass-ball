@@ -77,6 +77,21 @@ uniform float sand_hole_ramp;
 //    与粒子层同向叠加, 整条柱子才是"越往下越松"。
 //    `= 0` ⇒ 逐字等于只做渐入的那一版。
 uniform float sand_hole_grow;
+// 🔴 **2026-10-10: 把平流速度的 y 分量乘一个系数**(默认 1.0 = 旧行为)。
+//    嫌疑: `grain()` 是**两相位交叉淡入** —— 两次采样沿 `velocity` 相隔 `v·(b−a)`，
+//    而 `velocity.y ≈ −50/diameter` ⇒ 设备口径(diameter≈808)上两次采样**纵向差 ~16px**
+//    ⇒ 两个纵向错开的噪声场相叠 ⇒ **颗粒被纵向抹开** ⇒ 直筒段"竖着拉长"。
+//    设备实测(8 帧跨帧取中位, 柱内 60% 窗口): 收口段 竖/横 **0.95** → 直筒段 **1.62**。
+//    `= 0` ⇒ 完全不平流 y ⇒ 若各向异性掉回 ~0.95，则"纵向平流拖影"这条成立。
+uniform float sand_flow_vy;
+// 🔴 **2026-10-10: 出口以下"打散"的渐入长度**(球径的比例, 与 `sand_hole_ramp` 同一约定)。
+//    **病根**: 上面那个 `if (sand_position.y < sand_free.x)` 是**硬分支** —— 出口以上
+//    `coverage ≡ 1`, 出口那一行**瞬间**变成"只有内 `sand_core`(0.35) 是实心 + 外圈打散"。
+//    设备实测(1080, 50s 档, 逐行最长连续沙色段): 出口以上 **100%**, 出口以下**一步掉到 28%**。
+//    算得上: `sand_core` 0.35 的半宽占柱宽 34.6% —— 与实测 28.3% 对得上。
+//    **这就是用户说的那条横向分界线。**
+//    `= 0` ⇒ 逐字旧行为(可直接当负对照); `> 0` ⇒ 打散按深度从 0 渐入到全功率。
+uniform float sand_free_ramp;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -164,6 +179,9 @@ void main(void) {
         float fall = sand_free_drift * sqrt(2.0 * 450.0 * depth_px);
         velocity.y = -max(4.0 + 46.0 * sink, fall) / diameter;
     }
+    if (sand_flow_vy != 1.0) {
+        velocity.y *= sand_flow_vy;
+    }
     float jitter = 0.2 * sin(from_mouth.x * 3.1 + from_mouth.y * 5.2);
     float t = sand_clock + jitter;
     float a = fract(t);
@@ -201,12 +219,21 @@ void main(void) {
         //    ⚠️ 这也解释了 2.25 那次"拓打边带却没效果": 掩码根本没落在边上。
         float r01 = abs(u - 0.5) * 2.0;          // 0=中轴, 1=两条边
         float rim = smoothstep(sand_core, 1.0, r01);
+        // 🔴 **2026-10-10: 打散要**渐入**, 不许在出口那一行瞬间全开。**
+        //    没有这一段时, `rim` 在出口以下**立刻**满功率 ⇒ 柱宽从 100% 实心一步掉到
+        //    只剩内 `sand_core`(35%) ⇒ 画面上一条横贯的分界线(就是用户报的那条)。
+        //    `sand_free_ramp` 是球径的比例; `= 0` ⇒ `fr ≡ 1` ⇒ 逐字旧行为。
+        float fr = 1.0;
+        if (sand_free_ramp > 0.0) {
+            fr = clamp((sand_free.x - sand_position.y) / (sand_free_ramp * diameter),
+                       0.0, 1.0);
+        }
         // 🔴 **2026-10-10 用户备注: 「可以让随机幅度更大一些, 这个是可以的。
         //    否则就是一个矩形/梯形了」** ⇒ 打散深度从 `0.25+0.75n` 放宽到
         //    `sand_bite_min + (1-它)*n`, 且整条再乘 `sand_edge`。
         float nz = clamp(u < 0.5 ? n : n2, 0.0, 1.0);
         coverage *= 1.0 - rim * (sand_bite + (1.0 - sand_bite) * nz)
-                          * sand_edge * sand_free.y;
+                          * sand_edge * sand_free.y * fr;
         // 🔴 核心不再 100% 不透明 —— 否则同色全不透明的它会把**粒子层完全吃掉**
         //    (速度拖尾/高光档全都看不见) ⇒ "颗粒在动"这个信号被自己盖住。
         coverage = min(coverage, sand_alpha);
@@ -330,7 +357,12 @@ class SandFlowContext(RenderContext):
                 # 渐入长度 = 这个系数 × 球径。0 = 关(负对照: 出口会出现分界线)
                 ("sand_hole_ramp", "HG_HOLE_RAMP", "holeramp", 0.08),
                 # 孔隙率随深度增长的系数: 0 = 关(只剩渐入)
-                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.0)):
+                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.0),
+                # 平流速度 y 分量的系数: 1.0 = 旧行为。0 = 完全不平流 y(诊断用)
+                ("sand_flow_vy", "HG_FLOW_VY", "flowvy", 1.0),
+                # 出口以下"打散"的渐入长度(球径比例): 0 = 旧行为(有分界线)。
+                # 由 `main.NECK_FREE_RAMP_TUBES`(单位=颈管高的倍数)换算后喂进来。
+                ("sand_free_ramp", "HG_FREE_RAMP", "freeramp", 0.0)):
             _v = _flag_float(_env, _fname)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None

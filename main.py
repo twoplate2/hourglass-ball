@@ -256,7 +256,101 @@ GLASS_OUTLINE = "#5f6b70"
 #    (否则彩色纹理会被**再染一次**而明显发暗)。
 # ② **不能**用 32×32: 球内径 800px 时一个纹素盖 25px, 存得下柔和渐变、存不下细颗粒。
 # ③ 生成是 O(n²) 的纯 Python/numpy 计算, **绝不能在 redraw 里调**; 按配色缓存。
-SAND_MATERIAL = os.environ.get("HG_SAND_MATERIAL", "grain")   # grain | flat(退回旧平色)
+def _sand_material_probe():
+    """`HG_SAND_MATERIAL` 环境变量优先(桌面), 其次与 main.py 同目录的 `matmode` 标记文件。
+
+    🔴 **存在的理由(2026-10-10)**: 出口那条"分界线"的成因要按层拆开。已在设备上做过
+    一次粒子消融(`flowrate=1`, 粒子几乎全灭) —— **那条线还在** ⇒ 不是粒子层。
+    剩下的层是"GPU 沙流材质板"与"颈部沙柱四边形", 而关材质的开关以前**只有环境变量**,
+    安卓 app 读不到宿主环境变量 ⇒ 这个消融在设备上做不到。补上标记文件通路:
+        adb shell "echo flat > /data/data/org.shalou.hourglass/files/app/matmode"
+        adb shell rm  /data/data/org.shalou.hourglass/files/app/matmode    # 回默认
+    """
+    env = os.environ.get("HG_SAND_MATERIAL")
+    if env:
+        print("sand material mode = %r (from HG_SAND_MATERIAL)" % env)
+        return env, True
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "matmode")
+    try:
+        with open(path, "r") as fh:
+            text = fh.read().strip()
+        print("sand material mode = %r (from %s)" % (text or "grain", path))
+        return (text if text else "grain"), True
+    except Exception as exc:
+        print("sand material mode = 'grain' (no marker: %s)" % exc)
+        return "grain", False
+
+
+# 🔴 **`SAND_MATERIAL_FORCED` 不是装饰**: 启动时那段"从配置恢复材质"的守卫**只挡了环境变量**
+#    ⇒ 只写标记文件的话, 它在 `build()` 里被 `apply_sand_style(cfg['sand_mode'])` 覆盖回 grain,
+#    而**日志照样会打印出的 'flat'** —— 臂空转、看起来像"没差别"(2026-10-10 实际栽了一次,
+#    靠 `_build_dynamic_canvas` 那句 "GPU sand flow active" 仍然出现才发现)。
+#    现在: 环境变量**或**标记文件任一存在 ⇒ 一律不读配置。
+SAND_MATERIAL, SAND_MATERIAL_FORCED = _sand_material_probe()   # grain | flat(退回旧平色)
+
+
+def _neck_marker(name):
+    """`<app>/<name>` 标记文件非空 ⇒ True。⚠️ 目录是 `dirname(main.py)` = `<app>/`。
+
+    🔴 **只在 import 时调一次**(见下面几个缓存的常量) —— 它每调一次就是一次 `open()`,
+       而 `_neck_log_on()` / `_neck_nouv_on()` 都在 `redraw` 的**热路径**上。每帧开一次文件
+       是白扔几十微秒。
+    """
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               name), "r") as fh:
+            return fh.read().strip() not in ("", "0")
+    except Exception:
+        return False
+
+
+NECK_LOG_ON = _neck_marker("necklog")
+
+
+def _neck_log_on():
+    """诊断开关: `<app>/necklog` 非空 ⇒ 每秒打一行颈部节点表。**import 时读一次就缓存。**"""
+    return NECK_LOG_ON
+
+
+NECK_NOUV_ON = _neck_marker("necknouv")
+
+
+def _neck_nouv_on():
+    """**只切颈部四边形 uv 支路**(材质照旧在场) —— 用来把"uv 写错了"与"纹理没绑上"劈开。
+
+    结论(2026-10-10 实测): **关掉它没有任何变化**(出口以下仍是 2~9px 的碎段)。
+    ⇒ 颈部沙柱四边形在材质路径下**根本不是用普通纹理画的** —— 它们被建在
+    `neck_flow`(一个 `RenderContext`)里面, 走的是**沙流着色器**。
+    ⚠️ 但**别把结论写成"是 coverage 把它抹掉的"**: 随后把着色器里的打散
+    (`sandedgemul=0`)与二值洞(`holeth=-1`)**两项一起关掉, 出口以下还是 27%**
+    ⇒ 那几段**根本没被画出来**。真正的判据是 `neckout=1`(整条移出 context):
+    出口以下 **27.4% → 89.4%**(= 材质关掉的对照值)。修法见 `_neck_free_band`。
+    留着这个开关只作以后排查用。
+    """
+    return NECK_NOUV_ON
+
+
+# 出口以下"打散"的渐入长度, 单位 = **颈管高的倍数**(用户口径: 「不用超过瓶颈高度的 2 倍,
+# 或者 1 倍」)。0 = 旧行为(出口那条横向分界线原样在)。
+#     adb shell "echo 1.0 > /data/data/org.shalou.hourglass/files/app/freeramptubes"
+#     adb shell rm  /data/data/org.shalou.hourglass/files/app/freeramptubes
+def _neck_free_ramp_tubes():
+    _v = os.environ.get("HG_FREE_RAMP_TUBES")
+    if _v:
+        try:
+            return max(0.0, float(_v))
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "freeramptubes"), "r") as fh:
+            return max(0.0, float(fh.read().strip() or 0))
+    except Exception:
+        return 0.0
+
+
+NECK_FREE_RAMP_TUBES = _neck_free_ramp_tubes()
+
 SAND_MATERIAL_SIZE = 512        # 512² ⇒ 球内径 800px 时约 1.56 px/纹素
 SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒强度(浓度)
 
@@ -3946,6 +4040,20 @@ class HourglassWidget(Widget):
                         side.append((_w * self._free_width_ratio(_d), bottom - _d))
                 side.append((_w_end, _y_endw))
                 side.append((0.0, _y_end0))
+                # 🔴 **诊断用(2026-10-10)**: 设备实测"出口以下固体只占 ~28%"(`flowrate=1` 一臂),
+                #    而这段代码看着应当把出口一直填到 `_end_at()`。**别再推理, 把它读出来。**
+                #    标记文件 `<app>/necklog`(非空) ⇒ 每秒打一行。
+                if _neck_log_on():
+                    _tag = int(self.elapsed)
+                    if _tag != getattr(self, "_neck_log_t", -1):
+                        self._neck_log_t = _tag
+                        _ys = [p[1] for p in side]
+                        print("NECKDBG t=%.1f outlet=%.1f join=%.1f front=%.1f "
+                              "end_at(w_end)=%.1f end_at(0)=%.1f w=%.2f w_end=%.2f "
+                              "nodes=%d y=[%.1f..%.1f]"
+                              % (self.elapsed, bottom, _join, _front,
+                                 _y_endw, _y_end0, _w, _w_end, len(side),
+                                 min(_ys), max(_ys)))
         # 🔴 **容量断言(2026-10-09)。** `_neck_quads` 装不下时, 绘制循环
                 #    `for i in range(len(quads))` **静默丢掉最后几段, 一行报错都没有** ——
                 #    项目踩过(`len(side)=27 > 容量 25`, 画面"一点没变"而原因查了很久)。
@@ -6601,7 +6709,13 @@ class HourglassWidget(Widget):
                 self._sand_chords.append((color, rect))
         if neck_flow is not None:
             self.canvas.add(neck_flow)
-        with neck_flow if neck_flow is not None else self.canvas:
+        # 🔴 **2026-10-10: 这几条颈部沙柱图元要不要放进 `neck_flow`(GPU 沙流 context)?**
+        #    放进去 ⇒ 它们走的是**沙流着色器**; 放外面 ⇒ 走普通纹理四边形。
+        #    `flatnopart` 一臂(材质整个关掉 ⇒ 走外面)出口以下是 **87.5~100%** 的实心柱,
+        #    而材质在场(走里面)只有 **27%** —— 且把着色器里的打散/洞**两项都关掉也还是 27%**
+        #    ⇒ 怀疑它们压根没被画出来。这个开关就是为了把"context"与"着色器"劈开。
+        _neck_out = _neck_marker("neckout")
+        with (neck_flow if (neck_flow is not None and not _neck_out) else self.canvas):
             neck_tex = None if material is None else material.texture
             self._neck_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             # 颈部沙柱那 25 条逐段四边形 —— 同样是静态的一段折线, 合成一个 `Mesh`
@@ -6632,6 +6746,23 @@ class HourglassWidget(Widget):
             # 剩下的是"沙柱→敞开喇叭口"的自然边界)。
             self._neck_fade_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_fade_rect = Rectangle(size=(0, 0), texture=neck_tex)
+
+        # 🔴 **2026-10-10: 出口以下那一段必须**单独画在 context 外面**。**
+        #    设备 1080, `flowrate=1` 把粒子抽掉、只看材质 coverage(逐行最高连续沙色段):
+        #      材质关(四边形本来就在 context 外面)  出口以下 **89.4%** 实心
+        #      材质开(整条四边形在 `neck_flow` 里)   出口以下 **27.4%** ← 用户看到的那条线
+        #      材质开 + 整条移出 context             出口以下 **89.4%** ← 恢复
+        #    把着色器里的打散(`sandedgemul=0`)与二值洞(`holeth=-1`)**两项都关掉也还是 28%**
+        #    ⇒ 不是 coverage 里那两项的事, 是那几段走 `neck_flow` 时**根本没被画出来**。
+        #    但整条移出会改到**出口以上**(实测最大通道差 25 / 2653 px) ⇒ 只搬"出口以下"。
+        #    出口以上仍走着色器(流动颗粒), 出口以下是普通材质四边形。
+        self._neck_free_band = None
+        if neck_flow is not None:
+            with self.canvas:
+                self._neck_free_color = (Color(1, 1, 1, 1) if material
+                                         else Color(*self.sand_base))
+                self._neck_free_band = _QuadBand(
+                    NECK_TAPER_SEGS + NECK_FREE_EXTRA_SEGS + 6, texture=neck_tex)
 
         # §5 表层滑动标记(专家 dingbu.md §5): 固定图元池, 不新增物理粒子。
         # ⚠️ **必须建在这里** —— 沙体之后。曾经建在上面那个 `with self.canvas:` 的 stencil 块里,
@@ -6944,6 +7075,7 @@ class HourglassWidget(Widget):
         #    以下没有任何东西约束它 —— 两条边该是毛的。材质着色器里按镜像噪声吃最外一圈
         #    (内 62% 保持实心), 平均宽度不变。关掉用 `HG_NECK_FREE=0`。
         free_front = (0.0, 0.0, 1.0, 0.0)
+        free_ramp = 0.0
         if (NECK_FREE and side and self._sand_flow_contexts
                 and self._sand_material is not None):
             # 下沿只在**前沿说了算**的时候才毛 —— 沙堆涨上来之后下沿就是堆面,
@@ -6952,13 +7084,45 @@ class HourglassWidget(Widget):
             _front0 = self._falling_front()
             _cut = _front0 if _front0 < _mound0 - 1e-9 else 0.0
             free_front = (outlet, 1.0, self._taper["t_in"], _cut)
+            # 🔴 **2026-10-10: 出口那条分界线的解药。**
+            #    设备口径实测(`tools/_dev_aniso.sh` + 逐行最长连续沙色段):
+            #    出口以上 **100%** 实心, 出口以下**一步**掉到 **28%** —— 因为着色器里
+            #    `if (sand_position.y < sand_free.x)` 是**硬分支**, 一进去 `rim` 就满功率,
+            #    只剩内 `sand_core`(0.35) 是实心。0.35 的半宽占柱宽 34.6%, 与 28.3% 对得上。
+            #    解药 = 把打散**按深度渐入**, 而不是在一条线上瞬间全开。
+            #    单位取**颈管高的倍数**(用户口径: 「不用超过瓶颈高度的 2 倍, 或者 1 倍」)。
+            #    0 = 旧行为。
+            if NECK_FREE_RAMP_TUBES > 0.0 and diameter > 1.0:
+                free_ramp = (NECK_FREE_RAMP_TUBES * self._tube_h / diameter)
+            else:
+                free_ramp = 0.0
         transition = min(inlet - outlet, max(8, self._taper["t_in"] * 0.7))
         connected = bool(side and side[-1][1] <= outlet + 1e-6)
         if connected:
             transition = min(transition, max(0.0, side[0][1] - outlet))
         fade_top = outlet + transition
-        neck_uv_scale = None if self._sand_material is None else 1.0 / diameter
+        neck_uv_scale = (None if (self._sand_material is None or _neck_nouv_on())
+                         else 1.0 / diameter)
         quads = self._neck_quads
+        # 出口以下那一段走 `_neck_free_band`(在 `neck_flow` **外面**, 见它在
+        # `_build_dynamic_canvas` 里的注释); `neck_flow is None` 时主带本来就在外面,
+        # 不需要第二条。
+        fband = getattr(self, "_neck_free_band", None)
+        fn = len(fband) if fband is not None else 0
+        fi = 0
+
+        def _emit(band, idx, x0, y0, x1, y1):
+            pts = [self._cx - x0, y0, self._cx + x0, y0,
+                   self._cx + x1, y1, self._cx - x1, y1]
+            if neck_uv_scale is not None:
+                su = neck_uv_scale
+                vb = NECK_UV_ANCHOR + (self._upper_sand_bot - y0) * su
+                vt = NECK_UV_ANCHOR + (self._upper_sand_bot - y1) * su
+                band.set_uv(idx, pts, (0.5 - x0 * su, vb, 0.5 + x0 * su, vb,
+                                       0.5 + x1 * su, vt, 0.5 - x1 * su, vt))
+            else:
+                band.set(idx, pts)
+
         for i in range(len(quads)):
             if i < len(side) - 1:
                 (x0, y0), (x1, y1) = side[i], side[i + 1]
@@ -6975,23 +7139,52 @@ class HourglassWidget(Widget):
                     if y1 < fade_top:
                         y1 = fade_top
                         x1 = self._neck_width_at(y1)
-                pts = [self._cx - x0, y0, self._cx + x0, y0,
-                       self._cx + x1, y1, self._cx - x1, y1]
-                if neck_uv_scale is not None:
-                    # 与沙体**同一张材质、同一颗粒尺度**: u 按**实际半宽/直径**取,
-                    # v 从球底那一段起、沿颈部向下递增走进纹理内部。
-                    # ⚠️ u 绝不能写 0..1 —— 颈部只有二十来像素宽, 铺满整张纹理会被横向
-                    # 压十几倍, 变成一条竖向亮带、两边还取到材质的暗边(2026-10-04 实拍)。
-                    su = neck_uv_scale
-                    vb = NECK_UV_ANCHOR + (self._upper_sand_bot - y0) * su
-                    vt = NECK_UV_ANCHOR + (self._upper_sand_bot - y1) * su
-                    quads.set_uv(i, pts, (0.5 - x0 * su, vb, 0.5 + x0 * su, vb,
-                                          0.5 + x1 * su, vt, 0.5 - x1 * su, vt))
-                else:
-                    quads.set(i, pts)          # 无材质 ⇒ 回默认 uv
+                if fband is not None and y1 < outlet - 1e-6:
+                    # 这条落在出口以下(或跨过出口) ⇒ 归 `fband`。
+                    if y0 > outlet + 1e-6:
+                        _xc = self._neck_width_at(outlet)     # 跨出口: 主带只画到出口
+                        _emit(quads, i, x0, y0, _xc, outlet)
+                        _emit(fband, fi, _xc, outlet, x1, y1)
+                    else:
+                        quads.zero(i)
+                        _emit(fband, fi, x0, y0, x1, y1)
+                    fi += 1
+                    continue
+                _emit(quads, i, x0, y0, x1, y1)
             else:
                 quads.zero(i)
+        for _k in range(fi, fn):
+            fband.zero(_k)
+        if fband is not None:
+            fband.flush()
         quads.flush()
+        if _neck_log_on():
+            _tag = int(self.elapsed)
+            if _tag != getattr(self, "_neck_log2_t", -1):
+                self._neck_log2_t = _tag
+                _v = quads._v
+                _nz = 0
+                _ymin, _ymax = 1e18, -1e18
+                for _i in range(len(quads)):
+                    _o = _i * 16
+                    _pts = _v[_o:_o + 16]
+                    if any(_pts):
+                        _nz += 1
+                        _ys = _pts[1::4]
+                        _ymin = min(_ymin, min(_ys))
+                        _ymax = max(_ymax, max(_ys))
+                print("NECKDBG2 t=%.1f side=%d band=%d written=%d "
+                      "drawn_y=[%.1f..%.1f] outlet=%.1f"
+                      % (self.elapsed, len(side), len(quads), _nz,
+                         _ymin, _ymax, outlet))
+                if len(side) >= 2:
+                    _i = len(side) - 2
+                    _o = _i * 16
+                    print("NECKDBG3 uvscale=%s seg%d y=(%.1f,%.1f) v=(%.3f,%.3f) u=%.3f"
+                          % ("None" if neck_uv_scale is None else "%.5f" % neck_uv_scale,
+                             _i, side[_i][1], side[_i + 1][1],
+                             quads._v[_o + 3], quads._v[_o + 15],
+                             quads._v[_o + 2]))
         if connected:
             pos = (self._cx - self._taper["t_in"], outlet)
             size = (2 * self._taper["t_in"], transition)
@@ -7019,6 +7212,7 @@ class HourglassWidget(Widget):
                                     self._sand_material, colors,
                                     tail_front if i == 1 else (0.0, 0.0, 1.0),
                                     free_front if i == 1 else (0.0, 0.0, 1.0, 0.0))
+                context["sand_free_ramp"] = free_ramp if i == 1 else 0.0
         else:
             self._draw_neck_grains(side)
         if (NECK_GRAINS_IN_MATERIAL and self._neck_grain_group is not None
@@ -7818,7 +8012,7 @@ class HourglassApp(App):
         # 缺项就退回出厂默认(浓度 0.35)。
         # ⚠️ **环境变量优先于配置**: `HG_SAND_*` 是取图与 A/B 的开关, 一旦被本地配置盖掉,
         # 所有测量都会**悄悄用错档位**(A/B 两臂还会变成同一版)。
-        if os.environ.get("HG_SAND_MATERIAL") is None and os.environ.get("HG_SAND_GRAIN") is None:
+        if not SAND_MATERIAL_FORCED and os.environ.get("HG_SAND_GRAIN") is None:
             apply_sand_style(cfg.get('sand_mode', 'grain'),
                              cfg.get('sand_grain', SAND_GRAIN_DEFAULT))
         # 两个六档: 环境变量给了就**不读配置**(取图/AB 的档位绝不能被本地配置盖掉)

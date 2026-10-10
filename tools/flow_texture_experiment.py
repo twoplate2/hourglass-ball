@@ -294,6 +294,13 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 vy = np.abs(view.nvy[idx])
                 trail = vy * view.ntl[idx] / motion_scale
                 np.maximum(trail, 2.0, out=trail)
+                if PARTICLE_FADE_PX > 0.0:
+                    # 出生后前 FADE_PX 像素内渐入(见 PARTICLE_FADE_PX 的注释)。
+                    _g = getattr(self, "_fade_base_y", None)
+                    if _g is not None:
+                        _f = (bottom - _g) / PARTICLE_FADE_PX
+                        np.clip(_f, 0.0, 1.0, out=_f)
+                        trail *= _f
                 blend = getattr(view, "tail_blend", 0.0)
                 if blend:
                     trail *= 1.0 - blend
@@ -322,6 +329,12 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     trail = vy * trails[i] / motion_scale
                     if trail < 2:
                         trail = 2
+                    if PARTICLE_FADE_PX > 0.0:
+                        _g = getattr(self, "_fade_base_y", None)
+                        if _g is not None:
+                            _f = (bottom - _g) / PARTICLE_FADE_PX
+                            _f = 1.0 if _f > 1.0 else (0.0 if _f < 0.0 else _f)
+                            trail *= _f
                     blend = getattr(view, "tail_blend", 0.0)
                     trail = trail * (1.0 - blend) + blend
                     top = bottom + trail
@@ -434,6 +447,36 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
 _MAIN = None          # `install()` 时记下 main 模块 —— 打点钩子 `_PROF_MARK` 挂在那里
 
 
+# 🔴 **2026-10-10: 粒子墨在出口附近的"渐入"长度(设备像素)。0 = 关(旧行为)。**
+#
+# 为什么要有它: **所有粒子都在同一条 y(`gen_y` = 出口)上出生** ⇒ 粒子层的上边缘是一条
+# **几何直线**。真机口径(设备截图 1080×1920, 柱内 60% 窗口, 自相关半长)实测:
+#     收口段(行 900~1000)  竖1.4~1.6 / 横1.6~1.8  ⇒ 竖/横 **≈0.9**(细密、各向同性)
+#     直筒段(行 1020~1180) 竖1.7~2.9 / 横1.1~1.6  ⇒ 竖/横 **≈1.4~2.2**(竖向拉长、粗)
+# ⇒ 用户在手机上看到的就是这条**颗粒词汇的突变线**(不是对比度阶跃 —— 用 std 量会读成"没有")。
+# 机制: 直筒段由**粒子那 2px 竖线**主导, 收口段是材质面。
+#
+# 做法: 出生后前 FADE_PX 像素内, 把 `trail` 按深度线性缩小 ⇒ 墨**渐入**而不是一刀出现。
+# **纯渲染**: 不抽 RNG、不动物理、不改粒子数、不改出生点。
+# 安卓读不到环境变量 ⇒ 标记文件放 <app>/tools/pfade。
+def _pfade_probe():
+    env = os.environ.get("HG_PARTICLE_FADE")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pfade"), "r") as fh:
+            s = fh.read().strip()
+        return float(s) if s else None
+    except Exception:
+        return None
+
+_PF = _pfade_probe()
+PARTICLE_FADE_PX = 0.0 if _PF is None else max(0.0, _PF)
+
+
 def install(widget_class):
     global _MAIN
     try:
@@ -515,6 +558,9 @@ def install(widget_class):
         # Python list 桶, `update` 的逐颗分支照样吃 list ⇒ 两条都安全。
         view = self._pv
         top_limit = self._taper["y_bot"]
+        # 出口 y = 粒子的出生线(`main.py` 的 `gen_y = 2*neck_y - y_bot`)。
+        # 给渐入用(见 `PARTICLE_FADE_PX`); `PARTICLE_FADE_PX=0` 时无消费者, 零开销。
+        self._fade_base_y = 2 * self._neck_y - self._taper["y_bot"]
         motion = self._particle_motion_scale
         buckets = self._group_stream_particles()
         if _mk:
