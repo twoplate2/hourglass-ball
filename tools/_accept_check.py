@@ -107,8 +107,61 @@ def check(label, t="3.00", t0="0.00"):
              a4, "OK" if a4 >= 1.0 else "!!", a5))
 
 
+def pair_pool(a_lab, b_lab, t="3.00"):
+    """**A3 配对准入** —— 同一状态、一个开粒子一个清粒子(`pooloff`), 量细柱段变化占比。
+
+    ⚠️ 第一版把"覆盖层自己"算进了对照里 ⇒ 两边都报 58%, **量具被混淆**。
+    正确做法是**同一状态 ± 清空 `_stream_pools`** —— 两臂的 `elapsed`/`mound_px`/
+    `particles`/`neck_outlet_y` 必须逐字相同, 否则不作数(M1)。
+    负对照: 把 A 的细柱段整段涂成不透明平色(模拟 2.33 那种"把粒子盖住") ⇒ 必须报 ≈0。
+    """
+    A, B = _load(a_lab, t), _load(b_lab, t)
+    if A is None or B is None:
+        print("  pair(%s, %s) 缺图" % (a_lab, b_lab)); return None
+    rows, _spans, edges = _stream_rows(A)
+    if rows.size < 20:
+        print("  pair(%s, %s) 细柱段只有 %d 行, 不作数" % (a_lab, b_lab, rows.size)); return None
+    d = np.abs(A - B).max(axis=2)
+    n = tot = 0
+    for y, (l, r) in zip(rows, edges):
+        x0, x1 = l + GAP, r - GAP
+        if x1 - x0 < 6:
+            continue
+        n += int((d[y, x0:x1 + 1] > 2).sum()); tot += (x1 - x0 + 1)
+    frac = 100.0 * n / max(1, tot)
+    print("  pair %-14s vs %-14s 细柱段 %d 行: 变化 %d/%d = **%.1f%%**  %s"
+          % (a_lab, b_lab, rows.size, n, tot, frac, "OK" if frac >= 3.0 else "!! <3% 粒子看不见了"))
+    return frac
+
+
+def mask_diff(a_lab, b_lab, t="3.00", y_lo=140, y_hi=760):
+    """**A7 区域掩码版** —— 改前/改后整图逐像素, 差异必须**全部**落在颈部带内。
+
+    (`_render_golden --check` 是全图判等, 承担不了"只允许颈部变"这条。)
+    颈部带 = 屏幕行 `[y_lo, y_hi]`(PC 400×875 上约在出口上下各 150px)。
+    """
+    A, B = _load(a_lab, t), _load(b_lab, t)
+    if A is None or B is None:
+        print("  mask(%s, %s) 缺图" % (a_lab, b_lab)); return None
+    d = np.abs(A - B).max(axis=2) > 2
+    outside = d.copy(); outside[y_lo:y_hi, :] = False
+    n_out, n_in = int(outside.sum()), int(d.sum())
+    print("  mask %-14s vs %-14s 差异 %d px: 颈部带内 %d, **带外 %d**  %s"
+          % (a_lab, b_lab, n_in, n_in - n_out, n_out,
+             "OK" if n_out == 0 else "!! 颈部以外也变了"))
+    return n_out
+
+
 if __name__ == "__main__":
-    if "--calibrate" in sys.argv:
+    if "--pair" in sys.argv:
+        k = sys.argv.index("--pair")
+        a, b = sys.argv[k + 1], sys.argv[k + 2]
+        pair_pool(a, b, sys.argv[k + 3] if len(sys.argv) > k + 3 else "3.00")
+    elif "--mask" in sys.argv:
+        k = sys.argv.index("--mask")
+        a, b = sys.argv[k + 1], sys.argv[k + 2]
+        mask_diff(a, b, sys.argv[k + 3] if len(sys.argv) > k + 3 else "3.00")
+    elif "--calibrate" in sys.argv:
         print("=== M1 标定(同一把尺, 已知对 vs 已知错) ===")
         check("pc_now")         # 已知对: 原始(粒子可见, 但有那条平亮分层)
         check("pc_matover2")    # 已知错: 2.33 铺满材质(平填没了, 但把粒子盖住了)

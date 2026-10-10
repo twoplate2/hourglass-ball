@@ -327,12 +327,27 @@ NECK_ABL5_OFF = _neck_marker("abl5")
 NECK_POOL_OFF = _neck_marker("pooloff")
 NECK_FREE_ONTOP = _neck_marker("freeontop")
 MAT_OVER_ALPHA = 0.62   # 材质铺层的透明度(见 _mat_over_rect)
-# 🔴 2026-10-10 **出货默认开**(修掉 PC 颈部那条平亮分层)。`nomatover` 标记可关。
-# 🔴 **2026-10-10 回退: 默认关。** 用户判词「你tmd直接把沙柱下落的间隙/沙子给删了」——
+# 🔴 **2026-10-10: 出货默认关。** 用户判词「你tmd直接把沙柱下落的间隙/沙子给删了」——
 #    这一层把粒子流整个盖住, 等于删掉"看得见沙在落"这件事(项目红线)。
 #    要试仍可显式打开: `matover` 标记文件。
+#    (上面那行"出货默认开"是 2.33 当天的注释, 已被 2.34 的回退取代。另: `nomatover`
+#     这个名字**全仓库没有任何代码读它**, 别再照它写脚本。)
 NECK_MAT_OVER = _neck_marker("matover")
-# 🔴 2026-10-10 定为**出货默认开**: 见 `_mat_over_rect` 那段的注释。标记 `nomatover` 可关。
+
+# 🔴 **2026-10-10: 出口以下的沙柱是否单独画在 context 外面。**
+#    默认 **False = 不分开** ⇒ 整条沙柱(上球 → 颈部 → 出口以下 → 在途沙前沿)全部走
+#    **同一个 `SandFlowContext` 沙流着色器** —— 用户要的「沙柱 + 颈部 + 上面都用
+#    一套渲染, 只是有所区别」。
+#
+#    原来为什么分开(2.32 / `96fe150`): 量到"出口以下只有 27.4% 实心", 读成
+#    "那几段根本没被画出来", 于是搬出 context 换普通纹理四边形(89.4%)。
+#    🔴 **2026-10-10 重测推翻了那条结论**: 真清空 `_neck_free_band`(标记 `neckfree`)
+#    ⇒ 出口以下那一段从 **57/57 沙色像素掉到 0/57**(PC 400×875 / 10s / t=7.40),
+#    它**画满了整条出口以下的柱子**; 记录里"净贡献 1px / 出不了像素"是无效测量。
+#    而 27.4% 是**二值洞与渐入都还没加**时的旧数(见 `sand_hole_ramp` 的注释)。
+#
+#    回退: 标记 `outsplit` ⇒ 恢复 2.34 的行为(出口以下走普通纹理四边形)。
+NECK_OUT_SPLIT = _neck_marker("outsplit")
 
 
 def _neck_nouv_on():
@@ -1616,6 +1631,14 @@ FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
 #   把中点下移到 2 恰好抵消这个可见性偏差(每档 ≈ +2.5R/+3.5G/+3.6B)。
 #   ⚠️ 改它之前先重量一次直方图 —— 这个数是**量出来的**, 不是推出来的。
 FLOW_TONE_CENTER = 2
+# 🔴 **2026-10-10: 色调档的量化步长。**
+#    `3` = 旧行为: `idx -= idx % 3` 把 7 个可达档磨成 **{0, 3, 6} 三档**
+#          (桶数 22→8, 是 2026-10-07 的性能优化)。
+#    `1` = 不量化: 7 档全用。
+#    **为什么要试它**: 出口以下那一段的**可见面是粒子层**(实测覆盖柱宽 71~100%,
+#    材质被压在下面), 而粒子层每条只有 2px 宽 × 2~7px 高、色调终身固定 ⇒
+#    它比材质面"平"。这一档就是用来把"平是不是来自色调档太少"单独劈出来的。
+FLOW_TONE_QUANT = max(1, int(float(os.environ.get("HG_TONE_QUANT", "3"))))
 # 调色板**每档多少 R 级**(等距, 见 `_flow_tone`)。整条 R 跨度 = 2×5×STEP。
 # 2.0 ⇒ 跨 20 级; 配合中点 2 之后实际用到第 0~6 档 = **R 207~219**,
 # 与**沙堆实测的 208~219** 基本重合(这是"不发黑"的判据)。
@@ -1753,7 +1776,15 @@ _SPREAD = _stream_spread_probe()
 #        spread 700 = 4.4×tube     → 1.65  (0.90×)   ← 线没了, 但柱子明显变稀
 #    ⇒ 取用户给的上限 2×: 1× 实测几乎无效, 再大就开始牺牲密度。
 #    ⚠️ 是**比例的**不是像素 —— 写死像素会在平板/手机上差好几倍。
-STREAM_SPREAD_RATIO = 0.0 if _SPREAD is None else max(0.0, _SPREAD)
+# 🔴 **2026-10-10 补: 上面写的"出货默认"此前**从没落到代码里**(代码是 `0.0 if None`),
+#    于是这个已标定的解药一直没生效。现已改成默认 **2.0**。
+#    为什么它是"一套渲染"那件事的一半: 出口以下那一段的**可见面是粒子层**
+#    (实测覆盖柱宽 **89%**, 材质被压在下面), 而所有粒子都在**同一条 y** 上出生
+#    ⇒ 粒子的上边缘是一条几何直线 ⇒ 出口那一行"从材质面硬切成粒子面"。
+#    实测(PC 400×875 / 10s / t=7.40, 柱内高频 std 中位):
+#        改前 1.01  →  出生点摊开 2.0×直筒高  **1.79**  (材质面自身 = 2.73)
+#    回退: 环境变量 `HG_STREAM_SPREAD=0` 或标记文件 `streamspread` 写 `0`。
+STREAM_SPREAD_RATIO = 2.0 if _SPREAD is None else max(0.0, _SPREAD)
 
 TRAIL_SCALE = _trail_scale_probe()
 # 🔴 **2026-10-10 定为出货默认 0.8**（用户对着 `benchmark_logs/_vid/ladder2.png` 判的：
@@ -4758,7 +4789,7 @@ class HourglassWidget(Widget):
     def _live_flow_bucket_keys(self):
         """**可能**有内容的沙流桶 —— 由取色调的算式直接推出来, 不是"看它一直是空的"。
 
-        沙流那一行把色调档磨成 3 的倍数(`idx -= idx % 3`), 再叠上 `FLOW_TONE_CENTER`
+        沙流那一行把色调档磨成 `FLOW_TONE_QUANT` 的倍数(`idx -= idx % FLOW_TONE_QUANT`), 再叠上 `FLOW_TONE_CENTER`
         的偏移与 `clip(0, last)` —— 把 `w` 的全部取值域(0..8, `np.minimum(w, 8)` 封顶)
         代进去, 落在合并后的**只有 {0, 3, 6}**; 再加高光那一档(`key = n_colors`,
         在 `_stream_pools` 里就是 `-1`)。
@@ -4773,9 +4804,9 @@ class HourglassWidget(Widget):
         for w in range(9):
             a = w + (FLOW_TONE_CENTER - 4)
             a = 0 if a < 0 else (last if a > last else a)
-            a -= a % 3
+            a -= a % FLOW_TONE_QUANT
             b = w + (FLOW_TONE_CENTER - 4)
-            b -= b % 3
+            b -= b % FLOW_TONE_QUANT
             b = 0 if b < 0 else (last if b > last else b)
             out.add(a)
             out.add(b)
@@ -6977,7 +7008,7 @@ class HourglassWidget(Widget):
             #    (清它只差 1px)。用户口径就是「把上球那套用到颈部」⇒ 让材质当可见面。
             #    **不减任何粒子**, 只改画布次序。
             pass
-        if neck_flow is not None:
+        if neck_flow is not None and NECK_OUT_SPLIT:
             with self.canvas:
                 self._neck_free_color = (Color(1, 1, 1, 1) if material
                                          else Color(*self.sand_base))
@@ -7391,7 +7422,9 @@ class HourglassWidget(Widget):
         # 出口以下那一段走 `_neck_free_band`(在 `neck_flow` **外面**, 见它在
         # `_build_dynamic_canvas` 里的注释); `neck_flow is None` 时主带本来就在外面,
         # 不需要第二条。
-        fband = getattr(self, "_neck_free_band", None)
+        # 🔴 **2026-10-10: 默认不分流** —— 出口以下跟着主带一起走同一个 GPU 着色器
+        #    (`NECK_OUT_SPLIT` 见 `_build_dynamic_canvas` 的注释)。
+        fband = (getattr(self, "_neck_free_band", None) if NECK_OUT_SPLIT else None)
 
         fn = len(fband) if fband is not None else 0
         fi = 0
@@ -7438,7 +7471,10 @@ class HourglassWidget(Widget):
                 _emit(quads, i, x0, y0, x1, y1)
             else:
                 quads.zero(i)
-        if NECK_FREE_OFF:          # 消融: 只清"自由段带"(真清空, 不是把段挪回主带)
+        if NECK_FREE_OFF and fband is not None:
+            # 消融: 只清"自由段带"(真清空, 不是把段挪回主带)
+            # ⚠️ `fband` 在不分流(默认)或材质关的路径上是 `None` ⇒ 必须短路,
+            #    否则 `fband.clear()` 直接 AttributeError(2026-10-10 查出的潜在崩溃)。
             for _k in range(fn):
                 fband.zero(_k)
             fi = fn
@@ -7689,7 +7725,7 @@ class HourglassWidget(Widget):
                     idx = idx + (np.clip(_dep, 0.0, 1.0) * FLOW_TONE_SLOPE).astype(np.int64)
                 np.clip(idx, 0, last, out=idx)
                 # ★ 色调研磨成 4 档(每 3 档取 1) —— 桶数 22 → 8。见 /tmp/patch_buckets.py
-                idx -= idx % 3
+                idx -= idx % FLOW_TONE_QUANT
                 key = np.where(_pl != 0.0, n_colors, idx)
                 if pv.tail:
                     amp = self.pwa[:n] if sel.size == n else self.pwa[:n][sel]
@@ -7757,7 +7793,7 @@ class HourglassWidget(Widget):
                 if w > 8:
                     w = 8
                 index = w + (FLOW_TONE_CENTER - 4)
-                index -= index % 3      # ← 与 numpy 路径一起改(见上)
+                index -= index % FLOW_TONE_QUANT      # ← 与 numpy 路径一起改(见上)
                 if index < 0:
                     index = 0
                 elif index > last:
