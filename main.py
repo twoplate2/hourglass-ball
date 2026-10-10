@@ -236,8 +236,17 @@ SAND_PRESETS = [
     ("紫沙", "#8e6db0", "#5d4280", "#a98ac4"),
     ("黑沙", "#4a4540", "#2a2520", "#6a6560"),
 ]
-BG_COLOR = "#fdf6e3"
-GLASS_FILL = "#eaf3f8"
+BG_COLOR = os.environ.get("HG_BG_COLOR", "#fdf6e3")
+# 🔴 **2026-10-10: 这两个改成读环境, 只为 `tools/_probe_column_alpha.py` 的"双背景差分"服务。**
+#    背景(为什么): 旧那把 α 尺把像素投影到 (背景→纯沙色) 连线上, 而 `sand_light` 的投影恰 = **0.854**
+#    —— 正好等于它当时当作 p10 目标的 0.855 ⇒ **它分不开"亮色不透明"与"真半透明"**
+#    ("把柱子调亮"就能让读数达标)。AP 两名专家各自按调色板算出 0.854 独立复现。
+#    新尺: 同一场景渲**两次**, 只改**柱背后那一层**(= 玻璃内腔填充), 解
+#        α = 1 − (P₁ − P₂)/(B₁ − B₂)      ← 沙色 S 被完整消掉
+#    **默认值逐字不变** ⇒ 出货行为零变化, 金标准基线不受影响。
+#    ⚠️ `GLASS_FILL` 在 5588 行被**捕获进局部**(玻璃壳烘焙) ⇒ 覆盖必须在**模块加载时**生效
+#      ⇒ 只能走环境变量(桌面探针能传), 不能在 redraw 里改。
+GLASS_FILL = os.environ.get("HG_GLASS_FILL", "#eaf3f8")
 GLASS_OUTLINE = "#5f6b70"
 
 # ---- 沙体材质(路线 A: 预生成的 RGBA 彩色纹理) ----------------------------------
@@ -1551,6 +1560,47 @@ def _flow_rate_probe():
 
 FLOW_RATE_PROBE = _flow_rate_probe()
 FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 1500.0
+
+
+def _trail_scale_probe():
+    """`HG_TRAIL_SCALE` 环境变量优先(桌面), 其次与 main.py 同目录的 `trailscale` 标记文件。
+
+    🔴 **2026-10-10 (A5): 用来证伪/证实"纤维感来自线太长"这条。**
+    可见的粒子墨迹是 `Line`，高度 `trail = max(2, |vy|·trail_time/motion_scale)`
+    （`trail_time ∈ [0.018, 0.032]`）⇒ 柱中 vy≈500 时 **9~16px 高、2px 宽**，
+    实测柱区纹理的"竖/横自相关比"= **2.00~2.50**，而上球沙体是 **1.00**。
+    把这个系数调小，线就变短、词汇由"竖条纹"变"颗粒"。
+    **若把它调到 0.2 而自相关比纹丝不动 ⇒ "线太长"这条被直接证伪**
+    （那就说明纤维感来自"缝被那块板填了"——见 `sand_hole_th`）。
+
+    安卓读不到环境变量 ⇒ 设备单变量走标记文件:
+        adb shell "echo 0.2 > /data/data/org.shalou.hourglass/files/app/trailscale"
+    """
+    env = os.environ.get("HG_TRAIL_SCALE")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "trailscale"), "r") as fh:
+            text = fh.read().strip()
+        return float(text) if text else None
+    except Exception:
+        return None
+
+
+TRAIL_SCALE = _trail_scale_probe()
+# 🔴 **2026-10-10 定为出货默认 0.8**（用户对着 `benchmark_logs/_vid/ladder2.png` 判的：
+#    「最右边 2 个的沙子更真实，不过太稀疏了」⇒ 要那两格的质感、但更密）。
+#    标定（固定 `holeth=0.10`、只改这一个旋钮，柱内露出背景占比 / 柱区竖横自相关比）：
+#        1.0 → 0.0% / 2.34~2.51     0.8 → **9.4%** / 1.88~2.23（选定）
+#        0.6 → 18.5% / 1.31~1.44    0.2 → 26.5% / 1.16~1.35
+#        v1.2(用户说好看) 参照 = 16.7% / 1.54~1.70
+#    ⚠️ **密度与各向同性由这一个旋钮反向拉扯** —— 越密越"竖"。0.6 是同时复刻 v1.2 的那一档；
+#      0.8 是"比 v1.2 更密"的那一档。改它之前先回去看那张梯子图。
+TRAIL_SCALE = 0.8 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
 
 # `_apply_max_refresh_rate()` 把 `Display.getSupportedModes()` 的**整个列表**写在这里,
 # 由基准日志的 `refresh_modes=` 带出来(桌面/无安卓时为 None)。
@@ -7173,6 +7223,13 @@ class HourglassWidget(Widget):
                 x = xs[index]
                 trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale)
                 trail = trail * (1.0 - pv.tail_blend) + pv.tail_blend
+                if TRAIL_SCALE != 1.0:
+                    # A5: 只缩"由速度决定的那一段", `max(2.0, ...)` 的下限与 `tail_blend`
+                    # 的偏置保持原样 —— 否则会连"慢粒子也该有的 2px"一起缩掉，
+                    # 那就不是单变量了。
+                    trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale
+                                * TRAIL_SCALE)
+                    trail = trail * (1.0 - pv.tail_blend) + pv.tail_blend
                 top = min(top_limit, y + trail)
                 coords = (x, y, x, top)
                 if i == len(pool):
@@ -7629,8 +7686,30 @@ class HourglassApp(App):
         if platform != "android":
             try:
                 # 桌面模拟: --landscape 用宽窗验证反旋转; 否则维持手机竖屏
-                if "--landscape" in sys.argv:
+                # 🔴 **2026-10-10 用户要求: 「我是 1080p 显示器, 高度最高可以做到 900 像素吗」**
+                #    ⇒ 加 `--size 450x900`(或 `--size 400x900`, 运行时任意)。**默认仍是 400x800**,
+                #    所以金标准与既有探针的基线**不受影响**。
+                #    ⚠️ 窗口是**手机竖屏比例**(宽:高 ≈ 0.5), 想让高到 900 就得宽到 450 ——
+                #      只加高不加宽会改比例, 几何会跟着变(`R = min(宽约束, 高约束)`)。
+                #      1080p 屏上 450x900 放得下(还留 180px 给标题栏/任务栏)。
+                #    ⚠️ 别把窗口设成比屏幕还高 —— 那样布局拿到的可用高度反而变小(项目踩过)。
+                #    ⚠️ **2026-10-10 实测踩坑: 必须读 `sys.orig_argv`, 不能读 `sys.argv`** ——
+                #      **Kivy 会把不认识的命令行参数从 `sys.argv` 里摘掉**(`--size` 就是),
+                #      读 `sys.argv` 会**静默拿不到**(实测: app 正常启动、但那行 print 从没出现)。
+                #      `sys.orig_argv` 是进程原始命令行, 框架动不到。
+                _argv = getattr(sys, "orig_argv", None) or sys.argv
+                _sz = None
+                for _i, _a in enumerate(_argv):
+                    if _a == "--size" and _i + 1 < len(_argv):
+                        _sz = _argv[_i + 1]
+                    elif _a.startswith("--size="):
+                        _sz = _a.split("=", 1)[1]
+                if "--landscape" in _argv:
                     Window.size = (1000, 600)
+                elif _sz:
+                    _w, _h = (int(v) for v in _sz.lower().split("x"))
+                    Window.size = (_w, _h)
+                    print("窗口 = %dx%d (命令行 --size)" % (_w, _h))
                 else:
                     Window.size = (400, 800)
             except Exception:

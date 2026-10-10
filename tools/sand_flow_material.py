@@ -35,6 +35,37 @@ uniform vec3 sand_tail; // mean top, grain-front amplitude, tube half-width
 uniform vec4 sand_free; // outlet y, 边缘松散度, tube half-width, 前沿 y (<=0 关闭)
 uniform float sand_seam_band;   // 交界过渡半带宽(**球直径的比例**); <=0 ⇒ 阶跃(旧行为)
 uniform float sand_neck_anchor; // 颈部那套 UV 的 v 锚点(= main.py 的 NECK_UV_ANCHOR)
+// ---- 出口以下那股沙的**密度场**四参数(2026-10-10) ---------------------------
+// 用户判词: 「沙柱没有 1 周前的版本好看。当前偏实心」+「可以让随机幅度更大一些」。
+// 标定过的判据(`tools/_probe_column_alpha.py`, 自带正对照、偏差 0.000):
+//   v1.2 / 1.51(用户说好看) 柱内 alpha 中位 **0.945** / 10 分位 **0.855**
+//   2.26(偏实心)            柱内 alpha 中位 **1.000** / 10 分位 **0.953**
+// ⇒ 目标是**复刻 0.945 / 0.855 那组统计**, 不是回退到旧版的可见性。
+uniform float sand_core;   // 实心核占**半宽**的比例(0=整条都参与打散)
+uniform float sand_edge;   // 打散强度总开关(0=完全不打散)
+uniform float sand_bite;   // 打散**深度**的下限(旧值 0.25; 越小 ⇒ 随机幅度越大)
+uniform float sand_alpha;  // 覆盖率上限(<1 才让粒子层透得出来)
+// 🔴 **2026-10-10 (B-①): 出口以下那股沙的漂移速度要与它自己的落速同量级。**
+//    上面那条 `velocity` 在**口顶以下**被 `from_mouth.y = max(0, y − w)` 钳成 0
+//    ⇒ `sink ≈ 0.98` **恒定** ⇒ 柱子的颗粒纹理**恒漂 50px/s**, 与深度无关。
+//    密采样互相关实测(`tools/_probe_grain_motion.py`, dt=0.04s, z 8.5~9.4):
+//        上球 上/中/下段   25 / 25 / 50 px/s   (本式预测 26 / 34 / 43)  ← 用户说"美丽和谐"
+//        柱   上段         50 px/s            (本式预测 50)             ✓ 一致
+//        柱   中/下段      **362 / 500 px/s** (自由落体参照 504 / 645)  ← 粒子层
+//    ⇒ 柱子里"板子的颗粒"只漂 50、而穿过它的沙是 300~600 ⇒ 差 7~10 倍,
+//      读起来是"一根静止的管子 + 有东西在里面穿过去", 而不是"一股正在落的沙"。
+//    修法: 出口以下的漂移速度改成跟着深度走 `K·√(2·g·depth)`, **取两者较大**。
+//    `K = 0`(默认) ⇒ 逐字等于旧行为; 调 K 走环境变量 / 标记文件 `freedrift`。
+uniform float sand_free_drift;
+// 🔴 **2026-10-10 (A3): 板上打**二值**的洞。** 阈值: `<0 = 关`(逐字旧行为), 越大洞越多。
+//
+//    为什么是"洞"而不是"降 alpha": 实测(`sand_alpha` 消融)拆掉覆盖率上限只把
+//    "逐位不动"从 87.0% 抬到 91.2%、"近实心"从 8.5% 降到 4.3% —— **更实、不是更透**。
+//    而 v1.2(用户说好看)的柱子中间带是 **0%**、内部孔洞 **5.1%**、98%→36% 的行有洞。
+//    ⇒ v1.2 的"颗粒感"来自**颗粒之间漏背景**, 不是来自半透明:
+//      每条 2px 竖线读成"一颗沙"; 现在多了一块板把缝填上 ⇒ 那些竖线**连成纤维**
+//      (自相关 竖/横 由 1.00 爬到 2.50)。
+uniform float sand_hole_th;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -115,6 +146,13 @@ void main(void) {
                            + 8.0 * from_mouth.y * from_mouth.y);
     vec2 velocity = vec2(-(sand_position.x - sand_geometry.x) * 0.09 * sink,
                          -(4.0 + 46.0 * sink)) / diameter;
+    // 🔴 2026-10-10 (B-①): 出口以下改按**深度**给漂移速度(见 `sand_free_drift` 的注释)。
+    //    必须在下面采 `grain()` **之前**改 —— 那两行就是拿 `velocity` 去偏移采样坐标的。
+    if (sand_free.x > 0.0 && sand_position.y < sand_free.x) {
+        float depth_px = sand_free.x - sand_position.y;
+        float fall = sand_free_drift * sqrt(2.0 * 450.0 * depth_px);
+        velocity.y = -max(4.0 + 46.0 * sink, fall) / diameter;
+    }
     float jitter = 0.2 * sin(from_mouth.x * 3.1 + from_mouth.y * 5.2);
     float t = sand_clock + jitter;
     float a = fract(t);
@@ -145,12 +183,35 @@ void main(void) {
         float u = 0.5 + (sand_position.x - sand_geometry.x) / (2.0 * sand_free.z);
         float n = grain(vec2(u, sand_clock * 0.25 + 0.53));
         float n2 = grain(vec2(1.0 - u, sand_clock * 0.25 + 0.29));
-        // 🔴 2026-10-09: 打边带 0.62 -> 0.45 —— 用户第三条要求「宽度就有一定随机,
-        //    否则就是一个矩形了」。实测 0.62 时边缘起伏只有 rms 1.8px(底宽 44px 的 4.1%),
-        //    偏弱; 拓到 0.45 让外侧 28% 参与打散。
-        float rim = smoothstep(0.45, 1.0, abs(u) * 2.0);
-        coverage *= 1.0 - rim * (0.25 + 0.75 * clamp(u < 0.5 ? n : n2, 0.0, 1.0))
-                          * sand_free.y;
+        // 🔴 **2026-10-10 修 D1: 掩码位置错了。**
+        //    `u` 在 左缘=0 / 中轴=0.5 / 右缘=1 ⇒ 原来的 `abs(u)*2` 是
+        //    **左缘 0、中轴 1、右缘 1** ⇒ 与"两条边毛掉、内 62% 实心"**正好相反**
+        //    (左缘完全不打散, 中轴与右半边全功率打散)。正确是 `abs(u - 0.5) * 2`。
+        //    ⚠️ 这也解释了 2.25 那次"拓打边带却没效果": 掩码根本没落在边上。
+        float r01 = abs(u - 0.5) * 2.0;          // 0=中轴, 1=两条边
+        float rim = smoothstep(sand_core, 1.0, r01);
+        // 🔴 **2026-10-10 用户备注: 「可以让随机幅度更大一些, 这个是可以的。
+        //    否则就是一个矩形/梯形了」** ⇒ 打散深度从 `0.25+0.75n` 放宽到
+        //    `sand_bite_min + (1-它)*n`, 且整条再乘 `sand_edge`。
+        float nz = clamp(u < 0.5 ? n : n2, 0.0, 1.0);
+        coverage *= 1.0 - rim * (sand_bite + (1.0 - sand_bite) * nz)
+                          * sand_edge * sand_free.y;
+        // 🔴 核心不再 100% 不透明 —— 否则同色全不透明的它会把**粒子层完全吃掉**
+        //    (速度拖尾/高光档全都看不见) ⇒ "颗粒在动"这个信号被自己盖住。
+        coverage = min(coverage, sand_alpha);
+        // 🔴 **2026-10-10 (A3): 二值洞 —— 必须在上面那两行之后**, 因为它要把结果
+        //    压成 {0, 1}(保留区**全不透**), 而不是叠一层灰。
+        if (sand_hole_th >= 0.0) {
+            // ⚠️ 洞场**必须含 y、而且被平流**。上面那两条 `n`/`n2` 的采样坐标只有
+            //    `u` 与**整帧同值**的 `sand_clock` ⇒ 同帧沿 y 恒定 ⇒ 阈后是**通长竖条**,
+            //    而且不跟沙走 —— 这是它没法直接拿来打洞的原因。
+            //    这里改成"按球径归一的二维坐标 + 与 `flowing` **同一套**平流偏移",
+            //    于是洞跟着沙走、尺度约等于材质颗粒(~4px)。
+            vec2 huv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
+                            (sand_free.x - sand_position.y) / diameter);
+            float hn = grain(huv - velocity * a + floor(t) * jump);
+            coverage = step(sand_hole_th, hn);
+        }
     }
     if (sand_free.w > 0.0 && sand_position.y < sand_free.w) {
         // 前沿(在途沙的最低点): 不许切成一刀平。1~5px 的零均值锯齿。
@@ -203,6 +264,26 @@ class SandFlowContext(RenderContext):
         self["sand_seam_band"] = 0.0 if _sb is None else float(_sb)
         _sa = _flag_float("HG_SEAM_ANCHOR", "seamanchor")
         self["sand_neck_anchor"] = 0.021 if _sa is None else float(_sa)
+        # ---- 出口以下那股沙的**密度场**(2026-10-10) ----------------------------
+        # 设备上单变量对照走**标记文件**(环境变量到不了安卓), 与 `shrinkmin`/`twoimpl`
+        # /`seamband` 同一套:
+        #     adb shell "echo 0.25 > <app>/sandcore"     # 实心核占半宽的比例
+        #     adb shell "echo 0.10 > <app>/sandbite"     # 打散深度下限(越小→随机越大)
+        #     adb shell "echo 0.93 > <app>/sandalpha"    # 覆盖率上限
+        #     删掉文件 = 回出厂默认
+        for _key, _env, _fname, _dflt in (
+                ("sand_core", "HG_SAND_CORE", "sandcore", 0.35),
+                ("sand_edge", "HG_SAND_EDGE", "sandedgemul", 1.0),
+                ("sand_bite", "HG_SAND_BITE", "sandbite", 0.15),
+                ("sand_alpha", "HG_SAND_ALPHA", "sandalpha", 0.93),
+                # 出口以下的漂移速度系数: 0 = 关(= 逐字等于旧行为), 1.0 = 完全跟自由落体
+                ("sand_free_drift", "HG_FREE_DRIFT", "freedrift", 0.0),
+                # 二值洞的阈值: <0 = 关(逐字旧行为); **越大洞越多**(step(th,hn))。
+                # 🔴 2026-10-10 定为出货默认 0.10（配合 `main.TRAIL_SCALE = 0.8`）。
+                #    标定见 `main.py` 的 `_trail_scale_probe`；梯子图 `_vid/ladder2.png`。
+                ("sand_hole_th", "HG_HOLE_TH", "holeth", 0.10)):
+            _v = _flag_float(_env, _fname)
+            self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None
         self._clock_key = None
         self._tail_key = None

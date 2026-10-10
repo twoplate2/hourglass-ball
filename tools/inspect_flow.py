@@ -42,6 +42,25 @@ def main():
     #    用户当场指出)。这一档把 steady 周期的时间窗换成 **[0.25s, 2.5s]**。
     parser.add_argument("--early-window", type=int, default=0,
                         help="开局档: 在 steady 周期上取 N 帧, 时间窗 [0.25, 2.5]s")
+    # 🔴 2026-10-10: **双背景差分(chroma-key)** —— 把 `BG_COLOR` 与 `GLASS_FILL`
+    #    一起覆写成同一个颜色。两次渲染只差这一个变量, 于是逐像素
+    #        P₁ − P₂ = (1−α_粒子)(1−α_柱)·(B₁ − B₂)
+    #    ⇒ `α_有效 = 1 − (P₁−P₂)/(B₁−B₂)` **与沙色、与材质纹理完全无关**。
+    #    这是**唯一**能把"亮色不透明"与"真半透明"分开的尺子:
+    #    旧尺(把像素投影到 背景→纯沙色 连线)把 `sand_light` 判成 α=0.854,
+    #    于是"把柱子调亮"就能让它"达标" —— 实测中位 1.000→0.933(alpha 一个像素没动),
+    #    判别性负对照见 `tools/_probe_oldruler_control.py`。
+    #    ⚠️ 用**改写模块常量**而不是环境变量: 这样**任何历史版本的树**都能跑
+    #    (`_wt_12` / `_wt_old` 里没有环境变量钩子), 四个状态才能在同一口径下比。
+    parser.add_argument("--key-bg", default=None,
+                        help='双背景差分: 把 BG_COLOR 与 GLASS_FILL 都设成这个颜色(如 "#303030")')
+    # 🔴 2026-10-10: **密采样窗口**。`--steady-period` 把时间铺满 [0.5, 0.92·P]
+    #    ⇒ 12 帧就隔着 1.2s, **做不出 0.04s 的密采样**。而 shader 的颗粒图案
+    #    每 `1/speed_scale` 秒被 `floor(t)*jump` **整体重排一次**(横向跳 0.125·直径),
+    #    跨过重排点之后帧间根本没有相干 —— 实测跨 1.21s 的互相关峰值 z 只有 2.2~3.0,
+    #    在 605 个候选里**不显著**。要量"颗粒流得多快"只能在一个重排周期之内密采样。
+    parser.add_argument("--window", default=None,
+                        help="密采样: t0,dt,n —— 在 steady 周期上取 n 帧、相邻间隔 dt 秒")
     args = parser.parse_args()
     output = ROOT / "benchmark_logs" / ("flow_visual_" + args.label)
     output.mkdir(exist_ok=True)
@@ -63,6 +82,13 @@ def main():
         spec = importlib.util.spec_from_file_location("flow_visual_source", args.source)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        if args.key_bg:
+            # 两处都是**方法内的全局查表**(`_build_glass_shell` 的 5597 / `_build_dynamic_canvas`
+            # 的 6463 与 6471 / `HourglassApp.build` 的 7669 与 5641) ⇒ 在模块加载之后、
+            # 建画布之前改写, 逐字生效。默认分支一个字都不碰。
+            module.BG_COLOR = args.key_bg
+            module.GLASS_FILL = args.key_bg
+            print("双背景差分: BG_COLOR = GLASS_FILL = %s" % args.key_bg)
         if args.speed_factor is not None:
             module.HourglassWidget.speed_factor = property(
                 lambda self, _v=args.speed_factor: _v)
@@ -115,6 +141,10 @@ def main():
         if args.early_window:
             _p, _n = float(args.steady_period or 50.0), max(2, args.early_window)
             targets = [(_p, 0.25 + 2.25 * i / (_n - 1)) for i in range(_n)]
+        if args.window:
+            _p = float(args.steady_period or 15.0)
+            _t0, _dt, _n = (float(v) for v in args.window.split(","))
+            targets = [(_p, _t0 + _dt * i) for i in range(int(_n))]
         if args.only_tail:
             # 只留末段(≥0.9 周期)。缝的窗口从 **94~95% 相位**开始(5s 与 50s 实测一致),
             # 所以 0.9 这个门槛一定落在它前面。
@@ -127,9 +157,37 @@ def main():
 
             def resize(self, _dt):
                 width, height = map(int, args.pixels.split(","))
+                self._want = (width, height)
                 ratio = Window.width / Window.system_size[0]
                 Window.system_size = (round(width / ratio), round(height / ratio))
-                Clock.schedule_once(self.begin, 0.3)
+                # 🔴 **2026-10-10: 窗口尺寸不是"设了就到位"的。**
+                #    原写法只等固定的 0.3s 就开跑, 而 SDL 把窗口改到目标尺寸、Kivy 把它
+                #    派发进布局, 是要**好几帧**的。机器一忙就赶不上 ⇒ 几何在**跑到一半**
+                #    才变。实测签名: 同一条命令的两次渲染, `2R_inner` 一次 1238.7、
+                #    一次 395.5; 而后者在第 1 帧(记录里 t=0.20)还是 395.5、到 t=7.50
+                #    已经变成 1880 ⇒ **同一个 run 内部几何自己变了**。
+                #    后果: 双背景差分拿到的两张图**画的不是同一个沙漏**, 差分全是垃圾。
+                #    ⇒ 改成**等它连续 3 次采样不动**再开跑。
+                self._prev = None
+                self._stable = 0
+                Clock.schedule_interval(self._settle, 0.1)
+
+            def _settle(self, _dt):
+                w = getattr(self, "hourglass", None)
+                if w is None:
+                    return
+                key = (round(Window.width), round(Window.height),
+                       round(getattr(w, "_R_inner", 0.0), 3))
+                if key == self._prev:
+                    self._stable += 1
+                else:
+                    self._stable, self._prev = 0, key
+                if self._stable >= 3 and round(Window.width) == self._want[0]:
+                    Clock.unschedule(self._settle)
+                    print("几何稳定: Window=%dx%d  2R_inner=%.1f"
+                          % (round(Window.width), round(Window.height),
+                             2 * getattr(w, "_R_inner", 0.0)))
+                    Clock.schedule_once(self.begin, 0.2)
 
             def begin(self, _dt):
                 if args.sand:
