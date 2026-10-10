@@ -275,7 +275,21 @@ void main(void) {
         //    用户判词:「沙柱就只有一个问题了, **边缘是个竖线 太规整了**, 和现实中的差异太大」。
         //    修法与洞场逐字同款(洞场当年就是被这条咬过才改的, 见下面 `hn` 那段的注释):
         //    按球径归一的**二维**坐标 + `flowing` 那一套平流偏移 ⇒ 边随沙走、跟着落。
-        vec2 euv = vec2(u, (sand_free.x - sand_position.y) / diameter);
+        // 🔴 **2026-10-10: 这个噪声场的 x 与 y 必须**同一个尺度**。**
+        //    原来 `euv = vec2(u, …)` 里 `u` 是按**管宽**归一的(`u` 横跨 0→1 只有
+        //    `2·sand_free.z` ≈ 36px), 而 y 是按**球径**归一的(1.0 = diameter ≈ 808px)
+        //    ⇒ **两轴差 ~22 倍** ⇒ 那个噪声在画面上是**竖条**(1 纹素宽 ≈ 0.08px ⇒ 亚像素,
+        //    纵向 1 纹素 ≈ 1.6px 可见) ⇒ 边框那一圈被腐蚀成**纤维**、边缘被锯齿成
+        //    "看起来还是直线"(亚像素级抖动被平均掉了)。
+        //    用户判词: 「整个边缘非常奇怪…**额外带了一层直线**」+「柱子内部是竖条纤维」。
+        //    `u` 仍然保留给 `r01`(0=中轴 1=边)与左右分支用 —— 只是**不再喂给噪声坐标**。
+        vec2 euv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
+                        (sand_free.x - sand_position.y) / diameter);
+        vec2 evel = vec2(velocity.x, -velocity.y);
+        vec2 ejmp = vec2(jump.x, -jump.y);
+        float n = grain(euv - evel * adv + floor(t) * ejmp);
+        float n2 = grain(vec2(1.0 - euv.x, euv.y) - evel * b
+                         + floor(t + 0.5) * ejmp + vec2(0.37, 0.11));
         // 🔴 **2026-10-10: `euv.y` 是"从出口往下量" ⇒ 向下为正, 而 `velocity`/`jump`
         //    是按**球体 uv(y 向上)**定的 ⇒ y 分量必须翻号。**
         //    不翻的后果(**分场实测**, 调试通道 `uvdebug` 3(覆盖率) vs 4(颗粒), 同一状态、
@@ -284,11 +298,6 @@ void main(void) {
         //    两者**同幅反向** ⇒ 同一层材质里两个纹理对着爬, 而洞/边正是柱子里最显眼的
         //    那个尺度(2.42 自己记过"柱子里可见的纹理主要是洞与边在画")
         //    ⇒ 用户看到的就是「**大颗粒往上走**」。这是它的**根因**, 不是错觉。
-        vec2 evel = vec2(velocity.x, -velocity.y);
-        vec2 ejmp = vec2(jump.x, -jump.y);
-        float n = grain(euv - evel * adv + floor(t) * ejmp);
-        float n2 = grain(vec2(1.0 - u, euv.y) - evel * b
-                         + floor(t + 0.5) * ejmp + vec2(0.37, 0.11));
         // 🔴 **2026-10-10 修 D1: 掩码位置错了。**
         //    `u` 在 左缘=0 / 中轴=0.5 / 右缘=1 ⇒ 原来的 `abs(u)*2` 是
         //    **左缘 0、中轴 1、右缘 1** ⇒ 与"两条边毛掉、内 62% 实心"**正好相反**
