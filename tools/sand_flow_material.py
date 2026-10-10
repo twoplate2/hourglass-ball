@@ -276,9 +276,19 @@ void main(void) {
         //    修法与洞场逐字同款(洞场当年就是被这条咬过才改的, 见下面 `hn` 那段的注释):
         //    按球径归一的**二维**坐标 + `flowing` 那一套平流偏移 ⇒ 边随沙走、跟着落。
         vec2 euv = vec2(u, (sand_free.x - sand_position.y) / diameter);
-        float n = grain(euv - velocity * adv + floor(t) * jump);
-        float n2 = grain(vec2(1.0 - u, euv.y) - velocity * b
-                         + floor(t + 0.5) * jump + vec2(0.37, 0.11));
+        // 🔴 **2026-10-10: `euv.y` 是"从出口往下量" ⇒ 向下为正, 而 `velocity`/`jump`
+        //    是按**球体 uv(y 向上)**定的 ⇒ y 分量必须翻号。**
+        //    不翻的后果(**分场实测**, 调试通道 `uvdebug` 3(覆盖率) vs 4(颗粒), 同一状态、
+        //    dt=0.02、各 19 帧, 平板口径 1080×1920):
+        //        颗粒场 **+50 px/s 向下**(z **22.1**) · 覆盖率场 **−50 px/s 向上**(z **7.1**)
+        //    两者**同幅反向** ⇒ 同一层材质里两个纹理对着爬, 而洞/边正是柱子里最显眼的
+        //    那个尺度(2.42 自己记过"柱子里可见的纹理主要是洞与边在画")
+        //    ⇒ 用户看到的就是「**大颗粒往上走**」。这是它的**根因**, 不是错觉。
+        vec2 evel = vec2(velocity.x, -velocity.y);
+        vec2 ejmp = vec2(jump.x, -jump.y);
+        float n = grain(euv - evel * adv + floor(t) * ejmp);
+        float n2 = grain(vec2(1.0 - u, euv.y) - evel * b
+                         + floor(t + 0.5) * ejmp + vec2(0.37, 0.11));
         // 🔴 **2026-10-10 修 D1: 掩码位置错了。**
         //    `u` 在 左缘=0 / 中轴=0.5 / 右缘=1 ⇒ 原来的 `abs(u)*2` 是
         //    **左缘 0、中轴 1、右缘 1** ⇒ 与"两条边毛掉、内 62% 实心"**正好相反**
@@ -319,7 +329,8 @@ void main(void) {
             //    于是洞跟着沙走、尺度约等于材质颗粒(~4px)。
             vec2 huv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                             (sand_free.x - sand_position.y) / diameter);
-            float hn = grain(huv - velocity * adv + floor(t) * jump);
+            // ⚠️ `huv.y` 同样向下为正 ⇒ 用翻过号的 `evel`/`ejmp`(见上面 `euv` 那段实测)。
+            float hn = grain(huv - evel * adv + floor(t) * ejmp);
             // 🔴 **2026-10-10 补: 出口处必须渐入。**
             //    `sand_free.x`(= 出口)是这套掩码的**硬边界**: 出口以上 coverage 恒 1、
             //    以下才打洞 ⇒ `step` 正好在出口那一行造出一条**横向分界线**。
@@ -568,8 +579,17 @@ void main(void) {
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
     vec2 jump = vec2(0.125, 0.0625);
-    float ga = grain(uv - velocity * adv + floor(t) * jump);
-    float gb = grain(uv - velocity * (adv + 0.5) + floor(t + 0.5) * jump + vec2(0.5));
+    // 🔴 **2026-10-10: 这里是 `a`/`b`, 不是 `adv`。**
+    //    2.42 把主着色器里的 `a`/`b` 全局替换成 `adv` 时**连这个着色器一起换了** ——
+    //    而 `adv` 是在**另一个** `main()` 里算的局部量, 这个着色器里根本没有它
+    //    ⇒ GLSL 编译失败 ⇒ `SandFlowContext.__init__` 抛 RuntimeError。
+    //    ⚠️ 它挂在 `_build_dynamic_canvas` **同一个 try 里**(`moundflowall` 标记) ⇒
+    //    一旦有人打开那个标记, 报错会被 `except` 吞掉, 后果是**整条 GPU 材质**
+    //    (上球+颈部+自由段)**一起退回静态贴图**, 而日志只印一行 "unavailable"。
+    //    2.41 的原样是 `a` / `b`(沙堆面用的是顶点属性 `surface_velocity`, 与自由段的
+    //    连续时间无关) —— 这里没有要跟着改的东西, 是那次全局替换误伤。
+    float ga = grain(uv - velocity * a + floor(t) * jump);
+    float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
     float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
     float tone = clamp(lighting(uv) + detail, -1.0, 1.0);
     vec3 flowing = mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));

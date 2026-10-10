@@ -2369,11 +2369,23 @@ NECK_FREE_EXTRA_SEGS = 10
 #    (`_front_at = _front + _bulge·(dx/w)²`) ⇒ 两点之间是**一条直弦** ⇒ 画出来就是个三角。
 #    改: 沿半宽打 `NECK_FRONT_SEGS` 段 + 一层**随时间和位置起伏**的抖动
 #    (`FLOW_FRONT_WOBBLE`, 相位每次启动不同 ⇒ 每轮头部形状都不一样)。
-NECK_FRONT_SEGS = 5
+NECK_FRONT_SEGS = 12
 FLOW_FRONT_WOBBLE = float(os.environ.get("HG_FRONT_WOBBLE", "0.35"))
 NECK_GRAINS_IN_MATERIAL = os.environ.get("HG_NECK_GRAINS", "0") != "0"
 # 前沿的**穹顶**量(以半宽为单位): 边缘比中轴高出这么多。`0` = 平头(2.14 的行为)。
-NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.80"))
+# 🔴 **2026-10-10 三改: 0.80 → 0.30, 而且再按"已经落下去多远"封顶。**
+#    用户判词(附设备截图): 「下落到一个地方的时候, **突然伸出尖尖**, 这个时候的宽度给错了」
+#    + 「2.40版本的这个尖尖的形状是不对的, **应该是一个不规则的东西**, 你去看看1.2版本是个啥」。
+#    **实测 1.2(用户点名)的前沿**: 一堆**离散圆颗粒** + 沙块下缘一条**毛糙的点状边** ——
+#    **没有任何几何尖角**。而 `0.80×半宽` 的穹顶在**刚出生**时是什么样, `necklog` 读出来了:
+#        t=0.2  outlet=416.2  end_at(w_end)=430.7(在管**里面**)  end_at(0)=416.2
+#    ⇒ 边缘比中轴**高 14.5px** ⇒ 那一刻**只有中轴那个尖探出孔口** ⇒ 尖尖 + "宽度给错了"
+#      (宽度本该是整条管口, 实际只露出一个点)。
+#    `FLOW_FREE_MARGIN=1.35` 又把这个穹顶在外缘放大 `(1.35)²=1.82` 倍 ⇒ 2.43 起更突出。
+#    现在: ① 系数降到 0.30; ② 再按**前沿已经落下去的距离**封顶(`NECK_FRONT_DOME_SPAN`)
+#      —— 沙刚冒头时前沿还没落下 ⇒ 穹顶 ≈ 0 ⇒ **平着出场**, 落得越深穹顶才越明显。
+NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.30"))
+NECK_FRONT_DOME_SPAN = float(os.environ.get("HG_NECK_DOME_SPAN", "0.45"))
 WARM_SPLASH_CHUNKS = 8
 
 
@@ -4275,7 +4287,10 @@ class HourglassWidget(Widget):
                 #    速度剖面 `v(x) = v0·sqrt(1-(x/R)²)` 中间快(Janda 等在 2D 料斗孔口的
                 #    自相似实测), 所以**中轴领先、两边落后**。
                 #    `HG_NECK_DOME` = 边缘比中轴高出的量, 以**半宽**为单位(0 = 平头 = 2.14)。
-                _bulge = NECK_FRONT_DOME * _w
+                # 🔴 **2026-10-10**: 穹顶再按"前沿已经落下去多远"封顶(见 `NECK_FRONT_DOME`)。
+                #    沙刚冒头时 `_fall ≈ 0` ⇒ 穹顶 ≈ 0 ⇒ **平着出场**, 不是先探出一个尖。
+                _fall = max(0.0, bottom - _front)
+                _bulge = min(NECK_FRONT_DOME * _w, NECK_FRONT_DOME_SPAN * _fall)
 
                 def _front_at(_dx):
                     return _front + _bulge * (_dx / _w) ** 2 if _w > 1e-6 else _front
@@ -4325,12 +4340,19 @@ class HourglassWidget(Widget):
                 for _k in range(NECK_FRONT_SEGS + 1):
                     _f = 1.0 - _k / float(NECK_FRONT_SEGS)
                     _dx = _w_end * _f
-                    # 🔴 **2026-10-10: 抖动的幅度必须按**柱长**封顶, 不能只看半宽。**
-                    #    沙刚冒出孔口时柱长只有几像素, 而 `0.35*_w_end` 是十几个像素
-                    #    ⇒ 那个小沙滴被抖成一顶**尖刺王冠**(用户 2.43 截图点名)。
-                    _amp = min(FLOW_FRONT_WOBBLE * _w_end, 0.22 * max(_span, 1.0))
-                    _wob = (_amp * (0.62 * math.sin(_f * 5.3 + _et * 1.7 + _ph)
-                                    + 0.38 * math.sin(_f * 11.9 - _et * 2.3 + _ph * 1.7)))
+                    # 🔴 **2026-10-10 三改: 抖动必须是"带限"的, 不能是尖刺。**
+                    #    用户判词: 「刚开场的尖刺…**应该是一个不规则的东西**」。
+                    #    旧版是两条正弦(5.3 / 11.9 rad) 打在**5 段**上 ⇒ 相邻节点相位差
+                    #    高达 2.4 rad ⇒ 相邻节点各自乱摆 ⇒ 画出来是一排**锯齿/尖刺**。
+                    #    现在: 12 段 + 三条**低频**谐波(2.7 / 6.1 / 11.3 rad ⇒ 最高 1.8 个周期,
+                    #    每周期 6.7 个节点) 且振幅递减 0.55/0.30/0.15(和为 1)
+                    #    ⇒ 形状**不规则但连续**, 相邻节点不会跳。
+                    #    ⚠️ 幅度**同时**受柱长封顶 —— 沙刚冒头时柱长只有几像素, 抖十几像素
+                    #    就成了"尖刺王冠"(2.43 用户截图点名过)。
+                    _amp = min(FLOW_FRONT_WOBBLE * _w_end, 0.30 * max(_span, 1.0))
+                    _wob = (_amp * (0.55 * math.sin(_f * 2.7 + _et * 1.3 + _ph)
+                                    + 0.30 * math.sin(_f * 6.1 - _et * 2.1 + _ph * 1.7)
+                                    + 0.15 * math.sin(_f * 11.3 + _et * 3.1 + _ph * 2.3)))
                     side.append((_dx, _end_at(_dx) - _wob))
                 # 🔴 **诊断用(2026-10-10)**: 设备实测"出口以下固体只占 ~28%"(`flowrate=1` 一臂),
                 #    而这段代码看着应当把出口一直填到 `_end_at()`。**别再推理, 把它读出来。**
@@ -7217,7 +7239,8 @@ class HourglassWidget(Widget):
                 self._neck_free_color = (Color(1, 1, 1, 1) if material
                                          else Color(*self.sand_base))
                 self._neck_free_band = _QuadBand(
-                    NECK_TAPER_SEGS + NECK_FREE_EXTRA_SEGS + 6, texture=neck_tex)
+                    NECK_TAPER_SEGS + NECK_FREE_EXTRA_SEGS + NECK_FRONT_SEGS + 1,
+                    texture=neck_tex)
             if NECK_FREE_ONTOP:
                 # 提到最上层: 先摘下来, 再按序追加到画布末尾。
                 # ⚠️ **不能吞异常** —— 第一版就是 try/except pass, 结果 `remove` 全失败、
