@@ -138,6 +138,11 @@ uniform float sand_jump_y;
 //    ⇒ 要让「同一个速度」能读出来, 底纹必须**更粗**(特征尺度 ≫ 每帧位移)。
 //    做法: 把整个采样参数乘一个系数(**位置与平流一起乘**) ⇒ 屏幕上速度不变、纹理变粗。
 uniform float sand_free_coarse;
+// Free-region grain contrast multiplier (1 = unchanged, <1 = quieter base).
+// Goal: the two layers must read as ONE speed. The material texture cannot convey the
+// fall speed (measured: correlation peak stays at dy~0 at every K), so let the PARTICLES
+// carry the motion and keep the material as a quiet base. See sand_free_coarse.
+uniform float sand_free_grain;
 // 🔴 **2026-10-10: 平流用连续时间**(见下面 `adv` 那段)。0 = 旧行为(每周期回跳, 净位移 0)。
 uniform float sand_adv_cont;
 
@@ -285,7 +290,7 @@ void main(void) {
     float gb = grain((uv - velocity * (adv + 0.5 * sec)) * ck
                      + floor(t + 0.5) * jump * sec + vec2(0.5));
     float detail = (sec < 0.5)
-        ? ga
+        ? ga * sand_free_grain
         : (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
     vec2 luv = (sand_wrap_light > 0.0) ? vec2(uv.x, fract(uv.y)) : uv;
     float tone = clamp(lighting(luv) + detail, -1.0, 1.0);
@@ -583,6 +588,7 @@ class SandFlowContext(RenderContext):
                 ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0),
                 # 自由段纹理尺度(1 = 不变, <1 = 更粗)。见 `sand_free_coarse` 的注释。
                 ("sand_free_coarse", "HG_FREE_COARSE", "freecoarse", 1.0),
+                ("sand_free_grain", "HG_FREE_GRAIN", "freegrain", 1.0),
                 ("sand_adv_cont", "HG_ADV_CONT", "advcont", 1.0),
                 ("sand_edge_lo", "HG_EDGE_LO", "edgelo", 0.78),
                 ("sand_edge_hi", "HG_EDGE_HI", "edgehi", 1.12)):
