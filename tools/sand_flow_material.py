@@ -554,7 +554,15 @@ class SandFlowContext(RenderContext):
                 # 渐入长度 = 这个系数 × 球径。0 = 关(负对照: 出口会出现分界线)
                 ("sand_hole_ramp", "HG_HOLE_RAMP", "holeramp", 0.08),
                 # 孔隙率随深度增长的系数: 0 = 关(只剩渐入)
-                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.0),
+                # 🔴 **2026-10-11: 出货默认 0.0 → 0.15。** 用户目标(原话):
+                #    「沙子下落…**越往下空隙越多**」+ 更早的
+                #    「沙柱中沙子的空隙率是不变的, 应该不符合现实, 应该随着重力的影响,
+                #      孔隙率越来越高, 这样的话, 衔接也更自然」。
+                #    机制: 阈值 `th = sand_hole_th + grow·√(depth01 − ramp)`,
+                #    **阈值越大洞越多**(`step(th, hn)` 是"hn ≥ th 才保留沙")。
+                #    取 0.15 ⇒ 深处(depth≈400px)阈值 0.10 → 0.197 ≈ **洞翻倍**;
+                #    近口那一段用 `sqrt` 压住、不猛涨。`0` = 旧行为(孔隙率恒定)。
+                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.15),
                 # 平流速度 y 分量的系数: 1.0 = 旧行为。0 = 完全不平流 y(诊断用)
                 ("sand_flow_vy", "HG_FLOW_VY", "flowvy", 1.0),
                 # 出口以下"打散"的渐入长度(球径比例): 0 = 旧行为(有分界线)。
