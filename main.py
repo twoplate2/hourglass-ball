@@ -322,6 +322,7 @@ NECK_MISC_OFF = _neck_marker("neckmisc")
 NECK_DUMP_ON = _neck_marker("neckdump")
 NECK_GEOM_ON = _neck_marker("neckgeom")
 NECK_FREE_OFF = _neck_marker("neckfree")
+NECK_MARKER_OFF = _neck_marker("markeroff")
 
 
 def _neck_nouv_on():
@@ -7213,6 +7214,13 @@ class HourglassWidget(Widget):
         #    两臂各 60/60 逐图一致。
         if not NECK_MISC_OFF:                               # 消融: 行466-523 到底谁画的
             self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
+        if NECK_MARKER_OFF:
+            # 🔴 **干净消融**: 必须**真清空 points**。只"跳过更新"是空转 —— 图形指令留在
+            #    画布上会继续画上一帧的 points（`neckmshape`/`neckmisc`/`neckfree` 三次
+            #    消融都栽在这上面, 报出了假的"已排除"）。
+            for _c, _ln in self._surface_marker_pool:
+                if _ln.points:
+                    _ln.points = []
         self._draw_upper_shape(upper_height)     # §4 上球漏斗(纯减去: 矩形/UV 不动)
         if not NECK_MOUNDSHAPE_OFF:
             self._draw_mound_shape(h_mound)
