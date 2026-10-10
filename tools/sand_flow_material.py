@@ -115,6 +115,8 @@ uniform float sand_uv_debug;
 //      颈部 |tone| **0.227** vs 上球 **0.112** —— **2 倍**, 画面上就是"斑块"而不是细颗粒。
 //    `= 1` ⇒ `tone` 改用 `lighting(vec2(uv.x, fract(uv.y)))`(球体上逐位不变)。
 uniform float sand_wrap_light;
+// 调试: 每个 `SandFlowContext` 一个标记值, 画成颜色 ⇒ **直接读出"这个像素是哪个 context 画的"**。
+uniform float sand_ctx_tag;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -340,8 +342,10 @@ void main(void) {
         } else if (m < 8.5) {                 // sand_position 本体(x/800, y/800)
             gl_FragColor = vec4(sand_position.x / 800.0, sand_position.y / 800.0,
                                 0.0, 1.0);
-        } else {                              // 同一批顶点里的 vTexCoords0
+        } else if (m < 8.5) {                 // 同一批顶点里的 vTexCoords0
             gl_FragColor = vec4(tex_coord0.x, tex_coord0.y, 0.0, 1.0);
+        } else {                              // 这个像素属于哪个 context
+            gl_FragColor = vec4(sand_ctx_tag / 4.0, 0.0, 0.0, 1.0);
         }
         return;
     }
@@ -374,8 +378,10 @@ def _flag_float(name, fname):
 
 
 class SandFlowContext(RenderContext):
-    def __init__(self, geometry, vertex_shader=VERTEX_SHADER, fragment_shader=FRAGMENT_SHADER):
+    def __init__(self, geometry, vertex_shader=VERTEX_SHADER, fragment_shader=FRAGMENT_SHADER,
+                 tag=0.0):
         super().__init__(use_parent_projection=True, use_parent_modelview=True)
+        self["sand_ctx_tag"] = float(tag)
         self.shader.vs = vertex_shader
         self.shader.fs = fragment_shader
         if not self.shader.success:

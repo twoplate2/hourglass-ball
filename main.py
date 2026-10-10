@@ -3921,28 +3921,31 @@ class HourglassWidget(Widget):
         return max(y_end - (v0 * tau + 0.5 * g * tau * tau), self._lower_sand_bot)
 
     def _neck_dump_canvas(self):
-        """**直接问画布**: 列出每条指令的包围盒 —— 判"哪一行是谁画的"用, 不再逐个消融猜。"""
+        """**直接问画布**: 逐条列出指令的包围盒与纹理 —— 判"哪一行是谁画的"。"""
         tag = int(self.elapsed)
         if tag == getattr(self, "_neck_dump_t", -1):
             return
         self._neck_dump_t = tag
-        win_h = self.height
-        print("NECKDUMP t=%.1f widget h=%.1f w=%.1f" % (self.elapsed, self.height, self.width))
+        print("NECKDUMP t=%.1f widget pos=(%.1f,%.1f) size=(%.1f,%.1f)"
+              % (self.elapsed, self.x, self.y, self.width, self.height))
+        seen = [0]
 
-        def walk(node, depth, path):
-            ch = getattr(node, "children", None)
-            if ch:
-                for k, c in enumerate(ch):
-                    walk(c, depth + 1, path + "/%d" % k)
-                return
+        def leaf(node, path):
             cls = type(node).__name__
+            if cls in ("Color", "BindTexture", "StencilPush", "StencilPop",
+                       "StencilUse", "StencilUnUse", "PushMatrix", "PopMatrix",
+                       "Rotate", "Translate", "Scale", "MatrixInstruction"):
+                return
             bb = None
             try:
-                if hasattr(node, "vertices") and getattr(node, "vertices", None):
+                if hasattr(node, "vertices"):
                     vv = list(node.vertices)
-                    xs = vv[0::4]; ys = vv[1::4]
-                    if not xs:
+                    if len(vv) >= 4 and (len(vv) % 4 == 0):
+                        xs = vv[0::4]; ys = vv[1::4]
+                    else:
                         xs = vv[0::2]; ys = vv[1::2]
+                    if xs and ys:
+                        bb = (min(xs), min(ys), max(xs), max(ys))
                 elif hasattr(node, "points"):
                     pts = list(node.points)
                     xs = pts[0::2]; ys = pts[1::2]
@@ -3953,15 +3956,31 @@ class HourglassWidget(Widget):
                           node.pos[0] + node.size[0], node.pos[1] + node.size[1])
             except Exception:
                 bb = None
-            if bb is None or bb[3] - bb[1] < 1 or bb[2] - bb[0] < 1:
+            if bb is None:
                 return
-            if cls in ("Color", "BindTexture", "StencilPush", "StencilPop",
-                       "StencilUse", "StencilUnUse", "PushMatrix", "PopMatrix"):
-                return
-            print("NECKDUMP   %-22s %-28s y=[%.1f..%.1f] x=[%.1f..%.1f]"
-                  % (cls, path[-24:], bb[1], bb[3], bb[0], bb[2]))
+            seen[0] += 1
+            tex = getattr(node, "texture", None)
+            tn = "None" if tex is None else ("%dx%d" % tuple(tex.size))
+            print("NECKDUMP  %-20s y=[%8.1f..%8.1f] x=[%8.1f..%8.1f] tex=%s n=%d"
+                  % (cls, bb[1], bb[3], bb[0], bb[2], tn, seen[0]))
 
-        walk(self.canvas, 0, "")
+        def walk(node, depth):
+            if depth > 6:
+                return
+            ch = getattr(node, "children", None)
+            if ch:
+                for c in list(ch):
+                    walk(c, depth + 1)
+                return
+            leaf(node, "")
+
+        for holder in ("before", "", "after"):
+            try:
+                c = getattr(self.canvas, holder) if holder else self.canvas
+                print("NECKDUMP --- canvas.%s ---" % (holder or "self"))
+                walk(c, 0)
+            except Exception as exc:
+                print("NECKDUMP walk %s failed: %s" % (holder, exc))
 
     def _neck_sand_side(self):
         """颈部只有一个自由表面; 上球耗尽后从上往下排空。"""
@@ -6694,8 +6713,8 @@ class HourglassWidget(Widget):
             try:
                 from sand_flow_material import SandFlowContext
                 geometry = (cx, Ri, self._upper_sand_bot, self._taper["in_pts"][0][1])
-                upper_flow = SandFlowContext(geometry)
-                neck_flow = SandFlowContext(geometry)
+                upper_flow = SandFlowContext(geometry, tag=1.0)
+                neck_flow = SandFlowContext(geometry, tag=2.0)
                 self._sand_flow_contexts = (upper_flow, neck_flow)
                 if not getattr(self, "_sand_flow_logged", False):
                     print("GPU sand flow active: upper reservoir + neck")
