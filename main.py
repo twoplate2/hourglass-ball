@@ -2383,7 +2383,7 @@ NECK_FREE_EXTRA_SEGS = 10
 #    改: 沿半宽打 `NECK_FRONT_SEGS` 段 + 一层**随时间和位置起伏**的抖动
 #    (`FLOW_FRONT_WOBBLE`, 相位每次启动不同 ⇒ 每轮头部形状都不一样)。
 NECK_FRONT_SEGS = 12
-FLOW_FRONT_WOBBLE = float(os.environ.get("HG_FRONT_WOBBLE", "0.35"))
+FLOW_FRONT_WOBBLE = float(os.environ.get("HG_FRONT_WOBBLE", "0.45"))
 NECK_GRAINS_IN_MATERIAL = os.environ.get("HG_NECK_GRAINS", "0") != "0"
 # 前沿的**穹顶**量(以半宽为单位): 边缘比中轴高出这么多。`0` = 平头(2.14 的行为)。
 # 🔴 **2026-10-10 三改: 0.80 → 0.30, 而且再按"已经落下去多远"封顶。**
@@ -2397,7 +2397,7 @@ NECK_GRAINS_IN_MATERIAL = os.environ.get("HG_NECK_GRAINS", "0") != "0"
 #    `FLOW_FREE_MARGIN=1.35` 又把这个穹顶在外缘放大 `(1.35)²=1.82` 倍 ⇒ 2.43 起更突出。
 #    现在: ① 系数降到 0.30; ② 再按**前沿已经落下去的距离**封顶(`NECK_FRONT_DOME_SPAN`)
 #      —— 沙刚冒头时前沿还没落下 ⇒ 穹顶 ≈ 0 ⇒ **平着出场**, 落得越深穹顶才越明显。
-NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.30"))
+NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.10"))
 NECK_FRONT_DOME_SPAN = float(os.environ.get("HG_NECK_DOME_SPAN", "0.45"))
 WARM_SPLASH_CHUNKS = 8
 
