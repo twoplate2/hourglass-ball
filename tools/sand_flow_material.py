@@ -556,13 +556,18 @@ void main(void) {
         float clump_open = (1.0 - smoothstep(0.42, 0.54, clump)) * clump_g
                          * clamp(0.35 + 1.30 * clump_slow, 0.0, 1.0);
         clump_open = clamp(clump_open, 0.0, 1.0);
+        // ⚠️ **`clumpgap = 1` 必须是真的"全关"**: 轮廓那一处要说它俩是同一件事,
+        //    否则关掉之后**边还在被收窄**(2026-10-11 自查出来的: 那样 OFF 臂就不是
+        //    "旧行为", 拿它当并排图的左边是错的)。覆盖率那处用 `sand_clump_gap` 本身,
+        //    轮廓这处再乘一个 `(1-gap)`, 于是 `gap=1` ⇒ 两处都不动。
+        float clump_edge_open = clump_open * clamp(1.0 - sand_clump_gap, 0.0, 1.0);
         // 🔴 可见边缘: 由这一行自己的噪声决定"沙到多宽为止"(见上面 `sand_edge_lo/hi`)
         if (sand_edge_hi > 0.0) {
             float cut = mix(sand_edge_lo, sand_edge_hi, 0.5 + 0.5 * nz);
             // 🔴 **缝里同时把轮廓收窄** —— 只降透明度的话, 柱子**外轮廓还是一条直边**,
             //    画面上读成"实心柱上开了几个洞", 不是"一团一团的沙"。
             //    收窄之后缝是**真的断开**(背景从两边一起进来)。
-            cut *= mix(1.0, sand_clump_edge, clump_open);
+            cut *= mix(1.0, sand_clump_edge, clump_edge_open);
             coverage *= 1.0 - smoothstep(cut - 0.07, cut + 0.07, r01);
         }
         coverage *= 1.0 - rim * (sand_bite + (1.0 - sand_bite) * nz)
