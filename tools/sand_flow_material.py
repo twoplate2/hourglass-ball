@@ -396,9 +396,17 @@ void main(void) {
         //      实测标定(平板 1904×2890, 15s): `scale=2.5` ⇒ 团长约 60~100px, 看着是
         //      "一团一团的沙"; 0.55 ⇒ ~300px(整条柱子只有两三个特征 ⇒ 读成"一块实心
         //      加一块透明"); 4.0 ⇒ 太碎, 像泡沫。**scale 越大团越短。**
+        // 🔴 **`× ms`(`sand_motion_scale`) 是必需的, 而且它不是"速度补偿"**(那个已经撤掉):
+        //    材料坐标里 `τ = ∫dd/v_scaled`, 而短周期会**整体压缩时间**(v0p=60·ms, gp=450·ms²)
+        //    ⇒ 同一个屏幕深度上 `Δmat_y ∝ 1/ms` ⇒ 图案被**拉长 ms 倍**。
+        //    实测(1080×1920, 1s 档, ms≈8): 不加 ⇒ 整条柱子糊成一条渐变, **一个团都看不见**;
+        //    加 `ms` 之后与 15s 档同一副面孔。
+        //    ⚠️ 与"不许乘深度相关因子"不冲突: `ms` 在一轮里是**常数**(只由周期决定),
+        //      所以它不破坏平流(等值线仍是材料等值线), 只是把"这次动画被压缩了多少"除回去。
+        float ms_c = max(0.05, sand_motion_scale);
         float cl_w = max(1.0, sand_free.z);
         vec2 cl_p = vec2((sand_position.x - sand_geometry.x) / cl_w * sand_clump_xscale,
-                         mat_y * (diameter / cl_w) * sand_clump_scale);
+                         mat_y * (diameter / cl_w) * sand_clump_scale * ms_c);
         cl_dbg = cl_p;
         clump = clamp(clump_field(cl_p, sand_clump_warp), 0.0, 1.0);
         // 🔴 **团的**大小**要参差**(用户原话: 「形成的一些**不规则**的形状, 形成的有**一大条**什么的」)。
