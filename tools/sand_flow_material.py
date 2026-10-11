@@ -107,6 +107,40 @@ uniform float sand_free_vcap;
 //    (`450·ms²` / `60·ms`, main.py:3961/4097), 材质必须**同倍率**跟上, 否则 1s/2s 档
 //    粒子比材质快 2~7 倍(工作流审计 2026-10-11 查出: 着色器里 60/450 是写死的)。
 uniform float sand_motion_scale;
+// 🔴 **2026-10-11: 流动诱导的密度聚团(用户方案, 对抗审查后取代"离散标记层")。**
+//    用户原话: 「**不可能只有在沙柱里才有这个东西**(上球、下球都没有)… 所以它应该是沙子在
+//    流动的过程中**随机形成的一些聚团**… 形成的一些**不规则**的形状, 形成的有**一大条**什么的」。
+//    ⇒ 不是"沙里有一些大颗粒"(那会只在柱子里出现 ✗), 而是**流动自己聚出来的团**:
+//       · 低频噪声**沿材料坐标 `mat_y`** ⇒ 跟着沙走(与粒子同速) + 被流动**拉长成条**(dτ/dd=1/v)
+//       · 强度**随深度从 0 长起来** ⇒ 出口处 ≡0 ⇒ 与颈部/上球无缝(不是"外面套一层")
+//       · 噪声 ⇒ 无周期 ⇒ 不构成车轮效应要的那种周期性图案
+// 🔴 **2026-10-11 (第二次, 用户否掉第一版之后): 聚团 = **团与团之间的缝**, 不是"给柱子压花纹"。**
+//    用户判词(看第一版的并排图): 「**右侧还是一个固体啊**」。
+//    第一版写成 `coverage *= 1 + amp*(n−0.5)*2` —— **均值不变**, 只是在实心板上压出明暗花纹
+//    ⇒ 整条柱子**还是一块实心**。方向反了: 要让人看出"一团一团", 必须让噪声低的地方
+//    **真的透出背景**。
+//    现在的做法(分离式):
+//        · `clump` 归一成 0..1(≈0.5 中性, 大 = 团心)
+//        · `sep = smoothstep(...)` ⇒ 团心 1 / 缝 0
+//        · `coverage *= mix(sand_clump_gap, 1.0, sep)` —— 缝里乘到 `sand_clump_gap`
+//    ⚠️ **噪声不能用 `grain()`(那张沙纹理)**: 纹理的特征只有 ~3~6px, 把它采样到"团"这个尺度
+//       就等于在原尺度上重采样 ⇒ 出来的是各向异性噪点, 不是团。⇒ 用**程序化平滑噪声**
+//       (`clump_noise`, 两个八度)。
+//    ⚠️ **坐标尺度必须"无单位"**(不能写死像素): 横向按**柱半宽** `sand_free.z` 归一,
+//       纵向 = 材料坐标 × (球径/柱半宽) × `sand_clump_scale` ⇒ 团的屏幕尺寸 ∝ 柱宽×当地流速
+//       (沙落得越快团被拉得越长 —— 与材料坐标的自拉伸一致), 且换设备/换周期都不用重调。
+uniform float sand_clump_gap;     // 缝里的覆盖率(1 = 关掉这个机制; 越小缝越透)
+uniform float sand_clump_scale;   // 纵向频率(大 = 团更短更密)
+uniform float sand_clump_xscale;  // 横向频率(小 = 跨越整条柱的横带; 大 = 圆团)
+uniform float sand_clump_warp;    // 域的扭曲量(0 = 等间距横带; 1 = 参考值)
+uniform float sand_clump_edge;    // 缝里把轮廓收窄到原来的多少(1 = 不收窄)
+uniform float sand_clump_start;   // 从哪个深度(球径比例)开始长
+uniform float sand_clump_gain;    // 深度渐入的增益(快饱和 ⇒ 只做"出口附近渐入")
+// 🔴 **2026-10-11: 车轮效应(wagon-wheel)阈值** —— 用户原话:
+//    「就是要**卡在人眼的识别阈值内**, 否则某些时候车轮转得特别快, 你反而感觉转得不快」。
+//    眼睛靠**帧间追踪**读速度: 每帧位移 ≥ 图案周期的一半就看成"慢/倒转"。
+//    ⇒ 表观速度上限 = k·颗粒间距(px)·帧率, 由 main.py 按**实测帧率**逐帧写入。
+//    与用户旋钮 `sand_free_vcap` 取 min(旋钮仍然是可以更低的那个上限)。
 // 采样用 `uv.y`(相对球心的位置坐标)时, 出口那一行的值 —— 材料坐标从它接上去,
 // 保证**颈部与出口以下的纹理连续**(否则出口会有一道纹理缝)。
 const float V0_FALL = 60.0;
@@ -206,6 +240,34 @@ float grain(vec2 uv) {
                              : luma(sand_base) - luma(sand_dark);
     return delta / max(span, 0.001) - lighting(sample_uv);
 }
+// 程序化平滑噪声(聚团场) —— 见 `sand_clump_gap` 那段。
+// ⚠️ 哈希**不用 `sin`**(Dave Hoskins 那个无 sin 版本): 移动 GPU 上 `sin` 常是 mediump,
+//    `sin(dot(p,...))*43758.0` 会出条纹/块状伪影。这个只用 `fract`/`dot`。
+float clump_hash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+float clump_noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float a = clump_hash(i);
+    float b = clump_hash(i + vec2(1.0, 0.0));
+    float c = clump_hash(i + vec2(0.0, 1.0));
+    float d = clump_hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float clump_field(vec2 p, float warp) {
+    // 🔴 **域扭曲**: 没有它的时候, 噪声沿 y 采出来是**等间距的横带** ——
+    //    实测图上就是一节一节的"毛毛虫", 一看就是程序生成的。
+    //    拿另一个低频噪声把坐标推歪 ⇒ 团的边界不再平行、大小也不齐。
+    //    ⚠️ 幅度要**小**(实测 ±2.2 个团周期会把团糊平: 边界全变成渐变, 反而没有"团"了)。
+    float w = clump_noise(p * vec2(0.35, 0.22) + vec2(21.7, 5.3)) - 0.5;
+    vec2 q = vec2(p.x + 0.60 * warp * w, p.y + 2.20 * warp * w);
+    return 0.62 * clump_noise(q)
+         + 0.38 * clump_noise(q * 2.13 + vec2(7.7, 3.1));
+}
 """
 
 FRAGMENT_SHADER = GRAIN_FRAGMENT_HEADER + """
@@ -269,6 +331,14 @@ void main(void) {
                          -(4.0 + 46.0 * sink)) / diameter;
     // 🔴 2026-10-10 (B-①): 出口以下改按**深度**给漂移速度(见 `sand_free_drift` 的注释)。
     //    必须在下面采 `grain()` **之前**改 —— 那两行就是拿 `velocity` 去偏移采样坐标的。
+    float clump = 0.5;        // 聚团场 0..1(只有出口以下才有; 0.5 = 中性)
+    float clump_g = 0.0;      // 聚团的"深度渐入"权重(0 = 出口处, 不生效)
+    float clump_slow = 0.5;   // 更慢的一层: "这一段的缝有多深"(0.5 = 中性)
+    // ⚠️⚠️ **这两个必须声明在**外层**。** 2026-10-11 我把 `float cg` 留在了下面的
+    //    `else` 块里、却在 coverage 那一段(另一个块)用它 ⇒ `error C1008: undefined
+    //    variable "cg"` ⇒ **整个 fragment shader 编译失败** ⇒ `main.py` 静默退回
+    //    "static material"(一整块平贴图) ⇒ 并排图里那条臂**根本没跑**,
+    //    看着就是"还是一个固体"(用户判词)。**着色器编译失败 = 整层消失, 不报错、只印一行。**
     float mat_y = uv.y;       // 出口以下会被换成材料坐标
     float free_here = 0.0;
     if (sand_free.x > 0.0 && sand_position.y < sand_free.x) {
@@ -303,6 +373,29 @@ void main(void) {
               + sand_free_vref * (tau_fall - sand_time) / diameter;
         free_here = 1.0;
         velocity.y = 0.0;      // y 已由材料坐标接管, 不许再叠一次平流
+        // 聚团: 低频、沿材料坐标(⇒ 跟沙走 + 被流动拉长)、按深度渐强。
+        // (声明在**外层**, 见上面那两行 —— 这里是赋值, 不是定义。)
+        clump_g = clamp(((depth_px / diameter) - sand_clump_start) * sand_clump_gain,
+                        0.0, 1.0);
+        // 横向: 按**柱半宽**归一(±1 跨满柱宽) ⇒ 团的宽度与柱宽同量级。
+        // 纵向: 材料坐标 × (球径/柱半宽) × **当地落速比** × 旋钮。
+        // 🔴 那道 `vl / vref` 是必需的: 材料坐标每像素只推进 `vref/(v·球径)`,
+        //    而 v 沿深度涨 3~4 倍 ⇒ 不加它, 图案在屏幕上**被越拉越长**(顶部 120px、
+        //    底部 400px), 底部糊成一片渐变 —— 实测第一版就是这样, 一点"团"都读不出来。
+        //    乘上 `v/vref` 之后 `d(coord)/d(px) = scale/柱半宽` **是常数**
+        //    ⇒ 团的屏幕长度 ≈ 柱半宽/scale(与深度无关), 各向异性 4:1(沿流向拉长)。
+        float vl = sqrt(max(0.0, v0p * v0p + 2.0 * gp * dp));
+        float cl_w = max(1.0, sand_free.z);
+        vec2 cl_p = vec2((sand_position.x - sand_geometry.x) / cl_w * sand_clump_xscale,
+                         mat_y * (diameter / cl_w) * (vl / max(1.0, sand_free_vref))
+                               * sand_clump_scale);
+        clump = clamp(clump_field(cl_p, sand_clump_warp), 0.0, 1.0);
+        // 🔴 **团的**大小**要参差**(用户原话: 「形成的一些**不规则**的形状, 形成的有**一大条**什么的」)。
+        //    只有一个尺度的噪声 ⇒ 每 70px 断一次、断口一样深 ⇒ 读起来像机器压出来的。
+        //    再取一个**更慢**的噪声当"这一段的缝有多深": 深的地方整团分开、
+        //    浅的地方上下两团**并成一大条**(缝还在, 但只是变淡)。
+        clump_slow = clamp(clump_noise(cl_p * vec2(0.21, 0.09) + vec2(41.3, 17.9)),
+                           0.0, 1.0);
         }
     }
     if (sand_flow_vy != 1.0) {
@@ -368,6 +461,9 @@ void main(void) {
     float detail = (sec < 0.5)
         ? ga * sand_free_grain
         : (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
+    // ⚠️ 聚团**不能加在 `detail` 上**: `tone = clamp(lighting + detail, -1, 1)` 早就饱和,
+    //    加进去会被**裁掉**(实测 amp=0.18 只改 2 级、amp=2.0 也只 20 级且看不出形状)。
+    //    ⇒ 它按物理该是**密度**变化: 改成去调制 `coverage`(见下面自由段那一处)。
     vec2 luv = (sand_wrap_light > 0.0) ? vec2(uv.x, fract(uv.y)) : uv;
     float tone = clamp(lighting(luv) + detail, -1.0, 1.0);
     vec3 target = tone >= 0.0 ? sand_light : sand_dark;
@@ -440,9 +536,20 @@ void main(void) {
         //    否则就是一个矩形/梯形了」** ⇒ 打散深度从 `0.25+0.75n` 放宽到
         //    `sand_bite_min + (1-它)*n`, 且整条再乘 `sand_edge`。
         float nz = clamp(u < 0.5 ? n : n2, 0.0, 1.0);
+        // 🔴 **聚团的缝权重**(0 = 缝, 1 = 团心) —— **必须在这里算**, 因为下面
+        //    "可见边缘"与"覆盖率"两处都要用它。`clump_g = 0`(出口那一行 / 诊断档) ⇒ 恒 1。
+        //    `sand_clump_span` 让缝的**深度**沿柱子参差: 0.35+1.3·慢噪声 ∈ [0.35,1.65]
+        //    ⇒ 有的缝整团断开、有的只是变淡(两团并成一大条)。
+        float clump_open = (1.0 - smoothstep(0.42, 0.54, clump)) * clump_g
+                         * clamp(0.35 + 1.30 * clump_slow, 0.0, 1.0);
+        clump_open = clamp(clump_open, 0.0, 1.0);
         // 🔴 可见边缘: 由这一行自己的噪声决定"沙到多宽为止"(见上面 `sand_edge_lo/hi`)
         if (sand_edge_hi > 0.0) {
             float cut = mix(sand_edge_lo, sand_edge_hi, 0.5 + 0.5 * nz);
+            // 🔴 **缝里同时把轮廓收窄** —— 只降透明度的话, 柱子**外轮廓还是一条直边**,
+            //    画面上读成"实心柱上开了几个洞", 不是"一团一团的沙"。
+            //    收窄之后缝是**真的断开**(背景从两边一起进来)。
+            cut *= mix(1.0, sand_clump_edge, clump_open);
             coverage *= 1.0 - smoothstep(cut - 0.07, cut + 0.07, r01);
         }
         coverage *= 1.0 - rim * (sand_bite + (1.0 - sand_bite) * nz)
@@ -450,6 +557,11 @@ void main(void) {
         // 🔴 核心不再 100% 不透明 —— 否则同色全不透明的它会把**粒子层完全吃掉**
         //    (速度拖尾/高光档全都看不见) ⇒ "颗粒在动"这个信号被自己盖住。
         coverage = min(coverage, sand_alpha);
+        // 🔴 **流动诱导的聚团**: 团心保持上球那种密度, **团与团之间透出背景**(缝)。
+        //    ⚠️ 方向: 第一版是"给实心柱压花纹"(均值不变) ⇒ 用户判词「右侧还是一个固体啊」。
+        //      现在低噪声处**真的乘小 coverage** ⇒ 缝里看得见背景。
+        //    ⚠️ `clump_g = 0`(出口那一行 / `freevscroll` 诊断档) ⇒ 系数恒 1 ⇒ 与上球无缝。
+        coverage *= mix(1.0, sand_clump_gap, clump_open);
         // 🔴 **2026-10-10 (A3): 二值洞 —— 必须在上面那两行之后**, 因为它要把结果
         //    压成 {0, 1}(保留区**全不透**), 而不是叠一层灰。
         if (sand_hole_th >= 0.0) {
@@ -643,7 +755,25 @@ class SandFlowContext(RenderContext):
                 ("sand_free_drift", "HG_FREE_DRIFT", "freedrift", 0.0),
                 ("sand_free_vscroll", "HG_FREE_VSCROLL", "freevscroll", 0.0),
                 ("sand_free_vref", "HG_FREE_VREF", "freevref", 400.0),
-                ("sand_free_vcap", "HG_FREE_VCAP", "freevcap", 600.0),
+                # 🔴 **2026-10-11 对抗性审查裁决(跨模型 2 专家 × 3 轮, 主张 5 判为"已证伪"):**
+                #    封顶 600 让**材质与粒子在 d>396px 之后不同速** —— 模拟器差 22%、**平板差 41%**,
+                #    正是用户最早抱怨的"两个速度差异大的层"; 而我当时的验证点(d=19/65/105)**全在
+                #    封顶线以内** ⇒ 结构性看不见。⇒ 抬到 **1200**(平板柱底实测 1023px/s ⇒ 永不生效),
+                #    保留成"高于物理速度的保险丝"而不是"限速器"。
+                ("sand_free_vcap", "HG_FREE_VCAP", "freevcap", 1200.0),
+                # 🔴 **2026-10-11: 聚团 = 缝**(见 `sand_clump_gap` 那段)。
+                #    `gap = 1` ⇒ **逐字关掉**(系数恒 1, 可当负对照/回退)。
+                ("sand_clump_gap", "HG_CLUMP_GAP", "clumpgap", 0.10),
+                # 纵向频率: 团的屏幕长度 ≈ 柱半宽 / scale(与深度无关, 见着色器里那句 `vl/vref`)。
+                # 0.25 ⇒ 团长约 4 个柱半宽 = 2 个柱宽; 大 = 更短更密。
+                ("sand_clump_scale", "HG_CLUMP_SCALE", "clumpscale", 0.35),
+                ("sand_clump_xscale", "HG_CLUMP_XSCALE", "clumpxscale", 0.30),
+                ("sand_clump_warp", "HG_CLUMP_WARP", "clumpwarp", 0.0),
+                ("sand_clump_edge", "HG_CLUMP_EDGE", "clumpedgeshrink", 0.72),
+                ("sand_clump_start", "HG_CLUMP_START", "clumpstart", 0.12),
+                # ⚠️ 增益要**快饱和**(8.0 ⇒ 出口以下 ~290px 就到满值): 原来 2.0 让它**随深度一直涨**,
+                #    正好把 2.62 的"越往下越透"**对冲掉**(实测梯度被压平) ⇒ 只留"出口附近渐入"。
+                ("sand_clump_gain", "HG_CLUMP_GAIN", "clumpgain", 8.0),
                 # 二值洞的阈值: <0 = 关(逐字旧行为); **越大洞越多**(step(th,hn))。
                 # 🔴 2026-10-10 定为出货默认 0.10（配合 `main.TRAIL_SCALE = 0.8`）。
                 #    标定见 `main.py` 的 `_trail_scale_probe`；梯子图 `_vid/ladder2.png`。

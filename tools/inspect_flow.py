@@ -187,6 +187,21 @@ def main():
                     print("几何稳定: Window=%dx%d  2R_inner=%.1f"
                           % (round(Window.width), round(Window.height),
                              2 * getattr(w, "_R_inner", 0.0)))
+                    # 🔴 **2026-10-11: 材质没起来就直接失败, 不许静默出图。**
+                    #    着色器**编译失败**时 `main.py` 只印一行
+                    #    `GPU sand flow unavailable, keeping static material: ...` 就退回
+                    #    **静态贴图**(一整块平色板) —— 而那张图看着**还是一条沙柱**,
+                    #    于是"这一臂"被当成"改动没效果/还是一个固体"。
+                    #    当天就这么把一张"A/B"交到用户手上, 他判的词是「右侧还是一个固体啊」
+                    #    —— **右边那条臂根本没跑**(报错是 `undefined variable "cg"`)。
+                    #    ⇒ 凡是"要靠材质才算数"的实验, 起跑前必须自己确认它真的活着。
+                    if os.environ.get("HG_SAND_FLOW", "1") != "0" \
+                            and w._current_material() \
+                            and not getattr(w, "_sand_flow_contexts", ()):
+                        raise SystemExit(
+                            "!! GPU 材质没起来(多半是着色器编译失败) —— 这一臂跑的是"
+                            "**退回静态贴图**的兜底路径, 不能拿来当 A/B 的臂。\n"
+                            "   先看上面 'shader failed to compile / error C####' 那几行。")
                     Clock.schedule_once(self.begin, 0.2)
 
             def begin(self, _dt):
