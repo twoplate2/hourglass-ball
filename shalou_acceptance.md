@@ -199,3 +199,34 @@
    **让材质前端跟在途粒子的最低点走**（不是另算一个标量），再叠一层低频扰动。
    ⚠️ 本项目 1.238 那条"射流"取错了下端标量（`get_mound_top_y()`）导致贯穿下球而回滚 ——
    要用 `py[:pn].min()` 这条**在途粒子前沿**。
+
+## §7 「下落中的沙柱是连续还是断续」—— 有出处的一轮(2026-10-11, 用户点名要)
+
+用户两句话定的调子: 「**后期散的也太离开了 不符合物理规律吧**」(否掉 2.68)
+「理论上应该是**有连续 有断续**才合理」。**这两句与文献一致**, 不是口味:
+
+1. **孔口附近本来就是"平滑、均匀"的** —— 排料实验原文: 流"looked intermittent over the
+   length of the pipe **except for the uppermost part where the granules streamed smoothly
+   and homogeneously from the hopper aperture**" (Physica A, self-organized critical
+   density waves)。
+   ⇒ 工程含义: **出口那一段不许有断续**(我们的 `sand_clump_g*` 从 0 渐入是对的)。
+2. **往下才长出"起伏 → 聚团"** —— Royer et al. (Nature 2009 那篇的补充材料): 沙流下落过程中
+   "**undulations appear**" 并发展成 clusters。
+   ⇒ 工程含义: 断续应当**随深度变强**, 不是整条均匀。
+3. **粗糙沙的团是"弥散、稀薄"的**(tenuous, diffuse), 不是实心块 —— 同一篇: 光滑玻璃球成
+   compact clusters, 而**粗糙粗沙成 tenuous clusters**; 纳米级粗糙度(降内聚力)会**显著减少**聚团。
+   ⇒ 工程含义: 团要"稀薄/半透", 不能做成一根根实心香肠。**这正好否掉了"用大颗粒/实心块"那条路**。
+4. **它是间歇性的密度波**, 谱是指数律(1/f^α, α≈1.5), 不是白噪声 —— 也就是说
+   **既不是恒定连续, 也不是均匀打散**, 而是"一段一段"。
+   ⇒ 工程含义: 缝要**稀疏、成簇**, 不要均匀铺满(2.68 就是均匀铺满 ⇒ 用户判"散太开")。
+
+**落点(2.69)**: 缝切在噪声分布的**低尾**(`sand_clump_lo/hi = 0.25/0.35`)+ 慢层低处**恒 0**
+⇒ 柱身大部分**完整连续**、少数地方**真断开**; 出口 300px 内不生成(与第 1 条一致)。
+
+出处:
+- Physica A, *Self-organized critical density waves of granular particles flowing through a pipe*
+  — https://www.sciencedirect.com/science/article/abs/pii/S0378437196001562
+- Royer et al., granular stream clustering (Nature 2009 补充材料)
+  — https://jfi.uchicago.edu/~jaeger/group/JaegerGroupPapers/granular/2009RoyerGranStreams_Supp.pdf
+- 料斗排料间歇性随孔径减小的实验(Kano et al.)
+  — https://www.jstage.jst.go.jp/article/kona/13/0/13_1995025/_article
