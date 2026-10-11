@@ -525,12 +525,19 @@ CLUMP_LEVEL_DEFAULT = "自然"
 
 
 def apply_clump_level(label):
-    """按标签设"沙流断续"档。返回生效的覆盖表; 材质模块 import 不到时返回 None。"""
+    """按标签设"沙流断续"档。返回生效的覆盖表; 失败/旧模块时返回 None(不抛)。
+
+    ⚠️ **必须吞异常**: 本项目的常规操作之一是"拿旧树做 A/B"(`git show <rev>:tools/… >` 换掉
+    材质模块), 而 2.72 之前的模块**没有** `set_clump_level` ⇒ 这里不兜底的话
+    `build()` 直接 `AttributeError`, **app 起不来**(2026-10-11 实测踩到:
+    `iso_264` 那一臂 0 帧产出, 而 `_pixdiff` 在"比了 0 帧"时照样报"逐像素相同")。
+    """
     try:
         import sand_flow_material as _sfm
-    except Exception:
+        table = _sfm.set_clump_level(label)
+    except Exception as exc:
+        print("clump level: 跳过(%s)" % exc)
         return None
-    table = _sfm.set_clump_level(label)
     print("clump level = %s %s" % (label, table or "(出厂九元组)"))
     return table
 
