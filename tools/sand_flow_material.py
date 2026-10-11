@@ -133,6 +133,8 @@ uniform float sand_clump_gap;     // 缝里的覆盖率(1 = 关掉这个机制; 
 uniform float sand_clump_scale;   // 纵向频率(大 = 团更短更密)
 uniform float sand_clump_xscale;  // 横向频率(小 = 跨越整条柱的横带; 大 = 圆团)
 uniform float sand_clump_warp;    // 域的扭曲量(0 = 等间距横带; 1 = 参考值)
+uniform float sand_clump_lo;      // 缝的阈值带(低端): 越大 ⇒ 缝**越少**(大部分连续)
+uniform float sand_clump_hi;      // 缝的阈值带(高端): 越窄 ⇒ 缝的边越硬(不糊成灰)
 uniform float sand_clump_edge;    // 缝里把轮廓收窄到原来的多少(1 = 不收窄)
 uniform float sand_clump_start;   // 从哪个深度(球径比例)开始长
 uniform float sand_clump_gain;    // 深度渐入的增益(快饱和 ⇒ 只做"出口附近渐入")
@@ -561,8 +563,14 @@ void main(void) {
         //    "可见边缘"与"覆盖率"两处都要用它。`clump_g = 0`(出口那一行 / 诊断档) ⇒ 恒 1。
         //    `sand_clump_span` 让缝的**深度**沿柱子参差: 0.35+1.3·慢噪声 ∈ [0.35,1.65]
         //    ⇒ 有的缝整团断开、有的只是变淡(两团并成一大条)。
-        float clump_open = (1.0 - smoothstep(0.42, 0.54, clump)) * clump_g
-                         * clamp(0.35 + 1.30 * clump_slow, 0.0, 1.0);
+        // 🔴 **"有连续、有断续"** (用户 2026-10-11 第二轮判词):
+        //    「后期散的也太离开了 不符合物理规律吧」+「理论上应该是**有连续 有断续**才合理」。
+        //    上一版的病: `0.35 + 1.30·slow` 的**地板 0.35** ⇒ 连"并在一起"的地方也带 35% 的缝
+        //    ⇒ 整条柱子**均匀地花**了, 读成"被打散"而不是"有团有缝"。
+        //    现在: 缝只在**慢噪声高**的地方才开 ⇒ 大部分柱身**完全连续**,
+        //    少数地方**真的断开**(而且 `sand_clump_gap` 仍是"透到底"的程度)。
+        float clump_open = (1.0 - smoothstep(sand_clump_lo, sand_clump_hi, clump)) * clump_g
+                         * clamp((clump_slow - 0.30) * 2.2, 0.0, 1.0);
         clump_open = clamp(clump_open, 0.0, 1.0);
         // ⚠️ **`clumpgap = 1` 必须是真的"全关"**: 轮廓那一处要说它俩是同一件事,
         //    否则关掉之后**边还在被收窄**(2026-10-11 自查出来的: 那样 OFF 臂就不是
@@ -794,13 +802,15 @@ class SandFlowContext(RenderContext):
                 ("sand_free_vcap", "HG_FREE_VCAP", "freevcap", 1200.0),
                 # 🔴 **2026-10-11: 聚团 = 缝**(见 `sand_clump_gap` 那段)。
                 #    `gap = 1` ⇒ **逐字关掉**(系数恒 1, 可当负对照/回退)。
-                ("sand_clump_gap", "HG_CLUMP_GAP", "clumpgap", 0.10),
+                ("sand_clump_gap", "HG_CLUMP_GAP", "clumpgap", 0.15),
                 # 纵向频率: 团的屏幕长度 ≈ 柱半宽 / scale(与深度无关, 见着色器里那句 `vl/vref`)。
                 # 0.25 ⇒ 团长约 4 个柱半宽 = 2 个柱宽; 大 = 更短更密。
                 ("sand_clump_scale", "HG_CLUMP_SCALE", "clumpscale", 2.5),
                 ("sand_clump_xscale", "HG_CLUMP_XSCALE", "clumpxscale", 2.6),
                 ("sand_clump_warp", "HG_CLUMP_WARP", "clumpwarp", 0.0),
-                ("sand_clump_edge", "HG_CLUMP_EDGE", "clumpedgeshrink", 0.72),
+                ("sand_clump_edge", "HG_CLUMP_EDGE", "clumpedgeshrink", 0.85),
+                ("sand_clump_lo", "HG_CLUMP_LO", "clumplo", 0.25),
+                ("sand_clump_hi", "HG_CLUMP_HI", "clumphi", 0.35),
                 ("sand_clump_start", "HG_CLUMP_START", "clumpstart", 0.12),
                 # ⚠️ 增益要**快饱和**(8.0 ⇒ 出口以下 ~290px 就到满值): 原来 2.0 让它**随深度一直涨**,
                 #    正好把 2.62 的"越往下越透"**对冲掉**(实测梯度被压平) ⇒ 只留"出口附近渐入"。

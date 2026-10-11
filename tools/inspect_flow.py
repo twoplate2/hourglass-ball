@@ -218,13 +218,21 @@ def main():
                         # ⚠️ **不在这里算"团长"**: 纸上推的公式与实测对不上(差 1.8~4 倍,
                         #    且不成比例) ⇒ 只报旋钮值, 尺度一律**看渲染图**标定。
                         _c = _ctxs[1]
-                        print("clump: 柱半宽=%.1f 球径=%.1f gap=%.3f scale=%.2f "
-                              "xscale=%.2f warp=%.2f edge=%.2f"
-                              % (_z, _diam, float(_c["sand_clump_gap"]),
-                                 float(_c["sand_clump_scale"]),
-                                 float(_c["sand_clump_xscale"]),
-                                 float(_c["sand_clump_warp"]),
-                                 float(_c["sand_clump_edge"])))
+                        try:
+                            _knobs = (float(_c["sand_clump_gap"]),
+                                      float(_c["sand_clump_scale"]),
+                                      float(_c["sand_clump_xscale"]),
+                                      float(_c["sand_clump_warp"]),
+                                      float(_c["sand_clump_edge"]))
+                        except KeyError:
+                            # ⚠️ 旧树(2.64 及以前)没有这些 uniform —— 这里必须**静默跳过**,
+                            #    否则探针会在 `_settle` 里抛 KeyError ⇒ **旧树一张图都渲染不出来**
+                            #    (2026-10-11 踩过: A/B 想对 2.64, 结果目录是空的)。
+                            _knobs = None
+                        if _knobs is not None:
+                            print("clump: 柱半宽=%.1f 球径=%.1f gap=%.3f scale=%.2f "
+                                  "xscale=%.2f warp=%.2f edge=%.2f"
+                                  % (_z, _diam, *_knobs))
 
             def begin(self, _dt):
                 if args.sand:
