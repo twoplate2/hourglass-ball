@@ -208,7 +208,6 @@ def main():
                     #       = 柱半宽·v(深度)/(scale·vref)
                     #    —— 三处都是**运行期**的量(柱半宽随周期变、v 随深度变),
                     #    纸上算过一次差了 3 倍(把 `t_in` 当成 24px, 实际远大于此)。
-                    _print_clump(w) if False else None
                     _ctxs = getattr(w, "_sand_flow_contexts", ())
                     if _ctxs:
                         # ⚠️ 读 `_taper["t_in"]`, **不要**读 `ctxs[1]["sand_free"][2]` ——
