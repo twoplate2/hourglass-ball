@@ -30,6 +30,8 @@ uniform vec3 sand_dark;
 uniform vec3 sand_light;
 uniform vec2 sand_lighting; // shade, vertical gradient
 uniform float sand_clock;
+// 🔴 **不回绕**的时间(秒) —— 材料坐标的平流用它(见 `sand_free_vref`)。
+uniform float sand_time;
 uniform float sand_mix;
 uniform vec3 sand_tail; // mean top, grain-front amplitude, tube half-width
 uniform vec4 sand_free; // outlet y, 边缘松散度, tube half-width, 前沿 y (<=0 关闭)
@@ -93,6 +95,22 @@ uniform float sand_hole_wide;
 //    取值应≈柱中段粒子速度(平板~450)。⚠️ `sand_clock` 是 16s 锯齿 ⇒ 每 16s 有一次
 //    图案回跳(≈0.1 个纹理周期); 真觉得跳就得上"不回绕的钟"。
 uniform float sand_free_vscroll;
+// 🔴 **2026-10-11: 出口以下材质的"物理速度场"参数(见下面的材料坐标)。**
+//    用户: 「沙柱的下落速度是不是不合理啊 你来算算和改改」+「**符合期望 也别太快**」。
+//    `V0`/`G` **与粒子同值**(main.py:4097 `v0, g = 60.0*ms, 450.0*ms*ms`) ⇒
+//        v(d) = √(V0² + 2·G·d)        d = 离孔口的深度(px)
+//    `vref` = 参考速度(px/s): 只决定纹理在屏上的**尺度**(v/vref 就是局部拉伸);
+//    `vcap` = 速度上限(px/s): 用户说"别太快" ⇒ 超过它按匀速积分。
+uniform float sand_free_vref;
+uniform float sand_free_vcap;
+// 🔴 **2026-10-11: 缩时倍率(`main._particle_motion_scale`)** —— 短周期时粒子被整体加速
+//    (`450·ms²` / `60·ms`, main.py:3961/4097), 材质必须**同倍率**跟上, 否则 1s/2s 档
+//    粒子比材质快 2~7 倍(工作流审计 2026-10-11 查出: 着色器里 60/450 是写死的)。
+uniform float sand_motion_scale;
+// 采样用 `uv.y`(相对球心的位置坐标)时, 出口那一行的值 —— 材料坐标从它接上去,
+// 保证**颈部与出口以下的纹理连续**(否则出口会有一道纹理缝)。
+const float V0_FALL = 60.0;
+const float G_FALL = 450.0;
 // 🔴 **2026-10-11: 孔隙率梯度的**起始深度**(球径的比例) —— 见 `sand_hole_wide`。**
 //    为什么要有它: 直接按 `√depth` 从出口就长 ⇒ **整条柱一起变淡**(设备实测: 同刻逐点
 //    颜色 blue 通道 +10~+30), 与用户另一条要求「与上层沙子没有明显的区别」冲突。
@@ -251,6 +269,8 @@ void main(void) {
                          -(4.0 + 46.0 * sink)) / diameter;
     // 🔴 2026-10-10 (B-①): 出口以下改按**深度**给漂移速度(见 `sand_free_drift` 的注释)。
     //    必须在下面采 `grain()` **之前**改 —— 那两行就是拿 `velocity` 去偏移采样坐标的。
+    float mat_y = uv.y;       // 出口以下会被换成材料坐标
+    float free_here = 0.0;
     if (sand_free.x > 0.0 && sand_position.y < sand_free.x) {
         float depth_px = sand_free.x - sand_position.y;
         // 🔴 **2026-10-11: 刚性下滚(常数速度) —— 见 `sand_free_vscroll`。**
@@ -258,11 +278,31 @@ void main(void) {
         //    `v(y) ∝ √深度` ⇒ **图案被随深度剪切, 且剪切量随 t 无限增长**
         //    ⇒ 任何纹理都被拉成竖条雾(实测: 竖高频 3.70→6.52, 边缘发虚)——
         //    那是**实现 bug, 不是物理限制**。刚性滚动无剪切 ⇒ 颗粒保形、整块下走。
+        // 🔴 **2026-10-11: 走**材料坐标**(精确积分) —— 见 `sand_free_vref`。**
+        //    病: ① 常数下滚(`sand_free_vscroll`)物理上必然错(沙在加速);
+        //        ② 旧 `-v(y)·t` 的剪切量随 t 无限增长 ⇒ 纹理糊成竖条雾。
+        //    正解: 采样坐标取"材料点自己的标签"
+        //        τ(d) = ∫₀^d dξ/v(ξ) = (√(V0²+2Gd) − V0)/G        [秒]
+        //        y_sample = y_出口 + vref·(τ(d) − t)/diameter
+        //    ⇒ 沿材料路径恒定(图案跟着沙走) + 拉伸只有 v(d)/vref(静态、有界)。
+        //    ⚠️ `t` 必须用**不回绕**的 `sand_time`(`sand_clock` 是 16s 锯齿 ⇒ 每 16s 跳一次)。
+        // ⚠️ 保留**诊断回退**: `freevscroll > 0` ⇒ 走旧的"刚性常数下滚"(2.63 那一版),
+        //    用来做 A/B; 默认 0 ⇒ 走下面的材料坐标(物理)。
         if (sand_free_vscroll > 0.0) {
             velocity.y = -sand_free_vscroll / diameter;
         } else {
-            float fall = sand_free_drift * sqrt(2.0 * 450.0 * depth_px);
-            velocity.y = -max(4.0 + 46.0 * sink, fall) / diameter;
+        float ms = max(0.25, sand_motion_scale);
+        float v0p = V0_FALL * ms;              // 与粒子同倍率(main.py: `60.0*ms`)
+        float gp = G_FALL * ms * ms;           // (main.py: `450.0*ms*ms`)
+        float vcap_p = sand_free_vcap * ms;
+        float dcap = max(0.0, (vcap_p * vcap_p - v0p * v0p) / (2.0 * gp));
+        float dp = min(depth_px, dcap);
+        float tau_fall = (sqrt(v0p * v0p + 2.0 * gp * dp) - v0p) / gp
+                       + max(0.0, depth_px - dcap) / max(1.0, vcap_p);
+        mat_y = (sand_free.x - sand_geometry.z) / diameter
+              + sand_free_vref * (tau_fall - sand_time) / diameter;
+        free_here = 1.0;
+        velocity.y = 0.0;      // y 已由材料坐标接管, 不许再叠一次平流
         }
     }
     if (sand_flow_vy != 1.0) {
@@ -317,9 +357,14 @@ void main(void) {
     // 自由段(sec=0)把整个采样参数乘 `sand_free_coarse` —— **位置和平流一起乘**,
     // 所以屏幕上的速度不变、只把纹理放大(颗粒变粗)。其余区域系数恒 1 ⇒ 逐字旧行为。
     float ck = (sec < 0.5) ? sand_free_coarse : 1.0;
-    float ga = grain((uv - velocity * adv) * ck + floor(t) * jump * sec);
-    float gb = grain((uv - velocity * (adv + 0.5 * sec)) * ck
-                     + floor(t + 0.5) * jump * sec + vec2(0.5));
+    vec2 samp_a = uv - velocity * adv;
+    vec2 samp_b = uv - velocity * (adv + 0.5 * sec);
+    if (free_here > 0.5) {         // 自由段: y 交给材料坐标(上面算好的 `mat_y`)
+        samp_a.y = mat_y;
+        samp_b.y = mat_y;          // 自由段 `sec==0` ⇒ 两相位本来就同式
+    }
+    float ga = grain(samp_a * ck + floor(t) * jump * sec);
+    float gb = grain(samp_b * ck + floor(t + 0.5) * jump * sec + vec2(0.5));
     float detail = (sec < 0.5)
         ? ga * sand_free_grain
         : (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
@@ -596,7 +641,9 @@ class SandFlowContext(RenderContext):
                 #    ~3px, 8px/帧时任何速度都读不出来。**⇒ 把底纹加速不是解药,
                 #    它只会变成频闪/倒转。** 快的运动只能靠**模糊**(粒子拖尾)表达。
                 ("sand_free_drift", "HG_FREE_DRIFT", "freedrift", 0.0),
-                ("sand_free_vscroll", "HG_FREE_VSCROLL", "freevscroll", 500.0),
+                ("sand_free_vscroll", "HG_FREE_VSCROLL", "freevscroll", 0.0),
+                ("sand_free_vref", "HG_FREE_VREF", "freevref", 400.0),
+                ("sand_free_vcap", "HG_FREE_VCAP", "freevcap", 600.0),
                 # 二值洞的阈值: <0 = 关(逐字旧行为); **越大洞越多**(step(th,hn))。
                 # 🔴 2026-10-10 定为出货默认 0.10（配合 `main.TRAIL_SCALE = 0.8`）。
                 #    标定见 `main.py` 的 `_trail_scale_probe`；梯子图 `_vid/ladder2.png`。
@@ -646,6 +693,7 @@ class SandFlowContext(RenderContext):
         self._clock_key = None
         self._tail_key = None
         self._free_key = None
+        self._mat_key = None
 
     def update_flow(self, elapsed, speed_scale, material, palette,
                     tail=(0.0, 0.0, 1.0), free=(0.0, 0.0, 1.0, 0.0)):
@@ -661,6 +709,12 @@ class SandFlowContext(RenderContext):
         if (clock, blend) != self._clock_key:
             self._clock_key = (clock, blend)
             self["sand_clock"] = float(clock)
+            # 🔴 2026-10-11: **不回绕**的时间 —— 出口以下材料坐标的平流用它。
+            #    `sand_clock` 是 `% 16.0` 的锯齿 ⇒ 材料坐标每 16s 会跳一次(图案闪一下)。
+            self["sand_time"] = float(elapsed * speed_scale)
+        if speed_scale != self._mat_key:
+            self._mat_key = speed_scale
+            self["sand_motion_scale"] = float(speed_scale)
             self["sand_mix"] = float(blend)
         if tail != self._tail_key:
             self._tail_key = tail
