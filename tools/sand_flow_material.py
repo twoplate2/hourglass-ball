@@ -85,6 +85,14 @@ uniform float sand_hole_grow;
 //    (2026-10-11 设备实测: 默认 0.42/0.56/0.00%, `holegrow=0.8` 也只到 0.29/0.29/0.12%)。
 //    本旋钮让"放开比例"在整个柱宽上按 `√深度` 长起来: 出口 0(与上层同密度)、越往下越大。
 uniform float sand_hole_wide;
+// 🔴 **2026-10-11: 出口以下材质的「刚性下滚速度」(px/s, 0 = 关 = 逐字旧行为)。**
+//    用户判词: 「沙子下落的时候有 2 个速度差异大的层, **应该是速度接近**、颗粒不同」。
+//    实测病根: 材质 ~60px/s、粒子 ~500px/s(差 8~10 倍); 而用 `sand_free_drift`
+//    (`-v(y)·t`, v ∝ √深度)去追 ⇒ **随深度的剪切随 t 无限增长** ⇒ 纹理被拉成竖条雾。
+//    ⇒ 刚性滚动(整块图案以**常数**速度下走, 无剪切)才是对的: 颗粒保形, 但整块在动。
+//    取值应≈柱中段粒子速度(平板~450)。⚠️ `sand_clock` 是 16s 锯齿 ⇒ 每 16s 有一次
+//    图案回跳(≈0.1 个纹理周期); 真觉得跳就得上"不回绕的钟"。
+uniform float sand_free_vscroll;
 // 🔴 **2026-10-11: 孔隙率梯度的**起始深度**(球径的比例) —— 见 `sand_hole_wide`。**
 //    为什么要有它: 直接按 `√depth` 从出口就长 ⇒ **整条柱一起变淡**(设备实测: 同刻逐点
 //    颜色 blue 通道 +10~+30), 与用户另一条要求「与上层沙子没有明显的区别」冲突。
@@ -245,8 +253,17 @@ void main(void) {
     //    必须在下面采 `grain()` **之前**改 —— 那两行就是拿 `velocity` 去偏移采样坐标的。
     if (sand_free.x > 0.0 && sand_position.y < sand_free.x) {
         float depth_px = sand_free.x - sand_position.y;
-        float fall = sand_free_drift * sqrt(2.0 * 450.0 * depth_px);
-        velocity.y = -max(4.0 + 46.0 * sink, fall) / diameter;
+        // 🔴 **2026-10-11: 刚性下滚(常数速度) —— 见 `sand_free_vscroll`。**
+        //    用户要「2 个速度差异大的层 … 应该是**速度接近**」。旧做法 `-v(y)·t` 里
+        //    `v(y) ∝ √深度` ⇒ **图案被随深度剪切, 且剪切量随 t 无限增长**
+        //    ⇒ 任何纹理都被拉成竖条雾(实测: 竖高频 3.70→6.52, 边缘发虚)——
+        //    那是**实现 bug, 不是物理限制**。刚性滚动无剪切 ⇒ 颗粒保形、整块下走。
+        if (sand_free_vscroll > 0.0) {
+            velocity.y = -sand_free_vscroll / diameter;
+        } else {
+            float fall = sand_free_drift * sqrt(2.0 * 450.0 * depth_px);
+            velocity.y = -max(4.0 + 46.0 * sink, fall) / diameter;
+        }
     }
     if (sand_flow_vy != 1.0) {
         velocity.y *= sand_flow_vy;
@@ -579,6 +596,7 @@ class SandFlowContext(RenderContext):
                 #    ~3px, 8px/帧时任何速度都读不出来。**⇒ 把底纹加速不是解药,
                 #    它只会变成频闪/倒转。** 快的运动只能靠**模糊**(粒子拖尾)表达。
                 ("sand_free_drift", "HG_FREE_DRIFT", "freedrift", 0.0),
+                ("sand_free_vscroll", "HG_FREE_VSCROLL", "freevscroll", 500.0),
                 # 二值洞的阈值: <0 = 关(逐字旧行为); **越大洞越多**(step(th,hn))。
                 # 🔴 2026-10-10 定为出货默认 0.10（配合 `main.TRAIL_SCALE = 0.8`）。
                 #    标定见 `main.py` 的 `_trail_scale_probe`；梯子图 `_vid/ladder2.png`。
@@ -617,7 +635,7 @@ class SandFlowContext(RenderContext):
                 ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 1.0),
                 ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0),
                 # 自由段纹理尺度(1 = 不变, <1 = 更粗)。见 `sand_free_coarse` 的注释。
-                ("sand_free_coarse", "HG_FREE_COARSE", "freecoarse", 1.0),
+                ("sand_free_coarse", "HG_FREE_COARSE", "freecoarse", 0.5),
                 ("sand_free_grain", "HG_FREE_GRAIN", "freegrain", 1.0),
                 ("sand_adv_cont", "HG_ADV_CONT", "advcont", 1.0),
                 ("sand_edge_lo", "HG_EDGE_LO", "edgelo", 0.78),
