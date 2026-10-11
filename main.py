@@ -1879,10 +1879,10 @@ TRAIL_SCALE = _trail_scale_probe()
 #      2.16 与 1.09), 只能当**同一次比对里**的相对量用。
 #    ⚠️ 上面那张老梯子表(0.6≈v1.2 / 0.8 选定)是**另一套几何**下标的, 与今天不可直接比;
 #      但它与人眼在这张梯子上看到的**方向**一致: 拖尾越短越不"竖"。
-# ⛔ **2026-10-11: 0.2→0.35 那一刀已撤回(2.57)** —— 它的前提是"柱子只剩粒子、0.2 会读成虚线",
-#    而 QA 实测: 出货状态下**材质层每行本就 100% 填满**(56/56px), 粒子只贡献柱体 7% 的帧间变化
-#    ⇒ **没有虚线要防**, 0.35 只是把叠在材质上的粒子亮点拉长。回到 0.2。
-TRAIL_SCALE = 0.2 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
+# 🔴 **2026-10-11: 0.2 → 0.35(`NECK_FREE_GEOM=0` 之后"前提才真的成立")**
+#    QA 说的对: 2.55 那次这个改动是**空转的** —— 因为当时**材质层还在**(每行 100% 填满),
+#    没有"虚线"要防。**现在几何真的撤了**(柱区沙色覆盖 35%→5%), 墨量全靠粒子 ⇒ 才需要它。
+TRAIL_SCALE = 0.35 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
 
 # `_apply_max_refresh_rate()` 把 `Display.getSupportedModes()` 的**整个列表**写在这里,
 # 由基准日志的 `refresh_modes=` 带出来(桌面/无安卓时为 None)。
@@ -2362,6 +2362,15 @@ NECK_FRONT = os.environ.get("HG_NECK_FRONT", "1") == "1"
 #    **代价是它把关掉的 `free_front` 打散也一起撤了**(F6: 边缘打散 ⇒ 柱子回到"规整矩形")。
 #    要"只剩粒子一层"必须去**几何那一侧**动手(`_neck_sand_side` 出口以下的发射), 见 QA 报告。
 NECK_FREE = os.environ.get("HG_NECK_FREE", "1") == "1"
+
+# 🔴 **2026-10-11: 出口以下**还发不发射材质几何**(默认 0 = 不发射)。**
+#    用户判词: 「**你是看不到外面有一层的, 他是只有一层的**」+「不要做分层了」。
+#    ⚠️ **这才是那个开关**: `NECK_FREE` 只管着色器里那个 `free_front`(边缘打散),
+#    **几何**是在 `_neck_sand_side` 里**无条件**发射的 ⇒ 2.55 只翻 `NECK_FREE` 是**空转臂**
+#    (跨模型测试员两轮独立复现: 开/关 `neckfree` 逐像素 0 差异; 清空颈部四边形后柱子整条消失)。
+#    `= 0` ⇒ 多边形在**出口**收尾, 出口以下只剩**粒子**(与 1.2 同构) ⇒ 一并消掉
+#      "外面那一层" / 头部那个锥(材质几何画的) / "前沿换堆面"的硬切换(没有几何轮廓可换)。
+NECK_FREE_GEOM = os.environ.get("HG_NECK_FREE_GEOM", "0") == "1"
 # 🔴 **2026-10-10: 颈部颗粒提亮层在材质路径下是否保留。默认 "1" = 保留(旧行为)。**
 #    2.12 把它在材质路径下**整个禁掉**(理由: 那 320 条 Line 一个像素都画不出来)——
 #    不画是对的, 但**它的提亮作用也一起没了**。1080 口径逐层消融实测(同一冻结帧 t=7.64):
@@ -4337,56 +4346,64 @@ class HourglassWidget(Widget):
                         return max(_fr, _wl) if NECK_FRONT else _wl
                     return max(_my, _fr) if NECK_FRONT else _my
 
-                # 🔴 **自由收缩段**: 出口 → 下沿, 半宽按 `_free_width_ratio` 收窄
-                #    (vena contracta + A·v=常数, 与粒子同一条式子)。收缩集中在前 40px,
-                #    所以那几个节点按 40px 均分采, 而不是按整段落程均分。
-                _w_end = _w * self._free_width_ratio(bottom - _end_at(_w)) * FLOW_FREE_MARGIN
-                _y_endw, _y_end0 = _end_at(_w_end), _end_at(0.0)
+                # 🔴 **2026-10-11: 出口以下是否发射材质几何** —— 见 `NECK_FREE_GEOM`。
+                #    关掉时这一段整块不执行 ⇒ `side` 在多边形**出口**处收尾
+                #    ⇒ 出口以下只剩粒子层(用户要的"只有一层")。
+                #    ⚠️ 先预置这几个量 —— 下面 `NECKDBG` 那行无条件读它们(关掉时值无意义, 但不许 NameError)。
+                _w_end = _w
+                _y_endw = _y_end0 = _end_at(0.0)
                 _span = bottom - _y_endw
-                if _span > 1.0:
-                    for _k in range(1, NECK_TAPER_SEGS + 1):
-                        _d = FLOW_SHRINK_RAMP * _k / float(NECK_TAPER_SEGS)
-                        if _d < _span - 1.0:
-                            side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
-                                         bottom - _d))
-                    # 🔴 **N1(2026-10-09): 40px 之后补节点。** 不做这一步, `d>40px` 那一段
-                    #    永远是**一条直线弦**(用户报的"规整的直线"), 任何宽度律都画不出来。
-                    #    前密后疏: `d = span·(k/(K+1))^1.4`; 太靠近收缩段(<=40px)或端点(>=span-2)
-                    #    的丢掉 —— 那两个位置已有节点。**这一步本身零视觉变化**(当前律在 40px
-                    #    后恒 0.70, 多打的点仍落在同一条直线上)。
-                    _extra = []
-                    for _k in range(1, NECK_FREE_EXTRA_SEGS + 1):
-                        _d = _span * (_k / float(NECK_FREE_EXTRA_SEGS + 1)) ** 1.4
-                        if FLOW_SHRINK_RAMP + 2.0 < _d < _span - 2.0:
-                            _extra.append(_d)
-                    for _d in _extra:
-                        side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
-                                     bottom - _d))
-                # 🔴 头部: 沿宽度打点 + 抖动(见 `NECK_FRONT_SEGS` 的注释)
-                _ph = getattr(self, "_front_seed", 0.0)
-                _et = self.elapsed
-                for _k in range(NECK_FRONT_SEGS + 1):
-                    _f = 1.0 - _k / float(NECK_FRONT_SEGS)
-                    _dx = _w_end * _f
-                    # 🔴 **2026-10-10 三改: 抖动必须是"带限"的, 不能是尖刺。**
-                    #    用户判词: 「刚开场的尖刺…**应该是一个不规则的东西**」。
-                    #    旧版是两条正弦(5.3 / 11.9 rad) 打在**5 段**上 ⇒ 相邻节点相位差
-                    #    高达 2.4 rad ⇒ 相邻节点各自乱摆 ⇒ 画出来是一排**锯齿/尖刺**。
-                    #    现在: 12 段 + 三条**低频**谐波(2.7 / 6.1 / 11.3 rad ⇒ 最高 1.8 个周期,
-                    #    每周期 6.7 个节点) 且振幅递减 0.55/0.30/0.15(和为 1)
-                    #    ⇒ 形状**不规则但连续**, 相邻节点不会跳。
-                    #    ⚠️ 幅度**同时**受柱长封顶 —— 沙刚冒头时柱长只有几像素, 抖十几像素
-                    #    就成了"尖刺王冠"(2.43 用户截图点名过)。
-                    # 幅度 = 满幅 × 按柱长**平滑渐入**(30px 到顶), 下限 0.3 ⇒
-                    # **出生时就有三成不规则**(不是一根光溜溜的尖), 且不跳变。
-                    _amp = FLOW_FRONT_WOBBLE * _w_end * min(1.0, max(0.3, _span / 30.0))
-                    _wob = (_amp * (0.55 * math.sin(_f * 2.7 + _et * 1.3 + _ph)
-                                    + 0.30 * math.sin(_f * 6.1 - _et * 2.1 + _ph * 1.7)
-                                    + 0.15 * math.sin(_f * 11.3 + _et * 3.1 + _ph * 2.3)))
-                    side.append((_dx, _end_at(_dx) - _wob))
-                # 🔴 **诊断用(2026-10-10)**: 设备实测"出口以下固体只占 ~28%"(`flowrate=1` 一臂),
-                #    而这段代码看着应当把出口一直填到 `_end_at()`。**别再推理, 把它读出来。**
-                #    标记文件 `<app>/necklog`(非空) ⇒ 每秒打一行。
+                if NECK_FREE_GEOM:
+                                    # 🔴 **自由收缩段**: 出口 → 下沿, 半宽按 `_free_width_ratio` 收窄
+                                    #    (vena contracta + A·v=常数, 与粒子同一条式子)。收缩集中在前 40px,
+                                    #    所以那几个节点按 40px 均分采, 而不是按整段落程均分。
+                                    _w_end = _w * self._free_width_ratio(bottom - _end_at(_w)) * FLOW_FREE_MARGIN
+                                    _y_endw, _y_end0 = _end_at(_w_end), _end_at(0.0)
+                                    _span = bottom - _y_endw
+                                    if _span > 1.0:
+                                        for _k in range(1, NECK_TAPER_SEGS + 1):
+                                            _d = FLOW_SHRINK_RAMP * _k / float(NECK_TAPER_SEGS)
+                                            if _d < _span - 1.0:
+                                                side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
+                                                             bottom - _d))
+                                        # 🔴 **N1(2026-10-09): 40px 之后补节点。** 不做这一步, `d>40px` 那一段
+                                        #    永远是**一条直线弦**(用户报的"规整的直线"), 任何宽度律都画不出来。
+                                        #    前密后疏: `d = span·(k/(K+1))^1.4`; 太靠近收缩段(<=40px)或端点(>=span-2)
+                                        #    的丢掉 —— 那两个位置已有节点。**这一步本身零视觉变化**(当前律在 40px
+                                        #    后恒 0.70, 多打的点仍落在同一条直线上)。
+                                        _extra = []
+                                        for _k in range(1, NECK_FREE_EXTRA_SEGS + 1):
+                                            _d = _span * (_k / float(NECK_FREE_EXTRA_SEGS + 1)) ** 1.4
+                                            if FLOW_SHRINK_RAMP + 2.0 < _d < _span - 2.0:
+                                                _extra.append(_d)
+                                        for _d in _extra:
+                                            side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
+                                                         bottom - _d))
+                                    # 🔴 头部: 沿宽度打点 + 抖动(见 `NECK_FRONT_SEGS` 的注释)
+                                    _ph = getattr(self, "_front_seed", 0.0)
+                                    _et = self.elapsed
+                                    for _k in range(NECK_FRONT_SEGS + 1):
+                                        _f = 1.0 - _k / float(NECK_FRONT_SEGS)
+                                        _dx = _w_end * _f
+                                        # 🔴 **2026-10-10 三改: 抖动必须是"带限"的, 不能是尖刺。**
+                                        #    用户判词: 「刚开场的尖刺…**应该是一个不规则的东西**」。
+                                        #    旧版是两条正弦(5.3 / 11.9 rad) 打在**5 段**上 ⇒ 相邻节点相位差
+                                        #    高达 2.4 rad ⇒ 相邻节点各自乱摆 ⇒ 画出来是一排**锯齿/尖刺**。
+                                        #    现在: 12 段 + 三条**低频**谐波(2.7 / 6.1 / 11.3 rad ⇒ 最高 1.8 个周期,
+                                        #    每周期 6.7 个节点) 且振幅递减 0.55/0.30/0.15(和为 1)
+                                        #    ⇒ 形状**不规则但连续**, 相邻节点不会跳。
+                                        #    ⚠️ 幅度**同时**受柱长封顶 —— 沙刚冒头时柱长只有几像素, 抖十几像素
+                                        #    就成了"尖刺王冠"(2.43 用户截图点名过)。
+                                        # 幅度 = 满幅 × 按柱长**平滑渐入**(30px 到顶), 下限 0.3 ⇒
+                                        # **出生时就有三成不规则**(不是一根光溜溜的尖), 且不跳变。
+                                        _amp = FLOW_FRONT_WOBBLE * _w_end * min(1.0, max(0.3, _span / 30.0))
+                                        _wob = (_amp * (0.55 * math.sin(_f * 2.7 + _et * 1.3 + _ph)
+                                                        + 0.30 * math.sin(_f * 6.1 - _et * 2.1 + _ph * 1.7)
+                                                        + 0.15 * math.sin(_f * 11.3 + _et * 3.1 + _ph * 2.3)))
+                                        side.append((_dx, _end_at(_dx) - _wob))
+                                    # 🔴 **诊断用(2026-10-10)**: 设备实测"出口以下固体只占 ~28%"(`flowrate=1` 一臂),
+                                    #    而这段代码看着应当把出口一直填到 `_end_at()`。**别再推理, 把它读出来。**
+                                    #    标记文件 `<app>/necklog`(非空) ⇒ 每秒打一行。
                 if _neck_log_on():
                     _tag = int(self.elapsed)
                     if _tag != getattr(self, "_neck_log_t", -1):
