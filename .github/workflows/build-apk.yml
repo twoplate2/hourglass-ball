@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write        # 建 Release 要它 —— 见最后那步"Publish APK to Release"
+
 jobs:
   build:
     runs-on: ubuntu-22.04          # 不要用 24.04, buildozer 还没适配
@@ -93,3 +96,19 @@ jobs:
           path: bin/*.apk
           if-no-files-found: error
           retention-days: 90
+
+      # 🔴 **2026-10-11: 把 APK 发到 Release —— 这是"闭环"的关键一步。**
+      #    `actions/upload-artifact` 的产物**必须登录才能下**(GitHub 的硬规矩),
+      #    所以「让 Claude 自己下包 → 装包 → 测包」那条闭环一直断在这里。
+      #    **Release 的资产是公开可下的** ⇒ 之后 `curl -L` 就能拿到, 不需要任何 token。
+      #    每次 push 覆盖同一个 `latest` tag(滚动发布), 只保留最新一版。
+      - name: Publish APK to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          APK=$(ls bin/*.apk | head -1)
+          echo "publishing $APK"
+          gh release view latest >/dev/null 2>&1 ||             gh release create latest --title "hourglass latest"                --notes "滚动发布: 每次 push 覆盖(资产=最新一次构建的 debug APK)"
+          gh release upload latest "$APK" --clobber
+          gh release edit latest --notes "commit ${GITHUB_SHA:0:12} · $(basename "$APK") · $(date -u +%FT%TZ)"
