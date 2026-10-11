@@ -265,8 +265,11 @@ float clump_field(vec2 p, float warp) {
     //    ⚠️ 幅度要**小**(实测 ±2.2 个团周期会把团糊平: 边界全变成渐变, 反而没有"团"了)。
     float w = clump_noise(p * vec2(0.35, 0.22) + vec2(21.7, 5.3)) - 0.5;
     vec2 q = vec2(p.x + 0.60 * warp * w, p.y + 2.20 * warp * w);
-    return 0.62 * clump_noise(q)
-         + 0.38 * clump_noise(q * 2.13 + vec2(7.7, 3.1));
+    // ⚠️ 两个八度的**权重**(0.80/0.20): 第二档只用来把边界打毛。
+    //    原来 0.62/0.38 把场**压平**了(和的分布比单档更窄) ⇒ 阈值切出来是
+    //    "一大片一大片的淡", 不是"一个个团"(实测: 整条柱子只剩 1~2 个特征)。
+    return 0.80 * clump_noise(q)
+         + 0.20 * clump_noise(q * 2.13 + vec2(7.7, 3.1));
 }
 """
 
@@ -334,6 +337,7 @@ void main(void) {
     float clump = 0.5;        // 聚团场 0..1(只有出口以下才有; 0.5 = 中性)
     float clump_g = 0.0;      // 聚团的"深度渐入"权重(0 = 出口处, 不生效)
     float clump_slow = 0.5;   // 更慢的一层: "这一段的缝有多深"(0.5 = 中性)
+    vec2 cl_dbg = vec2(0.0);  // 只给 uvdebug 用: 把聚团坐标本身读出来
     // ⚠️⚠️ **这两个必须声明在**外层**。** 2026-10-11 我把 `float cg` 留在了下面的
     //    `else` 块里、却在 coverage 那一段(另一个块)用它 ⇒ `error C1008: undefined
     //    variable "cg"` ⇒ **整个 fragment shader 编译失败** ⇒ `main.py` 静默退回
@@ -378,23 +382,32 @@ void main(void) {
         clump_g = clamp(((depth_px / diameter) - sand_clump_start) * sand_clump_gain,
                         0.0, 1.0);
         // 横向: 按**柱半宽**归一(±1 跨满柱宽) ⇒ 团的宽度与柱宽同量级。
-        // 纵向: 材料坐标 × (球径/柱半宽) × **当地落速比** × 旋钮。
-        // 🔴 那道 `vl / vref` 是必需的: 材料坐标每像素只推进 `vref/(v·球径)`,
-        //    而 v 沿深度涨 3~4 倍 ⇒ 不加它, 图案在屏幕上**被越拉越长**(顶部 120px、
-        //    底部 400px), 底部糊成一片渐变 —— 实测第一版就是这样, 一点"团"都读不出来。
-        //    乘上 `v/vref` 之后 `d(coord)/d(px) = scale/柱半宽` **是常数**
-        //    ⇒ 团的屏幕长度 ≈ 柱半宽/scale(与深度无关), 各向异性 4:1(沿流向拉长)。
-        float vl = sqrt(max(0.0, v0p * v0p + 2.0 * gp * dp));
+        // 纵向: 材料坐标(纯的, **一个速度补偿项都不许加**) × (球径/柱半宽) × 旋钮。
+        // 🔴 **2026-10-11: 这里曾经乘过一个 `vl/vref`(想让团的屏幕尺寸与深度无关) —— 实测
+        //    它把**平流打死**: 逐帧互相关量到 OFF 臂柱内位移 23px/0.05s(=460px/s, 粒子),
+        //    而 ON 臂 **0px** —— 团**钉在屏幕上不动**, 沙从它里面穿过去, 正是用户骂的
+        //    "2 个速度差异大的层"。原因: `cl_y = mat_y·A(d)`, 它的等值线只在 `A` 为常数时
+        //    才等于**材料**等值线; 而 `mat_y ∝ −时间` 会一直变大 ⇒ `∂cl_y/∂d` 被 `A'·mat_y`
+        //    主导 ⇒ 图案越来越"冻住"(60s 档基本全冻)。
+        //    ⇒ **物理上本来就该拉伸**: 沙在加速, 同一团沙在下面占的屏幕长度更大。
+        //    ⚠️ **团的屏幕尺寸是"量"出来的, 不是推出来的**: 纸上按
+        //      `柱半宽·v(d)/(scale·vref)` 算过一次, 与设备实测对不上(差 1.8~4 倍,
+        //      而且不成比例) —— 所以别拿公式去标定, 直接看渲染图。
+        //      实测标定(平板 1904×2890, 15s): `scale=2.5` ⇒ 团长约 60~100px, 看着是
+        //      "一团一团的沙"; 0.55 ⇒ ~300px(整条柱子只有两三个特征 ⇒ 读成"一块实心
+        //      加一块透明"); 4.0 ⇒ 太碎, 像泡沫。**scale 越大团越短。**
         float cl_w = max(1.0, sand_free.z);
         vec2 cl_p = vec2((sand_position.x - sand_geometry.x) / cl_w * sand_clump_xscale,
-                         mat_y * (diameter / cl_w) * (vl / max(1.0, sand_free_vref))
-                               * sand_clump_scale);
+                         mat_y * (diameter / cl_w) * sand_clump_scale);
+        cl_dbg = cl_p;
         clump = clamp(clump_field(cl_p, sand_clump_warp), 0.0, 1.0);
         // 🔴 **团的**大小**要参差**(用户原话: 「形成的一些**不规则**的形状, 形成的有**一大条**什么的」)。
         //    只有一个尺度的噪声 ⇒ 每 70px 断一次、断口一样深 ⇒ 读起来像机器压出来的。
         //    再取一个**更慢**的噪声当"这一段的缝有多深": 深的地方整团分开、
         //    浅的地方上下两团**并成一大条**(缝还在, 但只是变淡)。
-        clump_slow = clamp(clump_noise(cl_p * vec2(0.21, 0.09) + vec2(41.3, 17.9)),
+        //    ⚠️ 频率要选在"**几个团**"这个尺度上: 0.09(≈11 个团) 太慢 —— 实测整条柱子
+        //    只拿到一个值 ⇒ 变成"一大块实心 + 一大块透", 反而没有"团"了。
+        clump_slow = clamp(clump_noise(cl_p * vec2(0.45, 0.30) + vec2(41.3, 17.9)),
                            0.0, 1.0);
         }
     }
@@ -656,6 +669,11 @@ void main(void) {
             gl_FragColor = vec4(coverage, coverage, coverage, 1.0);
         } else if (m < 4.5) {
             gl_FragColor = vec4(max(detail, 0.0), max(-detail, 0.0), 0.0, 1.0);
+        } else if (m < 4.75) {                // R=聚团场 G=慢层(缝深) B=深度渐入
+            gl_FragColor = vec4(clump, clump_slow, clump_g, 1.0);
+        } else if (m < 4.9) {                 // 聚团坐标 ÷64(绿, 每 64 单位的色循环) + mat_y ÷8(红)
+            gl_FragColor = vec4(clamp((cl_dbg.y + 512.0) / 1024.0, 0.0, 1.0),
+                                fract(cl_dbg.y / 64.0), clamp(mat_y / 8.0 + 0.5, 0.0, 1.0), 1.0);
         } else if (m < 5.5) {                 // ga: crossfade 之前那一次 grain 采样
             gl_FragColor = vec4(max(ga, 0.0), max(-ga, 0.0), 0.0, 1.0);
         } else if (m < 6.5) {                 // delta: 纹理亮度 − sand_base 亮度(未归一)
@@ -766,8 +784,8 @@ class SandFlowContext(RenderContext):
                 ("sand_clump_gap", "HG_CLUMP_GAP", "clumpgap", 0.10),
                 # 纵向频率: 团的屏幕长度 ≈ 柱半宽 / scale(与深度无关, 见着色器里那句 `vl/vref`)。
                 # 0.25 ⇒ 团长约 4 个柱半宽 = 2 个柱宽; 大 = 更短更密。
-                ("sand_clump_scale", "HG_CLUMP_SCALE", "clumpscale", 0.35),
-                ("sand_clump_xscale", "HG_CLUMP_XSCALE", "clumpxscale", 0.30),
+                ("sand_clump_scale", "HG_CLUMP_SCALE", "clumpscale", 2.5),
+                ("sand_clump_xscale", "HG_CLUMP_XSCALE", "clumpxscale", 2.6),
                 ("sand_clump_warp", "HG_CLUMP_WARP", "clumpwarp", 0.0),
                 ("sand_clump_edge", "HG_CLUMP_EDGE", "clumpedgeshrink", 0.72),
                 ("sand_clump_start", "HG_CLUMP_START", "clumpstart", 0.12),

@@ -203,6 +203,28 @@ def main():
                             "**退回静态贴图**的兜底路径, 不能拿来当 A/B 的臂。\n"
                             "   先看上面 'shader failed to compile / error C####' 那几行。")
                     Clock.schedule_once(self.begin, 0.2)
+                    # 🔴 **2026-10-11: 把"团的屏幕尺寸"读出来, 别靠推。**
+                    #    聚团的纵向坐标是 `mat_y·(球径/柱半宽)·scale` ⇒ 屏幕周期
+                    #       = 柱半宽·v(深度)/(scale·vref)
+                    #    —— 三处都是**运行期**的量(柱半宽随周期变、v 随深度变),
+                    #    纸上算过一次差了 3 倍(把 `t_in` 当成 24px, 实际远大于此)。
+                    _ctxs = getattr(w, "_sand_flow_contexts", ())
+                    if _ctxs:
+                        # ⚠️ 读 `_taper["t_in"]`, **不要**读 `ctxs[1]["sand_free"][2]` ——
+                        #    后者在没开跑时还是初值 `(0,0,1,0)` 里的 1.0, 会把标定算歪 5 倍
+                        #    (2026-10-11 就这么纸上算错过一次)。
+                        _z = float(w._taper["t_in"])
+                        _diam = 2 * getattr(w, "_R_inner", 0.0)
+                        # ⚠️ **不在这里算"团长"**: 纸上推的公式与实测对不上(差 1.8~4 倍,
+                        #    且不成比例) ⇒ 只报旋钮值, 尺度一律**看渲染图**标定。
+                        _c = _ctxs[1]
+                        print("clump: 柱半宽=%.1f 球径=%.1f gap=%.3f scale=%.2f "
+                              "xscale=%.2f warp=%.2f edge=%.2f"
+                              % (_z, _diam, float(_c["sand_clump_gap"]),
+                                 float(_c["sand_clump_scale"]),
+                                 float(_c["sand_clump_xscale"]),
+                                 float(_c["sand_clump_warp"]),
+                                 float(_c["sand_clump_edge"])))
 
             def begin(self, _dt):
                 if args.sand:
