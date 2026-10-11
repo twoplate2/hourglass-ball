@@ -208,6 +208,7 @@ def main():
                     #       = 柱半宽·v(深度)/(scale·vref)
                     #    —— 三处都是**运行期**的量(柱半宽随周期变、v 随深度变),
                     #    纸上算过一次差了 3 倍(把 `t_in` 当成 24px, 实际远大于此)。
+                    _print_clump(w) if False else None
                     _ctxs = getattr(w, "_sand_flow_contexts", ())
                     if _ctxs:
                         # ⚠️ 读 `_taper["t_in"]`, **不要**读 `ctxs[1]["sand_free"][2]` ——
@@ -230,9 +231,17 @@ def main():
                             #    (2026-10-11 踩过: A/B 想对 2.64, 结果目录是空的)。
                             _knobs = None
                         if _knobs is not None:
+                            # 🔴 2026-10-11: **把生效的九元组与 motion_scale 打进日志** ——
+                            #    没有这一行时,"这一臂到底跑的是哪档"只能靠注入方式反推,
+                            #    而本项目出过多次"臂空转被读成无差别"的事故(1.213)。
+                            #    `ms` 是材料坐标的时间压缩因子(短周期 >1), 速度比判据要用它。
                             print("clump: 柱半宽=%.1f 球径=%.1f gap=%.3f scale=%.2f "
-                                  "xscale=%.2f warp=%.2f edge=%.2f"
-                                  % (_z, _diam, *_knobs))
+                                  "xscale=%.2f warp=%.2f edge=%.2f lo=%.2f hi=%.2f "
+                                  "start=%.2f gain=%.2f | ms=%.3f"
+                                  % (_z, _diam, *_knobs,
+                                     float(_c["sand_clump_lo"]), float(_c["sand_clump_hi"]),
+                                     float(_c["sand_clump_start"]), float(_c["sand_clump_gain"]),
+                                     float(_c["sand_motion_scale"])))
 
             def begin(self, _dt):
                 if args.sand:
@@ -261,6 +270,11 @@ def main():
                 if widget.duration != period or not widget.running:
                     if widget.duration != period:
                         widget.set_duration(period)
+                    # 🔴 **必须在这里再打一次**: 上面 `_settle` 那一次跑在**设周期之前**,
+                    #    读到的 `sand_motion_scale` 还是初值(1.0) —— 而 ms 是短周期才 >1 的
+                    #    (`ms = max(1, natural / (_fall_delay − _neck_fill))`)。
+                    #    2026-10-11 用旧读数算过一次标定, 结果 ms 恒 1.000(错)。
+                    print("clump@%.1fs: ms(真值)=%.3f" % (period, widget._particle_motion_scale))
                     widget.completion_enabled = False
                     # ★ **预热必须夹在这里** —— 与真实使用同序(改完周期 → 闲帧 → 按下开始),
                     #   而且 `toggle()` 之后 `running=True`, `_warm_batches_step` 会直接返回。

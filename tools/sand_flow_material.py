@@ -561,8 +561,9 @@ void main(void) {
         float nz = clamp(u < 0.5 ? n : n2, 0.0, 1.0);
         // 🔴 **聚团的缝权重**(0 = 缝, 1 = 团心) —— **必须在这里算**, 因为下面
         //    "可见边缘"与"覆盖率"两处都要用它。`clump_g = 0`(出口那一行 / 诊断档) ⇒ 恒 1。
-        //    `sand_clump_span` 让缝的**深度**沿柱子参差: 0.35+1.3·慢噪声 ∈ [0.35,1.65]
-        //    ⇒ 有的缝整团断开、有的只是变淡(两团并成一大条)。
+        //    ⚠️ 2026-10-11: 这里原来还提到一个叫 `sand_clump_span` 的量 —— **那个名字
+        //    从来就没有过**(uniform 与旋钮表里都查不到, 全仓库只剩这条注释)。是写这一版时
+        //    留下的**过期引用**, 会让人以为存在一个可调的"缝深参差"旋钮。已删。
         // 🔴 **"有连续、有断续"** (用户 2026-10-11 第二轮判词):
         //    「后期散的也太离开了 不符合物理规律吧」+「理论上应该是**有连续 有断续**才合理」。
         //    上一版的病: `0.35 + 1.30·slow` 的**地板 0.35** ⇒ 连"并在一起"的地方也带 35% 的缝
@@ -723,11 +724,17 @@ void main(void) {
 
 
 def _flag_float(name, fname):
-    """`HG_<name>` 环境变量优先(桌面), 其次与 main.py 同目录的 `<fname>` 标记文件。
+    """`HG_<name>` 环境变量优先(桌面), 其次**本模块自己所在目录**的 `<fname>` 标记文件。
 
     🔴 安卓 app **读不到宿主 shell 的环境变量** ⇒ 设备上做单变量对照只能写标记文件
-    (app 私有目录, 与 `flowrate` / `maxfps` / `blit.off` 同一套):
-        adb shell "echo 0.30 > /data/data/org.shalou.hourglass/files/app/seamband"
+    (app 私有目录, 与 `flowrate` / `maxfps` / `blit.off` 同一套)。
+    ⚠️⚠️ **目录是 `<app>/tools/`, 不是 `<app>/`** —— 代码读的是 `dirname(abspath(__file__))`。
+    这个文件被推到设备上的位置就是 `<app>/tools/sand_flow_material.py`, 所以:
+        adb shell "echo 0.30 > /data/data/org.shalou.hourglass/files/app/tools/seamband"
+    (`main.py` 自己的探针读 `<app>/` —— **两处不一样**, 写错那边 = 该臂**空转**,
+     而回读照样读得到, 会被读成"没差别"。本项目为这个目录差栽过不止一次。)
+    ⚠️ 旧 docstring 写的是"与 main.py 同目录"并举例 `<app>/seamband` —— **那是错的**
+    (2026-10-11 由两名专家各自独立查出), 2026-10-11 已改。
     两个都没有 ⇒ None ⇒ 走出货默认值。
     """
     env = os.environ.get(name)
@@ -803,7 +810,11 @@ class SandFlowContext(RenderContext):
                 # 🔴 **2026-10-11: 聚团 = 缝**(见 `sand_clump_gap` 那段)。
                 #    `gap = 1` ⇒ **逐字关掉**(系数恒 1, 可当负对照/回退)。
                 ("sand_clump_gap", "HG_CLUMP_GAP", "clumpgap", 0.15),
-                # 纵向频率: 团的屏幕长度 ≈ 柱半宽 / scale(与深度无关, 见着色器里那句 `vl/vref`)。
+                # 纵向频率: **团的屏幕尺度是量出来的, 不是推出来的** —— 纸上推的公式与实测
+                # 差 1.8~4 倍且不成比例(2026-10-11 记在着色器那段长注释里)。
+                # 标定: 平板 1904×2890 / 15s, `2.5` ⇒ 团长 60~100px = 出货值。
+                # ⚠️ 别在这里写"与深度无关": 材料坐标本身**就该**随深度拉伸(沙在加速),
+                #    能去掉的只有"时间压缩带来的额外拉长"(那句 `× motion_scale`)。
                 # 0.25 ⇒ 团长约 4 个柱半宽 = 2 个柱宽; 大 = 更短更密。
                 ("sand_clump_scale", "HG_CLUMP_SCALE", "clumpscale", 2.5),
                 ("sand_clump_xscale", "HG_CLUMP_XSCALE", "clumpxscale", 2.6),
@@ -880,9 +891,19 @@ class SandFlowContext(RenderContext):
         if (clock, blend) != self._clock_key:
             self._clock_key = (clock, blend)
             self["sand_clock"] = float(clock)
-            # 🔴 2026-10-11: **不回绕**的时间 —— 出口以下材料坐标的平流用它。
-            #    `sand_clock` 是 `% 16.0` 的锯齿 ⇒ 材料坐标每 16s 会跳一次(图案闪一下)。
-            self["sand_time"] = float(elapsed * speed_scale)
+            # 🔴 **2026-10-11 修: 材料坐标的钟必须是**真实时间**, 不许再乘 `speed_scale`。**
+            #    病(用户最早那类「**2 个速度差异大的层**」; 对抗面板查出 + 本机实测确证):
+            #      图案速度 = `Ṫ / τ'(d) = Ṫ · v_scaled(d)`, 而 `v_scaled(d) = √(v0p²+2·gp·d)`
+            #      `= ms·√(60²+900d)` —— 它**已经**是粒子在屏幕上的真实速度
+            #      (粒子的 `v0 = 60·ms`、`g = 450·ms²`)。
+            #        · `T = elapsed·ms` ⇒ 图案 = **ms²·√(…)** —— 比粒子快 **ms 倍**;
+            #        · `T = elapsed`    ⇒ 图案 = **ms·√(…)** ✓ 与粒子逐点同速。
+            #    ms=1(长周期)时两者**恰好相等** ⇒ 15s/50s/600s 档量到的 "560 vs 560" 是真的;
+            #    缺陷只在 **ms>1 的档**(平板口径: 3s 档 ms≈2.09, 1s 档 ≈7.2)。
+            #    **静态帧金标准结构性看不见它** —— 判据是 `tools/_probe_speed_ratio.py`
+            #    (材料图案速度 ÷ 粒子速度律)。实测(3s 档 ms=2.086, 清粒子 + 关细颗粒):
+            #      修前 **2100 px/s**(比值 **2.54**) ⇒ 修后回到 ≈1.2(带内偏置, 与 15s 档同)。
+            self["sand_time"] = float(elapsed)
         if speed_scale != self._mat_key:
             self._mat_key = speed_scale
             self["sand_motion_scale"] = float(speed_scale)
