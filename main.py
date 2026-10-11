@@ -516,6 +516,58 @@ SAND_MATERIAL_GRAD = float(os.environ.get("HG_SAND_GRAD", str(SAND_MATERIAL_GRAD
 SAND_MATERIAL_COARSE = float(os.environ.get(
     "HG_SAND_COARSE", str(SAND_MATERIAL_COARSE)))
 SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
+# 🔴 **2026-10-11 新增: 「沙流断续」档位(用户要求「把这个搞个参数, 写入设定」)。**
+#    档位表与覆盖逻辑在材质模块里(`tools/sand_flow_material.py` 的 `CLUMP_LEVELS`),
+#    这里只做**惰性转发** —— `sand_flow_material` 是运行时才 import 的(与 `flow_numpy` 同一套)。
+#    ⚠️ 优先级: **环境变量/标记文件 > 设置项档位 > 内置默认**(在材质模块的 `_flag_float` 那条链上),
+#      所以设备上的单变量对照臂不会被用户在菜单里点过的档位搅乱。
+CLUMP_LEVEL_DEFAULT = "自然"
+
+
+def apply_clump_level(label):
+    """按标签设"沙流断续"档。返回生效的覆盖表; 材质模块 import 不到时返回 None。"""
+    try:
+        import sand_flow_material as _sfm
+    except Exception:
+        return None
+    table = _sfm.set_clump_level(label)
+    print("clump level = %s %s" % (label, table or "(出厂九元组)"))
+    return table
+
+
+def current_clump_level():
+    try:
+        import sand_flow_material as _sfm
+        return _sfm.current_clump_level()
+    except Exception:
+        return CLUMP_LEVEL_DEFAULT
+
+
+def clump_level_labels():
+    try:
+        import sand_flow_material as _sfm
+        return _sfm.clump_level_labels()
+    except Exception:
+        return (CLUMP_LEVEL_DEFAULT,)
+
+
+# 档位说明(菜单那行右边的灰字): 量出来的面积占比, 不是形容词。
+_CLUMP_LEVEL_HINT = {"实柱": "缝 0%", "自然": "缝 2~5%", "断续明显": "缝 7~11%"}
+
+
+def _clump_level_hint(label):
+    return _CLUMP_LEVEL_HINT.get(label, "")
+
+
+def _clump_level_pairs(label):
+    """档位 → [(uniform, 生效值)]。**必须写整组**(见材质模块 `_CLUMP_KNOBS` 那段 bug 记录):
+    只写"该档覆盖的几项"时, 从「断续明显」切回「自然」(空覆盖表)会什么都不写,
+    uniform 残留在上一档 —— 设置项自检就是这么抓到的。"""
+    try:
+        import sand_flow_material as _sfm
+    except Exception:
+        return ()
+    return tuple(_sfm.effective_clump_knobs(label).items())
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
 # 颈部沙柱采样材质时的 v 锚点。两个值都被实测钉过，别随手改：
 # ⚠️ **不能取 0.5** —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。
@@ -5046,6 +5098,8 @@ class HourglassWidget(Widget):
                            # 同样存**标签**: 以后调数值不会让旧配置串到别的档。
                            'grain_level': current_grain_level(),
                            'rough_level': current_rough_level(),
+                           # 「沙流断续」档(2026-10-11 用户要求写入设定)。同样存**标签**。
+                           'clump_level': current_clump_level(),
                            'grain_rev': SAND_GRAIN_REV},
                   f, ensure_ascii=False)
         except Exception:
@@ -8765,6 +8819,10 @@ class HourglassApp(App):
         #    第一版跟着 grain 一起作废, 把用户明确选过的值静默降了 33%(r18-1号 查出)。
         if os.environ.get("HG_SURFACE_LEVEL") is None:
             apply_rough_level(cfg.get('rough_level', SURFACE_ROUGH_LEVEL_DEFAULT))
+        # 「沙流断续」档: 配置里存的是**标签**(不是序号) ⇒ 表重调也不会串档。
+        # ⚠️ 这里**不**做"环境变量给了就跳过"的守卫 —— 那层优先级在材质模块的
+        #    `_flag_float` 链上逐旋钮判(env/标记 > 档位 > 默认), 粗粒度守卫会误伤 A/B 臂。
+        apply_clump_level(cfg.get('clump_level', CLUMP_LEVEL_DEFAULT))
 
         root = BoxLayout(orientation="vertical", spacing=dp(2),
                          padding=[dp(8), dp(2), dp(8), dp(2)])
@@ -9397,6 +9455,27 @@ class HourglassApp(App):
             fmt=lambda lb: "约 %.1f 像素" % (_rough_level(lb) * 2 * 445.63))
         _mid(rough_box)
         self._dev_level_btns = {"grain": grain_btns, "rough": rough_btns}
+
+        # ---- 沙流断续 三档 (2026-10-11 用户要求写入设定) ----
+        # 改的是**出口以下那段沙柱**的"团与缝"(见 `sand_flow_material.py` 的 `CLUMP_LEVELS`)。
+        # 三档的数值是**量出来的**: 缝面积占比 0% / 2.4~5.0% / 7.1~10.8%
+        # (`tools/_probe_gap_structure.py`, 自带正负对照)。改档只写几个 uniform,
+        # **不重建画布、不重烘材质** —— 运行中直接生效。
+        def pick_clump(lb):
+            if apply_clump_level(lb) is None:
+                return
+            for _ctx in getattr(hg, "_sand_flow_contexts", ()) or ():
+                for _k, _v in _clump_level_pairs(lb):
+                    _ctx[_k] = float(_v)
+            refresh_clump(lb)
+            hg.save_config(self._selected_color_name())
+
+        clump_box, refresh_clump, clump_btns = make_levels(
+            "沙流断续", [lb for lb in clump_level_labels()],
+            current_clump_level(), pick_clump,
+            fmt=lambda lb: _clump_level_hint(lb))
+        _mid(clump_box)
+        self._dev_level_btns["clump"] = clump_btns
 
 
         _mid(Widget(size_hint=(1, None), height=dp(6)))

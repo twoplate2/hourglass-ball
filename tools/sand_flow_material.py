@@ -751,6 +751,84 @@ def _flag_float(name, fname):
         return None
 
 
+# ---------------------------------------------------------------- 设置项: 沙流断续
+# 🔴 **2026-10-11 加(用户要求「把这个搞个参数, 写入设定」)** —— 档位表**只覆盖少数几个旋钮**,
+#    其余全部走内置默认。三档的数值**是量出来的, 不是外推的**(量具 `tools/_probe_gap_structure.py`,
+#    判据 = 缝的面积占比 / 独立洞数 / 单行最大开口 / 跨宽断开行数, 自带正负对照):
+#
+#      档位        缝面积占比(50s: t=8.8 / t=21.2)   独立洞数   跨宽断开行
+#      实柱        0% / 0%                          0          0        (= 2.64 逐像素一致)
+#      自然(出厂)  2.4% / 5.0%                       8 / 10     0 / 8    (= 2.69 的九元组)
+#      断续明显    7.1% / 10.8%                     10 / 12     0 / 23
+#
+#    ⚠️ 被用户否掉的 2.68 那套(`lo/hi = 0.42/0.54` + 强度地板 0.35)实测 **24~32%** —— 那是
+#      "整条柱均匀地花", 三档里**没有**它, 也不许把它当成"更断"的档补进来。
+#    ⚠️ 档位存**标签**(不是序号), 以后重调数值不会让旧配置串到别的档 —— 不需要 rev 机制。
+CLUMP_LEVELS = (
+    ("实柱", {"sand_clump_gap": 1.0}),
+    ("自然", {}),                       # 空 = 出厂九元组(2.69)
+    ("断续明显", {"sand_clump_gap": 0.12, "sand_clump_lo": 0.36, "sand_clump_hi": 0.46}),
+)
+CLUMP_LEVEL_DEFAULT = "自然"
+_clump_level = CLUMP_LEVEL_DEFAULT
+_level_table = {}
+
+# 🔴 **聚团这 9 个旋钮的默认值提到模块级** —— 单一真值源: 旋钮表与"档位"共用它。
+#    起因(2026-10-11, 设置项自检抓到的真 bug): 切档时若只写"该档覆盖的那几项",
+#    从「断续明显」切回「自然」(空覆盖表)就**什么都不写** ⇒ uniform 残留上一档的值
+#    (`gap` 还停在 1.0、`lo` 还停在 0.36)。修法 = 切档写**生效的整组值**,
+#    所以默认值必须能在不构造 context 的情况下取到。
+_CLUMP_KNOBS = (
+    ("sand_clump_gap", "HG_CLUMP_GAP", "clumpgap", 0.15),
+    ("sand_clump_scale", "HG_CLUMP_SCALE", "clumpscale", 2.5),
+    ("sand_clump_xscale", "HG_CLUMP_XSCALE", "clumpxscale", 2.6),
+    ("sand_clump_warp", "HG_CLUMP_WARP", "clumpwarp", 0.0),
+    ("sand_clump_edge", "HG_CLUMP_EDGE", "clumpedgeshrink", 0.85),
+    ("sand_clump_lo", "HG_CLUMP_LO", "clumplo", 0.25),
+    ("sand_clump_hi", "HG_CLUMP_HI", "clumphi", 0.35),
+    ("sand_clump_start", "HG_CLUMP_START", "clumpstart", 0.12),
+    ("sand_clump_gain", "HG_CLUMP_GAIN", "clumpgain", 8.0),
+)
+
+
+def _level_override(key):
+    """档位表给这个 uniform 的值(没有 ⇒ None ⇒ 走内置默认)。"""
+    return _level_table.get(key)
+
+
+def effective_clump_knobs(label=None):
+    """**切档时要写进 shader 的整组值**: 档位覆盖 > 内置默认。
+
+    ⚠️ 不许只写"该档覆盖的那几项" —— 见 `_CLUMP_KNOBS` 那段(bug 记录)。
+    ⚠️ 也不许在这里读环境变量/标记文件: 那是**测量臂**的通路, 与用户档位是两条线
+       (`_flag_float` 的优先级: env/标记 > 档位 > 默认; 这里只负责后两段)。
+    """
+    table = dict(CLUMP_LEVELS)
+    if label is None:
+        label = _clump_level
+    ov = dict(table.get(label, table[CLUMP_LEVEL_DEFAULT]))
+    return {name: float(ov.get(name, dflt)) for name, _env, _fn, dflt in _CLUMP_KNOBS}
+
+
+def set_clump_level(label):
+    """设置档位。返回 **真正生效的覆盖表**(未知标签 ⇒ 回落出厂档)。"""
+    global _clump_level, _level_table
+    table = dict(CLUMP_LEVELS)
+    if label not in table:
+        label = CLUMP_LEVEL_DEFAULT
+    _clump_level = label
+    _level_table = dict(table[label])
+    return _level_table
+
+
+def current_clump_level():
+    return _clump_level
+
+
+def clump_level_labels():
+    return tuple(lb for lb, _ in CLUMP_LEVELS)
+
+
 class SandFlowContext(RenderContext):
     def __init__(self, geometry, vertex_shader=VERTEX_SHADER, fragment_shader=FRAGMENT_SHADER,
                  tag=0.0):
@@ -776,8 +854,7 @@ class SandFlowContext(RenderContext):
         #     adb shell "echo 0.10 > <app>/sandbite"     # 打散深度下限(越小→随机越大)
         #     adb shell "echo 0.93 > <app>/sandalpha"    # 覆盖率上限
         #     删掉文件 = 回出厂默认
-        for _key, _env, _fname, _dflt in (
-                # 🔴 **2026-10-10 三次裁定: 0.35 → 0.85 → **0.6**。**
+        for _key, _env, _fname, _dflt in (                # 🔴 **2026-10-10 三次裁定: 0.35 → 0.85 → **0.6**。**
                 #    0.85 是压"白毛"时定的, 但它把打散压到**外侧只有 7.5% 半宽**
                 #    (20px 的柱子上不到 1 像素) ⇒ 差**亚像素** ⇒ 边场等于没做。
                 #    用户随后判词:「沙柱就只有一个问题了, **边缘是个竖线 太规整了**,
@@ -807,25 +884,12 @@ class SandFlowContext(RenderContext):
                 #    封顶线以内** ⇒ 结构性看不见。⇒ 抬到 **1200**(平板柱底实测 1023px/s ⇒ 永不生效),
                 #    保留成"高于物理速度的保险丝"而不是"限速器"。
                 ("sand_free_vcap", "HG_FREE_VCAP", "freevcap", 1200.0),
-                # 🔴 **2026-10-11: 聚团 = 缝**(见 `sand_clump_gap` 那段)。
-                #    `gap = 1` ⇒ **逐字关掉**(系数恒 1, 可当负对照/回退)。
-                ("sand_clump_gap", "HG_CLUMP_GAP", "clumpgap", 0.15),
-                # 纵向频率: **团的屏幕尺度是量出来的, 不是推出来的** —— 纸上推的公式与实测
-                # 差 1.8~4 倍且不成比例(2026-10-11 记在着色器那段长注释里)。
-                # 标定: 平板 1904×2890 / 15s, `2.5` ⇒ 团长 60~100px = 出货值。
-                # ⚠️ 别在这里写"与深度无关": 材料坐标本身**就该**随深度拉伸(沙在加速),
-                #    能去掉的只有"时间压缩带来的额外拉长"(那句 `× motion_scale`)。
-                # 0.25 ⇒ 团长约 4 个柱半宽 = 2 个柱宽; 大 = 更短更密。
-                ("sand_clump_scale", "HG_CLUMP_SCALE", "clumpscale", 2.5),
-                ("sand_clump_xscale", "HG_CLUMP_XSCALE", "clumpxscale", 2.6),
-                ("sand_clump_warp", "HG_CLUMP_WARP", "clumpwarp", 0.0),
-                ("sand_clump_edge", "HG_CLUMP_EDGE", "clumpedgeshrink", 0.85),
-                ("sand_clump_lo", "HG_CLUMP_LO", "clumplo", 0.25),
-                ("sand_clump_hi", "HG_CLUMP_HI", "clumphi", 0.35),
-                ("sand_clump_start", "HG_CLUMP_START", "clumpstart", 0.12),
-                # ⚠️ 增益要**快饱和**(8.0 ⇒ 出口以下 ~290px 就到满值): 原来 2.0 让它**随深度一直涨**,
-                #    正好把 2.62 的"越往下越透"**对冲掉**(实测梯度被压平) ⇒ 只留"出口附近渐入"。
-                ("sand_clump_gain", "HG_CLUMP_GAIN", "clumpgain", 8.0),
+                # 🔴 **聚团那 9 个旋钮在模块级 `_CLUMP_KNOBS`**(单一真值源: 旋钮表与
+                #    "设置项档位"共用它 —— 档位切回默认档时要写回整组值)。
+                *_CLUMP_KNOBS,
+                # ⚠️ (上面 `gain` 的口径) 增益要**快饱和**(8.0 ⇒ 出口以下 ~290px 就到满值):
+                #    原来 2.0 让它**随深度一直涨**, 正好把 2.62 的"越往下越透"**对冲掉**
+                #    (实测梯度被压平) ⇒ 只留"出口附近渐入"。
                 # 二值洞的阈值: <0 = 关(逐字旧行为); **越大洞越多**(step(th,hn))。
                 # 🔴 2026-10-10 定为出货默认 0.10（配合 `main.TRAIL_SCALE = 0.8`）。
                 #    标定见 `main.py` 的 `_trail_scale_probe`；梯子图 `_vid/ladder2.png`。
@@ -870,6 +934,10 @@ class SandFlowContext(RenderContext):
                 ("sand_edge_lo", "HG_EDGE_LO", "edgelo", 0.78),
                 ("sand_edge_hi", "HG_EDGE_HI", "edgehi", 1.12)):
             _v = _flag_float(_env, _fname)
+            # 优先级: 环境变量/标记文件(_v) > **设置项档位** > 内置默认。
+            # 标记文件压过档位是**故意的** —— 设备上的单变量对照臂不许被用户设置搅乱。
+            if _v is None:
+                _v = _level_override(_key)
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None
         self._clock_key = None

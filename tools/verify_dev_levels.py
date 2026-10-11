@@ -82,7 +82,7 @@ def main():
             print("\n② 隐藏菜单里有这两行, 且高亮 = 当前档")
             self._open_dev_menu()
             btns = getattr(self, "_dev_level_btns", {})
-            chk(set(btns) == {"grain", "rough"}, "两行都在 (_dev_level_btns)")
+            chk(set(btns) == {"grain", "rough", "clump"}, "三行都在 (_dev_level_btns)")
             gb, rb = btns.get("grain", {}), btns.get("rough", {})
             chk([lb for lb, _g, _c in m.SAND_GRAIN_LEVELS] == list(gb),
                 "沙体颗粒 = 6 个按钮 1-6")
@@ -121,6 +121,34 @@ def main():
             chk(abs(float(np.abs(arr).max()) - 0.0025 * 2 * hg._R_inner) < 1e-6,
                 "widget._upper_rough 数组也换到 B 档了")
 
+            print("\n③b 沙流断续: 档位真的写进 shader 的 uniform(不是'假开关')")
+            cb = btns.get("clump", {})
+            chk(list(m.clump_level_labels()) == list(cb),
+                "沙流断续 = %d 个按钮 %s" % (len(cb), list(m.clump_level_labels())))
+            chk(m.current_clump_level() == m.CLUMP_LEVEL_DEFAULT,
+                "出厂档 = %s" % m.CLUMP_LEVEL_DEFAULT)
+            ctxs = [c for c in (getattr(hg, "_sand_flow_contexts", ()) or ())]
+            if not ctxs:
+                chk(False, "没有 shader context(材质没起来) ⇒ 这条查不了")
+            else:
+                def uni(k):
+                    return float(ctxs[-1][k])
+                base_lo = uni("sand_clump_lo")
+                cb["断续明显"].dispatch("on_press")
+                chk(m.current_clump_level() == "断续明显", "切到「断续明显」")
+                chk(abs(uni("sand_clump_lo") - 0.36) < 1e-6,
+                    "  uniform 真的变了 lo %.2f → %.2f" % (base_lo, uni("sand_clump_lo")))
+                cb["实柱"].dispatch("on_press")
+                chk(abs(uni("sand_clump_gap") - 1.0) < 1e-6,
+                    "「实柱」把 gap 写成 1.0(实得 %.2f)" % uni("sand_clump_gap"))
+                cb[m.CLUMP_LEVEL_DEFAULT].dispatch("on_press")
+                chk(abs(uni("sand_clump_gap") - 0.15) < 1e-6
+                    and abs(uni("sand_clump_lo") - 0.25) < 1e-6,
+                    "切回出厂档 ⇒ 回到 2.69 的九元组 (gap=%.2f lo=%.2f)"
+                    % (uni("sand_clump_gap"), uni("sand_clump_lo")))
+                chk(abs(uni("sand_clump_scale") - 2.5) < 1e-6,
+                    "未被档位覆盖的旋钮仍是内置默认 (scale=%.2f)" % uni("sand_clump_scale"))
+
             print("\n④ 点同一档两次 = 幂等")
             chk(hg.set_rough_level("2") is False, "set_rough_level 同档返回 False")
             chk(hg.set_grain_level("6") is False, "set_grain_level 同档返回 False")
@@ -131,6 +159,8 @@ def main():
             raw = json.loads(cfg_file.read_text(encoding="utf-8")) if cfg_file.exists() else {}
             chk(raw.get("grain_level") == "6", "grain_level = 6 (实得 %r)" % raw.get("grain_level"))
             chk(raw.get("rough_level") == "2", "rough_level = 2 (实得 %r)" % raw.get("rough_level"))
+            chk(raw.get("clump_level") == m.CLUMP_LEVEL_DEFAULT,
+                "clump_level = %s (实得 %r)" % (m.CLUMP_LEVEL_DEFAULT, raw.get("clump_level")))
 
             print("\n⑥ 重开弹窗, 高亮跟着走")
             self._close_dev_menu()
