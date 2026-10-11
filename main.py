@@ -1879,10 +1879,12 @@ TRAIL_SCALE = _trail_scale_probe()
 #      2.16 与 1.09), 只能当**同一次比对里**的相对量用。
 #    ⚠️ 上面那张老梯子表(0.6≈v1.2 / 0.8 选定)是**另一套几何**下标的, 与今天不可直接比;
 #      但它与人眼在这张梯子上看到的**方向**一致: 拖尾越短越不"竖"。
-# 🔴 **2026-10-11: 0.2 → 0.35(`NECK_FREE_GEOM=0` 之后"前提才真的成立")**
+# ⛔ **2026-10-11: 0.35 已撤回(2.59)** —— 用户的判词是「**太稀疏了**」, 要的是
+#    「颈部和沙柱和上层的沙子**没有明显的区别**」 ⇒ 材质层留下(与上层同一套), 墨量不需要靠粒子撑。
+#    (下面这段是当时的推理, 保留作记录)
 #    QA 说的对: 2.55 那次这个改动是**空转的** —— 因为当时**材质层还在**(每行 100% 填满),
 #    没有"虚线"要防。**现在几何真的撤了**(柱区沙色覆盖 35%→5%), 墨量全靠粒子 ⇒ 才需要它。
-TRAIL_SCALE = 0.35 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
+TRAIL_SCALE = 0.2 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
 
 # `_apply_max_refresh_rate()` 把 `Display.getSupportedModes()` 的**整个列表**写在这里,
 # 由基准日志的 `refresh_modes=` 带出来(桌面/无安卓时为 None)。
@@ -2370,7 +2372,7 @@ NECK_FREE = os.environ.get("HG_NECK_FREE", "1") == "1"
 #    (跨模型测试员两轮独立复现: 开/关 `neckfree` 逐像素 0 差异; 清空颈部四边形后柱子整条消失)。
 #    `= 0` ⇒ 多边形在**出口**收尾, 出口以下只剩**粒子**(与 1.2 同构) ⇒ 一并消掉
 #      "外面那一层" / 头部那个锥(材质几何画的) / "前沿换堆面"的硬切换(没有几何轮廓可换)。
-NECK_FREE_GEOM = os.environ.get("HG_NECK_FREE_GEOM", "0") == "1"
+NECK_FREE_GEOM = os.environ.get("HG_NECK_FREE_GEOM", "1") == "1"
 # 🔴 **2026-10-10: 颈部颗粒提亮层在材质路径下是否保留。默认 "1" = 保留(旧行为)。**
 #    2.12 把它在材质路径下**整个禁掉**(理由: 那 320 条 Line 一个像素都画不出来)——
 #    不画是对的, 但**它的提亮作用也一起没了**。1080 口径逐层消融实测(同一冻结帧 t=7.64):
@@ -2416,6 +2418,13 @@ NECK_GRAINS_IN_MATERIAL = os.environ.get("HG_NECK_GRAINS", "0") != "0"
 #      —— 沙刚冒头时前沿还没落下 ⇒ 穹顶 ≈ 0 ⇒ **平着出场**, 落得越深穹顶才越明显。
 NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.10"))
 NECK_FRONT_DOME_SPAN = float(os.environ.get("HG_NECK_DOME_SPAN", "0.45"))
+# 🔴 **2026-10-11: "前沿落到堆面"那一刻的**硬切换**要抹平(用户原话: 「**不可能有这么一个突变**」)。**
+#    病(跨模型测试员实测, 两轮独立复现): t=2.06→2.08 之间, 材质带下沿从 **+17px/帧 翻成 −18px/帧**,
+#    末端宽度 **66→176→240px** 一帧张开。根因: `_end_at` 里 `max(_my, _fr)` —— 前沿还在空中时
+#    下沿是"前沿"(窄), 前沿一碰到堆面就换成"堆面"(宽) ⇒ **一帧换源**。
+#    改法: 用**平滑最大值**(log-sum-exp 型)代替 `max` —— 处处连续可导, `k` 是过渡尺度(px)。
+#    `k=0` ⇒ 逐字旧行为(可直接当负对照)。
+NECK_SOFT_END = float(os.environ.get("HG_SOFT_END", "40.0"))
 WARM_SPLASH_CHUNKS = 8
 
 
@@ -4335,6 +4344,16 @@ class HourglassWidget(Widget):
                 _c = self._mound_contact_h
                 _bot = self._lower_sand_bot
 
+                def _smax(_a, _b):
+                    """平滑 max —— 见 `NECK_SOFT_END`。`k=0` 时逐字等于内建 `max`。"""
+                    if NECK_SOFT_END <= 0.0:
+                        return _a if _a > _b else _b
+                    _d = abs(_a - _b)
+                    if _d > 5.0 * NECK_SOFT_END:          # 离得远 ⇒ 退化成 max(省 exp)
+                        return _a if _a > _b else _b
+                    return (max(_a, _b)
+                            + NECK_SOFT_END * math.log1p(math.exp(-_d / NECK_SOFT_END)))
+
                 def _end_at(_dx):
                     _my = _bot + _c(_dx)
                     _wl = _yc + math.sqrt(max(0.0, _Ri * _Ri - _dx * _dx))
@@ -4343,8 +4362,8 @@ class HourglassWidget(Widget):
                         # D6: 堆面那条腿越了球内壁 ⇒ 夹回来。
                         # **前沿**越了不算越界 —— 出口以下、管径以内是**喇叭口**,
                         # 那是玻璃的一部分(球内壁那条线到球顶就没了)。
-                        return max(_fr, _wl) if NECK_FRONT else _wl
-                    return max(_my, _fr) if NECK_FRONT else _my
+                        return _smax(_fr, _wl) if NECK_FRONT else _wl
+                    return _smax(_my, _fr) if NECK_FRONT else _my
 
                 # 🔴 **2026-10-11: 出口以下是否发射材质几何** —— 见 `NECK_FREE_GEOM`。
                 #    关掉时这一段整块不执行 ⇒ `side` 在多边形**出口**处收尾

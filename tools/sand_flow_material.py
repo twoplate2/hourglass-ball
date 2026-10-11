@@ -567,7 +567,7 @@ class SandFlowContext(RenderContext):
                 #    **阈值越大洞越多**(`step(th, hn)` 是"hn ≥ th 才保留沙")。
                 #    取 0.15 ⇒ 深处(depth≈400px)阈值 0.10 → 0.197 ≈ **洞翻倍**;
                 #    近口那一段用 `sqrt` 压住、不猛涨。`0` = 旧行为(孔隙率恒定)。
-                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.8),
+                ("sand_hole_grow", "HG_HOLE_GROW", "holegrow", 0.0),
                 # 平流速度 y 分量的系数: 1.0 = 旧行为。0 = 完全不平流 y(诊断用)
                 ("sand_flow_vy", "HG_FLOW_VY", "flowvy", 1.0),
                 # 出口以下"打散"的渐入长度(球径比例): 0 = 旧行为(有分界线)。
@@ -587,8 +587,8 @@ class SandFlowContext(RenderContext):
                 ("sand_wrap_light", "HG_WRAP_LIGHT", "wraplight", 1.0),
                 ("sand_jump_y", "HG_JUMP_Y", "jumpy", 1.0),
                 # 自由段纹理尺度(1 = 不变, <1 = 更粗)。见 `sand_free_coarse` 的注释。
-                ("sand_free_coarse", "HG_FREE_COARSE", "freecoarse", 0.45),
-                ("sand_free_grain", "HG_FREE_GRAIN", "freegrain", 0.45),
+                ("sand_free_coarse", "HG_FREE_COARSE", "freecoarse", 1.0),
+                ("sand_free_grain", "HG_FREE_GRAIN", "freegrain", 1.0),
                 ("sand_adv_cont", "HG_ADV_CONT", "advcont", 1.0),
                 ("sand_edge_lo", "HG_EDGE_LO", "edgelo", 0.78),
                 ("sand_edge_hi", "HG_EDGE_HI", "edgehi", 1.12)):
