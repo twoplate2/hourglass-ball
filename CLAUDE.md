@@ -1386,8 +1386,11 @@ Android 方案的核心细节：
 - ⚠️ 大字高度绑了 `texture_size`,弹窗高度 `dp(330)`:加了「用时：」前缀后,长周期
   (如「用时：100小时59分59秒」)在窄屏上会折行,写死 `dp(52)` 会被裁掉。
 - ⚠️ **两条门槛(用户 2026-10-03 定)**:① 弹窗**延后 `COMPLETION_POPUP_DELAY = 1.0s`**
-  —— 不在流尽那一刻弹,让闪光/尘埃先演完;② **周期 < `COMPLETION_POPUP_MIN = 20s` 根本不弹**,
+  —— 不在流尽那一刻弹,让闪光/尘埃先演完;② **周期 < `COMPLETION_POPUP_MIN` 根本不弹**,
   但**完成音照旧**(门槛只管弹窗,`_play_completion_sound` 不受影响)。
+  🔴 **2026-10-11 更正: `COMPLETION_POPUP_MIN` 现值是 `1800.0`(= 30 分钟), 不是这里原先写的 20 秒**
+  (`main.py:2508`)。50 秒档在设备上跑完**不会**弹窗, 那是**设计如此** ——
+  我照旧文档当成 bug 查了一轮(桌面烟测反证才回头读代码)。**改这个数之前先读 `main.py:2508`。**
 - 判定在 `HourglassWidget._schedule_completion_popup()` + `App.completion_popup_allowed()`。
   延迟期间可能被 reset / 重开作废 ⇒ 到点时用 **`_completion_token`** 判定
   (`_reset_run_state` 每次 +1),**不能只看 `running`** —— 重置之后 running 也是 False。
@@ -1557,6 +1560,17 @@ R = min(R_by_w, R_by_h)   R_by_w = w/2 − 0.06w   R_by_h = (h − 0.055h − 2�
 - **流量守恒**(原样移植 v4)：`shrink = max(0.70, (60/v_at_y)^0.5)`，6px 入口不缩，40px 平滑过渡，触底 30px 喇叭口（⚠️ 下限与 pc v4 的 0.50 不同，见上文）
 - wobble 随 shrink 衰减：`wobble × (1 - shrink × 0.4)`
 - 渲染：`Line` + 速度拖尾 `trail = max(2.0, abs(vy)*0.08)`，`width=p["size"]`(85%为2,15%为1)
+- 🔴 **`TRAIL_SCALE` 是 app 内 `Line` 路径专属的旋钮 —— 在出货渲染器(texture)下它一个像素都不改**
+  (2026-10-11 实测, E1 带正对照): 同一状态两臂 `HG_TRAIL_SCALE=0.2 / 1.0` 走 `--texture-flow`
+  ⇒ `_pixdiff` **48/48 帧零差异**; 同样两臂走默认 `line` ⇒ **40/48 帧有差异**(最大通道差 155)
+  ⇒ 旋钮本身是活的, 死的是那条路。
+  **机制**: `tl`(trail_time) 在**出生时**写死 `uniform(0.018, 0.032)`(`main.py:5892`, `:5911`),
+  `TRAIL_SCALE` 只在**绘制时**乘一次(`main.py:8222`, 在 `_draw_stream` 里);
+  而 `flow_texture_experiment.py` 自己算 `trail = vy * view.ntl[idx] / motion_scale`
+  (读 `ntl` = `ptl`, **不乘 TRAIL_SCALE**)。
+  ⇒ **2.46 那次「拖尾 0.5→0.2 修纤维感」在设备上是从未生效的空转臂**;
+  要改设备上的拖尾长度, 得动 `trail_time` 的取值域(或给 texture 路径加因子),
+  **拧 `TRAIL_SCALE` 没用**。
 - **不要改成扩张(spread)/Ellipse/Rectangle**：v4 的收缩+Line 方案已经过验证，改形状或改物理都只会让效果变差
 - 触底事件：EMA 更新 `mound_peak_offset` + 25% 概率 spawn flare + 50% 概率 spawn splash
 - splash 反弹粒子：实心方块渲染，受 `_sand_half_w` 横向约束。

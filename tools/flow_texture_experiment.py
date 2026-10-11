@@ -4,6 +4,7 @@ import bisect
 from array import array
 import math
 import os
+import sys
 # ---------------------------------------------------------------------------
 # 诊断开关一律用**标记文件**(不是环境变量)!
 #   🔴 **安卓上的 app 读不到宿主 shell 的环境变量** —— `HG_*` 那一整套开关在桌面有效,
@@ -240,7 +241,7 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         self.live[chunk] = 0
         return part
 
-    def update(self, view, indices, top_limit, motion_scale=1):
+    def update(self, view, indices, top_limit, motion_scale=1, trail_scale=1.0):
         """`view` 是 widget 的 `_pv`(本帧 list 快照), `indices` 是本桶的粒子下标。
 
         按下标读原生 float, 不再逐颗粒取 numpy 标量。
@@ -292,7 +293,10 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 bottom = view.ny[idx]
                 # 算式与逐字相同: (-vy) / (vy*tl)/ms / 下限 2 / 上限 top_limit
                 vy = np.abs(view.nvy[idx])
-                trail = vy * view.ntl[idx] / motion_scale
+                # 🔴 2026-10-11: `* trail_scale` —— 与 `main._draw_stream` 的算式同形
+                #    (系数放在 `max(2.0, …)` **里面**, 所以调小 ⇒ 大多数落到 2px 地板)。
+                #    见 `_trail_scale()`。`=1.0` 时与旧行为**逐位相同**。
+                trail = vy * view.ntl[idx] / motion_scale * trail_scale
                 np.maximum(trail, 2.0, out=trail)
                 if PARTICLE_FADE_PX > 0.0:
                     # 出生后前 FADE_PX 像素内渐入(见 PARTICLE_FADE_PX 的注释)。
@@ -326,7 +330,7 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     vy = vys[i]
                     if vy < 0:
                         vy = -vy
-                    trail = vy * trails[i] / motion_scale
+                    trail = vy * trails[i] / motion_scale * trail_scale
                     if trail < 2:
                         trail = 2
                     if PARTICLE_FADE_PX > 0.0:
@@ -447,6 +451,38 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
 _MAIN = None          # `install()` 时记下 main 模块 —— 打点钩子 `_PROF_MARK` 挂在那里
 
 
+def _trail_scale():
+    """拖尾长度的全局系数 —— **唯一真值是 main 模块的 `TRAIL_SCALE`**。
+
+    🔴 **2026-10-11: 接上之前, 这个系数在出货渲染器(texture)上是个死旋钮。**
+    它原先只作用在 app 内 `Line` 路径(`main._draw_stream` 在**绘制时**乘一次),
+    而本模块自己算 `trail = vy * tl / motion` —— **从不乘它**。
+    实测(同状态两臂, 2026-10-11): `HG_TRAIL_SCALE=0.2 / 1.0` 走 texture
+    ⇒ `tools/_pixdiff.py` **48/48 帧逐像素零差异**; 同样两臂走 `line`
+    ⇒ **40/48 帧有差异**(最大通道差 155) ⇒ 旋钮是活的, 死的是那条路。
+    后果: 2.46 那次「拖尾 0.5→0.2 修纤维感」**在设备上从未生效**(空转臂)。
+
+    现在两条路都乘同一个系数, 设备上 `trailscale` 标记(或 `HG_TRAIL_SCALE`)才真的
+    能改柱内拖尾长度。系数放在 `max(2.0, …)` **里面**, 与 `Line` 路径的算式同形
+    ⇒ 调小到 0.2 时大多数颗粒落到 2px 地板。
+
+    ⚠️ **`_MAIN is None` 是常态, 不是异常**: 桌面量具(`inspect_flow` / `_render_golden`)
+    把 main.py 当**另一个模块名**加载(`flow_visual_source`), `__import__` 找不到它
+    ⇒ `_MAIN = None`。所以下面按 ①`_MAIN` ②`sys.modules["main"]`(量具自己 `import main`
+    过, 是**同一份源码**) 的顺序取; 设备上 main 就是 `__main__` ⇒ 走 ①。
+    **两条都取不到 ⇒ 1.0(退回旧行为)** —— 而 `install()` 会把实际取到的值打进日志,
+    免得"以为接上了其实没有"。
+    """
+    for _m in (_MAIN, sys.modules.get("main")):
+        if _m is None:
+            continue
+        try:
+            return float(_m.TRAIL_SCALE)
+        except Exception:
+            pass
+    return 1.0
+
+
 # 🔴 **2026-10-10: 粒子墨在出口附近的"渐入"长度(设备像素)。0 = 关(旧行为)。**
 #
 # 为什么要有它: **所有粒子都在同一条 y(`gen_y` = 出口)上出生** ⇒ 粒子层的上边缘是一条
@@ -483,6 +519,16 @@ def install(widget_class):
         _MAIN = __import__(widget_class.__module__)
     except Exception:
         _MAIN = None
+    # 🔴 **自证(2026-10-11): 拖尾系数到底接上没有 —— 日志说了算, 不靠"我以为"。**
+    #    设备: `adb logcat -d | grep trail_scale` 应看到 `flow trail_scale=0.200 (main)`。
+    #    (这条是因为 `_trail_scale()` 有兜底 1.0 ⇒ "接错了"会**静默**退回旧行为。)
+    try:
+        _src = ("main" if _MAIN is not None
+                else ("sys.modules['main']" if sys.modules.get("main") is not None
+                      else "none->1.0"))
+        print("flow trail_scale=%.3f (%s)" % (_trail_scale(), _src))
+    except Exception:
+        pass
     build = widget_class._build_dynamic_canvas
 
     def build_texture_batches(self):
@@ -562,13 +608,16 @@ def install(widget_class):
         # 给渐入用(见 `PARTICLE_FADE_PX`); `PARTICLE_FADE_PX=0` 时无消费者, 零开销。
         self._fade_base_y = 2 * self._neck_y - self._taper["y_bot"]
         motion = self._particle_motion_scale
+        # 拖尾长度系数(唯一真值 = `main.TRAIL_SCALE`)。见 `_trail_scale()` —— 接上之前
+        # 它**在出货渲染器上是死旋钮**(只作用于 app 内 `Line` 路径)。
+        ts = _trail_scale()
         buckets = self._group_stream_particles()
         if _mk:
             _mk("flow_group")          # 分组: 桶码 = key*2+slot、稳定排序、bincount
         batches = self._flow_batches
         if np is None or not view.use_np or not FUSE_BUCKETS:
             for key, bucket in buckets.items():
-                batches[key].update(view, bucket, top_limit, motion)
+                batches[key].update(view, bucket, top_limit, motion, ts)
             return
         # ---- 融合路径: 所有桶拼成一条, 算式只跑一遍(见模块头 FUSE_BUCKETS) ----
         # ⚠️ 桶的**顺序**就是 dict 的插入序(`_group_stream_particles` 按桶码升序填),
@@ -585,7 +634,7 @@ def install(widget_class):
                 #    这台设备分辨不出 <0.5ms 的时间差, 但这个调用是**逐次确定**地消失的。
                 _b = batches[key]
                 if any(_b.live):
-                    _b.update(view, [], top_limit, motion)
+                    _b.update(view, [], top_limit, motion, ts)
         if not keys:
             return
         if len(keys) == 1:
@@ -597,7 +646,7 @@ def install(widget_class):
         # (逐元素运算与数组长度无关 ⇒ 每位相同)。
         bottom = view.ny[allidx]
         vy = np.abs(view.nvy[allidx])
-        trail = vy * view.ntl[allidx] / motion
+        trail = vy * view.ntl[allidx] / motion * ts
         np.maximum(trail, 2.0, out=trail)
         blend = getattr(view, "tail_blend", 0.0)
         if blend:

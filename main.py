@@ -4434,6 +4434,15 @@ class HourglassWidget(Widget):
                               % (self.elapsed, bottom, _join, _front,
                                  _y_endw, _y_end0, _w, _w_end, len(side),
                                  min(_ys), max(_ys)))
+                        # 🔴 **2026-10-11: 头部的 13 个节点逐个打出来。**
+                        #    动机: 设备实测前缘"看着是平的"(±1px), 而按公式抖幅应有
+                        #    `0.45×w_end`。**别再推公式, 把几何本身读出来。**
+                        if NECK_FREE_GEOM and len(_ys) > NECK_FRONT_SEGS:
+                            _head = _ys[-(NECK_FRONT_SEGS + 1):]
+                            print("NECKHEAD t=%.1f n=%d 起伏=%.2f y=[%.2f..%.2f] ys=%s"
+                                  % (self.elapsed, len(_head),
+                                     max(_head) - min(_head), min(_head), max(_head),
+                                     " ".join("%.1f" % _v for _v in _head)))
         # 🔴 **容量断言(2026-10-09)。** `_neck_quads` 装不下时, 绘制循环
                 #    `for i in range(len(quads))` **静默丢掉最后几段, 一行报错都没有** ——
                 #    项目踩过(`len(side)=27 > 容量 25`, 画面"一点没变"而原因查了很久)。
