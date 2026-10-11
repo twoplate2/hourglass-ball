@@ -82,9 +82,32 @@ jobs:
 
       - name: Build APK (debug)
         run: |
-          yes | buildozer android debug
+          # ⚠️ **不要加 `set -o pipefail`**: `yes` 会以 141(SIGPIPE) 收尾, pipefail 会把
+          #    **构建成功**也判成失败。改用 PIPESTATUS 取 buildozer 自己的返回码。
+          yes | buildozer android debug 2>&1 | tee build.log
+          rc=${PIPESTATUS[1]}
+          echo "buildozer exit=$rc"
+          exit $rc
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
+
+      # 🔴 **2026-10-11: 构建日志必须"我自己读得到"。**
+      #    run 378(2.59) 构建失败, 而 Actions 的日志**要登录才能看**, api.github.com
+      #    在本机 IP 又是 403 ⇒ 我盯着一个**读不到的失败**空等了 30 分钟, 只能空猜。
+      #    这条把 `build.log` 发到 Release(`ci-log` tag, 资产**公开可下**) ⇒ 失败也能自诊。
+      #    成功也发(体积小, 且方便回溯"某次构建到底跑了什么")。
+      #    ⚠️ 用**独立 tag**, 不能混进 `latest` —— 那是给用户下 APK 的, 别塞日志。
+      - name: Publish build log
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          [ -f build.log ] || { echo "no build.log"; exit 0; }
+          gh release view ci-log >/dev/null 2>&1 || gh release create ci-log --title "CI build log" --notes "最近一次构建的完整日志(滚动覆盖, 供诊断)"
+          gh release view ci-log --json assets -q '.assets[].name' 2>/dev/null | while read -r old; do [ -n "$old" ] && gh release delete-asset ci-log "$old" --yes || true; done
+          gh release upload ci-log build.log --clobber
+          gh release edit ci-log --notes "commit ${GITHUB_SHA:0:12} · $(date -u +%FT%TZ)"
 
       - name: Show output
         run: ls -lh bin/ || true
