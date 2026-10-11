@@ -149,6 +149,25 @@ def main():
                 chk(abs(uni("sand_clump_scale") - 2.5) < 1e-6,
                     "未被档位覆盖的旋钮仍是内置默认 (scale=%.2f)" % uni("sand_clump_scale"))
 
+                # ③c 运行期优先级: 有标记文件覆盖的旋钮, **点档位不许碰它**
+                #     (独立验证查出的运行期洞: 构造期优先级对, 运行期写 live uniform 时丢了)
+                import sand_flow_material as _sfm
+                _mk = Path(_sfm.__file__).parent / "clumpgap"
+                try:
+                    _mk.write_text("0.9", encoding="utf-8")
+                    _gap_before = uni("sand_clump_gap")
+                    cb["断续明显"].dispatch("on_press")
+                    # ⚠️ 期望是**点前后不变**(不是变成 0.9): 标记值只在**构造 context** 时读,
+                    #    运行期点档位既不该把档位值写进去, 也不该替标记"补写"。
+                    chk(abs(uni("sand_clump_gap") - _gap_before) < 1e-6,
+                        "有标记(clumpgap=0.9)时点档位**不碰它** (%.2f → %.2f)"
+                        % (_gap_before, uni("sand_clump_gap")))
+                    chk(abs(uni("sand_clump_lo") - 0.36) < 1e-6,
+                        "  同一档位对**没有标记**的旋钮照常生效 (lo=%.2f)" % uni("sand_clump_lo"))
+                finally:
+                    _mk.unlink(missing_ok=True)
+                    cb[m.CLUMP_LEVEL_DEFAULT].dispatch("on_press")
+
             print("\n④ 点同一档两次 = 幂等")
             chk(hg.set_rough_level("2") is False, "set_rough_level 同档返回 False")
             chk(hg.set_grain_level("6") is False, "set_grain_level 同档返回 False")

@@ -567,14 +567,18 @@ def _clump_level_hint(label):
 
 
 def _clump_level_pairs(label):
-    """档位 → [(uniform, 生效值)]。**必须写整组**(见材质模块 `_CLUMP_KNOBS` 那段 bug 记录):
-    只写"该档覆盖的几项"时, 从「断续明显」切回「自然」(空覆盖表)会什么都不写,
-    uniform 残留在上一档 —— 设置项自检就是这么抓到的。"""
+    """切档时写进 live uniform 的 `[(uniform, 值)]`。
+
+    ⚠️ **必须写整组**(见材质模块 `_CLUMP_KNOBS` 那段 bug 记录): 只写"该档覆盖的几项"时,
+    从「断续明显」切回「自然」(空覆盖表)会什么都不写, uniform 残留在上一档。
+    ⚠️ **有环境变量/标记文件覆盖的旋钮会被跳过**(`live_clump_knobs`): 否则在设备上
+    点一下档位就盖掉了正在跑的对照臂 —— 独立验证查出的运行期洞。
+    """
     try:
         import sand_flow_material as _sfm
     except Exception:
         return ()
-    return tuple(_sfm.effective_clump_knobs(label).items())
+    return tuple(_sfm.live_clump_knobs(label))
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
 # 颈部沙柱采样材质时的 v 锚点。两个值都被实测钉过，别随手改：
 # ⚠️ **不能取 0.5** —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。

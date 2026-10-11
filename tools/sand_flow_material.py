@@ -810,6 +810,23 @@ def effective_clump_knobs(label=None):
     return {name: float(ov.get(name, dflt)) for name, _env, _fn, dflt in _CLUMP_KNOBS}
 
 
+def live_clump_knobs(label=None):
+    """切档时**真正写进 live uniform** 的那些 `(name, value)`。
+
+    🔴 **2026-10-11: 有环境变量/标记文件覆盖的旋钮必须跳过。**
+    独立验证查出的**运行期洞**: 构造期的优先级是对的(`_flag_float` 压过档位), 但开发者菜单
+    点档时直接把这组值写进 live uniform ⇒ **在设备上点一下档位就盖掉了正在跑的标记臂**
+    (直到下次重建画布)。⇒ 这里逐旋钮看一遍 `_flag_float`, 有覆盖就不碰它。
+    """
+    eff = effective_clump_knobs(label)
+    out = []
+    for name, env, fname, _dflt in _CLUMP_KNOBS:
+        if _flag_float(env, fname) is not None:
+            continue
+        out.append((name, eff[name]))
+    return tuple(out)
+
+
 def set_clump_level(label):
     """设置档位。返回 **真正生效的覆盖表**(未知标签 ⇒ 回落出厂档)。"""
     global _clump_level, _level_table
