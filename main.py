@@ -1784,6 +1784,13 @@ FLOW_TAIL_GAP = float(os.environ.get("HG_TAIL_GAP", "0.0"))
 # 每行沙色覆盖): 基线 **86%** / 下限 0.45 ⇒ **65%** / 下限 0.25 ⇒ **39%**
 # —— 0.25 那一档读出来是"一股细流落到堆上", 0.45 那档仍是"一根窄条"。
 FLOW_TAIL_GAP_NARROW = float(os.environ.get("HG_TAIL_GAP_NARROW", "0.25"))
+# 🔴 **2026-10-12(2.86): 末段"墨量"触发 —— 按净空把线宽 2px → 1px。**
+#    用户判词:「再看看这个沙柱是不是太纯色了 2.85 版本」。宽度已在 2.85 回到管径(设计约束),
+#    剩下的"纯色"是**墨水饱和**(末段落程只剩几十 px ⇒ 2px 墨块重叠成一块板)。
+#    ⚠️ **只动线宽、不动位置** ⇒ 柱宽不变; 复用同一次 `random.random()` 只换阈值 ⇒ 不新增随机数。
+#    取值 = 净空 / 球径 的阈值: 0.30 ⇒ 净空 < 30% 球径(约 372px @平板 / 270px @1080,
+#    即 50s 档最后 ~7 秒)开始压细。0 = 关(逐位回 2.85)。
+INK_HEADROOM = float(os.environ.get("HG_INK_HEADROOM", "0.30"))
 # 🔴 **2026-10-10: 沙流颗粒的线宽上限。0 = 不限制(出货行为: 85% 是 2px)。**
 #    为什么要它: 出口以下的**可见面就是粒子层**(覆盖柱宽 89%), 而它的墨是
 #    `2px 宽 × 5~8px 高` 的块 ⇒ 读起来是"块"不是"颗粒"(用户判词「精细度都不够」)。
@@ -4754,8 +4761,50 @@ class HourglassWidget(Widget):
             return 0.0
         return profile.contact(dx, apex)
 
+    def _stream_headroom(self):
+        """出口到**底面堆面**的净空 ÷ 球径(无量纲, 1.0 以上 = 落程充足)。
+
+        用球径归一 ⇒ 与窗口尺寸/屏幕密度无关(与 `SAND_BAND_NECK_FADE` 同一套口径)。
+        两个消费者按各自的阈值缩放它: 收窄那条(`_stream_headroom_tail`)与**墨量那条**
+        (`_stream_ink_q`)。
+        """
+        diameter = 2.0 * self._R_inner
+        if diameter <= 1.0:
+            return 1.0
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        surface = self._lower_sand_bot + self._mound_contact_h(0.0)
+        return max(0.0, outlet - surface) / diameter
+
+    def _stream_ink_q(self):
+        """末段**墨量权重**: 1 = 常态(2px 线), 0 = 压缩态(全压成 1px 线)。
+
+        ## 为什么(2026-10-12, 用户判词:「再看看这个沙柱是不是太纯色了 2.85 版本」)
+
+        宽度已经在 2.85 回到管径(用户定的设计约束), 所以剩下的"纯色"感**不是宽度** ——
+        是**墨水饱和**: 末段落程只剩几十 px, 同一个流量挤进去 ⇒ 2px 宽的墨块彼此重叠
+        成一块板。⇒ 按净空把**线宽**从 2px 压到 1px。
+
+        ⚠️ **只动线宽, 不动位置/数量/速度** ⇒ 沙柱的**宽度不变**(设计约束不受影响),
+        只是柱内有颗粒了。实测(平板 50s, 出口以下柱内、去掉两侧 15%):
+          | 臂 | t=47 粒(grad) | t=48.5 |
+          |---|---|---|
+          | 2.85(2px) | 1.32 | 1.50 |
+          | 压成 1px | **6.20** | **3.37** |
+        ⚠️ 实现在**出生处复用同一次 `random.random()`**, 只换比较的阈值
+        (`0.85 * q`) ⇒ **不新增随机数**; `q == 1.0` 时阈值逐位等于 `0.85`
+        ⇒ 中段与旧版**逐像素一致**(实测 t=25 仅版本号区不同)。
+        """
+        if INK_HEADROOM <= 0.0:
+            return 1.0
+        return min(1.0, self._stream_headroom() / INK_HEADROOM)
+
     def _stream_headroom_tail(self):
         """出口到**底面堆面**的净空 → 收尾权重(1 = 不收窄, 0 = 收到最窄)。
+
+        ⚠️ **2026-10-12(2.85) 起本函数默认不被调用**(`FLOW_TAIL_GAP = 0.0`) ——
+        它的"越接近结束越细"与用户的设计约束(宽度全程 = 初始)冲突。
+        留着只为 A/B 复现旧观感(`HG_TAIL_GAP=0.30 HG_TAIL_GAP_NARROW=0.25`)。
+        下面这段是它当初的推导(仍成立: 末段的"实心色条"确实是落差被压缩造成的):
 
         ## 为什么(2026-10-12, 用户判词:「沙柱的颜色纯色化」+「造型不合理」)
 
@@ -4769,19 +4818,12 @@ class HourglassWidget(Widget):
         从 ~6-8s(50s 档) 前就开始了 ⇒ **触发晚了一倍多**: 实测 t=47(净空仅 75px)时
         `_tail` 仍是 1.0 ⇒ 收窄一点没生效。
 
-        ⇒ 这里补**第二个触发器: 净空 / 球径**, 与时间型那条取 `min`。
-        用球径归一 ⇒ 与窗口尺寸/屏幕密度无关(与 `SAND_BAND_NECK_FADE` 同一套口径)。
-
         ⚠️ 只改**出生带的形状**(与 `FLOW_TAIL_*` 同一条路, 不新增随机数、不动粒子数、
         不改物理) ⇒ `_tail == 1.0` 时逐位等于旧行为。
         """
-        diameter = 2.0 * self._R_inner
-        if diameter <= 1.0:
+        if FLOW_TAIL_GAP <= 0.0:
             return 1.0
-        outlet = 2 * self._neck_y - self._taper["y_bot"]
-        surface = self._lower_sand_bot + self._mound_contact_h(0.0)
-        gap = outlet - surface
-        return min(1.0, max(0.0, gap / max(1.0, FLOW_TAIL_GAP * diameter)))
+        return min(1.0, self._stream_headroom() / FLOW_TAIL_GAP)
 
     def _mound_edge(self):
         """沙堆**当前**的半宽(px) —— `has_sand` 为真的最远 |dx|, 即"最边缘"在哪。
@@ -6147,6 +6189,9 @@ class HourglassWidget(Widget):
             #      ⇒ 收尾指数**逐颗不同**(用已经抽好的 `amp` 抖动), 不做成一条固定曲线。
             _released_frac = self._released_fraction_at(min(self.elapsed, end))
             _tail = min(1.0, max(0.0, (1.0 - _released_frac) / max(1e-6, FLOW_TAIL_SPAN)))
+            # 🔴 **2026-10-12(2.86): 末段墨量权重** —— 每帧算一次(净空那一套是记忆化的)。
+            #    `1.0` ⇒ 出生时那次 `random.random() < 0.85` 与旧版**逐位相同**。
+            _ink_q = self._stream_ink_q()
             _band = FLOW_TAIL_NARROW + (1.0 - FLOW_TAIL_NARROW) * _tail
             # 🔴 **2026-10-12: 再叠一个"物理压缩"触发器** —— 见 `_stream_headroom_tail`。
             #    旧的触发按**剩余沙量**(最后 `FLOW_TAIL_SPAN` 计时), 比"堆面逼近出口"晚 5 秒
@@ -6174,7 +6219,10 @@ class HourglassWidget(Widget):
                     _u = x_off / x_clip
                     x_off = x_clip * math.copysign(abs(_u) ** _p, _u)
                 is_light = random.random() < 0.10
-                size = (2 if random.random() < 0.85 else 1) if x_clip >= 3.0 else 1
+                # 🔴 **2026-10-12(2.86): 末段压线宽** —— 见 `_stream_ink_q`。
+                #    阈值乘 `_ink_q`(1⇒0.85 = 逐位旧行为; 0⇒恒 1px)。**同一次抽取, 只换阈值**
+                #    ⇒ 随机数流一字不动(本项目的硬规矩)。
+                size = (2 if random.random() < 0.85 * _ink_q else 1) if x_clip >= 3.0 else 1
                 if FLOW_WIDTH_CAP and size > FLOW_WIDTH_CAP:
                     # 🔴 2026-10-10: **只压线宽, 不动随机数流**(上面那次 `random.random()`
                     #    照抽, 只是结果被盖掉) ⇒ 同 seed 下粒子的位置/相位/寿命一字不变。
