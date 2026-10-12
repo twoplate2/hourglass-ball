@@ -1748,6 +1748,20 @@ FLOW_TAIL_NARROW = float(os.environ.get("HG_TAIL_NARROW", "0.45"))
 FLOW_TAIL_TAPER = float(os.environ.get("HG_TAIL_TAPER", "2.6"))
 # 收尾段占**整个计时**的比例(0.04 = 最后 4%)。见 `update_particles` 里那一段。
 FLOW_TAIL_SPAN = float(os.environ.get("HG_TAIL_SPAN", "0.04"))
+# 🔴 **2026-10-12: 末段收窄的第二个触发器 —— 净空(出口到底面堆面)/ 球径。**
+#    为什么需要(用户判词: 「沙柱的颜色纯色化」+「造型不合理」): 旧的触发是
+#    **剩余沙量**(`_released_fraction_at`) ⇒ 只在最后 4% 计时起效, 而**物理压缩**
+#    (堆面升到出口附近 ⇒ 同一流量挤进更短的落差)从 ~6-8s(50s 档)前就开始了。
+#    平板 50s 实测: t=47 时净空只剩 **75px**(球径 1239), 而 `_tail` 还是 1.0
+#    ⇒ 收窄一点没生效, 出口以下每行沙色覆盖仍 **84~94%**(= 一条实心色条)。
+#    0.30 ⇒ 净空 < 30% 球径(约 372px @平板 / 270px @1080) 开始收窄, 落到底收到最窄。
+#    0 = 关(逐位回到旧行为)。
+FLOW_TAIL_GAP = float(os.environ.get("HG_TAIL_GAP", "0.30"))
+# 净空那一路**自己的**收窄下限(占出生带宽的比例) —— 与 `FLOW_TAIL_NARROW`(时间那一路)
+# 分开, 是为了**不动** 2026-10-10 已定的那条曲线。实测(平板 50s, t=47, 出口以下
+# 每行沙色覆盖): 基线 **86%** / 下限 0.45 ⇒ **65%** / 下限 0.25 ⇒ **39%**
+# —— 0.25 那一档读出来是"一股细流落到堆上", 0.45 那档仍是"一根窄条"。
+FLOW_TAIL_GAP_NARROW = float(os.environ.get("HG_TAIL_GAP_NARROW", "0.25"))
 # 🔴 **2026-10-10: 沙流颗粒的线宽上限。0 = 不限制(出货行为: 85% 是 2px)。**
 #    为什么要它: 出口以下的**可见面就是粒子层**(覆盖柱宽 89%), 而它的墨是
 #    `2px 宽 × 5~8px 高` 的块 ⇒ 读起来是"块"不是"颗粒"(用户判词「精细度都不够」)。
@@ -4718,6 +4732,35 @@ class HourglassWidget(Widget):
             return 0.0
         return profile.contact(dx, apex)
 
+    def _stream_headroom_tail(self):
+        """出口到**底面堆面**的净空 → 收尾权重(1 = 不收窄, 0 = 收到最窄)。
+
+        ## 为什么(2026-10-12, 用户判词:「沙柱的颜色纯色化」+「造型不合理」)
+
+        末段那根沙柱变成**一条实心色条**: 不是粒子变多了, 是**同一个流量被压进越来越短的
+        落差** —— 在途颗数 ≈ `rate × 飞行时间`, 而落程从 ~700px 掉到 ~70px
+        ⇒ 同样 2px 宽的墨块挤进 1/10 的体积里 ⇒ 并成一块板(平板 50s 档实测: 出口以下
+        每行沙色覆盖 **84~94%**, 落程 75px)。
+
+        已有机制(`FLOW_TAIL_NARROW` / `FLOW_TAIL_TAPER`, 2026-10-10 那次用户也是说
+        「就是一个矩形啊」)**只在最后 `FLOW_TAIL_SPAN`(=4% 计时) 起效**, 而物理压缩
+        从 ~6-8s(50s 档) 前就开始了 ⇒ **触发晚了一倍多**: 实测 t=47(净空仅 75px)时
+        `_tail` 仍是 1.0 ⇒ 收窄一点没生效。
+
+        ⇒ 这里补**第二个触发器: 净空 / 球径**, 与时间型那条取 `min`。
+        用球径归一 ⇒ 与窗口尺寸/屏幕密度无关(与 `SAND_BAND_NECK_FADE` 同一套口径)。
+
+        ⚠️ 只改**出生带的形状**(与 `FLOW_TAIL_*` 同一条路, 不新增随机数、不动粒子数、
+        不改物理) ⇒ `_tail == 1.0` 时逐位等于旧行为。
+        """
+        diameter = 2.0 * self._R_inner
+        if diameter <= 1.0:
+            return 1.0
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        surface = self._lower_sand_bot + self._mound_contact_h(0.0)
+        gap = outlet - surface
+        return min(1.0, max(0.0, gap / max(1.0, FLOW_TAIL_GAP * diameter)))
+
     def _mound_edge(self):
         """沙堆**当前**的半宽(px) —— `has_sand` 为真的最远 |dx|, 即"最边缘"在哪。
 
@@ -6079,6 +6122,17 @@ class HourglassWidget(Widget):
             _released_frac = self._released_fraction_at(min(self.elapsed, end))
             _tail = min(1.0, max(0.0, (1.0 - _released_frac) / max(1e-6, FLOW_TAIL_SPAN)))
             _band = FLOW_TAIL_NARROW + (1.0 - FLOW_TAIL_NARROW) * _tail
+            # 🔴 **2026-10-12: 再叠一个"物理压缩"触发器** —— 见 `_stream_headroom_tail`。
+            #    旧的触发按**剩余沙量**(最后 `FLOW_TAIL_SPAN` 计时), 比"堆面逼近出口"晚 5 秒
+            #    以上; 两者**取更窄的那条**(各自有自己的下限, 不动老曲线)。
+            #    `FLOW_TAIL_GAP = 0` ⇒ `_tail_gap` 恒为 1 ⇒ `_band_gap` 恒为 1.0
+            #    ⇒ `min` 一定取老值 ⇒ **逐位回到旧行为**。
+            _tail_gap = 1.0
+            if FLOW_TAIL_GAP > 0.0:
+                _tail_gap = self._stream_headroom_tail()
+                _band = min(_band, FLOW_TAIL_GAP_NARROW
+                            + (1.0 - FLOW_TAIL_GAP_NARROW) * _tail_gap)
+            _tail = min(_tail, _tail_gap)
             x_clip = max(1.0, (neck_w - ow) * _band)
             _taper = 1.0 + (FLOW_TAIL_TAPER - 1.0) * (1.0 - _tail)
             for spawn_index in range(spawn_count):
