@@ -712,6 +712,11 @@ void main(void) {
             //    "自由段那条 `sand_free_drift` 到底有没有接到采样上"。
             //    0=黑(几乎不动), 越红=平流越快。两臂(`HG_FREE_DRIFT` 0 vs 8)一比就知道。
             gl_FragColor = vec4(clamp(-velocity.y * 0.4, 0.0, 1.0), 0.0, 0.0, 1.0);
+        } else if (m < 12.5) {
+            // 🔴 **着色器自己看到的 `sand_mix`**(灰阶) —— 判"Python 侧写了但没到 GPU"
+            //    只能问着色器: `RenderContext.__getitem__` 读的是**Python 侧缓存**,
+            //    它显示 1.0 完全不代表 GPU 拿到了(2026-10-12 就是这么栽的)。
+            gl_FragColor = vec4(sand_mix, sand_mix, sand_mix, 1.0);
         } else {                              // 这个像素属于哪个 context
             gl_FragColor = vec4(sand_ctx_tag / 4.0, 0.0, 0.0, 1.0);
         }
@@ -939,6 +944,14 @@ class SandFlowContext(RenderContext):
                 #    注释里原本就写着「用户看到的『颜色分层非常明显』就是它」, 只是没落到默认值。
                 ("sand_neck_light", "HG_NECK_LIGHT", "necklight", 1.0),
                 ("sand_uv_debug", "HG_UV_DEBUG", "uvdebug", 0.0),
+                # 🔴 **诊断旋钮: 把 `sand_mix` 钉成常数**(默认 -1 = 不钉)。
+                #    存在的理由: `sand_mix` 在**渲染脚手架**(`tools/inspect_flow.py`)里
+                #    的值取决于"这次 `set_duration` 有没有真的改到 duration" ——
+                #    改了 ⇒ 那一帧 `blend` 正好是 1.0 ⇒ 臂 A; 没改 ⇒ 沿用启动时那个 0 ⇒ 臂 B。
+                #    ⇒ **同一份代码能渲染出两个样子**, 拿它做 A/B 会得出"改了没差别"的假结论
+                #    (2026-10-12 真的栽了一次: 修好/没修 两张图 **md5 相同**)。
+                #    要断言"这一版画的是哪一支", 只能**钉住**它。
+                ("sand_mix_pin", "HG_SAND_MIX_PIN", "sandmixpin", -1.0),
                 # 🔴 **2026-10-10 出货默认 0.0 → 1.0**: `tone` 的 `lighting` 必须与
                 #    `grain()` 里减掉的那一个用**同一个坐标**, 否则颈部多出一个系统偏置
                 #    (实测颈部 |tone| 0.227 vs 上球 0.112 —— 2 倍, 画面上就是"斑块")。
@@ -961,6 +974,7 @@ class SandFlowContext(RenderContext):
         self._tail_key = None
         self._free_key = None
         self._mat_key = None
+        self._mix_key = None
 
     def update_flow(self, elapsed, speed_scale, material, palette,
                     tail=(0.0, 0.0, 1.0), free=(0.0, 0.0, 1.0, 0.0)):
@@ -992,7 +1006,28 @@ class SandFlowContext(RenderContext):
         if speed_scale != self._mat_key:
             self._mat_key = speed_scale
             self["sand_motion_scale"] = float(speed_scale)
+        # 🔴🔴 **2026-10-12 修: `sand_mix` 必须跟着 `blend` 走。**
+        #    它在 2.64(`210ab59`, 材料坐标那一版)被**顺手挪进了上面那个 `speed_scale`
+        #    分支** —— 而 `speed_scale`(`_particle_motion_scale`)在一轮里是**常数**
+        #    ⇒ 那支**只在第一帧跑一次**, 而第一帧 `elapsed ≈ 0` ⇒ `blend ≈ 0`
+        #    ⇒ **`sand_mix` 被永久钉在 0**(实测: elapsed 走到 1.69s 仍是 **0.001**)。
+        #    后果不是"轻微掉色", 是**整层 GPU 颗粒/光照一次都没接上**:
+        #    `mix(original.rgb, flowing, sand_mix)` ⇒ 画面上就是**原贴图**(静态),
+        #    用户判词: 「**有部分沙子一动不动…大概是从颈部出来的一小段**」+
+        #    「**最上层的沙子之前有一个 Gpu 的流动, 也被你给删了**」。
+        #    ⚠️ 它**躲过了 2.64~2.74 全部 11 个版本的所有闸门**:
+        #      · 金标准是**静态帧**──`sand_mix` 只改颜色不改几何, 且逐版本重标定过;
+        #      · 那些"材质图案跑 220~500px/s"的实测量的是 **coverage 那一套噪声场**
+        #        (`hn`/`n`/`n2`, 它们走 `adv` = `sand_clock`, **不受 `sand_mix` 管**)
+        #        ⇒ **动的不是颗粒, 是洞和边** —— 颗粒层从头到尾是死的, 而量具看不见。
+        #    ⇒ 判据只能直接读那个 uniform: `tools/_probe_sandmix.py`(期望 ≥0.99)。
+        if blend != self._mix_key:
+            self._mix_key = blend
             self["sand_mix"] = float(blend)
+        # 诊断档: 钉住 ⇒ 用于做**确定的** A/B(见 `sand_mix_pin` 的注释)。
+        _pin = self["sand_mix_pin"]
+        if _pin >= 0.0:
+            self["sand_mix"] = float(_pin)
         if tail != self._tail_key:
             self._tail_key = tail
             self["sand_tail"] = tuple(map(float, tail))
