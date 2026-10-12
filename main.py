@@ -1097,6 +1097,16 @@ _TWOIMPL = _twoimpl_probe()
 FLOW_SHRINK_RAMP = 92.0
 FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.87")) if _sm is None else _sm
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
+# ⛔ 2026-10-12 **实测无效, 默认 0** —— 这条假设被自己的量否掉了, 留着当下次实验的入口:
+#   假设"粒子跨过销毁线那一帧被移除且不画 ⇒ 最后一笔停在面上方 v·dt"。
+#   实测(末段 9 帧窗口, 平板口径): 旋钮 12 vs 0 ⇒ 整行空仍是 **5/9 帧**(与改前逐帧几乎相同),
+#   落点带(1520-1620 行 ±45)沙像素中位 **7937 vs 7928**(噪声内) ⇒ **一个像素都没挪动**。
+#   逐像素查过那一条空带: 它横贯整幅、5 行、**100% 背景**; 它上面那 6 行沙是**逐渐收窄**
+#   (70→31 px/行)后停住的 —— 那不像"被销毁", 更像**另一层**(颈部材质的排空下沿 / 前沿)
+#   在那一行截断。⇒ 下一步该做的是"逐层消融"(关材质 context / 关颈部颗粒层), 看谁画了
+#   1544 行以上那段尾巴, 而不是再动销毁线。
+#   0 = 与改动前逐像素一致(实测 0 px 差异)。标量路径、numpy 路径共用这一个值。
+KILL_INSET = float(os.environ.get("HG_KILL_INSET", "0.0"))
 # ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
 # 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
 # 而**同一帧里**下球沙堆是 30.1°/31.7° 的标准休止角 ⇒ 同一种沙两个角度, 实现内部不自洽。
@@ -2013,7 +2023,11 @@ def _stream_open_probe(name, fname, dflt):
 # 四路联网调研点名的坑(已避开): 别做成"串珠/肠节"(1.39 翻过车) · 柱宽不许变 ·
 #   绘制期不许抽随机数(2.11 翻过车) · 移动端别用 `discard`(tile GPU 破坏 early-Z) ——
 #   本实现**一个片元都不丢**, 只是在 CPU 侧少喂一颗粒子进桶。
-STREAM_OPEN = _stream_open_probe("HG_STREAM_OPEN", "streamopen", 0.42)
+# 🔴🔴 2026-10-12 用户裁决后**默认关**(0.42 → 0.0): 用户看完设备截图判「断成虚线」,
+#   并且它违反了三条已标定的结构性判据(S1 整宽横断 16 行 / S2 图案钉在空间 J=0.388 /
+#   S3 墨量 −25%) —— 详见 design/验收标准.html 与 design/沙漏设计文档.html §7。
+#   旋钮保留: 想再试"空隙"这条方向时把它打开即可(或按 2.78 的提交回查)。
+STREAM_OPEN = _stream_open_probe("HG_STREAM_OPEN", "streamopen", 0.0)
 STREAM_OPEN_START = _stream_open_probe("HG_STREAM_OPEN_START", "openstart", 0.06)
 STREAM_OPEN_RAMP = _stream_open_probe("HG_STREAM_OPEN_RAMP", "openramp", 0.42)
 STREAM_OPEN_CELL = _stream_open_probe("HG_STREAM_OPEN_CELL", "opencell", 7.0)
@@ -6195,6 +6209,7 @@ class HourglassWidget(Widget):
             if pn:
                 consts = {
                     "g": g, "g_abs": g_abs, "mound_top": mound_top,
+                    "kill_inset": KILL_INSET,
                     "shrink_ramp": FLOW_SHRINK_RAMP,
                     "gen_y": gen_y, "lower_cut": lower_cut,
                     "lower_top": lower_top, "lower_center": lower_center,
@@ -6252,7 +6267,7 @@ class HourglassWidget(Widget):
                 # 只有落到堆附近的少量颗粒才去查 H(x)(专家 dingbu.md §7)。
                 # ⚠️ 用**上一帧的 x**(p["x"]): 粒子一帧横向只动 1~2px ⇒ H 的误差 ≤1.2px(亚像素);
                 #    真正的 x 依赖 shrink, 而 shrink 又依赖本判定 ⇒ 不能用本帧的 x(会成环)。
-                hit = y <= mound_top
+                hit = y <= (mound_top - KILL_INSET)
                 hy = mound_top
                 if hit and _use_curve:
                     z = (p_x_prev - _c_x0) * _c_scale
@@ -6263,7 +6278,7 @@ class HourglassWidget(Widget):
                     else:
                         _i = int(z)
                         hy = _cy_arr[_i] + (_cy_arr[_i + 1] - _cy_arr[_i]) * (z - _i)
-                    hit = y <= hy
+                    hit = y <= (hy - KILL_INSET)
                 hit_dt = 0.0
                 if hit:
                     self._sand_landed += p.get("_sand_mass", 0.0)

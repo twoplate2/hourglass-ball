@@ -27,6 +27,8 @@ numpy 的 `power` 走通用 `pow`, 与硬件 `sqrtsd` 的舍入在某些输入�
 (要换就先跑 `tools/test_physics_equiv.py` + `tools/inspect_flow.py` 的逐像素。)
 """
 
+import os
+
 import numpy as np
 
 # 🔴 **2026-10-09: 这两个默认值的单一来源。**
@@ -65,6 +67,9 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     g = c["g"]
     g_abs = c["g_abs"]
     mound_top = c["mound_top"]
+    # 销毁线相对堆面的下移量(见 main.py `KILL_INSET` 的注释)。缺省与标量路径**同源**,
+    # 否则 tools/test_physics_equiv.py(它自己建 consts)会量出两条路径不一致。
+    ki = float(c.get("kill_inset", os.environ.get("HG_KILL_INSET", "0.0")))
 
     # ⚠️ 这两个**别名**就够了(原来写的是 `.copy()`, 每帧白拷 2×2750 个 float64 = 44KB):
     #    `y`/`vy` 下面都是**重绑定**(`y = y + ...` / `y = np.where(...)`), 不是原地改;
@@ -95,7 +100,7 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
         #       hy_eff= np.where(y <= mound_top, hy, mound_top)
         #   ⇒ 先把 `hy` 用 `mound_top` 铺满(这正是"够不着"那批该拿到的值),
         #     子集上算完再散写回去。**逐位不变**: 同一个算式、同一批输入, 一个数都没动。
-        near = y <= mound_top
+        near = y <= (mound_top - ki)
         hy = np.full(n, mound_top) if n else y
         m = np.flatnonzero(near)
         if m.size:
@@ -103,13 +108,13 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
             z = np.clip((p - _x0) * _scale, 0.0, _n1)
             ii = np.minimum(z.astype(np.intp), _n1 - 1)
             hy[m] = _cy[ii] + (_cy[ii + 1] - _cy[ii]) * (z - ii)
-        hit = near & (y <= hy)
+        hit = near & (y <= (hy - ki))
         # ⚠️ 原来这里还有一次 `np.where(y <= mound_top, hy, mound_top)` ——
         #    因为上面已把"够不着"的位置填成 `mound_top` ⇒ 那个 where **恒等于 hy**
         #    (含 NaN: 两边都取 mound_top)。省掉一次 n 长度的 where 与一份临时数组。
         hy_eff = hy
     else:
-        hit = y <= mound_top
+        hit = y <= (mound_top - ki)
         hy_eff = mound_top
     if hit.any():
         d = old_y - hy_eff
