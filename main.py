@@ -1966,6 +1966,102 @@ TRAIL_SCALE = _trail_scale_probe()
 #      35%→5%), 墨量全靠粒子 ⇒ 才需要它。")
 TRAIL_SCALE = 1.0 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
 
+
+def _stream_open_probe(name, fname, dflt):
+    """`HG_<name>` 环境变量优先(桌面), 其次与 `main.py` 同目录的 `<fname>` 标记文件。
+
+    与 `_trail_scale_probe` 同一套(安卓读不到环境变量 ⇒ 设备单变量走标记文件)。
+    """
+    env = os.environ.get(name)
+    if env is not None:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               fname), "r") as fh:
+            return float(fh.read().strip())
+    except Exception:
+        return dflt
+
+
+# 🔴🔴 **2026-10-12: 沙流的"深度筛" —— 空隙先 0 后越来越多(用户点名的形状)。**
+#
+# 用户原话: 「**沙子的空隙的多少 可以做到先0后很多吗？越来越多**」+「无非就是沙子随着重力
+#   下落的时候, **的形状绘制**」。
+#
+# 实测靶(1:1 渲染, 出口以下柱带内"真背景=空隙"占比; 这是全项目唯一贴脸的标定资料):
+#     0-25px **1.1%** · 25-60px 3.8% · 60-120px 5.0% · 120-200px 8.2% · 200-300px **12.0%**
+#     · 300px 以下平在 9~11%   ⇒ **起点不是 0, 而且 200px 之后不再增长**。
+#
+# 做法(只动**绘制**; 粒子物理/守恒/随机数流一字不动):
+#     每颗粒子按"它当前的下落距离 d"算一个门槛 `open(d)`(顶部 0 → 底部 STREAM_OPEN),
+#     再用一张**柱坐标锚定**的平滑噪声查表: `噪声(x, d) >= open(d)` 才画。
+#     · `open=0` 段 ⇒ 一颗不筛 ⇒ 顶部实心;
+#     · 越往下门槛越高 ⇒ 被筛掉的越多 ⇒ 空隙越来越多。
+#     · 纯函数(不含时间项、不抽随机数)⇒ **静止帧逐位稳定**(暂停盯着看不会闪);
+#       粒子寿命只有几十毫秒, 若按"粒子 id"随机会每帧换一批洞 —— 那是这个需求最大的坑。
+#     · 查表坐标用 `(x−cx, d)`(柱坐标, 不随窗口/相机动) ⇒ 免疫屏幕空间抖动。
+#
+# 驱动量的**形式**取自自由落体颗粒流的"拉伸年龄" τ=√(1+2gd/v0²)−1
+#   (Royer/Waitukaitis, arXiv:1203.1532) —— 它给"顶部为什么该是实心"一个物理身份
+#   (τ 小的时候拉伸把扰动压住)。⚠️ **但文献阈值 τ≈8 反推的起振深度 109~320px 比我们
+#   实测的起点(25~60px)晚 2~5 倍** ⇒ 只借形式,**门槛曲线用我们自己的剖面标定**
+#   (`STREAM_OPEN_START` / `STREAM_OPEN_RAMP` 就是那两个标定常数)。
+#
+# 四路联网调研点名的坑(已避开): 别做成"串珠/肠节"(1.39 翻过车) · 柱宽不许变 ·
+#   绘制期不许抽随机数(2.11 翻过车) · 移动端别用 `discard`(tile GPU 破坏 early-Z) ——
+#   本实现**一个片元都不丢**, 只是在 CPU 侧少喂一颗粒子进桶。
+STREAM_OPEN = _stream_open_probe("HG_STREAM_OPEN", "streamopen", 0.42)
+STREAM_OPEN_START = _stream_open_probe("HG_STREAM_OPEN_START", "openstart", 0.06)
+STREAM_OPEN_RAMP = _stream_open_probe("HG_STREAM_OPEN_RAMP", "openramp", 0.42)
+STREAM_OPEN_CELL = _stream_open_probe("HG_STREAM_OPEN_CELL", "opencell", 7.0)
+_STREAM_OPEN_TABLE = None
+
+
+def _stream_open_table():
+    """懒惰建一张 (192, 1024) 的平滑值噪声表, 值域 [0,1)。
+
+    为什么是"值噪声"而不是白噪声: 白噪声筛出来是**椒盐点**(每一颗独立随机),
+    读起来是"柱子变淡"而不是"**有洞**"; 用户要的是空隙(成片的孔)。格子尺度由
+    `STREAM_OPEN_CELL` 定(单位=像素, 7px ⇒ 洞的尺度 ~7~14px, 与柱宽同量级)。
+    纵向比横向长(1024 vs 192) ⇒ 洞被拉成竖条, 与"下落"的方向一致。
+    """
+    global _STREAM_OPEN_TABLE
+    if _STREAM_OPEN_TABLE is not None:
+        return _STREAM_OPEN_TABLE
+    try:
+        import numpy as np
+    except Exception:
+        return None
+    rng = np.random.default_rng(20261012)      # 固定种子 ⇒ 每台设备同一张图案
+    # 🔴 **格子尺度就是"洞"的尺度**(单位: 表的列/行 × `STREAM_OPEN_CELL` px)。
+    #    ⚠️ 第一版写成 (24, 128) 格 ⇒ 世界横向一格 **56px, 比柱还宽** ⇒ 筛出来不是洞,
+    #    而是**整条横带**整段消失(顶部直接被吃掉一条, 实测 0-25px 空隙 41.7%)。
+    #    这一版: 横 2 列 / 纵 4 行一格 ⇒ 横 14px、纵 28px(cell=7) —— 竖长条, 与下落方向一致。
+    gx, gy = 192 // 2, 1024 // 4
+    g = rng.random((gx + 1, gy + 1), dtype=np.float32)
+    # 双线性放大到 (192, 1024)
+    xi = np.linspace(0, gx, 192, endpoint=False)
+    yi = np.linspace(0, gy, 1024, endpoint=False)
+    x0 = np.floor(xi).astype(np.int64); y0 = np.floor(yi).astype(np.int64)
+    fx = (xi - x0)[:, None].astype(np.float32); fy = (yi - y0)[None, :].astype(np.float32)
+    a = g[x0][:, y0]; b = g[x0 + 1][:, y0]; c = g[x0][:, y0 + 1]; d = g[x0 + 1][:, y0 + 1]
+    top = a + (b - a) * fx
+    bot = c + (d - c) * fx
+    tbl = (top + (bot - top) * fy).astype(np.float32)
+    # 🔴 **直方图均衡(秩归一化)**: 双线性放大后的值噪声**分布集中在 0.5 附近**,
+    #    低尾很稀 ⇒ 拿它当阈值筛, `open=0.28` 只能筛掉百分之几(实测: 深度 400 保留 100%)。
+    #    秩归一化后边缘分布**恰好均匀** ⇒ `keep = tbl >= open` 时
+    #    **`open` 就等于"被筛掉的比例"**(面积意义上) ⇒ 旋钮可以直接对着实测靶标定。
+    flat = tbl.ravel()
+    order = flat.argsort(kind="stable")
+    rank = np.empty_like(order)
+    rank[order] = np.arange(flat.size, dtype=np.int64)
+    _STREAM_OPEN_TABLE = (rank / float(flat.size)).reshape(tbl.shape).astype(np.float32)
+    return _STREAM_OPEN_TABLE
+
 # `_apply_max_refresh_rate()` 把 `Display.getSupportedModes()` 的**整个列表**写在这里,
 # 由基准日志的 `refresh_modes=` 带出来(桌面/无安卓时为 None)。
 # 为什么要它: 用户那台 Y700 五代是 **165Hz 屏**, 而日志里 `refresh_hz` 一直只有 **120**
@@ -8077,6 +8173,28 @@ class HourglassWidget(Widget):
                 color.a = 0
                 rect.size = (0, 0)
 
+    def _stream_sieve_keep(self, xs, ys):
+        """沙流深度筛: 返回布尔数组(True = 这一颗要画), 或 None(功能关闭)。
+
+        纯函数 —— **不抽随机数、不含时间项**, 只吃 `(x, 下落距离)` 与三个常数。
+        见 `STREAM_OPEN` 那一大段注释(来历 / 标定靶 / 避开的坑)。
+        """
+        if STREAM_OPEN <= 0.0:
+            return None
+        tbl = _stream_open_table()
+        if tbl is None:
+            return None
+        np = _np
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        dia = max(1.0, 2.0 * self._R_inner)
+        d = outlet - ys                                  # 下落距离(像素)
+        span = max(1.0, STREAM_OPEN_RAMP * dia)
+        open_ = np.clip((d - STREAM_OPEN_START * dia) / span, 0.0, 1.0) * STREAM_OPEN
+        cell = max(1.0, STREAM_OPEN_CELL)
+        ix = ((xs - self._cx) / cell).astype(np.int64) % tbl.shape[0]
+        iy = (d / cell).astype(np.int64) % tbl.shape[1]
+        return tbl[ix, iy] >= open_
+
     def _group_stream_particles(self):
         """按 (色调, 线宽) 分桶 —— 返回 `{key: [粒子下标, ...]}`, 不再是 dict 列表。
 
@@ -8115,6 +8233,23 @@ class HourglassWidget(Widget):
             # 用 ~(y >= outlet) 而不是 y < outlet: 标量版是 `if y >= outlet: continue`,
             # NaN 时两者都为 False 故**不跳过** —— 取反才逐字对齐(NaN 实际不会出现)。
             sel = np.flatnonzero(~(y_all >= outlet))
+            # 🔴 2026-10-12: **深度筛**(空隙先 0 后越来越多) —— 见 `STREAM_OPEN` 的注释。
+            #    在这里过滤一次 ⇒ **两条渲染路径一起生效**(numpy 桶与标量桶都从 `sel` 出发)。
+            _keep = self._stream_sieve_keep(self.px[:n], y_all)
+            if _keep is not None:
+                if os.environ.get("HG_SIEVE_DBG"):
+                    _o = 2 * self._neck_y - self._taper["y_bot"]
+                    _d = _o - y_all[:n]
+                    _drop = _keep == False
+                    print("SIEVEDBG n=%d kept=%d dropped=%d | d(min/max)=%.1f/%.1f dropped_d(min/max)=%s/%s"
+                          % (n, int(_keep.sum()), int(_drop.sum()), float(_d.min()), float(_d.max()),
+                             "%.1f" % float(_d[_drop].min()) if _drop.any() else "-",
+                             "%.1f" % float(_d[_drop].max()) if _drop.any() else "-"))
+                    print("SIEVEDBG outlet=%.1f R_inner=%.1f open_at_d0=%.3f open_at_d100=%.3f"
+                          % (_o, self._R_inner,
+                             max(0.0, min(1.0, (0 - STREAM_OPEN_START*2*self._R_inner)/max(1.0,STREAM_OPEN_RAMP*2*self._R_inner)))*STREAM_OPEN,
+                             max(0.0, min(1.0, (100 - STREAM_OPEN_START*2*self._R_inner)/max(1.0,STREAM_OPEN_RAMP*2*self._R_inner)))*STREAM_OPEN))
+                sel = sel[_keep[sel]] if sel.size else sel
             if sel.size:
                 # ★ **全选时省掉三次花式索引**(2026-10-07 性能)。粒子是在颈口**出生**的,
                 #   往下只会更小 ⇒ `y >= outlet` 几乎永不成立, `sel` 实际等于 `arange(n)`
@@ -8174,15 +8309,27 @@ class HourglassWidget(Widget):
                     #   ⚠️ key 的构法与 `_build_dynamic_canvas` 里 `_stream_pools` 一致:
                     #      行 `n_colors` 对应 key `-1`(高光), 其余行就是 key 本身;
                     #      `slot` 0/1 对应尺寸 1/2。
+                    # 🔴🔴 **2026-10-12 修(深度筛查出来的潜伏 bug)**: `order` 是在
+                    #    **筛选后数组**里的**位置**, 不是粒子下标 —— 另一条分支一直写的是
+                    #    `sel[order[...]]`, 只有这一支漏了映射。它**一直没出事**, 因为
+                    #    筛之前 `sel` 恰好 = `arange(n)`(上面那句"全选时省掉三次花式索引"
+                    #    就是这么优化的)⇒ 位置 == 下标。深度筛第一次让 `sel` 成为**真子集**
+                    #    ⇒ 桶里装的变成"**下标最小的那批**"(= 最老的 = 柱底),
+                    #    **柱子上段整段消失**(实测: 出口下 0-25px 空隙 96%, 而 Line 路径 1.1%)。
+                    #    ⇒ 有筛时老老实实映射回去(一次 ≤n 的 gather/桶, 几 µs)。
                     npb = self._stream_np
                     npb.clear()
+                    _map = None if sel.size == n else sel
                     for k in range(counts.shape[0]):
                         c = int(counts[k])
                         if not c:
                             continue
                         key_idx = k >> 1
+                        _part = order[pos:pos + c]
+                        if _map is not None:
+                            _part = _map[_part]
                         npb[(-1 if key_idx == n_colors else key_idx,
-                             1 if (k & 1) == 0 else 2)] = order[pos:pos + c]
+                             1 if (k & 1) == 0 else 2)] = _part
                         pos += c
                     return npb
                 by_key = [[buckets.get((i, s)) for s in (1, 2)]
@@ -8211,6 +8358,11 @@ class HourglassWidget(Widget):
         #    **改色调一定要两条路径一起改** —— 判据: 同一个 `HG_GRAIN_GAIN` 换值画面必须变。
         _gx = self.px[:pv.n]
         _gidx = None
+        # 🔴 2026-10-12: 标量路径也要过**深度筛** —— 两条路径必须一起改(见 `STREAM_OPEN`)。
+        _keep_scalar = None
+        if STREAM_OPEN > 0.0 and _np is not None and pv.n:
+            _keep_scalar = self._stream_sieve_keep(_np.asarray(_gx),
+                                                   _np.asarray(ys[:pv.n]))
         if FLOW_GRAIN_TONE and not pv.use_np and _np is not None and pv.n:
             _ysa = _np.asarray(ys[:pv.n])
             _sel = _np.flatnonzero(~(_ysa >= outlet))
@@ -8223,6 +8375,8 @@ class HourglassWidget(Widget):
         for i in range(pv.n):
             y = ys[i]
             if y >= outlet:
+                continue
+            if _keep_scalar is not None and not _keep_scalar[i]:
                 continue
             if lights[i]:
                 row = light_row
