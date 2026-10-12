@@ -9662,26 +9662,14 @@ class HourglassApp(App):
         _mid(rough_box)
         self._dev_level_btns = {"grain": grain_btns, "rough": rough_btns}
 
-        # ---- 沙流断续 三档 (2026-10-11 用户要求写入设定) ----
-        # 改的是**出口以下那段沙柱**的"团与缝"(见 `sand_flow_material.py` 的 `CLUMP_LEVELS`)。
-        # 三档的数值是**量出来的**: 缝面积占比 0% / 2.4~5.0% / 7.1~10.8%
-        # (`tools/_probe_gap_structure.py`, 自带正负对照)。改档只写几个 uniform,
-        # **不重建画布、不重烘材质** —— 运行中直接生效。
-        def pick_clump(lb):
-            if apply_clump_level(lb) is None:
-                return
-            for _ctx in getattr(hg, "_sand_flow_contexts", ()) or ():
-                for _k, _v in _clump_level_pairs(lb):
-                    _ctx[_k] = float(_v)
-            refresh_clump(lb)
-            hg.save_config(self._selected_color_name())
-
-        clump_box, refresh_clump, clump_btns = make_levels(
-            "沙流断续", [lb for lb in clump_level_labels()],
-            current_clump_level(), pick_clump,
-            fmt=lambda lb: _clump_level_hint(lb))
-        _mid(clump_box)
-        self._dev_level_btns["clump"] = clump_btns
+        # ⛔ 2026-10-12 **撤掉「沙流断续」三档**（用户勾的是"清掉点了没反应的选项"）。
+        #    它驱动的是 `sand_flow_material` 的聚团/缝那几个旋钮，而**那层几何自 2.76 起
+        #    默认不发射**（`NECK_FREE_GEOM=0`）⇒ 三档拧遍，画面**一个像素都不变**
+        #    （复核员独立渲染实测：两个极端 60/60 帧逐像素相同）。
+        #    ⇒ 不再对用户摆一个假的开关。底层管道（`apply_clump_level` / `CLUMP_LEVELS` /
+        #    配置键 `clump_level`）**原样留着** —— 哪天"有连续有断续"要重做，从这里接回去。
+        #    （用户 2026-10-12 在清单里同时勾了"想要有连续有断续"这个方向，两者不冲突：
+        #      方向留着，假开关撤掉。）
 
 
         _mid(Widget(size_hint=(1, None), height=dp(6)))
