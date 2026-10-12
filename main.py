@@ -2635,6 +2635,57 @@ NECK_JOIN = os.environ.get("HG_NECK_JOIN", "1") == "1"
 #    前沿 = `min(self.py[:self.pn])` = **沙真的落到了哪儿** ⇒ 开局只有一小截, 沙落到底
 #    自然与沙堆接上。关掉用 `HG_NECK_FRONT=0`(回退成"长到沙堆面", 即 2.13 的行为)。
 NECK_FRONT = os.environ.get("HG_NECK_FRONT", "1") == "1"
+
+
+def _outlet_overlap_probe():
+    """`HG_OUTLET_OVERLAP` 环境变量优先(桌面), 其次与 main.py 同目录的 `outletoverlap` 标记文件。
+
+    ⚠️ 安卓 app **读不到宿主环境变量** ⇒ 设备上做单变量对照只能写标记文件
+    (app 私有目录 = `<app>/outletoverlap`, 与 `flowrate` 同一套)。
+    两个都没有 ⇒ None ⇒ 走出货默认。
+    """
+    env = os.environ.get("HG_OUTLET_OVERLAP")
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "outletoverlap"), "r") as fh:
+            text = fh.read().strip()
+        return float(text) if text else None
+    except Exception:
+        return None
+
+
+# 🔴 **2026-10-13(2.93): 出口那一行的"亮玻璃缝"** —— 把材质柱的下端往下补 `OUTLET_OVERLAP` 像素。
+#
+# **用户判词**(真机 1602x2560 / 165Hz / 50 秒档末段): 「快满的时候，沙柱的比较纯色。
+#   **隐约还有一个缝隙** 你看看」。
+#
+# **对抗审查的四腿闭环**(跨模型 2 专家 × CP2+AP3 轮; 记在
+#   `benchmark_logs/_vid/real22/synthesis_293.md`):
+#   1. 出口以下**没有任何材质** —— `flowrate=1`(粒子 1 颗/秒)一臂实测: 出口(y≈1050)以下
+#      整段变成**玻璃色**(`GLASS_FILL`, 73/73 px) ⇒ 出口那一行**只由新生粒子盖**;
+#   2. 新生粒子 `vy≈35~60` ⇒ 拖尾触 `max(trail, 2.0)` 地板 ⇒ **该行覆盖率只由线宽决定**;
+#   3. 而 2.86 的 `_stream_ink_q` 把末段线宽 2px→1px ⇒ 那一行盖不严;
+#   4. 底下的 `GLASS_FILL` 比沙**亮 ~45 级** ⇒ 露出一点就是一条**亮**缝("隐约"的来源)。
+#
+# **实测(同一 harness、同状态, 出口行柱心 73px 窗内的玻璃像素)**:
+#   2.92 出货 **11/73** · 2.92+`INK_HEADROOM=0`(关 2.86 压线宽) **1/73** ·
+#   1.244 参照 **0/73** · 中段 t=25 **0/73** ⇒ 主因是压线宽, 位置在出口那一行。
+#
+# **几何上它是一处亚像素漏盖**: 沙柱的切面在出口线(Kivy y)`y_end`, 而出口那一行的
+#   **像素中心**落在它下方 **0.34px** ⇒ 按像素中心规则**盖不到那一行**。
+# ⇒ 把下端再往下补几像素即可(**只在下端就是出口切口时补**)。
+#   ⚠️ 下端若已跟着**前沿/堆面**走(`NECK_FRONT`/`NECK_JOIN` 生效的那支), 那里本来就是
+#     沙的边界, **不许补** —— 补了会画出"还没落到的沙"。判据 = `|side[-1].y − y_end| < 3px`。
+#   ⚠️ 只动**几何末端**: 粒子数/物理/随机数/材质/线宽 一律未动。
+# 关掉: `HG_OUTLET_OVERLAP=0` 或设备标记 `outletoverlap=0`(逐位回退)。
+_OUTLET_OVERLAP_PROBE = _outlet_overlap_probe()
+OUTLET_OVERLAP = (2.0 if _OUTLET_OVERLAP_PROBE is None
+                  else max(0.0, float(_OUTLET_OVERLAP_PROBE)))
 # 🔴 2026-10-09: 出口以下那段沙柱的**边缘要毛**。用户判词:「沙柱看起来是个**规整的矩形**」
 #    —— 两条边死直、平行、通体实心。玻璃在出口就结束了, 以下没有任何东西约束它。
 #    关掉用 `HG_NECK_FREE=0`。
@@ -4732,6 +4783,14 @@ class HourglassWidget(Widget):
                                   % (self.elapsed, len(_head),
                                      max(_head) - min(_head), min(_head), max(_head),
                                      " ".join("%.1f" % _v for _v in _head)))
+        # 🔴 **2026-10-13(2.93): 把材质柱的下端再往下补 `OUTLET_OVERLAP` 像素** ——
+        #    治出口那一行的"亮玻璃缝"(推导与四腿实测见 `OUTLET_OVERLAP` 的定义处)。
+        #    ⚠️ **只在下端就是出口切口时补**: 下端若已跟着前沿/堆面走, 那里本来就是
+        #       沙的边界, 补了等于画出"还没落到的沙"。
+        if (OUTLET_OVERLAP > 0.0 and side
+                and abs(side[-1][1] - y_end) < 3.0):
+            _x_last, _y_last = side[-1]
+            side[-1] = (_x_last, _y_last - OUTLET_OVERLAP)
         # 🔴 **容量断言(2026-10-09)。** `_neck_quads` 装不下时, 绘制循环
                 #    `for i in range(len(quads))` **静默丢掉最后几段, 一行报错都没有** ——
                 #    项目踩过(`len(side)=27 > 容量 25`, 画面"一点没变"而原因查了很久)。
