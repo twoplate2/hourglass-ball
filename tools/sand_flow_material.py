@@ -221,6 +221,9 @@ uniform float sand_free_coarse;
 uniform float sand_free_grain;
 // 🔴 **2026-10-10: 平流用连续时间**(见下面 `adv` 那段)。0 = 旧行为(每周期回跳, 净位移 0)。
 uniform float sand_adv_cont;
+// 🔴 **2026-10-12(2.88): 上球/颈部改"刚性连续下滚"**(去掉 1 Hz 的台阶与两相位沸腾)。
+//    1 = 新行为; 0 = **逐字回到旧行为**(负对照 / 一键回退)。见下面那段注释。
+uniform float sand_up_scroll;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -470,6 +473,27 @@ void main(void) {
     float wa = 1.0 - abs(1.0 - 2.0 * a);
     float wb = 1.0 - wa;
     vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
+    // 🔴 **2026-10-12(2.88): 上球/颈部: 刚性**连续**下滚 —— 去掉 1 秒一次的"扰动刷新"。**
+    //    用户判词:「上层的沙子会不断的**扰动和刷新** …… 你看看 v1.244 是怎么做的, 好像就没有」
+    //    +「这个扰动**很不明显**, 我差点以为是我的幻觉」。
+    //    实测(平板口径 50s, 上球沙体的帧间差): 旧版每隔 **1.00 秒**一次尖峰
+    //      (3.50 vs 基线 1.83, ×1.9); 1.244 = **完全平**(1.80~1.90, 零尖峰)。
+    //    二分出的根因: 1.244 的 `update_flow` **只在 `(material, palette)` 变化时**写
+    //      `sand_clock` ⇒ **时钟冻住** ⇒ 图案不动(代价: 上球**没有流动**) ⇒ 也就没有刷新。
+    //      2.75 把 `sand_mix` 修活之后**流动来了、台阶也来了**: `floor(t)*jump` 每秒跳
+    //      `0.125uv`, 且**两相位权重**(周期 1s)每秒交叉一次 —— 而两相位的取样点相距
+    //      `velocity*0.5`, 在 3.5px 的颗粒尺度上已算"两个独立图案" ⇒ 交叉 = 每秒一次的
+    //      **沸腾**。两处都是 1 Hz, 所以尖峰周期恰是 **1.00s**。
+    //    ⇒ 上球/颈部改成**刚性(与位置无关)+ 连续时间**的下滚:
+    //      · 速率与旧的台阶**逐秒同量**(`jump` per second), 方向也一致;
+    //      · `adv` 用**不回绕**的 `sand_time` ⇒ 没有 `fract` 回跳可藏, **单相位**即可
+    //        (第二相位的唯一作用就是藏回跳) ⇒ 交叉沸腾没了;
+    //      · **刚性**(速度与位置无关)⇒ 时间不封顶也**不会剪切抹开** —— 自由段那条
+    //        "材料坐标"是同一条道理(`−v(y)·t` 糊成竖条雾就是因为剪切 ∝ t)。
+    //    `sand_up_scroll = 0` ⇒ **逐字回到旧行为**(可作负对照 / 一键回退)。
+    float free_s = (sand_free.x > 0.0 && sand_position.y < sand_free.x) ? 1.0 : 0.0;
+    float up_scroll = (sand_adv_cont > 0.0 && sand_up_scroll > 0.0
+                       && free_s < 0.5) ? 1.0 : 0.0;
     // 自由段(sec=0)把整个采样参数乘 `sand_free_coarse` —— **位置和平流一起乘**,
     // 所以屏幕上的速度不变、只把纹理放大(颗粒变粗)。其余区域系数恒 1 ⇒ 逐字旧行为。
     float ck = (sec < 0.5) ? sand_free_coarse : 1.0;
@@ -478,12 +502,16 @@ void main(void) {
     if (free_here > 0.5) {         // 自由段: y 交给材料坐标(上面算好的 `mat_y`)
         samp_a.y = mat_y;
         samp_b.y = mat_y;          // 自由段 `sec==0` ⇒ 两相位本来就同式
+    } else if (up_scroll > 0.5) {  // 上球/颈部: 刚性连续下滚(单相位)
+        samp_a = uv + jump * sand_time;
+        samp_b = samp_a;
     }
-    float ga = grain(samp_a * ck + floor(t) * jump * sec);
+    float ga = grain(samp_a * ck + floor(t) * jump * sec * (1.0 - up_scroll));
     float gb = grain(samp_b * ck + floor(t + 0.5) * jump * sec + vec2(0.5));
     float detail = (sec < 0.5)
         ? ga * sand_free_grain
-        : (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
+        : ((up_scroll > 0.5) ? ga
+           : (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb));
     // ⚠️ 聚团**不能加在 `detail` 上**: `tone = clamp(lighting + detail, -1, 1)` 早就饱和,
     //    加进去会被**裁掉**(实测 amp=0.18 只改 2 级、amp=2.0 也只 20 级且看不出形状)。
     //    ⇒ 它按物理该是**密度**变化: 改成去调制 `coverage`(见下面自由段那一处)。
@@ -933,6 +961,9 @@ class SandFlowContext(RenderContext):
                 ("sand_hole_wide", "HG_HOLE_WIDE", "holewide", 0.5),
                 # 平流速度 y 分量的系数: 1.0 = 旧行为。0 = 完全不平流 y(诊断用)
                 ("sand_flow_vy", "HG_FLOW_VY", "flowvy", 1.0),
+                # 🔴 2026-10-12: 上球/颈部的"刚性连续下滚"(去掉每秒一次的扰动刷新)。
+                #    0 = 旧行为(`floor(t)*jump` 台阶 + 两相位交叉) —— 见 shader 里那段注释。
+                ("sand_up_scroll", "HG_UP_SCROLL", "upscroll", 1.0),
                 # 出口以下"打散"的渐入长度(球径比例): 0 = 旧行为(有分界线)。
                 # 由 `main.NECK_FREE_RAMP_TUBES`(单位=颈管高的倍数)换算后喂进来。
                 ("sand_free_ramp", "HG_FREE_RAMP", "freeramp", 0.0),
