@@ -69,11 +69,23 @@ LINE_ENV = {"HG_SPLASH_RENDERER": "batch", "HG_NECK_RENDERER": "line",
 #    4349px, 其中出口以上 3627px)。**兜底路径必须自己走出来对一遍。**
 FLAT_ENV = {"HG_SPLASH_RENDERER": "batch", "HG_NECK_RENDERER": "batch",
             "HG_FLOW_RENDERER": "texture", "HG_SAND_MATERIAL": "flat"}
+# 🔴 **2026-10-13(2.94) 新增 `fuse0` 臂 —— 它是一条"等价性闸门"。**
+#    背景(对抗审查 N4): 沙流有**两条绘制分支**(融合 / 逐桶), 由 `FUSE_BUCKETS` 与
+#    `use_np`(在途粒子 ≥800) 决定走哪条。**两条分支曾经不等价** —— 融合路径漏了
+#    `reach`(2.82 修的"落沙↔沙堆空横线"), ⇒ 设备在 ≥800 的那 45% 时长里自由落体段
+#    掉约 35% 墨量, 跨过 800 那一帧**1 秒内从撕裂翻成实心**。
+#    ⚠️ 金标准原来对这条开关**完全隐形**(`grep FLOW_FUSE tools/_render_golden.py` = 0 命中):
+#      稳态臂的状态全在融合里、末段臂全在逐桶里, **穿越时刻本身没有一帧**。
+#    ⇒ 加这条臂之后, **它与 `batch` 臂必须逐像素一致** —— 谁再把两条分支改歪, 这里就红。
+FUSE_ENV = {"HG_SPLASH_RENDERER": "batch", "HG_NECK_RENDERER": "batch",
+            "HG_FLOW_RENDERER": "texture", "HG_SAND_MATERIAL": "grain",
+            "HG_FLOW_FUSE": "0"}
 CASES = (("batch", ENV, ARGS),
          # 非批处理那条路(桌面默认)也记一份 —— 它走的是 `_sync_rects_arrays`
          ("rect", {"HG_NECK_RENDERER": "line", "HG_FLOW_RENDERER": "texture",
                    "HG_SAND_MATERIAL": "grain"}, ARGS),
          ("flat", FLAT_ENV, ARGS),
+         ("fuse0", FUSE_ENV, ARGS),
          ("tail", ENV, ("--only-tail",)),
          # 🔴 2026-10-09 新增**开局臂**: 50s 周期 × t∈[0.25,2.5]s。
          #    steady 臂切掉前 0.5s ⇒ "沙柱画到沙前面去"那一类缺陷**没有一帧能看见**;

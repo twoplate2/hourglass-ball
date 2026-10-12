@@ -78,7 +78,26 @@ PAD_ENDPOINT = FLOAT3.pack(-1e5, 0.0, 0.0)
 # (每次 2~5µs, 与数组长度无关), 而每桶只有一百多颗 ⇒ 开销盖过数据本身。
 # 拼起来后同一段算式只对 ~1600 个元素跑一遍, 调用数塌到 ~15 次。
 # 置 0 退回逐桶老路(A/B 用, 两边必须逐像素相同)。
-FUSE_BUCKETS = os.environ.get("HG_FLOW_FUSE", "1") != "0"
+# 🔴 **2026-10-13(2.94): 补设备可达通道。** 原来只认环境变量 ⇒ **安卓上永远取默认 1**
+#    ⇒ 想拿 `FUSE=0` 做对照臂只能在桌面上做(设备上那是**空转臂**, 本项目最恨的那种)。
+#    现在: `HG_FLOW_FUSE` > 本模块同目录的 `flowfuse` 标记文件 > 默认 1。
+#    ⚠️ 目录是 **`<app>/tools/`**(本模块自己所在目录), 与 `main.py` 自己的标记(`<app>/`)不同 ——
+#      写错那边 = 该臂空转, 而回读照样读得到。
+def _fuse_probe():
+    env = os.environ.get("HG_FLOW_FUSE")
+    if env:
+        return env
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "flowfuse"), "r") as fh:
+            text = fh.read().strip()
+        return text or None
+    except Exception:
+        return None
+
+
+_FUSE_PROBE = _fuse_probe()
+FUSE_BUCKETS = True if _FUSE_PROBE is None else (_FUSE_PROBE != "0")
 
 # 诊断旋钮(A/B 用, 默认关): 恢复"`TextureFlowBatch.update` 开头无条件读那四个惰性
 # list 快照"的旧行为。四个都是 `_FlowView` 的**惰性属性**, 第一次读就 `tolist()`
@@ -686,6 +705,18 @@ def install(widget_class):
             trail += blend
         top = bottom + trail
         np.minimum(top, top_limit, out=top)
+        # 🔴 **2026-10-13(2.94): 融合路径必须与逐桶路径**逐字等价** —— 补上 `reach`。**
+        #    逐桶路径在 `:326-328`(numpy)/`:359-361`(list) 里做 `bottom = bottom − reach[...]`
+        #    (把每颗粒的线段**向下延伸到接触面**, 2.82 修"落沙↔沙堆空横线"的那一改),
+        #    而这里原来只有 `bottom = view.ny[allidx]` —— **一个使用者都没有**。
+        #    ⚠️ `FUSE_BUCKETS` 原来**只认环境变量**(设备恒走融合) ⇒ 设备在在途粒子 ≥800 的
+        #       那 45% 时长里, 自由落体段**掉约 35% 墨量**(对抗审查实测: 双臂差
+        #       5657/5180/4992 px, 剖面"最长连续沙色" 8~24 vs 36~70), 跨过 800 那一帧
+        #       **设备上 1 秒内从"撕裂透光"翻成"实心"**(真机帧 long 20→18→56→56)。
+        #    顺序要紧: 与逐桶路径同序 —— **在 `top = bottom + trail` 之后**只拉下端
+        #    (见 `update()` 的 docstring: 放到 `top` 之前会被 `top_limit` 截掉一段)。
+        if reach is not None:
+            np.subtract(bottom, reach[allidx], out=bottom)
         blk = np.empty((allidx.size, 3), dtype="<f4")
         blk[:, 0] = view.nx[allidx]
         blk[:, 1] = bottom
