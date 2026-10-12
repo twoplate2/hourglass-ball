@@ -8047,6 +8047,15 @@ class HourglassWidget(Widget):
         #    (内 62% 保持实心), 平均宽度不变。关掉用 `HG_NECK_FREE=0`。
         free_front = (0.0, 0.0, 1.0, 0.0)
         free_ramp = 0.0
+        # 🔴 **2026-10-12(2.90): 上球材质的纵向采样缩放 = 球径 / **当前**沙体高**(1.244 的
+        #    tex_coords 就是按沙体高度截纹理 ⇒ 图案随沙体伸缩、随沙往下流)。
+        #    `直径/沙体高` ≥ 1: 满球时 =1(与旧观感一致), 越空越大(图案越压向颈口)。
+        #    上限 3.0 防退化(沙体高→0 时不必无限压缩; 那时上球本来也快空了)。
+        try:
+            _up_h = float(self._upper_sand_height_px())
+        except Exception:
+            _up_h = 0.0
+        up_scale = min(3.0, max(1.0, (2.0 * self._R_inner) / _up_h)) if _up_h > 1.0 else 1.0
         if (NECK_FREE and side and self._sand_flow_contexts
                 and self._sand_material is not None):
             # 下沿只在**前沿说了算**的时候才毛 —— 沙堆涨上来之后下沿就是堆面,
@@ -8271,6 +8280,14 @@ class HourglassWidget(Widget):
                                     tail_front if i == 1 else (0.0, 0.0, 1.0),
                                     free_front if i == 1 else (0.0, 0.0, 1.0, 0.0))
                 context["sand_free_ramp"] = free_ramp if i == 1 else 0.0
+                # 🔴 **2026-10-12(2.90): 上球材质"随沙体伸缩"** —— 1.244 的 tex_coords 行为。
+                #    用户判词:「我tmd都说了 要做成 v1.244 那样 …… 现在上面的沙子**完全不变化了**」。
+                #    实测复核: 1.244 的上球**帧间差 1.45**(在动!), 而 2.89 冻钟之后只有 **0.002**
+                #    (冻死了) —— 我把"1.45"误读成"只是沙面下降", 实际那是**图案跟着沙体往下流**
+                #    (1.244 的 rect 按沙体高度截纹理 ⇒ 图案被压缩/伸张, 等效 ~25px/s、方向朝颈口)。
+                #    ⇒ 上球用 `diameter / 沙体高` 当纵向采样缩放; 颈/沙堆保持 1.0(不缩放)。
+                #    只动**采样坐标**, 不引入任何钟(没有 1Hz 台阶、没有回绕)。
+                context["sand_up_scale"] = (up_scale if i == 0 else 1.0)
         else:
             self._draw_neck_grains(side)
         if (NECK_GRAINS_IN_MATERIAL and self._neck_grain_group is not None

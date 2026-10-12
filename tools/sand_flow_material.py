@@ -224,6 +224,9 @@ uniform float sand_adv_cont;
 // 🔴 **2026-10-12(2.88): 上球/颈部改"刚性连续下滚"**(去掉 1 Hz 的台阶与两相位沸腾)。
 //    1 = 新行为; 0 = **逐字回到旧行为**(负对照 / 一键回退)。见下面那段注释。
 uniform float sand_up_scroll;
+// 🔴 **2026-10-12(2.90): 上球材质的纵向采样缩放(= 球径/沙体高)** —— 1.244 的 tex_coords 行为:
+//    图案随沙体伸缩(沙面下降时图案跟着往下流, ~25px/s)。1.0 = 不缩放(颈/沙堆用)。
+uniform float sand_up_scale;
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -537,6 +540,12 @@ void main(void) {
         // ⚠️ 这一支与上面的"冻钟"互斥(`sand_up_scroll` 一个值只可能命中一个)
         samp_a = uv + jump * sand_time;
         samp_b = samp_a;
+    }
+    // 🔴 **2026-10-12(2.90): 上球按沙体伸缩**(1.244 的 tex_coords 行为) —— 见 `sand_up_scale` 的声明。
+    //    只缩放**纵向**采样坐标(沙体矮 ⇒ 采样被压缩 ⇒ 图案朝颈口方向流), 不引入任何钟。
+    if (up_static > 0.5 && sand_up_scale > 1.0) {
+        samp_a.y *= sand_up_scale;
+        samp_b.y *= sand_up_scale;
     }
     float ga = grain(samp_a * ck + floor(t) * jump * sec * (1.0 - up_scroll));
     float gb = grain(samp_b * ck + floor(t + 0.5) * jump * sec + vec2(0.5));
