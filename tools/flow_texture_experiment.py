@@ -241,7 +241,16 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
         self.live[chunk] = 0
         return part
 
-    def update(self, view, indices, top_limit, motion_scale=1, trail_scale=1.0):
+    def update(self, view, indices, top_limit, motion_scale=1, trail_scale=1.0, reach=None):
+        """`reach`: 每颗粒"线段向下延到接触面"的长度(与粒子全局下标对齐, 可为 None)。
+
+        🔴 2026-10-12(P2): 修"落沙与沙堆之间那条空横线"。实测(50 秒档末段 9 帧): 堆面之上
+        有 2~6 行纯背景(±45px 内 ≥90% 背景, 5/9 帧出现); 逐层消融证明那一带全是粒子;
+        改销毁线(下移 12px)一个像素都不动 ⇒ 不是"死早了", 是**线段画得太短**。
+        ⚠️⚠️ **两处必须同序**: 减法一律放在 `top = bottom + trail` **之后** ——
+        放在之前会把整条线段**下移**(上端也跑), 那是"出口少一截墨", 2026-10-12 踩过:
+        末段粒子少走的是 **list 分支**, 正是量它的那条路 ⇒ 量出 15 行空带。
+        """
         """`view` 是 widget 的 `_pv`(本帧 list 快照), `indices` 是本桶的粒子下标。
 
         按下标读原生 float, 不再逐颗粒取 numpy 标量。
@@ -314,6 +323,9 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                 # ★ **直接建 float32 块**: 原来先建 float64 再 `astype("<f4")`,
                 #   那是多一次分配 + 多一趟遍历。往 float32 数组里赋 float64 走的
                 #   同样是 IEEE 就近舍入 ⇒ 结果与 `astype` **逐位相同**。
+                if reach is not None:
+                    # ⚠️ 在 `top = bottom + trail` **之后**(与 list 分支同序, 见 docstring)
+                    np.subtract(bottom, reach[idx], out=bottom)
                 blk = np.empty((count, 3), dtype="<f4")
                 blk[:, 0] = view.nx[idx]
                 blk[:, 1] = bottom
@@ -344,6 +356,9 @@ class TextureFlowBatch(flow_batch_experiment.FlowBatch):
                     top = bottom + trail
                     if top > top_limit:
                         top = top_limit
+                    if reach is not None:
+                        # ⚠️ **必须在 `top` 之后**(见 update 的 docstring): 只把下端往下拉
+                        bottom = bottom - reach[i]
                     pack(data, offset, xs[i], bottom, top)
                     offset += 12
             # ⚠️ 顺序要紧: 先把纹理内容(含下面的"中性化")写完, 再上传。
@@ -510,6 +525,7 @@ def _pfade_probe():
         return None
 
 _PF = _pfade_probe()
+STREAM_REACH_MAX = 20.0   # P2: 线段下端延到接触面的上限(px)
 PARTICLE_FADE_PX = 0.0 if _PF is None else max(0.0, _PF)
 
 
@@ -611,13 +627,29 @@ def install(widget_class):
         # 拖尾长度系数(唯一真值 = `main.TRAIL_SCALE`)。见 `_trail_scale()` —— 接上之前
         # 它**在出货渲染器上是死旋钮**(只作用于 app 内 `Line` 路径)。
         ts = _trail_scale()
+        # 🔴 P2(2026-10-12): 只对**贴近落面**的那批粒子, 把线段下端延到它自己的接触高度。
+        #   `STREAM_REACH_MAX` 防中空粒子被拉成长条; 其余粒子 reach≈上限 ⇒ 由 update 里的
+        #   上限截断 —— 注意**只截断、不下移**(下移会挖掉出口那一截墨, 踩过)。
+        reach = None
+        if np is not None and self.pn and self._mound_profile is not None:
+            try:
+                _apex = self._mound_apex()
+                if _apex > 0.0:
+                    _xs = np.asarray(view.nx[:self.pn], dtype=float)
+                    _ys = np.asarray(view.ny[:self.pn], dtype=float)
+                    _c = self._mound_profile.contact_np(_xs - self._cx, _apex) \
+                         + self._lower_sand_bot
+                    reach = _ys - _c
+                    np.clip(reach, 0.0, STREAM_REACH_MAX, out=reach)
+            except Exception:
+                reach = None
         buckets = self._group_stream_particles()
         if _mk:
             _mk("flow_group")          # 分组: 桶码 = key*2+slot、稳定排序、bincount
         batches = self._flow_batches
         if np is None or not view.use_np or not FUSE_BUCKETS:
             for key, bucket in buckets.items():
-                batches[key].update(view, bucket, top_limit, motion, ts)
+                batches[key].update(view, bucket, top_limit, motion, ts, reach)
             return
         # ---- 融合路径: 所有桶拼成一条, 算式只跑一遍(见模块头 FUSE_BUCKETS) ----
         # ⚠️ 桶的**顺序**就是 dict 的插入序(`_group_stream_particles` 按桶码升序填),
