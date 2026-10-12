@@ -3830,41 +3830,20 @@ class HourglassWidget(Widget):
     def _neck_width_for_duration(self, duration):
         lo, hi = self._neck_width_limits()
         dur = max(1.0, duration)
-        # 🔴 2026-10-12: **内孔**下限在三条出口上都要过一遍(`_neck_inner_floor` 的注释)。
-        #    ⚠️ 原来 `>= 36000` 直接 `return lo` ⇒ 只改插值段是**漏掉最要紧的那一档的**。
-        floor = self._neck_inner_floor()
         if dur <= 5:
-            return max(hi, floor)
+            return hi
         if dur >= 36000:
-            return max(lo, floor)
+            return lo
         lo_d, hi_d = math.log(5), math.log(36000)
         t = (math.log(dur) - lo_d) / (hi_d - lo_d)
         t = max(0.0, min(1.0, t))
-        return max(round(lo + (hi - lo) * (1 - t)), floor)
+        return round(lo + (hi - lo) * (1 - t))
 
     def _neck_width_limits(self):
         w = self.width
-        lo = max(dp(7), round(w * 7.0 / 380.0))     # 最细(外半宽): 管内壁仍有空间
+        lo = max(dp(7), round(w * 7.0 / 380.0))     # 最细: 管内壁仍有空间
         hi = round(w * 17.0 / 380.0)                 # 最粗: 不压过球的比例
         return lo, hi
-
-    def _neck_inner_floor(self):
-        """**内孔**的下限(半宽) —— 只在下限那端咬合, 5s~600s 档一个字都不碰。
-
-        🔴🔴 **2026-10-12 修**(用户问「1000 分钟时柱子是 bug 还是设计」):
-        那条「最细」其实是写在**外半宽**上的(`lo = max(dp(7), w*7/380)`), 而沙的通道是
-        `neck_w − 管壁厚 ow`, 且 `ow = w*6/380` 与内孔**同一个量级** ⇒ **周期越长, 壁吃掉的
-        比例越大** —— 周期拉到 1000 分钟时内孔只剩:
-            桌面 400 宽 **0.7px** · 1080 宽 **2.9px** · 设备实测柱宽 **12px**(1080 屏)
-        (50 秒档是 21.0 / 51px)⇒ 屏幕上是一根**发丝**, 而注释自己写着「最细: **管内壁仍有空间**」
-        —— **与意图相反**, 所以这是算式缺陷, 不是设计。
-        ⇒ 加一条**内孔**下限: `ow + max(dp(4), w*4/380)`。实测(桌面 400): 1000 分钟档
-          内孔 0.7 → **4.0**; 设备: 柱宽 12 → **39px**; 而 **5s/50s/600s 档逐位不变**
-          (下限在那些档不咬合) ⇒ 与刚对齐的 1.244 观感不冲突。
-        """
-        w = self.width
-        ow = max(2.0, w * (6.0 / 380.0))            # 与 `_rebuild_height_table` 同一式
-        return ow + max(dp(4), round(w * 4.0 / 380.0))
 
     @property
     def speed_factor(self):
