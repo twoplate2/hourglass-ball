@@ -579,6 +579,20 @@ def _clump_level_pairs(label):
     except Exception:
         return ()
     return tuple(_sfm.live_clump_knobs(label))
+
+
+def _up_scroll_mode():
+    """上球材质走哪一支: −1 = 钟在跑(出货, = 1.244 的路) · 0 = 冻钟 · >0 = 刚性下滚。
+
+    转发给 `sand_flow_material.up_scroll_mode()` —— **不许在这里另写一份默认值**,
+    否则 Python 侧与着色器会走两支(本项目在 `sand_mix` 上栽过一模一样的坑:
+    11 个版本那层颗粒没接上, 而所有静态闸门全绿)。
+    """
+    try:
+        import sand_flow_material as _sfm
+        return float(_sfm.up_scroll_mode())
+    except Exception:
+        return -1.0
 # 隐藏菜单(长按版本号)里的档位: (显示名, 模式, 颗粒强度)。默认 = 第二/三项之间那档。
 # 颈部沙柱采样材质时的 v 锚点。两个值都被实测钉过，别随手改：
 # ⚠️ **不能取 0.5** —— 那里明暗项恰好为 0(= 基准色), 颈部会比球底**亮一个档**, 仍然读成两种材料。
@@ -1895,7 +1909,16 @@ def _flow_rate_probe():
 
 
 FLOW_RATE_PROBE = _flow_rate_probe()
-FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 1500.0
+# 🔴 **2026-10-12(2.91): 1500 → 760 —— 回到 1.244 在 50s 档的**标定档**。**
+#    用户判词:「v2.90 的**粒子移动没有 v1.244 明显**」+「虽然这些移动可能都是假的 但是**感觉
+#    v2.90 移动幅度比较小**」。
+#    实测(`tools/_probe_stream_ink.py`, 桌面 400x800 口径): **线密度 = rate×T/L**
+#      · 1.244 在 50s: rate≈720 ⇒ **2.64 颗/px**(用户当年判词:「与沙堆几乎相同」✓)
+#      · 2.90(1500)  ⇒ **5.50 颗/px** ⇒ **2.1 倍更挤** ⇒ 单体动作被淹没, 读成"移动不明显" ✓
+#    760 ⇒ lin ≈ **2.79**, 正好落在 1.244 那档、且**仍高于 600s 档"断续小珠"的门槛(1.16)**;
+#    2.76 之所以拉到 1500 是为了救长周期的断续, 但 **760 同样过门槛** ⇒ 1500 属于过冲。
+#    (复现旧密度: `HG_FLOW_RATE=1500` 或设备标记 `flowrate`。)
+FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 760.0
 
 
 def _trail_scale_probe():
@@ -8055,7 +8078,16 @@ class HourglassWidget(Widget):
             _up_h = float(self._upper_sand_height_px())
         except Exception:
             _up_h = 0.0
-        up_scale = min(3.0, max(1.0, (2.0 * self._R_inner) / _up_h)) if _up_h > 1.0 else 1.0
+        # ⚠️ **2026-10-12(2.91): 这一项现在只服务"冻钟"那条 A/B 臂。**
+        #    出货默认 `HG_UP_SCROLL = −1`(钟在跑 = 1.244 的路) ⇒ `up_static = 0`
+        #    ⇒ 着色器**根本不读** `sand_up_scale` ⇒ 运动改由 `−velocity·fract(sand_clock)`
+        #    自己给(实测 25~50 px/s、越靠颈口越快, 与 1.244 逐像素一致)。
+        #    先前把它当主路径是因为把 2.87 的"每秒一跳"误判成钟的错(真因是相位 b 的位移式子,
+        #    见 `samp_b` 那段) —— 修好之后 1.244 的路本身就能用, 不需要这个补丁。
+        _raw_scale = ((2.0 * self._R_inner) / _up_h) if _up_h > 1.0 else 1.0
+        up_scale = min(3.0, 1.0 + 1.85 * (_raw_scale - 1.0)) if _raw_scale > 1.0 else 1.0
+        if _up_scroll_mode() >= 0.0:
+            up_scale = 1.0          # 钟在跑 / 刚性下滚 ⇒ 这一项不参与(逐位等于旧行为)
         if (NECK_FREE and side and self._sand_flow_contexts
                 and self._sand_material is not None):
             # 下沿只在**前沿说了算**的时候才毛 —— 沙堆涨上来之后下沿就是堆面,
