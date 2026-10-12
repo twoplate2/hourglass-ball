@@ -68,13 +68,19 @@ def _patched_write(self, raw, off, total):
 fx.TextureFlowBatch.write_raw = _patched_write
 
 _ou = fx.TextureFlowBatch.update
-def _patched_update(self, view, indices, top_limit, motion_scale=1):
+# 🔴 **2026-10-13(N3): 签名必须跟住 `update()`。** 它在 2.82 加了 `reach=None`、
+#    在 2.76 加了 `trail_scale` ⇒ 原来那个 5 参数版本直接
+#    `TypeError: _patched_update() takes from 4 to 5 positional arguments but 7 were given`
+#    —— 而这个探针正是 1.228 那条"预热深度按几何算"的量具, 腐了半年没人发现
+#    (对抗审查 N3)。**给 `update()` 加参数时, 同步改这里。**
+def _patched_update(self, view, indices, top_limit, motion_scale=1,
+                    trail_scale=1.0, reach=None):
     k, n = _KEY.get(id(self)), len(indices)
     if n:
         _seen.add(k)
         if n > _peak.get(k, 0):
             _peak[k] = n
-    return _ou(self, view, indices, top_limit, motion_scale)
+    return _ou(self, view, indices, top_limit, motion_scale, trail_scale, reach)
 fx.TextureFlowBatch.update = _patched_update
 
 

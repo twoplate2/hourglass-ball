@@ -1732,7 +1732,35 @@ FLOW_TONE_CENTER = 2
 #        而材质纹理的亮度偏离更大) ⇒ 颗粒挤向最亮那一档。
 #    真正解决「精细度不够」的是 **`FLOW_WIDTH_CAP = 1` + `TRAIL_SCALE = 0.5`**
 #    (把墨块从 2px×(5~8)px 变成 1px×(2~3)px), 与取色无关。
-FLOW_GRAIN_TONE = os.environ.get("HG_GRAIN_TONE", "0") != "0"
+#
+# ⚠️⚠️ **2026-10-13 更正(N1, 对抗审查查出): 上面那两条"量过没帮上忙"的结论,
+#    量的是坏实现。** `_stream_grain_idx` 里 `tgt`(0..255)与 `_flow_lum`(0..1)尺度不一致
+#    ⇒ `searchsorted` 恒过界 ⇒ **每一颗粒都被顶到最亮那一档** ——
+#    "std 掉到 0.97 / 均值抬到 181 / GAIN 换三档画面相同" 全部是**那个饱和**的症状,
+#    不是取色路径的固有性质。修掉尺度之后直方图从 `{12: 2874}` 变成 `0..9` 的连续分布、
+#    均值回到 base 档(见 `_stream_grain_idx` 的注释)。**这条开关该怎么定, 要重新测。**
+def _grain_tone_probe():
+    """`HG_GRAIN_TONE` 环境变量优先(桌面), 其次与 main.py 同目录的 `graintone` 标记文件。
+
+    ⚠️ 安卓 app **读不到宿主环境变量** ⇒ 设备上做单变量对照只能写标记文件
+    (app 私有目录 = `<app>/graintone`, 与 `flowrate`/`outletoverlap` 同一套)。
+    两个都没有 ⇒ None ⇒ 走出货默认(现在是关)。
+    """
+    env = os.environ.get("HG_GRAIN_TONE")
+    if env:
+        return env
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "graintone"), "r") as fh:
+            text = fh.read().strip()
+        return text or None
+    except Exception:
+        return None
+
+
+_GRAIN_TONE_PROBE = _grain_tone_probe()
+FLOW_GRAIN_TONE = (False if _GRAIN_TONE_PROBE is None
+                   else (_GRAIN_TONE_PROBE != "0"))
 # 🔴 **2026-10-10: 色调档的量化步长。**
 #    `3` = 旧行为: `idx -= idx % 3` 把可达档磨成 **{0, 3, 6} 三档**
 #          (桶数 22→8, 是 2026-10-07 的性能优化)。
@@ -5202,8 +5230,15 @@ class HourglassWidget(Widget):
         iy = (v * size).astype(_np.int64) % size
         g = lum[iy, ix] - self._mat_lum_base
         g = g * FLOW_GRAIN_GAIN
-        # 就近取档: `_flow_lum` 单调 ⇒ 二分
-        tgt = self._mat_lum_base + g
+        # 🔴 **2026-10-13(N1, 对抗审查查出): `tgt` 必须与 `_flow_lum` 同尺度。**
+        #    `_flow_lum` 是 **0..1**(`_flow_tone` 出来的是 `hex_rgb` 的 0..1 元组),
+        #    而 `_mat_lum_base` 与 `lum` 都是 **0..255** ⇒ 原来 `tgt ≈ 175` **恒大于表上界**
+        #    ⇒ `searchsorted` 恒返回 `len` ⇒ clip ⇒ **每一颗粒都取最亮那一档**
+        #    (实测直方图 `{12: 2874}`, 即 100% 落在 tone 10)。这也解释了 2026-10-10
+        #    那次"`HG_GRAIN_GAIN` 换三档画面逐像素相同 / std 反而掉到 0.97" —— 那是
+        #    **病**, 不是这条取色路径的固有性质(它的结论"量过没帮上忙"建立在坏实现上)。
+        #    `/255` 之后 GAIN=1.0 时 `tgt ≡ lum_field/255` = 材质局部亮度, 落在表内。
+        tgt = (self._mat_lum_base + g) * (1.0 / 255.0)
         idx = _np.searchsorted(_np.asarray(self._flow_lum), tgt)
         idx = _np.clip(idx, 0, len(self._flow_lum) - 1)
         return idx - (FLOW_TONE_CENTER - 4)
@@ -5475,6 +5510,9 @@ class HourglassWidget(Widget):
         代进去, 落在合并后的**只有 {0, 3, 6}**; 再加高光那一档(`key = n_colors`,
         在 `_stream_pools` 里就是 `-1`)。
         ⇒ `_stream_pools` 那 **24** 个桶里, 另外 **16 个永远拿不到颗粒**。
+        ⚠️ **2026-10-13: 上面这条只在"出生相位取色"(`FLOW_GRAIN_TONE=0`)时成立。**
+        开了材质取色就是 `[0, last]` 整段(见下面的分支)—— 那时 24 个桶**全部**要预热,
+        `_collect_warm_jobs` 的队列会长一倍多(设备上 12ms/帧的预算要几十帧才跑完)。
 
         ⚠️ 两条路径的次序不同(numpy 先 clip 后合并, 标量先合并后 clip)⇒ 这里两种次序
         都算一遍取并集, 免得将来改了一处就漏。
@@ -5491,6 +5529,14 @@ class HourglassWidget(Widget):
             b = 0 if b < 0 else (last if b > last else b)
             out.add(a)
             out.add(b)
+        if FLOW_GRAIN_TONE:
+            # 🔴 **2026-10-13(N1 修复的配套)**: 走材质取色时 `w = _g`(在执行 `np.minimum(w, 8)`
+            #    **之后**才赋值)⇒ `w = 档位 + (FLOW_TONE_CENTER−4)`, 而档位是"就近取档"的
+            #    结果 ⇒ **`[0, last]` 整段都可能出现**, 不再是那三档。
+            #    不覆盖的后果就是 2026-10-07 那个"**起跑必有一帧低**"原地复活:
+            #    活桶不在预热集里 ⇒ 运行期现建块(设备 ~6.3ms/块)。
+            for v in range(last + 1):
+                out.add(v - v % FLOW_TONE_QUANT)
         out.add(-1)                      # 高光档
         return out
 
@@ -8650,7 +8696,17 @@ class HourglassWidget(Widget):
                 row = light_row
             else:
                 if _gidx is not None:
-                    index = int(_gidx[i])
+                    # 🔴 **2026-10-13: 这里漏了与 numpy 路径同一个偏移。**
+                    #    `_stream_grain_idx` 的返回值语义是 **`w`**(与相位那套同一个语义:
+                    #    `idx = w + (FLOW_TONE_CENTER − 4)`), numpy 路径写着
+                    #    `idx = w + (FLOW_TONE_CENTER - 4)`; 这里原来直接把 `w` 当 `idx` 用
+                    #    ⇒ **标量路径比 numpy 路径亮 2 档**, 且能到 `idx = 10`
+                    #    (量化后 {0,3,6,9} 之外多一个档)。
+                    #    实测症状(改前, `tools/_probe_chunk_need.py` 的证伪口):
+                    #    `死桶里出现的 [(10,1),(10,2)]` + `运行期建块 [((10,1),0,1),((10,2),0,1)]`
+                    #    —— 露出来的活桶不在预热域里 ⇒ 运行期现建块(设备 ~6.3ms/块) ⇒
+                    #    "起跑必有一帧低"复活。**两条路径必须给出同一个 `index`。**
+                    index = int(_gidx[i]) + (FLOW_TONE_CENTER - 4)
                 else:
                     w = int(phases[i] * tone_scale)
                     if w > 8:
