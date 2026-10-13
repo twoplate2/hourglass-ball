@@ -70,6 +70,33 @@ def entries():
                   key=lambda p: p.stat().st_mtime)
 
 
+def sweep_junk(go: bool) -> int:
+    """顺手清**可再生垃圾**: 仓库里所有 `__pycache__/` 与 `*.pyc`(与 `_temp/` 无关)。
+
+    它们 100% 可再生(下次 import 就回来), 且 `_kivyhome/` 那种被引用的目录不在其列。
+    """
+    hits = []
+    for dp, dn, fn in os.walk(ROOT):
+        if ".git" in dp.split(os.sep) or "_temp" in dp.split(os.sep):
+            continue
+        for d in list(dn):
+            if d == "__pycache__":
+                hits.append(pathlib.Path(dp) / d)
+                dn.remove(d)
+        for f in fn:
+            if f.endswith(".pyc"):
+                hits.append(pathlib.Path(dp) / f)
+    n = sum(size_of(p) for p in hits)
+    print("可再生垃圾(__pycache__ / *.pyc): %d 项, %.1f MB" % (len(hits), n / 1e6))
+    if go:
+        for p in hits:
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                p.unlink(missing_ok=True)
+    return len(hits)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", nargs="?", default="list", choices=("list", "sweep", "clear"))
@@ -77,9 +104,11 @@ def main():
     ap.add_argument("--go", action="store_true")
     a = ap.parse_args()
     ensure()
+    junk = sweep_junk(a.go)
     items = entries()
     if not items:
         print("_temp/ 是空的(规矩见 _temp/README.txt)")
+        print("== 干跑。加 --go 真删 ==" if junk and not a.go else "")
         return 0
     if a.cmd == "list":
         print("_temp/ 共 %d 项, %.1f MB —— `sweep` 的到期线 = %g 天"
