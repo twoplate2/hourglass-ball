@@ -102,6 +102,11 @@ def benchmark_environment(widget):
     # `图元` 两栏**的旋钮。不记的话又回到"标记文件到底有没有被读到"只能靠猜。
     # ⚠️ 这一行**必须在 `source` 之后** —— 放在上面那个 dict 后面会 UnboundLocalError。
     environment["flow_rate"] = getattr(source, "FLOW_BASE_RATE", None)
+    environment["sand_engine"] = "pymunk" if getattr(source, "PYMUNK_SAND", False) else "legacy"
+    if environment["sand_engine"] == "pymunk":
+        environment["flow_rate"] = None
+        solver = getattr(widget, "_pymunk_flow", None)
+        environment["pymunk_parameters"] = solver.metrics() if solver is not None else None
     # 飞溅存活上限(见 `main.py:_splash_max`) —— 同上, **标记文件必须自证被读到**。
     environment["splash_max"] = getattr(source, "SPLASH_MAX", None)
     # 批处理块预热(见 `main.py:_warm_batches_step`)开没开 —— 同上, **标记文件必须自证被读到**。
@@ -579,6 +584,8 @@ class BenchmarkRunner:
         "_sand_released", "_sand_landed", "_sand_pending", "_sand_active",
         "_sand_timing",
         "_sand_resized",
+        "_mound_flow_clock", "_first_impact_clock", "_last_impact_clock",
+        "_contact_hits", "_splash_reference_speed",
     )
 
     def __init__(self, widget, on_case, on_finish, periods=PERIODS):
@@ -604,6 +611,9 @@ class BenchmarkRunner:
             return
         self._saved = {name: copy.deepcopy(getattr(self.widget, name))
                        for name in self._STATE_FIELDS}
+        # Keep the stopped contact world itself; copying a native Space also
+        # copies callback ownership and cannot preserve the live contact graph.
+        self._saved_pymunk_flow = getattr(self.widget, "_pymunk_flow", None)
         self._paused_at = time.perf_counter()
         self._environment = benchmark_environment(self.widget)
         self.widget.running = False
@@ -622,6 +632,9 @@ class BenchmarkRunner:
         ⚠️ **不能只看 `running`** —— 计时归零那一刻它们全都还在。
         """
         w = self.widget
+        solver = getattr(w, "_pymunk_flow", None)
+        if solver is not None and not solver.finished:
+            return False
         # ⚠️ 同理: `w.splashes` 是 property, 每帧重建 ~1700 个 dict。这里每帧都调
         #    (静止等待可能持续好几秒) ⇒ 改成真值 `_sn`。
         if w.pn or w._sn or w.dusts or w.flares:
@@ -883,6 +896,8 @@ class BenchmarkRunner:
         self.widget._stop_sound()
         for name, value in self._saved.items():
             setattr(self.widget, name, value)
+        if hasattr(self.widget, "_pymunk_flow"):
+            self.widget._pymunk_flow = self._saved_pymunk_flow
         pause = time.perf_counter() - self._paused_at
         for effect in self.widget.flares + self.widget.dusts:
             effect["end"] += pause

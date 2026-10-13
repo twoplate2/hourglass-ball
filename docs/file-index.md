@@ -17,9 +17,10 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 | [README.md](../README.md) | 项目运行与文档入口 |
 | [AGENTS.md](../AGENTS.md) | 当前项目工作规则 |
 | [CLAUDE.md](../CLAUDE.md) | 简短开发规则与历史资料入口 |
+| [handoff-current.txt](../handoff-current.txt) | 当前交接入口；正文按 handoff 技能存入系统 `%TEMP%`，不进入 APK |
 | [.gitignore](../.gitignore) | 忽略输出、原始素材和缓存，不控制 APK 打包 |
 | [.gitattributes](../.gitattributes) | Git 行尾等文件属性 |
-| [.githooks/pre-push](../.githooks/pre-push) | 本次外观推送核对 MuMu 外观证据、源码身份、干净工作区与版本标题；不要求帧率或完整回归 |
+| [.githooks/pre-push](../.githooks/pre-push) | 本次推送核对 Pymunk 的 PC 专项结果、外观、已提交源码身份和版本标题；不要求帧率或完整回归 |
 | [.github/workflows/build-apk.yml](../.github/workflows/build-apk.yml) | GitHub Actions 构建、检查、发布 |
 | [.github/workflows/check-file-index.yml](../.github/workflows/check-file-index.yml) | 每日北京时间 09:00 或手动检查索引和目录布局；推送时复用打包内的基础检查，不重复触发独立任务 |
 | [.github/workflows/check-regression.yml](../.github/workflows/check-regression.yml) | CI 目录、版本、语法和资料基础检查；失败拦截构建，不执行完整应用回归 |
@@ -33,6 +34,8 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 |---|---|
 | [__init__.py](../src/app/__init__.py) | 应用 Python 包入口 |
 | [app_version.py](../src/app/app_version.py) | APK、Benchmark 和复制报告共用的 `APP_VERSION` |
+| [pymunk_sand.py](../src/app/pymunk_sand.py) | 06 接入游戏后的真实颗粒碰撞、颈部供沙、下沙接触与粒子绘制；上下沙体保留计时体积模型 |
+| [requirements-pc.txt](../src/app/requirements-pc.txt) | PC 运行依赖，锁定与 06 相同的 Pymunk 7.3 |
 | [frame_benchmark.py](../src/app/frame_benchmark.py) | 帧间隔采样、统计、曲线、报告与测试状态恢复 |
 | [flow_numpy.py](../src/app/flow_numpy.py) | 主沙流的向量化物理内核，与标量路径保持等价 |
 | [splash_motion.py](../src/app/splash_motion.py) | 飞溅弹道、沙面阻尼和重新入流剔除 |
@@ -54,10 +57,14 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | 文件 | 用途与限制 |
 |---|---|
 | [android_hook.py](../src/tools/android_hook.py) | 构建时给 Manifest 注入方向与可缩放属性，不直接启动 |
+| [Pymunk 构建配方](../src/build/recipes/pymunk/__init__.py) | Android 交叉编译 Pymunk 7.3，不沿用 p4a 内置的 6.0 配方；配方目录不打入 APK |
+| [verify_pymunk_integration.py](../src/tools/verify_pymunk_integration.py) | 隐藏 PC 窗口验证真实应用的新碰撞引擎、计时沙量、暂停重置收尾及相邻画面；不测试帧率或音频 |
+| [check_pymunk_release.py](../src/tools/check_pymunk_release.py) | 推送前检查 PC 接入测试、已审阅配图、源码摘要与已提交内容，不接受部分或中断测试 |
+| [test_pymunk_release.py](../src/tools/test_pymunk_release.py) | 新专项发布检查的正反例：通过、漏测、失败、空图、路径越界、过期报告与未提交源码 |
 | [check_release_version.py](../src/tools/check_release_version.py) | 检查 `--base` / `--head` 的版本递增与中文标题，兼容旧目录历史 |
 | [test_release_version.py](../src/tools/test_release_version.py) | 无窗口测试版本规则和统一版本来源 |
 | [test_repository_layout.py](../src/tools/test_repository_layout.py) | 检查资源路径、文档链接、文件索引和暂存区隔离 |
-| [_prepush.sh](../src/tools/_prepush.sh) | 兼容 shell 入口，核对此次外观范围的 MuMu 证据；不自动运行全量测试 |
+| [_prepush.sh](../src/tools/_prepush.sh) | 兼容 shell 入口，核对此次 Pymunk 接入的 PC 证据；不自动运行全量测试 |
 | [run_regression.py](../src/tools/run_regression.py) | 关联测试选择、完整执行、完成检查、报告摘要与人工证据核对；PC 限定 |
 | [test_regression_gate.py](../src/tools/test_regression_gate.py) | 正负对照验证漏测、超时、失败、旧报告和坏图片确实会阻挡 |
 | [check_design_pages.py](../src/tools/check_design_pages.py) | 解析所有设计 HTML，检查图片解码、相对链接与页内锚点；浏览器实显仍需另验 |
@@ -139,6 +146,21 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | `ui/icon.png` / `ui/startup_blank.png` | 启动器图标、启动遮罩占位 |
 | `ui/slider_track.png` / `ui/slider_cursor.png` | 周期滑杆贴图 |
 | `ui/fonts/NotoSansSC-Medium.otf` | 应用中文字体 |
+| [ui/shazhu/index.html](../ui/shazhu/index.html) | 新轮子与五种旧沙柱的 10 秒预览选择页；只是独立外观草案，不是应用录像或验证结果 |
+| [pymunk_grains.py](../ui/shazhu/pymunk_grains.py) | 06 Pymunk 实算预览：上下沙与沙流均为碰撞颗粒，无指定沙柱轮廓或额外飞溅；默认两层独立二维投影，不是三维求解，10 秒片段首尾重播而非无缝循环 |
+| [requirements-pymunk.txt](../ui/shazhu/requirements-pymunk.txt) | 新预览专用锁定依赖；安装到 `_temp/shazhu/vendor`，不改主应用依赖或 APK |
+| [verify_pymunk_preview.py](../ui/shazhu/verify_pymunk_preview.py) | 只核对新轮子预览的源码身份、真实碰撞记录、源沙落地、粒数、轨迹边界与画面非空；读取已有实算结果，不启动主应用 |
+| [fine_grains.py](../ui/shazhu/fine_grains.py) | 01 细密沙粒：独立绘制、导出循环并打开预览；`--export-only` 不打开窗口 |
+| [faceted_grains.py](../ui/shazhu/faceted_grains.py) | 02 棱角沙粒：不规则碎粒与细小明暗变化 |
+| [small_clusters.py](../ui/shazhu/small_clusters.py) | 03 轻微聚团：一部分沙粒形成小簇，不用整柱透明度遮罩制造大洞 |
+| [short_trails.py](../ui/shazhu/short_trails.py) | 04 短拖尾沙粒：长度有限的细碎运动痕迹 |
+| [worley_grains.py](../ui/shazhu/worley_grains.py) | 05 胞元沙粒：Voronoi 单粒轮廓跟随共用颗粒轨迹，不再用与落点无关的整柱纹理场 |
+| [sand_motion.py](../ui/shazhu/sand_motion.py) | 预览共用的非等距局部供沙、小团速度差、连续轨迹和逐粒落点；飞溅与滚动继承实际落地颗粒，不是真实碰撞或数学混沌求解器 |
+| [verify_preview.py](../ui/shazhu/verify_preview.py) | 仅检查预览的供沙连续、上游继承、逐粒碰撞与落点关联、瓶颈衔接、局部密度及循环；不启动主应用，不是应用回归或帧率测试 |
+| [preview_common.py](../ui/shazhu/preview_common.py) | 五方案共用的上游小团向下传递、颗粒轮廓、瓶颈衔接、实际落点飞溅与滚动及离线导出；无分格裁切、整柱摆动或强制向下变粗，只是外观草案，不导入主应用，目录排除 APK |
+| [render_all.py](../ui/shazhu/render_all.py) | 一次生成五种 10 秒短片；`python ui/shazhu/render_all.py --export-only` 后台出片，不运行应用测试 |
+| `_temp/shazhu/samples/` | 五种旧方案与 06 新轮子的 MP4、封面、细节图、播放器及生成信息；新轮子另有实算轨迹 NPZ 和碰撞记录，可再生，删除不影响应用 |
+| `_temp/shazhu/vendor/` / `_temp/shazhu/pymunk*-probe/` | Pymunk 独立依赖与短片试算；可删除，不影响主应用 |
 | [design/README.md](../design/README.md) | 设计与测试的分类入口 |
 | [design/pages/hourglass.html](../design/pages/hourglass.html) | 按 MuMu 安卓截图记录初始/运行/暂停界面，区分截图事实、代码行为与未覆盖项 |
 | `design/history/*.html` | 历史对照与候选方案，英文文件名保留版本号；历史结论不当作当前状态 |
@@ -153,6 +175,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | `design/images/mumu-2.98-20261013/` | 用户要求小幅调密后的四组同条件外观对照 |
 | `design/images/mumu-3.0-20261013/` | 减缓下段变稀疏的三组同条件外观裁图 |
 | [design/checks/records/v3.0/20261013.json](../design/checks/records/v3.0/20261013.json) / [下段疏密记录](../design/checks/records/v3.0/20261013.html) | 仅检查下段疏密调整，明确画布范围及底栏版本文字排布差异 |
+| [design/checks/records/v3.1/20261014.json](../design/checks/records/v3.1/20261014.json) / [Pymunk 接入记录](../design/checks/records/v3.1/20261014.html) | 新碰撞方式的 PC 专项检查和阶段配图；未覆盖的旧规则矩阵继续标未测，不声称音频、帧率或 Android 验收 |
 | [design/checks/records/v2.98/20261013.json](../design/checks/records/v2.98/20261013.json) / [调密记录](../design/checks/records/v2.98/20261013.html) | 仅针对疏密调整的外观观察与对照明细，不含帧率或全应用回归 |
 | `design/media/v2.97-20261013-193739/` | 三项修复的完整/开局/暂停录像与出口、边缘原速循环；源码为 2.97，容器 APK 为 2.96 |
 | [design/checks/README.md](../design/checks/README.md) / [index.html](../design/checks/index.html) | rules（规则）、records（版本记录）、notes（备注）的入口及资料生成方法 |
@@ -176,6 +199,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | `_temp/retired-docs/` | 过期问答、交接、实施计划、旧代码快照，待用户确认删除 |
 | `_temp/benchmark_logs/` | 本地测试输出和参照臂；删除不影响启动，但可能影响发布对照 |
 | `_temp/regression-runs/` | 每次统一回归的日志、报告与人工记录模板；删除后须重新验证才可发布 |
+| `_temp/pymunk-3.1/` | 新引擎的隐藏 PC 阶段图、专项报告和具名外观审阅；可再生，删除不影响应用 |
 | `_temp/mumu-media/` / `_temp/mumu-20261013/` | 原始大录屏、旧容器试录、安装包、重装前 APK/私有目录/设置备份；不影响正式页面或应用启动 |
 
 ## 快速查找

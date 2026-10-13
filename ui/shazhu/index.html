@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>沙柱候选</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;color:#222b30;background:#f3f5f5;font:15px system-ui,"Microsoft YaHei",sans-serif;letter-spacing:0}
+main{max-width:1500px;margin:auto;padding:24px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid #ccd3d5;padding-bottom:16px;margin-bottom:20px}
+h1{font-size:24px;margin:0 0 6px}
+.meta{color:#5b686e;font-size:13px;margin:0}
+.tools{display:flex;align-items:center;gap:8px}
+button{width:40px;height:36px;border:1px solid #bdc7ca;border-radius:4px;background:white;color:#25373e;font-size:18px;cursor:pointer}
+button:hover{background:#e5eeee}
+button:focus-visible,input:focus-visible{outline:3px solid #368c80;outline-offset:3px}
+.selected{font-size:14px;color:#286d61;margin-right:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:18px}
+article{border:1px solid #ccd4d5;border-radius:6px;background:#fff;overflow:hidden;min-width:0}
+article.chosen{border-color:#368c80;box-shadow:inset 0 0 0 1px #368c80}
+.heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px}
+h2{font-size:16px;font-weight:600;margin:0}
+input[type=radio]{accent-color:#368c80;width:18px;height:18px;margin:0;cursor:pointer}
+video{display:block;width:100%;aspect-ratio:640/900;background:#e8f0f6;object-fit:contain}
+.footer{padding:12px 14px;display:flex;justify-content:space-between;gap:8px;font-size:13px}
+a{color:#286d61;text-underline-offset:3px}
+.error{padding:16px;color:#923a34}
+@media(max-width:600px){main{padding:14px}.grid{gap:14px}.selected{width:100%;margin:0}}
+</style>
+</head>
+<body><main>
+<header>
+<div><h1>沙柱候选</h1><p class="meta">10 秒预览 · 外观草案，非应用录像</p></div>
+<div class="tools"><span class="selected" id="selected">尚未选择</span>
+<button id="pause" title="全部暂停" aria-label="全部暂停">&#10074;&#10074;</button>
+<button id="restart" title="全部从头播放" aria-label="全部从头播放">&#8634;</button></div>
+</header>
+<div class="grid" id="grid"></div>
+</main>
+<script>
+const candidates=[
+["pymunk_grains","06","Pymunk 颗粒碰撞"],
+["fine_grains","01","细密沙粒"],
+["faceted_grains","02","棱角沙粒"],
+["small_clusters","03","轻微聚团"],
+["short_trails","04","短拖尾沙粒"],
+["worley_grains","05","胞元沙粒"]
+];
+const base="../../_temp/shazhu/samples/";
+let chosen="";
+try{chosen=localStorage.getItem("shalou-column-candidate")||""}catch{}
+const grid=document.querySelector("#grid");
+for(const [file,number,label] of candidates){
+  const article=document.createElement("article");
+  article.dataset.candidate=file;
+  article.innerHTML=`<div class="heading"><h2>${number} ${label}</h2>
+    <input type="radio" name="candidate" value="${file}" aria-label="选择 ${number} ${label}"></div>
+    <video controls autoplay muted loop playsinline preload="auto"
+      poster="${base}${file}.png" src="${base}${file}.mp4" aria-label="${number} ${label}"></video>
+    <div class="footer"><a href="${file}.py">${file}.py</a>
+    <a href="${base}${file}-detail.png" target="_blank">颗粒细节</a></div>`;
+  const radio=article.querySelector("input");
+  radio.checked=file===chosen;
+  radio.addEventListener("change",()=>{
+    chosen=file;
+    try{localStorage.setItem("shalou-column-candidate",chosen)}catch{}
+    updateSelection();
+  });
+  article.querySelector("video").addEventListener("error",()=>{
+    const error=document.createElement("p");
+    error.className="error";
+    error.textContent=`视频未生成：python ui/shazhu/${file}.py --export-only`;
+    article.append(error);
+  },{once:true});
+  grid.append(article);
+}
+function updateSelection(){
+  const item=candidates.find(row=>row[0]===chosen);
+  document.querySelector("#selected").textContent=item?`已选 ${item[1]} ${item[2]}`:"尚未选择";
+  for(const article of grid.children)article.classList.toggle("chosen",article.dataset.candidate===chosen);
+}
+updateSelection();
+const videos=[...document.querySelectorAll("video")];
+let paused=false;
+document.querySelector("#pause").addEventListener("click",()=>{
+  paused=!paused;
+  for(const video of videos)paused?video.pause():video.play().catch(()=>{});
+  const button=document.querySelector("#pause");
+  button.innerHTML=paused?"&#9654;":"&#10074;&#10074;";
+  button.title=paused?"全部播放":"全部暂停";
+  button.setAttribute("aria-label",button.title);
+});
+document.querySelector("#restart").addEventListener("click",()=>{
+  for(const video of videos){video.currentTime=0;video.play().catch(()=>{})}
+  paused=false;
+  const button=document.querySelector("#pause");
+  button.innerHTML="&#10074;&#10074;";
+  button.title="全部暂停";
+  button.setAttribute("aria-label",button.title);
+});
+</script>
+</body>
+</html>

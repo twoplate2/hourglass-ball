@@ -21,9 +21,15 @@ jobs:
           python-version: '3.10'
       - name: Install basic check dependencies
         run: |
-          python -m pip install numpy pillow pyflakes
+          python -m pip install numpy pillow pyflakes pymunk==7.3.0 kivy==2.3.0
       - name: Check layout, version, syntax and documentation
         run: python src/tools/run_regression.py --profile core
+      - name: Check scoped Pymunk evidence gate
+        run: python -B src/tools/test_pymunk_release.py
+      - name: Install hidden PC graphics dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dri
+      - name: Check game contact engine and affected state transitions
+        run: xvfb-run -a python -B src/tools/verify_pymunk_integration.py
       - name: Preserve results even on failure
         if: always()
         uses: actions/upload-artifact@v7
@@ -32,5 +38,6 @@ jobs:
           path: |
             _temp/regression-runs/
             _temp/regression/
+            _temp/pymunk-3.1/
           if-no-files-found: error
           retention-days: 30

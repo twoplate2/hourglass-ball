@@ -1,18 +1,27 @@
 # 跳跳的沙漏
 
-Python + Kivy 沙漏计时应用，使用 NumPy 处理粒子。PC 用于运行和验证，Android APK 由 GitHub Actions 构建。
+Python + Kivy 沙漏计时应用，使用 Pymunk 处理颈部、沙柱与落地颗粒碰撞，NumPy 处理材质等数据。PC 用于运行和验证，Android APK 由 GitHub Actions 构建。
 版本唯一来源是 `src/app/app_version.py`，不在文档中另写版本号。
 
 ## PC 运行
 
 ```powershell
-pip install kivy==2.3.0 numpy pillow pyflakes
+pip install -r src/app/requirements-pc.txt
 python main.py
 ```
 
 沙漏支持开始、暂停、重置、周期和配色设置、循环音效、完成播报及内置 Benchmark。
-自动化验证不在用户本机桌面启动 PC 测试；应用运行验证使用用户预留的 root MuMu，
-只操作指定实例，不连接真机。PC 检查脚本交给 CI 执行。
+只在 PC 上运行和验证，不操作 MuMu、ADB 或真机。自动取图使用隐藏窗口和独立设置目录。
+
+## 沙粒接入
+
+沿用 06 的两层独立 2D 颗粒碰撞，保留上下沙体的计时体积；不是整只沙漏的 3D 模拟。
+出口附近、下落沙粒和落地接触由 Pymunk 求解，上半颈部延续沙体材质和计时体积。
+边缘来自真实颗粒的位置，没有额外摇摆或固定沙柱轮廓；细颈不重复逐颗模拟上方宽漏斗中的沙体。
+粒径按有效瓶颈内宽缩放，颗粒档位同步影响沙体纹理和移动沙粒，颜色纹理共享。
+当前摩擦为 0.90、回弹为 0.03，入口速度为 35、重力为 450，坐标按内球半径 166 归一化。
+通常按 120 Hz 求解，细粒自动缩短步长；极短计时缩时播放，暂停一起冻结。
+计时沙量守恒；只有已经全部落入下沙体后，才清理剩余的无沙量代理粒。
 
 ## 开发检查
 
@@ -25,7 +34,9 @@ python src/tools/run_regression.py --profile core
 PC 结果不能直接当成 Android 性能结论；检查范围与发布条件见
 [改完以后怎么检查](design/checks/README.md)、[QA 纪律](design/checks/notes/qa-rules.md)。
 外观改动只回归本次外观及相邻连接；帧率、音频和完整回归由用户另行安排。
-本次推送核对已有 MuMu 外观证据、源码身份和版本，不把基础检查当完整验收。
+本次 Pymunk 接入使用 `python -B src/tools/verify_pymunk_integration.py` 核对真实应用，
+推送前用 `check_pymunk_release.py` 核对完整的专项结果、外观记录、源码身份和版本。
+它不是 Android、音频或帧率验收；上下沙体仍使用现有计时体积模型，不宣称整只沙漏是 3D 物理。
 
 ## 构建
 
@@ -40,6 +51,7 @@ Windows 不进行 Android SDK 构建。
 | 路径 | 用途 |
 |---|---|
 | `main.py` / `src/app/` | 应用入口、版本、物理、材质、渲染与帧率测试 |
+| `src/build/recipes/` | Pymunk 的 Android 编译配方，不作为应用资源装入 APK |
 | `sounds/` | 播放音频、语音词块；`source/` 保存本地原始素材 |
 | `ui/` | 图标、界面图片、中文字体 |
 | `src/tools/` | 构建、验证、诊断与素材加工工具，不进入 APK |

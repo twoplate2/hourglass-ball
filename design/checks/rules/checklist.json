@@ -8,6 +8,8 @@
     {"id": "gate", "command": ["src/tools/test_regression_gate.py"], "timeout": 60, "unittest_min": 23},
     {"id": "static", "command": ["src/tools/run_regression.py", "--static-check"], "timeout": 60, "markers": ["STATIC_DONE"]},
     {"id": "design-pages", "command": ["src/tools/check_design_pages.py", "--out", "{run}/design-pages.json"], "timeout": 60, "markers": ["HTML_DONE", "failures=0"]},
+    {"id": "pymunk-integration", "command": ["src/tools/verify_pymunk_integration.py", "--output", "{run}/pymunk"], "timeout": 1200, "markers": ["PYMUNK_INTEGRATION_OK"]},
+    {"id": "pymunk-release-gate", "command": ["src/tools/test_pymunk_release.py"], "timeout": 60, "unittest_min": 9},
     {"id": "physics", "command": ["src/tools/test_physics_equiv.py"], "timeout": 120, "markers": ["PASS: 标量版与向量化版逐位一致", "判别性:"]},
     {"id": "packing", "command": ["src/tools/test_pack_equiv.py"], "timeout": 120, "markers": ["PASS: 向量化打包与逐颗粒打包字节完全相同"]},
     {"id": "stream-drawing", "command": ["src/tools/test_stream_rendering.py"], "timeout": 60, "unittest_min": 10},

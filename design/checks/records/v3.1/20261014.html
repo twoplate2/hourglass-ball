@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v3.1：已有沙流观察记录</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body><main>
+<header><h1>v3.1：已有沙流观察记录</h1><nav aria-label="资料导航"><ul><li><a href="../index.html">版本记录目录</a></li><li><a href="../../rules/sand-flow.html">规则与用例</a></li><li><a href="../../notes/index.html">备注</a></li></ul></nav></header>
+<p class="meta">记录日期：2026-10-14 · 源码版本 3.1 · APK 包版本 APK 由推送后的 CI 构建，本轮只验证 PC · Windows PC 隐藏 Kivy 窗口；Pymunk 7.3；独立临时配置；逻辑推进而非帧率测评</p>
+<div class="notice warning"><p>Pymunk 接入的 30 项 PC 专项检查通过，核对了 26 张阶段图；旧规则的完整矩阵没有全部执行，不能把下方未测编号当成失败或通过。</p></div>
+<p class="small">登记依据：<a href="evidence/rules-2026-10-13.5.html">2026-10-13.5 版规则快照</a>。下方用例链接指向此快照，不用日后修改的规则回填旧记录。</p>
+<p><strong>逐项状态：</strong>未测 34 项 · 片段观察，未完成 2 项 · 不通过 0 项 · 中断，未完成 0 项 · 待验收 0 项 · 通过（具名登记） 0 项</p>
+<p class="small">“通过”只表示具名检查、审阅和证据登记满足格式要求；资料生成器只核对文件与摘要，不判断录像内容，也不代替 CI 或发布门禁。</p>
+<h2>已有原图</h2>
+<div class="picture-grid three portrait"><figure><a href="evidence/first-landing.png"><img src="evidence/first-landing.png" alt="50 秒计时，1.6 秒首批落地附近：实际碰撞粒子与下沙面连接。" width="400" height="800" loading="lazy"></a><figcaption>50 秒计时，1.6 秒首批落地附近：实际碰撞粒子与下沙面连接。</figcaption></figure><figure><a href="evidence/stream.png"><img src="evidence/stream.png" alt="50 秒计时，6 秒：默认颗粒、颈部和下落段，未使用旧线条沙柱。" width="400" height="800" loading="lazy"></a><figcaption>50 秒计时，6 秒：默认颗粒、颈部和下落段，未使用旧线条沙柱。</figcaption></figure><figure><a href="evidence/timer-end.png"><img src="evidence/timer-end.png" alt="计时结束时的在途沙仍绘制，落完后才清理；不是瞬间藏掉全部颗粒。" width="400" height="800" loading="lazy"></a><figcaption>计时结束时的在途沙仍绘制，落完后才清理；不是瞬间藏掉全部颗粒。</figcaption></figure></div>
+<h2>这批证据能说明什么</h2>
+<ul><li>真实应用组件的颗粒接触、沙量守恒、暂停恢复、重置、收尾、短周期、细颈前三秒、横屏和缩放。</li><li>六种配色、最细最粗颗粒静态图，以及 Benchmark 取消后的状态恢复；没有采集 FPS。</li><li>源码与报告身份绑定，30 项专项检查完整结束；不是全应用回归。</li></ul>
+<h2>每个编号的现象与通过状态</h2>
+<p>“片段观察”不是通过；只看静态图不记动态通过，也不代替完整进度。未覆盖项继续保留，不因补写资料而改变状态。</p>
+<section><h3>1. 上沙</h3>
+<article class="case" id="U00"><h4><a href="evidence/rules-2026-10-13.5.html#U00">U00 整体：一团有体积和颗粒层次的储沙体</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="U01"><h4><a href="evidence/rules-2026-10-13.5.html#U01">U01 不同进度的沙量与轮廓</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="U02"><h4><a href="evidence/rules-2026-10-13.5.html#U02">U02 动态：下移、扰动与纹理刷新</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="U03"><h4><a href="evidence/rules-2026-10-13.5.html#U03">U03 边缘：沙面上沿与球壁外缘</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>2. 下沙</h3>
+<article class="case" id="L00"><h4><a href="evidence/rules-2026-10-13.5.html#L00">L00 整体：落地积沙逐渐形成与容器协调的沙堆</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="L01"><h4><a href="evidence/rules-2026-10-13.5.html#L01">L01 不同进度的沙堆形状</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="L02"><h4><a href="evidence/rules-2026-10-13.5.html#L02">L02 动态：堆顶、坡面与纹理</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="L03"><h4><a href="evidence/rules-2026-10-13.5.html#L03">L03 边缘：左右坡面、球底与玻璃</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>3. 颈部本身</h3>
+<article class="case" id="N00"><h4><a href="evidence/rules-2026-10-13.5.html#N00">N00 整体：能辨认的连续玻璃通道与颈内沙流</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="N01"><h4><a href="evidence/rules-2026-10-13.5.html#N01">N01 几何：内孔、壁厚与圆滑过渡</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="N02"><h4><a href="evidence/rules-2026-10-13.5.html#N02">N02 初始、注满与排空</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="N03"><h4><a href="evidence/rules-2026-10-13.5.html#N03">N03 颈内颗粒、运动与边界</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>4. 颈部和上沙的连接</h3>
+<article class="case" id="UN00"><h4><a href="evidence/rules-2026-10-13.5.html#UN00">UN00 整体：上沙与颈内沙属于同一团连续供沙</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="UN01"><h4><a href="evidence/rules-2026-10-13.5.html#UN01">UN01 空间接缝：沙体沿内腔连续收拢</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="UN02"><h4><a href="evidence/rules-2026-10-13.5.html#UN02">UN02 时间接缝：开局与末段衔接</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>5. 颈部和沙柱的连接</h3>
+<article class="case" id="NS00"><h4><a href="evidence/rules-2026-10-13.5.html#NS00">NS00 整体：沙柱确实从颈部出口延续出来</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">原片段观察：沿用 06 的两层独立二维碰撞投影，保留上下沙体和上半颈部的体积及材质。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="NS01"><h4><a href="evidence/rules-2026-10-13.5.html#NS01">NS01 出口宽度与边界</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="NS02"><h4><a href="evidence/rules-2026-10-13.5.html#NS02">NS02 出口接通、头部与结束</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="NS03"><h4><a href="evidence/rules-2026-10-13.5.html#NS03">NS03 出口衔接：不能看出横向材质接缝</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>6. 沙柱的表现</h3>
+<article class="case" id="S00"><h4><a href="evidence/rules-2026-10-13.5.html#S00">S00 整体：一股向下流动的颗粒沙，而不是固定色杆</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>默认 50 秒阶段图核对了真实颗粒沙柱，没有旧线条覆盖。完整旧规则矩阵没有执行，专项自动检查另外记为通过。</p>
+<p class="small">原片段观察：沿用 06 的两层独立二维碰撞投影，保留上下沙体和上半颈部的体积及材质。</p>
+<p><strong>证据：</strong><a href="evidence/stream.png">默认运行阶段</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="evidence/stream.png"><img src="evidence/stream.png" alt="默认运行阶段" width="400" height="800" loading="lazy"></a><figcaption>默认运行阶段</figcaption></figure></div></details>
+</article>
+<article class="case" id="S01"><h4><a href="evidence/rules-2026-10-13.5.html#S01">S01 外形：宽度、方向与横向断带</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">原片段观察：400 像素画面中的极细长周期沙流仍偏稀，留待用户使用后调整，不继续扩展本轮测试。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="S02"><h4><a href="evidence/rules-2026-10-13.5.html#S02">S02 动态：速度、前缘与连续性</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="S03"><h4><a href="evidence/rules-2026-10-13.5.html#S03">S03 质感：颗粒量、空隙与末段纯色化</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">原片段观察：400 像素画面中的极细长周期沙流仍偏稀，留待用户使用后调整，不继续扩展本轮测试。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="S04"><h4><a href="evidence/rules-2026-10-13.5.html#S04">S04 首次落地前后：沙柱疏密不能突然换一套</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="S05"><h4><a href="evidence/rules-2026-10-13.5.html#S05">S05 沙柱两侧：随机颗粒边缘，不是平滑色带</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>7. 沙柱和下沙的连接</h3>
+<article class="case" id="SL00"><h4><a href="evidence/rules-2026-10-13.5.html#SL00">SL00 整体：落沙、积沙和飞溅共同形成一个落地过程</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="SL01"><h4><a href="evidence/rules-2026-10-13.5.html#SL01">SL01 落点与实际堆面一致</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="SL02"><h4><a href="evidence/rules-2026-10-13.5.html#SL02">SL02 飞溅、坡面与反弹</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>8. 状态切换与完整收尾</h3>
+<article class="case" id="C00"><h4><a href="evidence/rules-2026-10-13.5.html#C00">C00 整体：全沙漏按同一进度完成储沙、流动和积沙</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">原片段观察：所有已推进帧检查沙量账本和玻璃边界；没有靠重新保存旧像素基线判通过。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="C01"><h4><a href="evidence/rules-2026-10-13.5.html#C01">C01 暂停与恢复</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>专项检查中暂停冻结了计时和原碰撞世界，恢复继续使用同一世界；未执行此编号的全部矩阵。</p>
+<p class="small">原片段观察：所有已推进帧检查沙量账本和玻璃边界；没有靠重新保存旧像素基线判通过。</p>
+<p><strong>证据：</strong><a href="evidence/report.json">30 项 PC 专项结果</a></p>
+</article>
+<article class="case" id="C02"><h4><a href="evidence/rules-2026-10-13.5.html#C02">C02 重置、换周期与基准取消</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="C03"><h4><a href="evidence/rules-2026-10-13.5.html#C03">C03 短长周期的最后一段</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>9. 配色、尺寸与连带影响</h3>
+<article class="case" id="X00"><h4><a href="evidence/rules-2026-10-13.5.html#X00">X00 整体：换配置或改一处后整套画面仍协调</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="X01"><h4><a href="evidence/rules-2026-10-13.5.html#X01">X01 六配色、颗粒与起伏档位</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="X02"><h4><a href="evidence/rules-2026-10-13.5.html#X02">X02 实际尺寸、转屏与资源打包</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="X03"><h4><a href="evidence/rules-2026-10-13.5.html#X03">X03 未改区域、物理等价与性能</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>未执行，需要按此编号的规则逐项检查。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<h2>历史自动检查：单独看，不能拼成通过</h2>
+<ul></ul>
+<h2>证据身份与限制</h2>
+<ul><li>没有测试帧率、音频或 Android 运行，也没有全面回归旧规则矩阵。</li><li>这些截图是 PC 逻辑推进，不是手机实录；所有编号仍保留各自的未测或部分覆盖状态。</li><li>碰撞是两层独立二维投影，不宣称整只沙漏的三维颗粒守恒。</li></ul>
+<p><a href="20261014.json">本页原始记录 JSON</a></p>
+<p><a href="evidence/report.json">原始报告副本</a></p>
+<footer>由 sand-flow-cases.json 与版本记录生成。修改后运行 python -B src/tools/build_sand_flow_docs.py；此命令只生成资料，不启动应用或执行测试。</footer>
+</main></body>
+</html>

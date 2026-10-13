@@ -1,5 +1,5 @@
 #!/bin/bash
-# This appearance patch uses the scoped MuMu review.
+# Scoped PC contact-engine and appearance evidence, not a full/FPS regression.
 set -eu
 cd "$(dirname "$0")/../.."
-exec python -B src/tools/check_visual_review.py --review _temp/visual-review/latest.json "$@"
+exec python -B src/tools/check_pymunk_release.py "$@"

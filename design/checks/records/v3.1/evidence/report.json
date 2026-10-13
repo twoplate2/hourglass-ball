@@ -1,0 +1,1158 @@
+{
+  "scope": "pymunk-integration-pc",
+  "full": true,
+  "finished": true,
+  "version": "3.1",
+  "checks": [
+    {
+      "id": "version",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "real_contacts",
+      "passed": true,
+      "detail": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 71991,
+        "stream_contacts": 13540,
+        "landings": 5951,
+        "passed": 7370,
+        "absorbed": 6176,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1961,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "id": "stream_contacts",
+      "passed": true,
+      "detail": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 71991,
+        "stream_contacts": 13540,
+        "landings": 5951,
+        "passed": 7370,
+        "absorbed": 6176,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1961,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "id": "real_landings",
+      "passed": true,
+      "detail": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 71991,
+        "stream_contacts": 13540,
+        "landings": 5951,
+        "passed": 7370,
+        "absorbed": 6176,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1961,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "id": "landing_surface_motion_connected",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "no_side_columns",
+      "passed": true,
+      "detail": "All integrated frames checked against the actual vessel."
+    },
+    {
+      "id": "grain_ledger_matches_clock",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "two_layers",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "old_stream_not_drawn",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "old_column_not_drawn",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "pause_freezes",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "resume_same_world",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "benchmark_restores_world",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "benchmark_restores_ledger",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "tail_draws_inflight",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "drained_ledger",
+      "passed": true,
+      "detail": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.0,
+        "landed": 1.0
+      }
+    },
+    {
+      "id": "drained_particles",
+      "passed": true,
+      "detail": 0
+    },
+    {
+      "id": "finished_releases_contact_world",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "duration-1-drains",
+      "passed": true,
+      "detail": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.0,
+        "landed": 1.0
+      }
+    },
+    {
+      "id": "duration-5-drains",
+      "passed": true,
+      "detail": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 8.881784197001252e-15,
+        "landed": 0.9999999999999911
+      }
+    },
+    {
+      "id": "resize_keeps_mass",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "resize_keeps_world",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "grain_control_connected",
+      "passed": true,
+      "detail": [
+        0.36213813068651773,
+        0.6518486352357319,
+        1.0864143920595533
+      ]
+    },
+    {
+      "id": "grain_control_keeps_ledger",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "long_frame_bounded_physics",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "long_frame_keeps_ledger",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "reset_clears_world",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "window_hidden",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "native_window_hidden",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "id": "source_unchanged_during_run",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "frames": [
+    {
+      "path": "_temp/pymunk-3.1/initial.png",
+      "sha256": "5835526777ce4dcc3eacd32fa7bbe0c43ba9d94a50af7949440e8e6569f74ffd",
+      "duration": 50,
+      "elapsed": 0,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 1.0,
+        "neck": 0.0,
+        "flight": 0.0,
+        "landed": 0.0
+      },
+      "physics": null
+    },
+    {
+      "path": "_temp/pymunk-3.1/filling.png",
+      "sha256": "1642442edcd2cc1baa7b44a556099cbcc17669fb0963c3a0b86fc37c0a73d8c2",
+      "duration": 50,
+      "elapsed": 0.15,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.9994979432771736,
+        "neck": 0.0005020567228264383,
+        "flight": 0.0,
+        "landed": 0.0
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 812,
+        "stream_contacts": 0,
+        "landings": 0,
+        "passed": 0,
+        "absorbed": 0,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 924,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/opening.png",
+      "sha256": "49291da0f168f51542be0b7f20c8ef69afc3566f84ae8c382e93c4af91a20016",
+      "duration": 50,
+      "elapsed": 0.44999999999999996,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.9951417910741096,
+        "neck": 0.000836761204710771,
+        "flight": 0.004021447721179624,
+        "landed": 0.0
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 4679,
+        "stream_contacts": 60,
+        "landings": 0,
+        "passed": 348,
+        "absorbed": 0,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1229,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/first-landing.png",
+      "sha256": "46704d844cd97f384d5fc14716eec6659b219f8b4c848c9ea2cc4dae740622eb",
+      "duration": 50,
+      "elapsed": 1.6,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.9720184666773267,
+        "neck": 0.0008367612047108161,
+        "flight": 0.01671193114390989,
+        "landed": 0.010432840974052575
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 17690,
+        "stream_contacts": 2156,
+        "landings": 589,
+        "passed": 1917,
+        "absorbed": 901,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1776,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/early.png",
+      "sha256": "cf2f12db40b3f37123c6e6194f6b2b28cadcf8c3a24b1694bb398a7e814fbfe2",
+      "duration": 50,
+      "elapsed": 2.999999999999998,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.9438683326290694,
+        "neck": 0.0008367612047107745,
+        "flight": 0.015623742536844253,
+        "landed": 0.03967116362937553
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 33388,
+        "stream_contacts": 4111,
+        "landings": 2353,
+        "passed": 3666,
+        "absorbed": 2667,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1735,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/stream.png",
+      "sha256": "edd5fe6c441fe9a7623139534fda6b4635609efb40e8df567d5b19fcfd5214fe",
+      "duration": 50,
+      "elapsed": 5.999999999999988,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.8835466168113753,
+        "neck": 0.0008367612047108092,
+        "flight": 0.017680221553724104,
+        "landed": 0.09793640043018983
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 71991,
+        "stream_contacts": 13540,
+        "landings": 5951,
+        "passed": 7370,
+        "absorbed": 6176,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1961,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/resumed.png",
+      "sha256": "11c65a9a65d345590e2c8301a9b98749c83595519c0ece22135371e72721565b",
+      "duration": 50,
+      "elapsed": 6.099999999999987,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.8815358929507855,
+        "neck": 0.0008367612047107537,
+        "flight": 0.01862645882616186,
+        "landed": 0.0990008870183419
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 74141,
+        "stream_contacts": 14717,
+        "landings": 6015,
+        "passed": 7499,
+        "absorbed": 6245,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 2011,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/middle.png",
+      "sha256": "2c0b7dfaa08d8614dce6b3e3b33b6bbf6a65693d5282f3c04c9bc49d10282240",
+      "duration": 50,
+      "elapsed": 25.0,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.5015090832993107,
+        "neck": 0.000836761204710823,
+        "flight": 0.02350546500368289,
+        "landed": 0.47414869049229563
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 683505,
+        "stream_contacts": 442733,
+        "landings": 29039,
+        "passed": 30857,
+        "absorbed": 29195,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 2403,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/late.png",
+      "sha256": "53f19677e4b9bc2c8d35a65e5669fef6a76fa785ddd2cc2e38d9b1c4a5b32f6d",
+      "duration": 50,
+      "elapsed": 44.99999999999961,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.09936431118135608,
+        "neck": 0.0008367612047108786,
+        "flight": 0.020157869600395895,
+        "landed": 0.8796410580135372
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 1393895,
+        "stream_contacts": 961113,
+        "landings": 53882,
+        "passed": 55538,
+        "absorbed": 54093,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 2204,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/tail.png",
+      "sha256": "19ca7164c700fc7ade053aa8e8c77b359494489b99be343a52440d123a581635",
+      "duration": 50,
+      "elapsed": 49.99,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.0048746290747015975,
+        "landed": 0.9951253709252984
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 1535157,
+        "stream_contacts": 1054584,
+        "landings": 60802,
+        "passed": 61713,
+        "absorbed": 61375,
+        "returned_to_bulk": 741,
+        "finished": false,
+        "live": 338,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/timer-end.png",
+      "sha256": "d7354a342361299d65d1484b5b9e8b9783002b4dafdd9894ca99263f4fa6247c",
+      "duration": 50,
+      "elapsed": 50.0,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.004643991428856742,
+        "landed": 0.9953560085711433
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 1535221,
+        "stream_contacts": 1054648,
+        "landings": 60815,
+        "passed": 61713,
+        "absorbed": 61408,
+        "returned_to_bulk": 741,
+        "finished": false,
+        "live": 305,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/drained.png",
+      "sha256": "c679b538c98261e55c8f1e4a8c4be6ffa758afbc99178204095d0ecbddafad90",
+      "duration": 50,
+      "elapsed": 50.0,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.0,
+        "landed": 1.0
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4032511721,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 1535950,
+        "stream_contacts": 1055377,
+        "landings": 61090,
+        "passed": 61713,
+        "absorbed": 61712,
+        "returned_to_bulk": 741,
+        "finished": true,
+        "live": 0,
+        "radius": 0.637174317617866,
+        "half_width": 8.495657568238213
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/duration-1.png",
+      "sha256": "a1b02089affd3c18a3410069d595775ad6008738738e5ca290229e8b306bec62",
+      "duration": 1,
+      "elapsed": 0.9999999999999999,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.030955473098328468,
+        "landed": 0.9690445269016715
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1067800185,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 21828,
+        "stream_contacts": 6337,
+        "landings": 898,
+        "passed": 2627,
+        "absorbed": 2481,
+        "returned_to_bulk": 339,
+        "finished": false,
+        "live": 146,
+        "radius": 0.8572890818858561,
+        "half_width": 11.430521091811414
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/duration-5.png",
+      "sha256": "bce361027c2f4f8faf64e74ca84666122cbca34f2fa160d4ef5b07f5be9524b0",
+      "duration": 5,
+      "elapsed": 2.999999999999999,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.4178300532672123,
+        "neck": 0.00118403123983013,
+        "flight": 0.09250960307298522,
+        "landed": 0.4884763124199723
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 4037180411,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 14857,
+        "stream_contacts": 3450,
+        "landings": 1252,
+        "passed": 2246,
+        "absorbed": 1895,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 728,
+        "radius": 0.8572890818858561,
+        "half_width": 11.430521091811414
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/duration-36000.png",
+      "sha256": "288c924f2a98e8c9af96dbc45a279df8e431c68cfb4849369d42b958e3d7d191",
+      "duration": 36000,
+      "elapsed": 2.999999999999999,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 0.9995821112321931,
+        "neck": 0.0003414993130702048,
+        "flight": 3.0317825660773036e-05,
+        "landed": 4.607162907592871e-05
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1223904342,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 817.7552314521243,
+        "contacts": 30903,
+        "stream_contacts": 23706,
+        "landings": 5935,
+        "passed": 9856,
+        "absorbed": 5849,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 4357,
+        "radius": 0.07337158808933002,
+        "half_width": 0.9782878411910669
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/landscape.png",
+      "sha256": "75de60fd812703ba992f3a11bfa8dcdb4f088472e0a4e93f28621e5f455bc7cb",
+      "duration": 50,
+      "elapsed": 2.0,
+      "size": [
+        800,
+        400
+      ],
+      "state": {
+        "upper": 0.9526901147367122,
+        "neck": 0.012122217702966114,
+        "flight": 0.015339113501355368,
+        "landed": 0.01984855405896635
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 15532,
+        "stream_contacts": 5873,
+        "landings": 1964,
+        "passed": 3704,
+        "absorbed": 2632,
+        "returned_to_bulk": 0,
+        "finished": false,
+        "live": 1749,
+        "radius": 0.95,
+        "half_width": 37.42748239550359
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/resized.png",
+      "sha256": "c7e7af79a946379b3df3412b229bfdf225391b3a81dd0241f3a1a560c3e5b1bc",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.6518486352357319,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/color-0.png",
+      "sha256": "c7e7af79a946379b3df3412b229bfdf225391b3a81dd0241f3a1a560c3e5b1bc",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.6518486352357319,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/color-1.png",
+      "sha256": "cade52715c9c19d4108a1923fa1177f08075fb8f52a0de6774437111a63b9388",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.6518486352357319,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/color-2.png",
+      "sha256": "8a49d16449af103826f7d26e59a858bb530ca708550eb7d313abfb9e2e1c42b3",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.6518486352357319,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/color-3.png",
+      "sha256": "f481668f5aab67f858cc45befd09e75d84118c158444b12702d6d3fed4408880",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.6518486352357319,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/color-4.png",
+      "sha256": "be73596c8a4b81a4826a48587951831fba0f35f447a08ec64601350d6590c41a",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.6518486352357319,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/color-5.png",
+      "sha256": "de6b8a1d3633337ea192265d38e2bbd99bd66b82d95a957655733f4d1fd88f73",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.6518486352357319,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/grain-fine.png",
+      "sha256": "b7704d4ca969867a46e5054d8c517f332b70728b716219404380f127f72eed98",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 165.68263575629535,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 0.36213813068651773,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/grain-coarse.png",
+      "sha256": "a253f824ef9e57a8207a93348533064fd148b7f92acf948f29dff48f00b10a2b",
+      "duration": 50,
+      "elapsed": 2.9999999999999964,
+      "size": [
+        500,
+        1000
+      ],
+      "state": {
+        "upper": 0.9325828761308141,
+        "neck": 0.012122217702966086,
+        "flight": 0.014521894548704124,
+        "landed": 0.04077301161751565
+      },
+      "physics": {
+        "engine": "Pymunk",
+        "version": "7.3.0",
+        "layers": 2,
+        "seed": 1105597606,
+        "gravity": 450.0,
+        "feed_speed": 35.0,
+        "source_cadence_speed": 90.0,
+        "contact_hz": 120.0,
+        "contacts": 25084,
+        "stream_contacts": 8257,
+        "landings": 3349,
+        "passed": 4714,
+        "absorbed": 4056,
+        "returned_to_bulk": 247,
+        "finished": false,
+        "live": 1364,
+        "radius": 1.0864143920595533,
+        "half_width": 8.691315136476426
+      }
+    },
+    {
+      "path": "_temp/pymunk-3.1/reset.png",
+      "sha256": "4082402691c4a35f4af37ec2b72dc4c934eca43d9c135eb05f14247a3a66172d",
+      "duration": 50,
+      "elapsed": 0,
+      "size": [
+        400,
+        800
+      ],
+      "state": {
+        "upper": 1.0,
+        "neck": 0.0,
+        "flight": 0.0,
+        "landed": 0.0
+      },
+      "physics": null
+    }
+  ],
+  "sources": {
+    "main.py": "cd5f5feebe9fb8204a8bc7c063eeff7f83918dcb37f9c86f3a462afcf4cecfaa",
+    "buildozer.spec": "992f5d4024ae7c5a3b58b82812a93f2909645a2ea2328b648fd3f151c7438eb6",
+    "src/tools/verify_pymunk_integration.py": "6f15c2b5c3ff5bce6c526cee6d61137cdccef4eec89a73f06a673c6e80010299",
+    "src/app/app_version.py": "9a635aa55724e38dead048342517ff6f95ba4cb8da5e52ec07dd2ae42e6f53f5",
+    "src/app/flow_batch_experiment.py": "2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07",
+    "src/app/flow_gpu_experiment.py": "2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24",
+    "src/app/flow_numpy.py": "bbb055cce7ffc27d0d89e09da68cc27c8f15fd0e3d45b6628eb2142974d1f4a0",
+    "src/app/flow_splash_experiment.py": "920d55545f2264fc48b8af55c205b12f4d3ae57d61420d06a3e8f1c66d4f29e4",
+    "src/app/flow_texture_experiment.py": "cc2a4d499fe2afcd2d4337577de280fa8768ef02aa86cb5420c01b5e9b313c4f",
+    "src/app/frame_benchmark.py": "0444f203eb9e19ba15c1655d46e05700daed6e0593dc2cd3c11f0e1c41e34f5a",
+    "src/app/marker_batch_experiment.py": "6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a",
+    "src/app/prof_android.py": "d89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "93ecef6159b7394ce6f7fd8d7bbfab6eb1a96e8cd7a20064ea504de96929f4c0",
+    "src/app/splash_motion.py": "ef5c8a15e2cdf815e53abde122965827e1f325a92a5b3637dfe5089c4e23f1a6",
+    "src/app/stream_rendering.py": "d3dd6a00012369fa15c21bb01180fa2359427f0b863996459df2ef0839e5809a",
+    "src/app/_tail_selfcheck.py": "a5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/build/recipes/pymunk/__init__.py": "bfb5a99017011e85fe4a155a0144789c133ab20d1413e7b6cf4177f8f8355241"
+  },
+  "performance_tested": false,
+  "android_tested": false,
+  "appearance_reviewed": false
+}

@@ -11,7 +11,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         exit 1
     fi
     if [ "$checked" = 0 ]; then
-        python -B src/tools/check_visual_review.py --review _temp/visual-review/latest.json || exit 1
+        python -B src/tools/check_pymunk_release.py || exit 1
         checked=1
     fi
     case "$remote_ref" in

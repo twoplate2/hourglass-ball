@@ -1,0 +1,219 @@
+{
+  "schema": 1,
+  "rules_revision": "2026-10-13.5",
+  "rules_snapshot": "design/checks/records/v3.1/evidence/rules-2026-10-13.5.json",
+  "date": "2026-10-14",
+  "source_version": "3.1",
+  "package_version": "APK 由推送后的 CI 构建，本轮只验证 PC",
+  "environment": "Windows PC 隐藏 Kivy 窗口；Pymunk 7.3；独立临时配置；逻辑推进而非帧率测评",
+  "review_status": "scoped_pc_review",
+  "conclusion": "Pymunk 接入的 30 项 PC 专项检查通过，核对了 26 张阶段图；旧规则的完整矩阵没有全部执行，不能把下方未测编号当成失败或通过。",
+  "screenshots": [
+    {"path": "design/checks/records/v3.1/evidence/first-landing.png", "caption": "50 秒计时，1.6 秒首批落地附近：实际碰撞粒子与下沙面连接。"},
+    {"path": "design/checks/records/v3.1/evidence/stream.png", "caption": "50 秒计时，6 秒：默认颗粒、颈部和下落段，未使用旧线条沙柱。"},
+    {"path": "design/checks/records/v3.1/evidence/timer-end.png", "caption": "计时结束时的在途沙仍绘制，落完后才清理；不是瞬间藏掉全部颗粒。"}
+  ],
+  "automatic_report": "design/checks/records/v3.1/evidence/report.json",
+  "scope": [
+    "真实应用组件的颗粒接触、沙量守恒、暂停恢复、重置、收尾、短周期、细颈前三秒、横屏和缩放。",
+    "六种配色、最细最粗颗粒静态图，以及 Benchmark 取消后的状态恢复；没有采集 FPS。",
+    "源码与报告身份绑定，30 项专项检查完整结束；不是全应用回归。"
+  ],
+  "observations": [
+    {"case_ids": ["S00", "NS00"], "description": "沿用 06 的两层独立二维碰撞投影，保留上下沙体和上半颈部的体积及材质。"},
+    {"case_ids": ["C00", "C01"], "description": "所有已推进帧检查沙量账本和玻璃边界；没有靠重新保存旧像素基线判通过。"},
+    {"case_ids": ["S01", "S03"], "description": "400 像素画面中的极细长周期沙流仍偏稀，留待用户使用后调整，不继续扩展本轮测试。"}
+  ],
+  "results": {
+    "U00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S00": {
+      "status": "partial",
+      "actual": "默认 50 秒阶段图核对了真实颗粒沙柱，没有旧线条覆盖。完整旧规则矩阵没有执行，专项自动检查另外记为通过。",
+      "evidence": [
+        {"path": "design/checks/records/v3.1/evidence/stream.png", "sha256": "edd5fe6c441fe9a7623139534fda6b4635609efb40e8df567d5b19fcfd5214fe", "label": "默认运行阶段"}
+      ]
+    },
+    "S01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S04": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S05": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C01": {
+      "status": "partial",
+      "actual": "专项检查中暂停冻结了计时和原碰撞世界，恢复继续使用同一世界；未执行此编号的全部矩阵。",
+      "evidence": [
+        {"path": "design/checks/records/v3.1/evidence/report.json", "sha256": "3bb7dabee8aaec8f3b58930a62cffb845fcb5647347a6041659ccff1b3af4a52", "label": "30 项 PC 专项结果"}
+      ]
+    },
+    "C02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    }
+  },
+  "historical_automation": [],
+  "limitations": [
+    "没有测试帧率、音频或 Android 运行，也没有全面回归旧规则矩阵。",
+    "这些截图是 PC 逻辑推进，不是手机实录；所有编号仍保留各自的未测或部分覆盖状态。",
+    "碰撞是两层独立二维投影，不宣称整只沙漏的三维颗粒守恒。"
+  ]
+}

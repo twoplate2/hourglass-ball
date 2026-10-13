@@ -9,6 +9,12 @@
 <body><main>
 <header><h1>按版本查看测试记录</h1><nav aria-label="资料导航"><ul><li><a href="../index.html">检查目录</a></li><li><a href="../rules/sand-flow.html">规则与用例</a></li><li><a href="../notes/index.html">备注</a></li></ul></nav></header>
 <p>每个编号固定对应一项表现；每个版本逐项记录实际现象、是否通过和证据。“未测”“片段观察”“中断”“待验收”均不是通过。</p>
+<section><h2>v3.1 · 2026-10-14</h2>
+<p>Pymunk 接入的 30 项 PC 专项检查通过，核对了 26 张阶段图；旧规则的完整矩阵没有全部执行，不能把下方未测编号当成失败或通过。</p>
+<p class="meta">早期片段资料</p>
+<p>36 个编号 · 通过 0 · 不通过 0 · 尚未完成验收 36</p>
+<div class="picture-grid three portrait"><figure><a href="v3.1/evidence/first-landing.png"><img src="v3.1/evidence/first-landing.png" alt="50 秒计时，1.6 秒首批落地附近：实际碰撞粒子与下沙面连接。" width="400" height="800" loading="lazy"></a><figcaption>50 秒计时，1.6 秒首批落地附近：实际碰撞粒子与下沙面连接。</figcaption></figure><figure><a href="v3.1/evidence/stream.png"><img src="v3.1/evidence/stream.png" alt="50 秒计时，6 秒：默认颗粒、颈部和下落段，未使用旧线条沙柱。" width="400" height="800" loading="lazy"></a><figcaption>50 秒计时，6 秒：默认颗粒、颈部和下落段，未使用旧线条沙柱。</figcaption></figure><figure><a href="v3.1/evidence/timer-end.png"><img src="v3.1/evidence/timer-end.png" alt="计时结束时的在途沙仍绘制，落完后才清理；不是瞬间藏掉全部颗粒。" width="400" height="800" loading="lazy"></a><figcaption>计时结束时的在途沙仍绘制，落完后才清理；不是瞬间藏掉全部颗粒。</figcaption></figure></div>
+<p><a href="v3.1/20261014.html">查看本版每个编号的现象与结果</a> · <a href="v3.1/20261014.json">原始登记 JSON</a></p></section>
 <section><h2>v3.0 · 2026-10-13</h2>
 <p>只减缓下段随落速变快而变稀疏的幅度：归一化落速不超过350px/s时保持原样，超过后轻微增加绘制补量，最多增加6px。上段、粒子数、物理与随机外缘不变。仅比较开局、中段、末段三组相关外观，并检查同一绘制公式；没有帧率或全应用回归。</p>
 <p class="meta">早期片段资料</p>

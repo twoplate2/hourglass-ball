@@ -79,7 +79,7 @@ jobs:
           path: |
             ~/.buildozer
             .buildozer
-          key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec', 'src/build/recipes/**') }}
           restore-keys: |
             buildozer-v1-${{ runner.os }}-
 

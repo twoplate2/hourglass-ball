@@ -1,0 +1,7 @@
+当前交接记录保存在：
+%TEMP%\shalou-handoff-20261014.md
+
+在 PowerShell 中打开：
+notepad.exe "$env:TEMP\shalou-handoff-20261014.md"
+
+本文件只保留入口。交接正文按 handoff 技能规则存入系统临时目录。
