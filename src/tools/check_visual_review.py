@@ -1,6 +1,7 @@
 """Validate this patch's scoped MuMu appearance evidence before pushing."""
 
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -39,7 +40,20 @@ def main():
     for name, value in sources.items():
         path = ROOT / name
         if digest(path) != value:
-            raise ValueError("Code changed since MuMu appearance review: " + name)
+            if name != "src/app/app_version.py" or not review.get("source_commit"):
+                raise ValueError("Code changed since MuMu appearance review: " + name)
+            before = ast.parse(subprocess.check_output(
+                ["git", "show", review["source_commit"] + ":" + name], cwd=ROOT))
+            after = ast.parse(path.read_text(encoding="utf-8"))
+            versions = []
+            for tree in (before, after):
+                node = next(n for n in tree.body if isinstance(n, ast.Assign)
+                            and any(isinstance(t, ast.Name) and t.id == "APP_VERSION"
+                                    for t in n.targets))
+                versions.append(tuple(map(int, ast.literal_eval(node.value).split("."))))
+                node.value = ast.Constant(value="version-only")
+            if versions[1] <= versions[0] or ast.dump(before) != ast.dump(after):
+                raise ValueError("Change is not a version-only increment")
         committed = subprocess.check_output(["git", "show", "HEAD:" + name], cwd=ROOT)
         if committed.replace(b"\r\n", b"\n") != path.read_bytes().replace(b"\r\n", b"\n"):
             raise ValueError("Pushed commit does not contain reviewed code: " + name)
