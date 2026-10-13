@@ -423,7 +423,7 @@ p50 = 8.14ms (r1 8.12)   p90 = 12.34ms (r1 12.06)   p99 = 13.63ms (r1 13.70)   m
 ## 10. 数据在哪 / 怎么复现
 
 ```
-仓库根：E:\AI_Tools\other\shalou_claude\pc\apk
+仓库根：E:\AI_Tools\other\ShaLou
   main.py                  应用本体（3155 行）
   frame_benchmark.py       基准装置（590 行，不参与正式运行）
   tools/flow_numpy.py      粒子物理的 numpy 向量化内核

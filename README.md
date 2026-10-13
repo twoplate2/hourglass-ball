@@ -10,7 +10,7 @@ Android SDK / NDK / Buildozer，Windows 也能用。
 
 ```powershell
 pip install kivy
-cd E:\AI_Tools\other\shalou_claude\pc\apk
+cd E:\AI_Tools\other\ShaLou
 python main.py
 ```
 
@@ -155,7 +155,7 @@ Windows 的负载、窗口尺寸与驱动等待仍会造成长帧，桌面结果
 ### 推送(每个项目单独 repo)
 
 ```powershell
-cd E:\AI_Tools\other\shalou_claude\pc\apk
+cd E:\AI_Tools\other\ShaLou
 git init -b main
 git add .
 git commit -m "球形沙漏 Kivy 版 Android 工程"

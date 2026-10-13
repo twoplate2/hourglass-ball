@@ -1,6 +1,6 @@
 # 沙漏 Android 版交接文档
 
-> 更新：2026-10-02。工程：`E:\AI_Tools\other\shalou_claude\pc\apk`。
+> 更新：2026-10-02。工程：`E:\AI_Tools\other\ShaLou`。
 > 仓库：`https://github.com/twoplate2/hourglass-ball`，分支 `main`。
 > 本文用于接手，不是继续执行优化的授权。用户已明确说“别干活了”，优化目标处于暂停状态；本次只更新交接文档，不测试、不提交、不 push。
 
@@ -163,8 +163,8 @@ RGBA8 纹理的前三行保存 x、底端 y、顶端 y 的 float32 字节，顶�
 下面只是恢复授权后可用的命令，不应在暂停时自动运行：
 
 ```powershell
-cd E:\AI_Tools\other\shalou_claude\pc\apk
-git -c safe.directory=E:/AI_Tools/other/shalou_claude/pc/apk status --short
+cd E:\AI_Tools\other\ShaLou
+git -c safe.directory=E:/AI_Tools/other/ShaLou status --short
 python tools/test_release_version.py
 python tools/verify_hourglass.py --quick
 python tools/verify_hourglass.py --quick --landscape
