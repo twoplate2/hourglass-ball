@@ -3248,3 +3248,32 @@ numpy 路径写着 `idx = w + (FLOW_TONE_CENTER - 4)`; **标量路径原来直�
 **代价**: 预热块 32→40、每帧四边形 16384→20480(**+25%**); 物理/随机数/着色器一字未动
 (⇒ GLES2 零编译风险)。**默认仍为 0**, 开关 `HG_GRAIN_TONE` / 标记 `graintone`。
 **下一步若"方向对但不够"**: 上笔刷内部的截面阴影(改着色器, 见对抗审查 A3/CB2)。
+
+## 🧹 2026-10-13 目录整理(用户: 「太乱了」「没有用的可以删掉的」)
+
+**一句话**: 删掉**可再生的渲染输出**与**已完结调查的成批截图**(共 **18.4 GB**), 删掉
+**126 个零引用探针**(git 里有), 归档 14 个未跟踪探针, 根目录的 15 个杂项(面板留下的
+`main.py` 整份副本 / `.pyc` / `__pycache__`)清掉。**不可再生的东西一件没删。**
+
+| 位置 | 前 | 后 | 判据 |
+|---|---|---|---|
+| `benchmark_logs/` | 10.6 GB | **1.94 GB** | `flow_visual_*` = 渲染输出,**一条命令可重跑** ⇒ 删; 307 个设备报告 `.txt` / `dev/` / `ab/` = **实测日志, 不可再生** ⇒ 留 |
+| `_review/` | 5.16 GB | **59 MB** | `r1..r18 / u1 / bug_completion / shape` = 已完结面板的截图批 ⇒ 删; **转写 `.txt` / `INDEX.md` / 设备剖面 `*.json` / `r38_out/` 留** |
+| `_shot/` | 4.8 GB | **143 MB** | 只留 CLAUDE.md **点名**的那些(`band/ bandcap/ r31b/ r37/ab/ r38/rate_ab.png rehost/ rough/ sand_finish_5/ sandmat/ splash_ab/ splashpop/`) |
+| `tools/` | 286 项 | **148 项**(+`archive/` 14) | 见下 |
+| 根目录 | 39 文件 | 24 文件 | `_cr_v165.py` / `_p1*_main.py` / `_rev_*.py` / `_tmp_*.pyc` / `_probe_bottom.py` 等 |
+
+- **清单**: `benchmark_logs/_cleanup_manifest.txt`(逐条 路径+体积+理由)。**脚本**: `tools/_tidy_repo.py`
+  (默认干跑, `--go` 才删 —— 以后要再清一次直接跑)。
+- **删掉的 126 个探针可以一条命令回来**: `git checkout <本提交>^ -- tools/<名字>`
+  (它们是**零引用**的 —— 判据是"名字在 CLAUDE.md/README/QA_RULES/scripts/工作流/其它 tools
+  里搜不到(按词界匹配, 带不带 `.py` 都算)", 不是"我觉得没用")。
+- **14 个未跟踪、删了就真没了的**挪进 `tools/archive/`(**已进 `.gitignore`** ⇒ 不进仓库、
+  也就不进 CI 的 APK; ⚠️ buildozer 是 `source.dir = .` + `include_exts` 含 `py`,
+  **仓库里任何 `.py` 都会被打进 APK** ⇒ 归档的东西只能留在 git 之外)。
+- **没动的**: 根目录那 17 个 `.md` —— 它们**被代码注释和 CLAUDE.md 当知识索引引用**
+  (`meishu.md §7` / `hengping.md §3` / `NUMPY_PLAN.md` / `NECK_REDESIGN.md` …), 收进 `docs/`
+  会同时打断几十处指针, 不值当。`design/*.html`(12 个, 10 MB base64 图)保持未跟踪 ——
+  它们不进 APK(`html` 不在 `include_exts` 里), 但进仓库会让每次 CI 克隆都多 10 MB。
+- `shalou_1.md` / `q1.md` 这两个"工作区里被删、没提交"的文件**已恢复** —— 它们被
+  CLAUDE.md 与彼此引用, 且 `shalou_1.md` 自己写着「留作记录」。要真删, 说一声即可。

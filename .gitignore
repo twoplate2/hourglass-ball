@@ -40,3 +40,7 @@ tools/_atk_*.py
 tools/_p1*.py
 tools/_p2*.py
 tools/_p1*.sh
+
+# 2026-10-13: 整理时把"说不准以后还要不要"的 untracked 探针挪到了这里。
+#   本地暂存 —— **不入仓库**(否则会被 buildozer 打进 APK: source.dir = . 且 include_exts 含 py)。
+tools/archive/
