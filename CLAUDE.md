@@ -3268,9 +3268,16 @@ numpy 路径写着 `idx = w + (FLOW_TONE_CENTER - 4)`; **标量路径原来直�
 - **删掉的 126 个探针可以一条命令回来**: `git checkout <本提交>^ -- tools/<名字>`
   (它们是**零引用**的 —— 判据是"名字在 CLAUDE.md/README/QA_RULES/scripts/工作流/其它 tools
   里搜不到(按词界匹配, 带不带 `.py` 都算)", 不是"我觉得没用")。
-- **14 个未跟踪、删了就真没了的**挪进 `tools/archive/`(**已进 `.gitignore`** ⇒ 不进仓库、
-  也就不进 CI 的 APK; ⚠️ buildozer 是 `source.dir = .` + `include_exts` 含 `py`,
-  **仓库里任何 `.py` 都会被打进 APK** ⇒ 归档的东西只能留在 git 之外)。
+- **14 个未跟踪、删了就真没了的**探针 → `_temp/probes_20261013/`(见下「待删暂存区」)。
+- 🗑️ **`_temp/` = 待删暂存区**(2026-10-13 立, 用户: 「拿不准的、过几天就能删的」放这儿):
+  - **规矩**: 拿不准要不要留的东西**一律扔 `_temp/`**, 别再散在根目录 / `tools/` 里;
+    想**永久保留**的放 `tools/`(工具) / `benchmark_logs/`(证据) / `design/`(给用户看的页)。
+  - **不进 git**(`.gitignore`) ⇒ 不进 CI 的 APK; ⚠️ 但 buildozer 是 `source.dir = .` +
+    `include_exts` 含 `py` ⇒ **本地**打包会把它拷进去(线上无影响, CI 只认 git 里的东西)。
+  - **判停**: `python tools/_temp.py`(列内容/年龄/到期没) · `sweep [--days 7] [--go]`
+    (默认干跑, **只删到期的**) · `clear --go`(清空)。判据是**目录项的 mtime**。
+  - 现有: `probes_20261013/`(整理时那 14 个) · `attack_20261010/` · `r1rev_20261004/`。
+    ⚠️ `_kivyhome/` **不能挪**(`tools/_probe_neck_batch_equiv.py` 把它当 `KIVY_HOME`)。
 - **没动的**: 根目录那 17 个 `.md` —— 它们**被代码注释和 CLAUDE.md 当知识索引引用**
   (`meishu.md §7` / `hengping.md §3` / `NUMPY_PLAN.md` / `NECK_REDESIGN.md` …), 收进 `docs/`
   会同时打断几十处指针, 不值当。`design/*.html`(12 个, 10 MB base64 图)保持未跟踪 ——
