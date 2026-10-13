@@ -1,0 +1,214 @@
+{
+  "schema": 1,
+  "profile": "full",
+  "fingerprint": "a1d1d99384bf4c1e1ecf598f4e69c7c1958ae5533a7d4b91c8f0fd21372dc77b",
+  "head": "06e06bd12fe1b2dc71627c57d18737aeee7ca9a9",
+  "automation_only": false,
+  "at": "2026-10-13T07:12:10.294187+00:00",
+  "python": "3.11.4 (tags/v3.11.4:d2340ef, Jun  7 2023, 05:45:37) [MSC v.1934 64 bit (AMD64)]",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "paths": [],
+  "reasons": [],
+  "results": [
+    {
+      "id": "layout",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 0.3,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/test_repository_layout.py"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/layout.log",
+      "log_sha256": "63ded456a0a58540a9fa5e6b48c4b659e64f8bb22835ac3c24533eaa03ee0b70"
+    },
+    {
+      "id": "version",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 0.16,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/test_release_version.py"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/version.log",
+      "log_sha256": "970596b861026dd1013bc3c489ecb55817d0a390bf94da264efd5f67ba376fe0"
+    },
+    {
+      "id": "gate",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 0.3,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/test_regression_gate.py"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/gate.log",
+      "log_sha256": "cee013415f8e87424558313816d41d6eef14271f14d724aece7d1eff182dbeae"
+    },
+    {
+      "id": "static",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 0.74,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/run_regression.py",
+        "--static-check"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/static.log",
+      "log_sha256": "bcb543e9b2192587bf29019e0afeba0697adaa88a04e49929b5d19fd1eac7267"
+    },
+    {
+      "id": "design-pages",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 0.2,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/check_design_pages.py",
+        "--out",
+        "E:\\AI_Tools\\other\\ShaLou\\_temp\\regression-runs\\20261013-151210-572a31/design-pages.json"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/design-pages.log",
+      "log_sha256": "1b61351fd5546c15035aca2a61deff494b8bb095b9180d72082dd5872f1812e5"
+    },
+    {
+      "id": "physics",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 0.41,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/test_physics_equiv.py"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/physics.log",
+      "log_sha256": "7bbc3da826fcc45e4b8e1c3768fedddf4fbfbc3744de10ade6dcd44e83245d0f"
+    },
+    {
+      "id": "packing",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 0.24,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/test_pack_equiv.py"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/packing.log",
+      "log_sha256": "e3d5bfd7fe30440ec9bf23a1a2e6fc9a25d0aa0c22f1a7d68a1f7bd91aa49a39"
+    },
+    {
+      "id": "finish",
+      "status": "FAIL",
+      "returncode": 1,
+      "timed_out": false,
+      "errors": [
+        "exit=1",
+        "exception or failed assertion",
+        "missing completion: SUMMARY cases=15 failures=0"
+      ],
+      "seconds": 25.86,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/verify_sand_finish.py",
+        "--out",
+        "E:\\AI_Tools\\other\\ShaLou\\_temp\\regression-runs\\20261013-151210-572a31/finish"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/finish.log",
+      "log_sha256": "3d3dfa7dcf6573fcbba1260a9fc423f66520681d6f1b66877b0fcd1c8d577692"
+    },
+    {
+      "id": "application",
+      "status": "FAIL",
+      "returncode": 1,
+      "timed_out": false,
+      "errors": [
+        "exit=1",
+        "exception or failed assertion",
+        "missing completion: All checks passed",
+        "missing completion: UI cancellation finishes benchmark"
+      ],
+      "seconds": 61.0,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/verify_hourglass.py"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/application.log",
+      "log_sha256": "4242f6e126d1ce9978cdd099cf76ec5f4ce0da8d04156e434613c71363286bb1"
+    },
+    {
+      "id": "geometry",
+      "status": "FAIL",
+      "returncode": 1,
+      "timed_out": false,
+      "errors": [
+        "exit=1",
+        "missing completion: GEOMETRY_DONE cases=14 failures=0"
+      ],
+      "seconds": 2.98,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/_probe_geom_invariants.py"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/geometry.log",
+      "log_sha256": "f77d6a6f77e7dfbdfe35d7c18342368047fdd6c698d69bdf38b7d747bb9d2110"
+    },
+    {
+      "id": "rendering",
+      "status": "PASS",
+      "returncode": 0,
+      "timed_out": false,
+      "errors": [],
+      "seconds": 78.88,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/_render_golden.py",
+        "--check",
+        "--label",
+        "20261013-151210-572a31"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/rendering.log",
+      "log_sha256": "17f9a046271b5c859c6cde573dfeb5d15121c1696e8248c5822ebb6744c313da"
+    },
+    {
+      "id": "splash",
+      "status": "FAIL",
+      "returncode": 1,
+      "timed_out": false,
+      "errors": [
+        "exit=1",
+        "exception or failed assertion",
+        "missing completion: ==> 金标准轨迹 逐位一致"
+      ],
+      "seconds": 23.05,
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "src/tools/_splash_golden.py",
+        "--check"
+      ],
+      "log": "_temp/regression-runs/20261013-151210-572a31/splash.log",
+      "log_sha256": "ffbc9244e6b8b67df8fd0356e2daee13332539d5a598f9b7c69c42f6850ad5e0"
+    }
+  ],
+  "review": null,
+  "manual_pending": [
+    "missing or stale manual review"
+  ],
+  "unchanged": true,
+  "automatic_ok": false,
+  "release_ready": false
+}

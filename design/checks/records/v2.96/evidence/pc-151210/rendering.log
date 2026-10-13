@@ -1,0 +1,16 @@
+batch  图 60 张
+rect   图 60 张
+flat   图 60 张
+fuse0  图 60 张
+tail   图 16 张
+early  图 24 张
+tail_line 图 16 张
+一致  臂 batch  60 张
+一致  臂 rect   60 张
+一致  臂 flat   60 张
+一致  臂 fuse0  60 张
+一致  臂 tail   16 张
+一致  臂 early  24 张
+一致  臂 tail_line 16 张
+==> 渲染 逐图一致
+RENDER_DONE arms=7 failures=0

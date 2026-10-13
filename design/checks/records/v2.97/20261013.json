@@ -1,0 +1,262 @@
+{
+  "schema": 1,
+  "rules_revision": "2026-10-13.5",
+  "rules_snapshot": "design/checks/records/v2.97/evidence/rules-2026-10-13.5.json",
+  "date": "2026-10-13",
+  "source_version": "2.97",
+  "rules_snapshot_sha256": "445631a984a8a31eefaf756598b9e4dad5e46d53894b006af8b8820d43162b08",
+  "package_version": "2.96",
+  "session": "第三轮修复源码覆盖；前两轮试验素材归档暂存区",
+  "environment": "指定 MuMu 127.0.0.1:16416；1080×1920、density 480、50 秒金沙、颗粒/起伏第 3 档、自然档；默认端点纹理渲染器",
+  "review_status": "pending",
+  "conclusion": "三项外观问题初步改善：开局保持较密的效果；出口纹理逐渐衔接；外缘有细碎随机起伏。后续补了原 2.96 APK 与最新源码的 39 组同种子同进度对照，改动范围之外 0 像素差异，粒子数和沙量账本一致；另修正边缘噪声的 64 秒回绕风险。按用户要求，本次只验外观，不扩展为帧率、音频或完整应用验收。旧录像属于首轮修复，最新代码对应新增对照图；源码覆盖不等于新 APK 已安装。",
+  "source_identity": {
+    "path": "design/media/v2.97-20261013-193739/manifest.json",
+    "sha256": "a1e4bff9ae44aa8667362a58cea7182ce147c697d16e092d44f1f70202c86ede",
+    "label": "APK、源码、资源、配置与采集时间身份"
+  },
+  "deployment": "design/checks/records/v2.97/evidence/deployed-files.json",
+  "screenshots": [
+    {"path": "design/images/mumu-2.97-20261013/focused/before-after.png", "caption": "最新源码的同条件对照：左为原 2.96 APK，右为修复源码；均为出口附近 300px 原像素裁图。先看开局密度，再看中末段衔接与外缘。逻辑推进取图，不是实际等待。", "max_width": 400},
+    {"path": "design/images/mumu-2.97-20261013/focused/long64-contact.png", "caption": "600 秒周期的 63.96–64.04 秒连续指定时刻图：边缘噪声保持连续衔接，不在 64 秒换一套图案。属于逻辑推进取图。", "max_width": 700},
+    {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/before_landing.png", "caption": "S04 · 开始后约 1.2 秒，尚未落地，已有沙段保持较密的颗粒效果。", "max_width": 330},
+    {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/middle.png", "caption": "S05 · 中段全屏，保留上沙、出口、完整沙柱、落点和下沙。", "max_width": 330},
+    {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/late.png", "caption": "NS03 · 末段全屏，出口纹理与沙柱在一段距离内逐渐衔接。", "max_width": 330},
+    {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/first-landing.png", "caption": "S04 · 媒体时间约 3.16–4.26 秒连续帧；前缘先延长再落地，已有高度带没有在落地时整段突然换密度。", "max_width": 600},
+    {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/outlet-late.png", "caption": "NS03 · 媒体时间约 42.06–47.06 秒，出口上下文连续帧；没有用实心材质柱盖住沙流。", "max_width": 840},
+    {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/stream-edge.png", "caption": "S05 · 媒体时间约 17.06–18.81 秒原像素裁图；两侧颗粒起伏随帧变化，不是固定平滑曲线。", "max_width": 440}
+  ],
+  "videos": [
+    {"path": "design/media/v2.97-20261013-193739/opening.mp4", "poster": "design/images/mumu-2.97-20261013/session-20261013-193739/before_landing.png", "width": 1080, "height": 1920, "loop": false, "caption": "S04 · 原速开局片段，不循环；包括首次落地前后。"},
+    {"path": "design/media/v2.97-20261013-193739/outlet-loop.mp4", "poster": "design/images/mumu-2.97-20261013/session-20261013-193739/review/outlet-loop-poster.png", "width": 160, "height": 300, "loop": true, "caption": "NS03 · 末段出口原速 7 秒循环，保留上下连接；循环回跳不是应用行为。"},
+    {"path": "design/media/v2.97-20261013-193739/edge-loop.mp4", "poster": "design/images/mumu-2.97-20261013/session-20261013-193739/review/edge-loop-poster.png", "width": 140, "height": 300, "loop": true, "caption": "S05 · 中段外缘原速 6 秒循环；看左右两侧，而不以内部条纹代替外缘。"},
+    {"path": "design/media/v2.97-20261013-193739/full-cycle-view.mp4", "poster": "design/images/mumu-2.97-20261013/session-20261013-193739/initial.png", "width": 1080, "height": 1920, "loop": false, "caption": "50 秒金沙完整原速录像及完成后等待；无声，不作为性能报告。"},
+    {"path": "design/media/v2.97-20261013-193739/pause-resume-view.mp4", "poster": "design/images/mumu-2.97-20261013/session-20261013-193739/paused.png", "width": 1080, "height": 1920, "loop": false, "caption": "开始、暂停、等待、恢复及再次暂停原速录像；没有实际听音结论。"}
+  ],
+  "scope": [
+    "补充外观回归：原 APK 与最新源码各 39 张同条件图，覆盖 1/5/50 秒、六沙色及 600 秒周期 64 秒附近；粒子数、沙量账本相同，预期沙柱/出口范围和版本文字之外 0 像素差异。",
+    "最新源码与运行模块身份在 evidence/focused-identity.json；对照明细在 evidence/focused-comparison.json。它们与下方首轮录像的代码身份分开。",
+    "用户随后要求只对外观部分回归，帧率后续另测；此次提交不要求全应用、音频或性能通过。",
+    "按用户要求以 v2.96 较密的后段为参考；绘制线段增加 16px 的向上拖尾，从第一批沙粒起生效，不增加粒子、不改物理。相比旧后段误加 20px，允许略松一些，但不能回到稀疏开局。",
+    "已定位旧 reach 实现：下堆出现后，对离堆很远的粒子也统一下拉到 20px 上限，造成整柱硬切。修复只补 20px 内的实际落点小间隙；其他粒子的绘制密度与是否落地无关。",
+    "出口附近的粒子笔画采同一张沙纹理，在约一个管宽的距离内逐渐切回粒子色；不重新启用出口以下的材质几何带。",
+    "外缘只在实际粒子笔画中裁出细粒尺度的不规则边界，不扩大柱宽，不把整股沙散成雾。",
+    "仅覆盖这次 50 秒金沙竖屏配置与一次暂停恢复。配色、其他档位、短长周期、转屏和完整回归仍待执行。"
+  ],
+  "observations": [],
+  "results": {
+    "U00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS03": {
+      "status": "partial",
+      "actual": "本配置初步观察通过：原始末段全屏和约 42.06–47.06 秒连续帧中，出口细纹理逐渐过渡到下落笔画，没有看到 v2.96 那条明显横向硬切。未完成全部配置与像素判据标定，因此不记完整通过。",
+      "checked_by": "Codex（指定 MuMu 真实截图和连续帧复核）",
+      "checked_at": "2026-10-13T19:43:00+08:00",
+      "evidence": [
+        {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/late.png", "sha256": "7681261d6fb0dec949c9bd10a2c58b41718c880f7f8d1fa8dbd7da00c4f7a534", "label": "同次运行末段原始 PNG"},
+        {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/outlet-late.png", "sha256": "76fa2970e0e1ae8e68ed02613288e52c0ab5e92232befa12eebf7ab092ca0df1", "label": "出口连续裁图"},
+        {"path": "design/media/v2.97-20261013-193739/outlet-loop.mp4", "sha256": "94ee17b0aa5fe7606d8f0971b4df63ba7c6e82118a59ff6bca909d46a1ee7887", "label": "原速出口循环"}
+      ]
+    },
+    "S00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S04": {
+      "status": "partial",
+      "actual": "本配置初步观察通过：未落地时已经较密，约 3.16–4.26 秒连续帧中是前缘延长、首次落地、下堆长起；已经有沙的同一高度带没有在落地时整柱突然变密。其他周期、尺寸和分支未完整验收。",
+      "checked_by": "Codex（指定 MuMu 原始截图和开局连续帧复核）",
+      "checked_at": "2026-10-13T19:43:00+08:00",
+      "evidence": [
+        {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/before_landing.png", "sha256": "f6057ff8f85d2bfebedf0be0097496b99ccbce8f44b069902791a909e5145d67", "label": "真实未落地阶段截图"},
+        {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/first-landing.png", "sha256": "0167551461cbc97ddba8b2ee28446f52e8a729788ac5ac217d8d24fdcf83adce", "label": "首次落地前后连续帧"},
+        {"path": "design/media/v2.97-20261013-193739/opening.mp4", "sha256": "5c2ca6f32a75fd67a14450afc4422cff2b477243e3c31cf10167098cee60854a", "label": "不循环的原速开局录像"}
+      ]
+    },
+    "S05": {
+      "status": "partial",
+      "actual": "本配置初步观察通过：约 17.06–18.81 秒连续裁图中，两侧有细碎颗粒缺口与局部起伏，随时间向下变化；主体仍是一股较密的沙，不靠增宽、整体降密度或雾化掩盖问题。未独立量化随机性，其他配置与回退路径待验。",
+      "checked_by": "Codex（指定 MuMu 原像素连续帧复核）",
+      "checked_at": "2026-10-13T19:43:00+08:00",
+      "evidence": [
+        {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/middle.png", "sha256": "6c56052fc74fc821cbd2bbe407cd51b2cd04ec796a289109ad977be20b24bc6e", "label": "同局中段全屏原图"},
+        {"path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/stream-edge.png", "sha256": "0e48d4cbca6956bc99d8645c7a1af1189d8e5e81a8e41aebdcf610f1492775c4", "label": "原像素外缘连续裁图"},
+        {"path": "design/media/v2.97-20261013-193739/edge-loop.mp4", "sha256": "b79403e9d7406abf4e06ff4607eeb676b4dc4dac70d4bbeebb4851db506b81ab", "label": "原速外缘循环"}
+      ]
+    },
+    "SL00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C01": {
+      "status": "partial",
+      "actual": "执行了一次开局暂停、等待、恢复和再次暂停，录像中计时和沙流暂停、恢复；其他进度以及实际声音尚未验收。",
+      "evidence": [{"path": "design/media/v2.97-20261013-193739/pause-resume-view.mp4", "sha256": "fc3629070b94e08734dcb9d794d1af1dc964da14dedb8a0d0627b34c8cd19b0e", "label": "真实暂停恢复录像"}]
+    },
+    "C02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    }
+  },
+  "historical_automation": [
+    "共用绘制公式的 8 项检查在 MuMu 的 Android Python 环境运行，0 失败、0 错误、0 跳过；不是本机 PC 测试。",
+    "日志在 evidence/stream-unit-result.json，SHA256 为 590730a8d10f381a9500527ee1754c9bc09d7e338bdbed162940b766e4bc0429。覆盖开局密度、落点补齐范围、收尾、标量/向量与分桶公式等价，不自动覆盖画面全部规则。",
+    "启动日志没有发现本次沙流着色器编译失败；仍需完整 CI、所有关联检查和前后性能对照。没有重存旧渲染指纹。",
+    "首次试验的粒子网格纹理绑定不完整，导致出口亮色带；第二轮修正绑定；第三轮增加外缘随机幅度。每轮素材保留，但只以本页绑定的第三轮代码作为当前观察对象。"
+  ],
+  "limitations": [
+    "新增配色图直接设置沙色用于渲染对照，不作为色块点击交互验收；旧采集未更新选中色块标记。",
+    "源码版本 2.97、APK 元数据仍为 2.96；不能当作 2.97 APK 已安装或已发布。",
+    "本次媒体与 v2.96 旧录像不是同种子同帧的像素级对照，只有同配置下的可见问题复核。",
+    "片段初步改善不等于全用例通过；未执行的配置与编号保持未测。",
+    "录像无声且采集增加负载，不能用于实际听音或 1% low、最慢帧结论。",
+    "本次推送仅核对外观范围的现有 MuMu 证据及源码身份，不代表全部 36 个编号完整通过。",
+    "原始大录屏位于 _temp/mumu-media/20261013-193739/；搬移位置与原始摘要见 design/media/v2.97-20261013-193739/review-assets.json。"
+  ]
+}

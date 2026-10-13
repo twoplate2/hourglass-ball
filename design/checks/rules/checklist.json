@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "visual_case_file": "design/checks/rules/sand-flow-cases.json",
+  "core": ["layout", "version", "gate", "static", "design-pages"],
+  "tests": [
+    {"id": "layout", "command": ["src/tools/test_repository_layout.py"], "timeout": 60, "unittest_min": 10},
+    {"id": "version", "command": ["src/tools/test_release_version.py"], "timeout": 60, "unittest_min": 5},
+    {"id": "gate", "command": ["src/tools/test_regression_gate.py"], "timeout": 60, "unittest_min": 23},
+    {"id": "static", "command": ["src/tools/run_regression.py", "--static-check"], "timeout": 60, "markers": ["STATIC_DONE"]},
+    {"id": "design-pages", "command": ["src/tools/check_design_pages.py", "--out", "{run}/design-pages.json"], "timeout": 60, "markers": ["HTML_DONE", "failures=0"]},
+    {"id": "physics", "command": ["src/tools/test_physics_equiv.py"], "timeout": 120, "markers": ["PASS: 标量版与向量化版逐位一致", "判别性:"]},
+    {"id": "packing", "command": ["src/tools/test_pack_equiv.py"], "timeout": 120, "markers": ["PASS: 向量化打包与逐颗粒打包字节完全相同"]},
+    {"id": "stream-drawing", "command": ["src/tools/test_stream_rendering.py"], "timeout": 60, "unittest_min": 10},
+    {"id": "finish", "command": ["src/tools/verify_sand_finish.py", "--out", "{run}/finish"], "timeout": 300, "markers": ["SUMMARY cases=15 failures=0"]},
+    {"id": "application", "command": ["src/tools/verify_hourglass.py"], "timeout": 240, "markers": ["All checks passed", "all four benchmark periods completed", "natural completion announces exactly once"], "pass_min": 100},
+    {"id": "application-cancel", "command": ["src/tools/verify_hourglass.py", "--quick"], "timeout": 180, "markers": ["All checks passed", "UI cancellation finishes benchmark", "UI cancellation restores animation state"], "pass_min": 100},
+    {"id": "menu-levels", "command": ["src/tools/verify_dev_levels.py"], "timeout": 120, "markers": ["DEV_LEVELS_DONE", "failures=0"]},
+    {"id": "grain-levels", "command": ["src/tools/verify_grain_levels.py"], "timeout": 120, "markers": ["GRAIN_LEVELS_DONE pairs=5 failures=0"]},
+    {"id": "geometry", "command": ["src/tools/_probe_geom_invariants.py"], "timeout": 120, "markers": ["GEOMETRY_DONE cases=14 failures=0"]},
+    {"id": "rendering", "command": ["src/tools/_render_golden.py", "--check", "--label", "{label}"], "timeout": 900, "markers": ["==> 渲染 逐图一致", "RENDER_DONE arms=7"]},
+    {"id": "splash", "command": ["src/tools/_splash_golden.py", "--check"], "timeout": 300, "markers": ["==> 金标准轨迹 逐位一致"]}
+  ],
+  "rules": [
+    {"paths": ["main.py", "src/app/**", "app/**", "app_version.py", "frame_benchmark.py"], "tests": "all", "reason": "运行代码互相影响，不能只测改动处"},
+    {"paths": ["src/tools/**", "tools/**", "design/checks/**", ".githooks/**", ".github/**"], "tests": "all", "reason": "量具或发布流程变化，需要完整检查防止漏测"},
+    {"paths": ["buildozer.spec", "ui/**", "sounds/**"], "tests": "all", "reason": "资源、布局、音频与打包需要关联验证"},
+    {"paths": ["README.md", "AGENTS.md", "CLAUDE.md", ".gitignore", ".gitattributes", "docs/**", "design/**"], "tests": [], "reason": "资料变化仅加基础检查；发布仍须完整检查"}
+  ],
+  "manual": [
+    {"id": "visual", "description": "前后画面对照及未改区域、全部配色档位、多尺寸"},
+    {"id": "audio", "description": "MuMu 实际听音及开始暂停恢复重置完成"},
+    {"id": "performance", "description": "同环境前后重复测量，比较 1% low 和最慢帧"}
+  ]
+}

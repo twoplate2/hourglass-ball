@@ -1,0 +1,106 @@
+[WARNING] [Config      ] Older configuration version detected (0 instead of 27)
+[WARNING] [Config      ] Upgrading configuration in progress.
+[DEBUG  ] [Config      ] Upgrading from 0 to 1
+[INFO   ] [deps        ] Successfully imported "kivy_deps.angle" 0.4.0
+[INFO   ] [deps        ] Successfully imported "kivy_deps.glew" 0.3.1
+[INFO   ] [deps        ] Successfully imported "kivy_deps.sdl2" 0.8.0
+[INFO   ] [Kivy        ] v2.3.1
+[INFO   ] [Kivy        ] Installed at "C:\Program Files\Python311\Lib\site-packages\kivy\__init__.py"
+[INFO   ] [Python      ] v3.11.4 (tags/v3.11.4:d2340ef, Jun  7 2023, 05:45:37) [MSC v.1934 64 bit (AMD64)]
+[INFO   ] [Python      ] Interpreter at "C:\Program Files\Python311\python.exe"
+[INFO   ] [Factory     ] 195 symbols loaded
+[INFO   ] [Image       ] Providers: img_tex, img_dds, img_sdl2, img_pil (img_ffpyplayer ignored)
+[INFO   ] [Text        ] Provider: sdl2
+[INFO   ] [Window      ] Provider: sdl2
+[INFO   ] [GL          ] Using the "OpenGL" graphics system
+[INFO   ] [GL          ] GLEW initialization succeeded
+[INFO   ] [GL          ] Backend used <glew>
+[INFO   ] [GL          ] OpenGL version <b'4.6.0 NVIDIA 617.14'>
+[INFO   ] [GL          ] OpenGL vendor <b'NVIDIA Corporation'>
+[INFO   ] [GL          ] OpenGL renderer <b'NVIDIA GeForce RTX 4070/PCIe/SSE2'>
+[INFO   ] [GL          ] OpenGL parsed version: 4, 6
+[INFO   ] [GL          ] Shading version <b'4.60 NVIDIA'>
+[INFO   ] [GL          ] Texture max size <32768>
+[INFO   ] [GL          ] Texture max units <32>
+[INFO   ] [Window      ] auto add sdl2 input provider
+[INFO   ] [Window      ] virtual keyboard not allowed, single mode, not docked
+sand material mode = 'grain' (no marker: [Errno 2] No such file or directory: 'E:\\AI_Tools\\other\\ShaLou\\matmode')
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+GPU sand flow active: upper reservoir + neck
+CASE {'case': '400x650/1s', 'peak': 1582}
+CASE {'case': '400x650/5s', 'peak': 1579}
+CASE {'case': '400x650/15s', 'peak': 1582}
+CASE {'case': '400x650/50s', 'peak': 1584}
+CASE {'case': '400x650/3600s', 'peak': 265}
+CASE {'case': '1000x2200/1s', 'peak': 2836}
+CASE {'case': '1000x2200/5s', 'peak': 2811}
+CASE {'case': '1000x2200/15s', 'peak': 2811}
+CASE {'case': '1000x2200/50s', 'peak': 2815}
+CASE {'case': '1000x2200/3600s', 'peak': 549}
+CASE {'case': '1600x1000/1s', 'peak': 1950}
+CASE {'case': '1600x1000/5s', 'peak': 1940}
+CASE {'case': '1600x1000/15s', 'peak': 1944}
+CASE {'case': '1600x1000/50s', 'peak': 1950}
+CASE {'case': '1600x1000/3600s', 'peak': 468}
+FAIL 1000x2200/15s: all grains landed at zero
+FAIL 1000x2200/15s: lower ball full
+FAIL 1000x2200/15s: outlet stays connected
+FAIL 1000x2200/1s: all grains landed at zero
+FAIL 1000x2200/1s: lower ball full
+FAIL 1000x2200/1s: outlet stays connected
+FAIL 1000x2200/3600s: all grains landed at zero
+FAIL 1000x2200/3600s: lower ball full
+FAIL 1000x2200/3600s: outlet stays connected
+FAIL 1000x2200/50s: all grains landed at zero
+FAIL 1000x2200/50s: lower ball full
+FAIL 1000x2200/50s: outlet stays connected
+FAIL 1000x2200/5s: all grains landed at zero
+FAIL 1000x2200/5s: lower ball full
+FAIL 1000x2200/5s: outlet stays connected
+FAIL 1600x1000/15s: all grains landed at zero
+FAIL 1600x1000/15s: lower ball full
+FAIL 1600x1000/15s: outlet stays connected
+FAIL 1600x1000/1s: all grains landed at zero
+FAIL 1600x1000/1s: lower ball full
+FAIL 1600x1000/1s: outlet stays connected
+FAIL 1600x1000/3600s: all grains landed at zero
+FAIL 1600x1000/3600s: lower ball full
+FAIL 1600x1000/3600s: outlet stays connected
+FAIL 1600x1000/50s: all grains landed at zero
+FAIL 1600x1000/50s: lower ball full
+FAIL 1600x1000/50s: outlet stays connected
+FAIL 1600x1000/5s: all grains landed at zero
+FAIL 1600x1000/5s: lower ball full
+FAIL 1600x1000/5s: outlet stays connected
+FAIL 400x650/15s: all grains landed at zero
+FAIL 400x650/15s: lower ball full
+FAIL 400x650/15s: outlet stays connected
+FAIL 400x650/1s: all grains landed at zero
+FAIL 400x650/1s: lower ball full
+FAIL 400x650/1s: outlet stays connected
+FAIL 400x650/3600s: all grains landed at zero
+FAIL 400x650/3600s: lower ball full
+FAIL 400x650/3600s: outlet stays connected
+FAIL 400x650/50s: all grains landed at zero
+FAIL 400x650/50s: lower ball full
+FAIL 400x650/50s: outlet stays connected
+FAIL 400x650/5s: all grains landed at zero
+FAIL 400x650/5s: lower ball full
+FAIL 400x650/5s: outlet stays connected
+FAIL restart: all grains landed at zero
+FAIL restart: lower ball full
+SUMMARY cases=15 failures=47

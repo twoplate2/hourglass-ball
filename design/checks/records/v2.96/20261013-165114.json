@@ -1,0 +1,1145 @@
+{
+  "schema": 1,
+  "date": "2026-10-13",
+  "session": "GitHub APK 安装版录像补录 20261013-165114",
+  "source_version": "2.96",
+  "package_version": "2.96",
+  "environment": "MuMu 127.0.0.1:16416，1080×1920，density 480，已重装 GitHub APK",
+  "rules_revision": "2026-10-13.4",
+  "rules_snapshot": "design/checks/records/v2.96/evidence/rules-2026-10-13.4.json",
+  "rules_snapshot_sha256": "fa1553c6a552732f0d78f8ba0c22f8bd9513a72affe21ab863b5b5ae1f6301b1",
+  "source_identity": {
+    "path": "design/media/v2.96-20261013-165114/manifest.json",
+    "sha256": "1cb04577c7f994330a1944d1c9f82e99a5b2da7f113a7ad0e9bbee7f02b898c8",
+    "label": "APK 及运行代码核对记录"
+  },
+  "review_status": "pending",
+  "conclusion": "本轮是真正安装的 GitHub 2.96 APK，不是旧容器直推源码。补齐 33 个编号的实图与适用动态资料，但没有完整矩阵验收；当前没有编号登记为通过。",
+  "screenshots": [
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+      "stage": "initial",
+      "caption": "全屏 · v2.96 安装版：未开始，50 / 50；50 秒、金沙、1080×1920。同次采集原图，真实进度以画面和采集时间共同核对，不从整数显示反推精确值。",
+      "max_width": 320
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/middle.png",
+      "stage": "middle",
+      "caption": "全屏 · v2.96 安装版：开始后约 25 秒，显示 25 / 50；50 秒、金沙、1080×1920。同次采集原图，真实进度以画面和采集时间共同核对，不从整数显示反推精确值。",
+      "max_width": 320
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+      "stage": "late",
+      "caption": "全屏 · v2.96 安装版：开始后约 45 秒，显示 5 / 50；50 秒、金沙、1080×1920。同次采集原图，真实进度以画面和采集时间共同核对，不从整数显示反推精确值。",
+      "max_width": 320
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/settled.png",
+      "stage": "settled",
+      "caption": "全屏 · v2.96 安装版：开始后约 56 秒的完成状态；50 秒、金沙、1080×1920。同次采集原图，真实进度以画面和采集时间共同核对，不从整数显示反推精确值。",
+      "max_width": 320
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/paused.png",
+      "stage": "paused",
+      "caption": "全屏 · v2.96 安装版：暂停后；50 秒、金沙、1080×1920。同次采集原图，真实进度以画面和采集时间共同核对，不从整数显示反推精确值。",
+      "max_width": 320
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/resumed.png",
+      "stage": "resumed",
+      "caption": "全屏 · v2.96 安装版：恢复运行后；50 秒、金沙、1080×1920。同次采集原图，真实进度以画面和采集时间共同核对，不从整数显示反推精确值。",
+      "max_width": 320
+    }
+  ],
+  "videos": [
+    {
+      "path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4",
+      "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+      "width": 1080,
+      "height": 1920,
+      "loop": false,
+      "caption": "v2.96 安装版完整原速录像：重置后开始，50 秒全过程及完成后等待；保留计时和全屏上下文，不跳转推进，不含声音。"
+    },
+    {
+      "path": "design/media/v2.96-20261013-165114/pause-resume-view.mp4",
+      "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/paused.png",
+      "width": 1080,
+      "height": 1920,
+      "loop": false,
+      "caption": "v2.96 安装版暂停与恢复原速录像：运行、暂停等待、恢复、再次暂停；计时与全部部位同屏。无声，不能据此登记音频通过。"
+    }
+  ],
+  "results": {
+    "U00": {
+      "status": "partial",
+      "actual": "初始上沙接近满球；中段上部空腔扩大、下部仍是整团沙；完成图中上球排空。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-initial.png",
+          "sha256": "311017aabf46c3abfbeb479850e0964dbb7d22689517f359e7d6f1b1364d4b5a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-early.png",
+          "sha256": "5e27b13f2fa679adf7f423a4d8d47ab08e6f18c3008c95e20d085d864e750fc4",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-middle.png",
+          "sha256": "c6045f5e32d25b355461e47b1f268eba0a4c1bd8b1d063f78de6c64313eeaaa6",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-late.png",
+          "sha256": "20773ef183ee2436862cd5597779025b90b406cdb14549096e3a77764c6b955d",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-settled.png",
+          "sha256": "adcd45d638cf61bd9f73c3dab2b7e5f73eee5f0d380ea5c5b5eb1f73a61d041e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/upper-loop.mp4",
+          "sha256": "d5cd90a5e09d768e43365a1ffafe8cc8b0c6ec1b80ee96b2a064de3741d149b0",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "U01": {
+      "status": "partial",
+      "actual": "45/50、25/50、5/50 与 1/50 阶段实图已采集，上沙逐阶段减少；具体凹陷与连续变化待结合录像审阅。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-initial.png",
+          "sha256": "311017aabf46c3abfbeb479850e0964dbb7d22689517f359e7d6f1b1364d4b5a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-early.png",
+          "sha256": "5e27b13f2fa679adf7f423a4d8d47ab08e6f18c3008c95e20d085d864e750fc4",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-middle.png",
+          "sha256": "c6045f5e32d25b355461e47b1f268eba0a4c1bd8b1d063f78de6c64313eeaaa6",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-late.png",
+          "sha256": "20773ef183ee2436862cd5597779025b90b406cdb14549096e3a77764c6b955d",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-tail.png",
+          "sha256": "915b601dd8b43546384210d021edaf74e53f805d8e2974c223b3ef4b7cd3b3da",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-settled.png",
+          "sha256": "adcd45d638cf61bd9f73c3dab2b7e5f73eee5f0d380ea5c5b5eb1f73a61d041e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/upper-loop.mp4",
+          "sha256": "d5cd90a5e09d768e43365a1ffafe8cc8b0c6ec1b80ee96b2a064de3741d149b0",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "U02": {
+      "status": "partial",
+      "actual": "阶段图可见上沙细碎纹理，已留下原速短循环及完整录像；刷新闪烁和动态连续性待审阅。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-early.png",
+          "sha256": "5e27b13f2fa679adf7f423a4d8d47ab08e6f18c3008c95e20d085d864e750fc4",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-middle.png",
+          "sha256": "c6045f5e32d25b355461e47b1f268eba0a4c1bd8b1d063f78de6c64313eeaaa6",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-late.png",
+          "sha256": "20773ef183ee2436862cd5597779025b90b406cdb14549096e3a77764c6b955d",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/upper-loop.mp4",
+          "sha256": "d5cd90a5e09d768e43365a1ffafe8cc8b0c6ec1b80ee96b2a064de3741d149b0",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "U03": {
+      "status": "partial",
+      "actual": "各阶段全宽图保留左右玻璃与沙面，能定位贴壁边界；缺不同起伏档位与独立边界量测。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-early.png",
+          "sha256": "5e27b13f2fa679adf7f423a4d8d47ab08e6f18c3008c95e20d085d864e750fc4",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-middle.png",
+          "sha256": "c6045f5e32d25b355461e47b1f268eba0a4c1bd8b1d063f78de6c64313eeaaa6",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-late.png",
+          "sha256": "20773ef183ee2436862cd5597779025b90b406cdb14549096e3a77764c6b955d",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "L00": {
+      "status": "partial",
+      "actual": "初始下球空；早期球底有小堆，中段堆高与两侧展开增加，完成图保留大块积沙。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-initial.png",
+          "sha256": "15da60d274117d8f62889a5b219b1f8009c570c90653ce03750d5382d2b13b9a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-early.png",
+          "sha256": "947068b8c60f6148f5dc4ce2e56883985efdf4504dc5bb309aafa04fcbba24b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-middle.png",
+          "sha256": "6107ba4dc76d0bf79ce7b2c1661f4c65bc837df4bb321da765e7cdf25d2761cc",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-late.png",
+          "sha256": "ecf2dc4114212cad9053213bb45e295322c6cf1d841c1d0e4bdda27942329b71",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-settled.png",
+          "sha256": "baedd29676c0fb9014ef66627db5bd7616f60b4a37c131ff5ae16ec7e1948fea",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/lower-loop.mp4",
+          "sha256": "dc091d2925fad04cf0f50c2a24ca79b6f0e71ac0fe809fd2c0acc2d4bede8729",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "L01": {
+      "status": "partial",
+      "actual": "同局阶段图显示下堆由小到大、坡面随填充变化；沙量与单调性还未做独立读数。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-initial.png",
+          "sha256": "15da60d274117d8f62889a5b219b1f8009c570c90653ce03750d5382d2b13b9a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-early.png",
+          "sha256": "947068b8c60f6148f5dc4ce2e56883985efdf4504dc5bb309aafa04fcbba24b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-middle.png",
+          "sha256": "6107ba4dc76d0bf79ce7b2c1661f4c65bc837df4bb321da765e7cdf25d2761cc",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-late.png",
+          "sha256": "ecf2dc4114212cad9053213bb45e295322c6cf1d841c1d0e4bdda27942329b71",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-tail.png",
+          "sha256": "e78b374f331cc816ce40aeedc89a56198fc82f6e29f4a8b46dce7acf8fd6b82c",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-settled.png",
+          "sha256": "baedd29676c0fb9014ef66627db5bd7616f60b4a37c131ff5ae16ec7e1948fea",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/lower-loop.mp4",
+          "sha256": "dc091d2925fad04cf0f50c2a24ca79b6f0e71ac0fe809fd2c0acc2d4bede8729",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "L02": {
+      "status": "partial",
+      "actual": "中段图同时可见堆顶、坡面与飞溅，已录下球短循环；纹理是否有跳切仍待录像审阅。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-early.png",
+          "sha256": "947068b8c60f6148f5dc4ce2e56883985efdf4504dc5bb309aafa04fcbba24b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-middle.png",
+          "sha256": "6107ba4dc76d0bf79ce7b2c1661f4c65bc837df4bb321da765e7cdf25d2761cc",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-late.png",
+          "sha256": "ecf2dc4114212cad9053213bb45e295322c6cf1d841c1d0e4bdda27942329b71",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/lower-loop.mp4",
+          "sha256": "dc091d2925fad04cf0f50c2a24ca79b6f0e71ac0fe809fd2c0acc2d4bede8729",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "L03": {
+      "status": "partial",
+      "actual": "完整下球图可见两侧外缘及球底，完成沙体留在玻璃内；不同档位和遮罩误差未量测。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-early.png",
+          "sha256": "947068b8c60f6148f5dc4ce2e56883985efdf4504dc5bb309aafa04fcbba24b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-middle.png",
+          "sha256": "6107ba4dc76d0bf79ce7b2c1661f4c65bc837df4bb321da765e7cdf25d2761cc",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-late.png",
+          "sha256": "ecf2dc4114212cad9053213bb45e295322c6cf1d841c1d0e4bdda27942329b71",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "N00": {
+      "status": "partial",
+      "actual": "未开始颈内为空，运行时有颈内沙，完成图颈内排空；上下玻璃过渡同屏。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-initial.png",
+          "sha256": "c8b4c94593298bd0756d55643fde64adb58d8cd6686fa390561f0482ccc6ea68",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-middle.png",
+          "sha256": "a1f30d45e93c5a962b47b55abc5699debd2319d1450c7e4050ac4f285f136505",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-tail.png",
+          "sha256": "02e81a018ab2beb6a4de1656138087bd4f626640f20da58e042900d7ffeb46b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-settled.png",
+          "sha256": "c92c6f68f9e713b5cfd7a1bd2a894e51de0d4bf62fb9dd334f77a5876b06d4a1",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+          "sha256": "b863bc06e59e18618c2f0f3c902fd19b28f71682b5e41176e18a12a8ee4796e8",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "N01": {
+      "status": "partial",
+      "actual": "50 秒周期的内孔与两侧玻璃可见；没有短长周期对照或内孔总宽独立读数。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-middle.png",
+          "sha256": "a1f30d45e93c5a962b47b55abc5699debd2319d1450c7e4050ac4f285f136505",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-late.png",
+          "sha256": "ec08c829883f73e08dbe7fd6d953584542a45cbb5ecce1c287c2847f5d4be6f5",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "N02": {
+      "status": "partial",
+      "actual": "有空颈、运行、末段与完成图，并录开局和结束片段；注入与排空连续性待逐帧确认。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-initial.png",
+          "sha256": "c8b4c94593298bd0756d55643fde64adb58d8cd6686fa390561f0482ccc6ea68",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-tail.png",
+          "sha256": "02e81a018ab2beb6a4de1656138087bd4f626640f20da58e042900d7ffeb46b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-settled.png",
+          "sha256": "c92c6f68f9e713b5cfd7a1bd2a894e51de0d4bf62fb9dd334f77a5876b06d4a1",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+          "sha256": "b863bc06e59e18618c2f0f3c902fd19b28f71682b5e41176e18a12a8ee4796e8",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/opening.mp4",
+          "sha256": "7547cc28fe95b11a35ead9a7db378a8ca62bd8fae9afe256c5ee4cd6b813ad5f",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/ending.mp4",
+          "sha256": "d7b2aa8853da05ac007144e7419614a81a5bbc266925a202fc9c6b8e1c7b0c9e",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "N03": {
+      "status": "partial",
+      "actual": "运行颈部可见沙色和玻璃边，已录颈内短循环及暂停恢复全屏；速度与回退路径未量测。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-middle.png",
+          "sha256": "a1f30d45e93c5a962b47b55abc5699debd2319d1450c7e4050ac4f285f136505",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-late.png",
+          "sha256": "ec08c829883f73e08dbe7fd6d953584542a45cbb5ecce1c287c2847f5d4be6f5",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+          "sha256": "b863bc06e59e18618c2f0f3c902fd19b28f71682b5e41176e18a12a8ee4796e8",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "UN00": {
+      "status": "partial",
+      "actual": "运行阶段上沙沿上喇叭口连到颈部，完成图上球与颈部为空；整体供沙动态待审阅。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-middle.png",
+          "sha256": "a1f30d45e93c5a962b47b55abc5699debd2319d1450c7e4050ac4f285f136505",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-late.png",
+          "sha256": "ec08c829883f73e08dbe7fd6d953584542a45cbb5ecce1c287c2847f5d4be6f5",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+          "sha256": "b863bc06e59e18618c2f0f3c902fd19b28f71682b5e41176e18a12a8ee4796e8",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "UN01": {
+      "status": "partial",
+      "actual": "新图保留上沙底部、喇叭口、直颈与左右玻璃；有早中晚阶段，缺改前同条件和接缝量测。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-middle.png",
+          "sha256": "a1f30d45e93c5a962b47b55abc5699debd2319d1450c7e4050ac4f285f136505",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-late.png",
+          "sha256": "ec08c829883f73e08dbe7fd6d953584542a45cbb5ecce1c287c2847f5d4be6f5",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "UN02": {
+      "status": "partial",
+      "actual": "首次释放和末段录像已录，静态图覆盖注入前及耗尽后；具体接通和排空顺序待逐帧确认。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-initial.png",
+          "sha256": "c8b4c94593298bd0756d55643fde64adb58d8cd6686fa390561f0482ccc6ea68",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-tail.png",
+          "sha256": "02e81a018ab2beb6a4de1656138087bd4f626640f20da58e042900d7ffeb46b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-settled.png",
+          "sha256": "c92c6f68f9e713b5cfd7a1bd2a894e51de0d4bf62fb9dd334f77a5876b06d4a1",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+          "sha256": "b863bc06e59e18618c2f0f3c902fd19b28f71682b5e41176e18a12a8ee4796e8",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/opening.mp4",
+          "sha256": "7547cc28fe95b11a35ead9a7db378a8ca62bd8fae9afe256c5ee4cd6b813ad5f",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/ending.mp4",
+          "sha256": "d7b2aa8853da05ac007144e7419614a81a5bbc266925a202fc9c6b8e1c7b0c9e",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "NS00": {
+      "status": "partial",
+      "actual": "运行全图可从颈部追到沙柱和堆面；开局与停止释放过程已录，尚未审阅。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-middle.png",
+          "sha256": "a1f30d45e93c5a962b47b55abc5699debd2319d1450c7e4050ac4f285f136505",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-late.png",
+          "sha256": "ec08c829883f73e08dbe7fd6d953584542a45cbb5ecce1c287c2847f5d4be6f5",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+          "sha256": "b863bc06e59e18618c2f0f3c902fd19b28f71682b5e41176e18a12a8ee4796e8",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "NS01": {
+      "status": "partial",
+      "actual": "颈部及出生带有早中晚同倍率图；没有内孔、出生带和笔画外缘的独立数值。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-middle.png",
+          "sha256": "a1f30d45e93c5a962b47b55abc5699debd2319d1450c7e4050ac4f285f136505",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-late.png",
+          "sha256": "ec08c829883f73e08dbe7fd6d953584542a45cbb5ecce1c287c2847f5d4be6f5",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "NS02": {
+      "status": "partial",
+      "actual": "已录从未开始到落沙的开局片段，以及末段到完成；头部形态和在途沙收尾待逐帧确认。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-initial.png",
+          "sha256": "c8b4c94593298bd0756d55643fde64adb58d8cd6686fa390561f0482ccc6ea68",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-early.png",
+          "sha256": "fd1511c865e5ee5730694e6801cd6e92370484681193a849ca7100328b37ef8a",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-tail.png",
+          "sha256": "02e81a018ab2beb6a4de1656138087bd4f626640f20da58e042900d7ffeb46b7",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-settled.png",
+          "sha256": "c92c6f68f9e713b5cfd7a1bd2a894e51de0d4bf62fb9dd334f77a5876b06d4a1",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+          "sha256": "b863bc06e59e18618c2f0f3c902fd19b28f71682b5e41176e18a12a8ee4796e8",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/opening.mp4",
+          "sha256": "7547cc28fe95b11a35ead9a7db378a8ca62bd8fae9afe256c5ee4cd6b813ad5f",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/ending.mp4",
+          "sha256": "d7b2aa8853da05ac007144e7419614a81a5bbc266925a202fc9c6b8e1c7b0c9e",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "S00": {
+      "status": "partial",
+      "actual": "早中晚图有从出口到堆面的沙柱，完成图下落段消失；整股流动观感已录像，待审阅。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-early.png",
+          "sha256": "263dd9c19ba27a2787d178219b5ef123a402a5012ecb9ee4d1c6c823145fc303",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-middle.png",
+          "sha256": "fc02cbd401fd9b61ded7d3d4513bf012650ba3042129e120db0b62dad63eee08",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-late.png",
+          "sha256": "29ee65332800261b16227b3301ebe02da4d868c85abc20f175c7a728474c1409",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-tail.png",
+          "sha256": "7d3cb2741a76dc07587e67d8729ead5480e50d6648d82f860b637e50864ed05e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-settled.png",
+          "sha256": "5bc692e134187729fe41865e74c683018186172eaadb0af8bcafaefb6afa25cc",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/lower-loop.mp4",
+          "sha256": "dc091d2925fad04cf0f50c2a24ca79b6f0e71ac0fe809fd2c0acc2d4bede8729",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "S01": {
+      "status": "partial",
+      "actual": "早中晚全长沙柱原图可用于分带看方向和宽度；未做背景行读数和有效负对照。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-early.png",
+          "sha256": "263dd9c19ba27a2787d178219b5ef123a402a5012ecb9ee4d1c6c823145fc303",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-middle.png",
+          "sha256": "fc02cbd401fd9b61ded7d3d4513bf012650ba3042129e120db0b62dad63eee08",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-late.png",
+          "sha256": "29ee65332800261b16227b3301ebe02da4d868c85abc20f175c7a728474c1409",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "S02": {
+      "status": "partial",
+      "actual": "已录自由下落窗口的原速循环片段；没有独立速度标记或带应用时间戳的无损连续帧。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-early.png",
+          "sha256": "263dd9c19ba27a2787d178219b5ef123a402a5012ecb9ee4d1c6c823145fc303",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-middle.png",
+          "sha256": "fc02cbd401fd9b61ded7d3d4513bf012650ba3042129e120db0b62dad63eee08",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-late.png",
+          "sha256": "29ee65332800261b16227b3301ebe02da4d868c85abc20f175c7a728474c1409",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/stream-loop.mp4",
+          "sha256": "e431d6ae0c43c9b85b7b7637aaeaeef4dc42b0347360c59642233bf6ac191b6a",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "S03": {
+      "status": "partial",
+      "actual": "有早中晚及末段沙柱图与短片；末段颗粒量、各配色和默认/回退路径未完整核对。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-early.png",
+          "sha256": "263dd9c19ba27a2787d178219b5ef123a402a5012ecb9ee4d1c6c823145fc303",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-middle.png",
+          "sha256": "fc02cbd401fd9b61ded7d3d4513bf012650ba3042129e120db0b62dad63eee08",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-late.png",
+          "sha256": "29ee65332800261b16227b3301ebe02da4d868c85abc20f175c7a728474c1409",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-tail.png",
+          "sha256": "7d3cb2741a76dc07587e67d8729ead5480e50d6648d82f860b637e50864ed05e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/stream-loop.mp4",
+          "sha256": "e431d6ae0c43c9b85b7b7637aaeaeef4dc42b0347360c59642233bf6ac191b6a",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "SL00": {
+      "status": "partial",
+      "actual": "同屏图中沙柱落到沙堆，堆面随进度抬高；完成图落地活动消失，整体过程已录待审阅。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-early.png",
+          "sha256": "ddf1a26092db0be1ca3452159579cf31f2b0b01fbdbfa76f5cb5d87d726b510c",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-middle.png",
+          "sha256": "9d883069821592cab29081430f8f7b4a91166611e1758569fefc53ffb05b7707",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-late.png",
+          "sha256": "34de0e8156733d944438dcf13d8f3c49a6b3c550ac54afadb47ea8ba1f4aec6b",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-settled.png",
+          "sha256": "e06ad12a5081a1956fe204efcc28af71e2f51f3339dc31f5191882fb2c0fb01e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/landing-loop.mp4",
+          "sha256": "c103153279135bfd7aad7f5de888c537ac8ce18aa08cb2b731b314d5590ab8d8",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-early.png",
+          "sha256": "947068b8c60f6148f5dc4ce2e56883985efdf4504dc5bb309aafa04fcbba24b7",
+          "label": "完整下球与落点上下文"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-middle.png",
+          "sha256": "6107ba4dc76d0bf79ce7b2c1661f4c65bc837df4bb321da765e7cdf25d2761cc",
+          "label": "完整下球与落点上下文"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-late.png",
+          "sha256": "ecf2dc4114212cad9053213bb45e295322c6cf1d841c1d0e4bdda27942329b71",
+          "label": "完整下球与落点上下文"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-settled.png",
+          "sha256": "baedd29676c0fb9014ef66627db5bd7616f60b4a37c131ff5ae16ec7e1948fea",
+          "label": "完整下球与落点上下文"
+        }
+      ]
+    },
+    "SL01": {
+      "status": "partial",
+      "actual": "各阶段可见落点及实际堆面，完成状态有原图；碰撞线、误差及横缝负对照未独立测量。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-early.png",
+          "sha256": "ddf1a26092db0be1ca3452159579cf31f2b0b01fbdbfa76f5cb5d87d726b510c",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-middle.png",
+          "sha256": "9d883069821592cab29081430f8f7b4a91166611e1758569fefc53ffb05b7707",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-late.png",
+          "sha256": "34de0e8156733d944438dcf13d8f3c49a6b3c550ac54afadb47ea8ba1f4aec6b",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-early.png",
+          "sha256": "947068b8c60f6148f5dc4ce2e56883985efdf4504dc5bb309aafa04fcbba24b7",
+          "label": "完整下球与落点上下文"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-middle.png",
+          "sha256": "6107ba4dc76d0bf79ce7b2c1661f4c65bc837df4bb321da765e7cdf25d2761cc",
+          "label": "完整下球与落点上下文"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-late.png",
+          "sha256": "ecf2dc4114212cad9053213bb45e295322c6cf1d841c1d0e4bdda27942329b71",
+          "label": "完整下球与落点上下文"
+        }
+      ]
+    },
+    "SL02": {
+      "status": "partial",
+      "actual": "各阶段图可见堆顶周围飞溅，已录中段循环及暂停恢复；生成方向、反弹与积浓需进一步确认。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-early.png",
+          "sha256": "ddf1a26092db0be1ca3452159579cf31f2b0b01fbdbfa76f5cb5d87d726b510c",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-middle.png",
+          "sha256": "9d883069821592cab29081430f8f7b4a91166611e1758569fefc53ffb05b7707",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-late.png",
+          "sha256": "34de0e8156733d944438dcf13d8f3c49a6b3c550ac54afadb47ea8ba1f4aec6b",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/landing-loop.mp4",
+          "sha256": "c103153279135bfd7aad7f5de888c537ac8ce18aa08cb2b731b314d5590ab8d8",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-early.png",
+          "sha256": "947068b8c60f6148f5dc4ce2e56883985efdf4504dc5bb309aafa04fcbba24b7",
+          "label": "完整下球与落点上下文"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-middle.png",
+          "sha256": "6107ba4dc76d0bf79ce7b2c1661f4c65bc837df4bb321da765e7cdf25d2761cc",
+          "label": "完整下球与落点上下文"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-late.png",
+          "sha256": "ecf2dc4114212cad9053213bb45e295322c6cf1d841c1d0e4bdda27942329b71",
+          "label": "完整下球与落点上下文"
+        }
+      ]
+    },
+    "C00": {
+      "status": "partial",
+      "actual": "同一局从上球满、下球空到上球空、下球积沙的原速全过程已录；其他周期和组合未覆盖。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+          "sha256": "a685fcee5220306e5802bb1e87acaa5326487b939757dc2f42269e4c2e1f7d6d",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/early.png",
+          "sha256": "3a8a9c560501de55ffaefbe700e63650f5c47c9be8f3ee3cc66ad4d1ed152347",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/middle.png",
+          "sha256": "7824d74ffbf35f7ecd2480adfb62ed723b2e8f30992d71ad5ccee9d0f1625b60",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+          "sha256": "773fc10751f6204fe9a031db4702c5beb9eec541a6c8628907bcc4a75686f53e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/settled.png",
+          "sha256": "2c319900e051f98a50c6af94f757fc030ccc68a66f17d76baecc009d4dcca7f1",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4",
+          "sha256": "8951ce5a859799854e6823f6c8778087d1f12e5d622413f96ae491ee4e67e90a",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "C01": {
+      "status": "partial",
+      "actual": "已录运行、暂停等待、恢复及再次暂停，保留全屏计时与各部位；音频无记录，其他进度未覆盖。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/running_before_pause.png",
+          "sha256": "c1ad5db93ca206913797a8b5453dd1e3d17984e4ca0d64b91d36cfd4fefe2172",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/paused.png",
+          "sha256": "58391097e372a787ddf317a06d96bfea41ce24a80f2dfedf44355b378d383681",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/paused_later.png",
+          "sha256": "58391097e372a787ddf317a06d96bfea41ce24a80f2dfedf44355b378d383681",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/resumed.png",
+          "sha256": "78c42d4a799cbabb95ed9fe241e3c17e245cdc012c92363feb02d709207329ae",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/pause-resume-view.mp4",
+          "sha256": "a76eb9e69d84528f68c025c3c7983ca94beb44fbfe26c1b26117956718bd0479",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "C02": {
+      "status": "partial",
+      "actual": "本轮操作了重置后开始新局；周期弹窗取消、收尾重置与性能测试取消未执行。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+          "sha256": "a685fcee5220306e5802bb1e87acaa5326487b939757dc2f42269e4c2e1f7d6d",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/final_paused.png",
+          "sha256": "c94729e72f6e17d99e2ed5fc064a67da98c3bcbc99237a69c4b00af4c3a0591e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/pause-resume-view.mp4",
+          "sha256": "a76eb9e69d84528f68c025c3c7983ca94beb44fbfe26c1b26117956718bd0479",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "C03": {
+      "status": "partial",
+      "actual": "50 秒局末段至完成已录；完成后全图显示 0/50、上球与颈部空、下球保留积沙；短长周期和提醒音未测。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+          "sha256": "773fc10751f6204fe9a031db4702c5beb9eec541a6c8628907bcc4a75686f53e",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/tail.png",
+          "sha256": "e6cced0d20e3a5607990b5c40d6d5dd4be0a3f5aee3e6caf80e85c8e35519994",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/after_zero.png",
+          "sha256": "2c319900e051f98a50c6af94f757fc030ccc68a66f17d76baecc009d4dcca7f1",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/settled.png",
+          "sha256": "2c319900e051f98a50c6af94f757fc030ccc68a66f17d76baecc009d4dcca7f1",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/ending.mp4",
+          "sha256": "d7b2aa8853da05ac007144e7419614a81a5bbc266925a202fc9c6b8e1c7b0c9e",
+          "label": "本项原速动态资料"
+        },
+        {
+          "path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4",
+          "sha256": "8951ce5a859799854e6823f6c8778087d1f12e5d622413f96ae491ee4e67e90a",
+          "label": "本项原速动态资料"
+        }
+      ]
+    },
+    "X00": {
+      "status": "partial",
+      "actual": "此配置的整套画面与全局流动链已有阶段图及录像；没有改前或其他组合对照。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/early.png",
+          "sha256": "3a8a9c560501de55ffaefbe700e63650f5c47c9be8f3ee3cc66ad4d1ed152347",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/middle.png",
+          "sha256": "7824d74ffbf35f7ecd2480adfb62ed723b2e8f30992d71ad5ccee9d0f1625b60",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+          "sha256": "773fc10751f6204fe9a031db4702c5beb9eec541a6c8628907bcc4a75686f53e",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "X01": {
+      "status": "not_tested",
+      "actual": "只有金沙这一配置，未逐项执行其他配色、A-F 档位和极端组合。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+          "sha256": "a685fcee5220306e5802bb1e87acaa5326487b939757dc2f42269e4c2e1f7d6d",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "X02": {
+      "status": "partial",
+      "actual": "真正安装的 2.96 APK 可运行，1080×1920 竖屏控件及字体可见；其他尺寸和方向未测。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/early.png",
+          "sha256": "3a8a9c560501de55ffaefbe700e63650f5c47c9be8f3ee3cc66ad4d1ed152347",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/middle.png",
+          "sha256": "7824d74ffbf35f7ecd2480adfb62ed723b2e8f30992d71ad5ccee9d0f1625b60",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+          "sha256": "773fc10751f6204fe9a031db4702c5beb9eec541a6c8628907bcc4a75686f53e",
+          "label": "本项阶段实图"
+        }
+      ]
+    },
+    "X03": {
+      "status": "not_tested",
+      "actual": "只有本版单配置定位图；未执行前后物理、性能、听音及未改区域对照。仅本配置素材观察，尚未完成本项验收。",
+      "checked_by": "Codex（素材采集，非验收签字）",
+      "checked_at": "2026-10-13T16:51:14.462234+08:00",
+      "evidence": [
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/early.png",
+          "sha256": "3a8a9c560501de55ffaefbe700e63650f5c47c9be8f3ee3cc66ad4d1ed152347",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/middle.png",
+          "sha256": "7824d74ffbf35f7ecd2480adfb62ed723b2e8f30992d71ad5ccee9d0f1625b60",
+          "label": "本项阶段实图"
+        },
+        {
+          "path": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+          "sha256": "773fc10751f6204fe9a031db4702c5beb9eec541a6c8628907bcc4a75686f53e",
+          "label": "本项阶段实图"
+        }
+      ]
+    }
+  },
+  "observations": [],
+  "scope": [
+    "核对 APK SHA256、包版本及解包运行代码，GitHub 发布提交 7ee12ad。",
+    "按真实时间录制 50 秒金沙完整一局，没有跳转进度；记录初始、约 10%、50%、90%、末段和完成。",
+    "另录运行、暂停等待、恢复及再次暂停，采集结束保持暂停。",
+    "所有短循环从完整录像原速裁出；图像裁剪保留原始像素，没有生成沙子或运动。"
+  ],
+  "historical_automation": [
+    "本轮不在 PC 启动应用或运行测试；未重跑 CI 或性能对照。",
+    "此前 2.94 容器与旧 PC 报告单独保留，不用于本轮通过结论。"
+  ],
+  "limitations": [
+    "仅一个周期、金沙、一个竖屏尺寸；配置原始值见采集记录，不把存储数字猜成 A-F。",
+    "Android screenrecord 无音轨，不能验证循环音、完成播报或暂停音频。",
+    "视频经过有损编码，只用于动态观感；像素及几何判断用原始 PNG 和独立读数。",
+    "录屏增加运行负担，不以录像帧率证明应用性能。",
+    "素材齐备不等于规则通过；其他组合、量测、对照和人工审阅未齐。"
+  ],
+  "deployment": "design/media/v2.96-20261013-165114/manifest.json",
+  "coverage_update_note": "落地相关编号补上完整下球上下文，防止末段落点升高后被固定局部窗口裁掉。原截图、原录像及旧规则快照保留，逐项测试状态没有因此改成通过。"
+}

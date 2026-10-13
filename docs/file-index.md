@@ -1,0 +1,185 @@
+# 文件用途索引
+
+当前维护的源码和工具逐项列在这里。新增、移动、删除文件时同步更新；
+`test_repository_layout.py` 会检查源码是否漏登记、链接是否失效。
+说明来自代码职责，不等于这里的所有工具都已在本轮实测。
+
+自动检查在本地 push 前、GitHub push / PR 时执行，也在每天北京时间 09:00 定时执行。
+GitHub 定时任务需要配置推送到默认分支后才生效，实际启动时间可能由平台延迟。
+检查只能发现登记和路径问题，不能自动证明用途描述或历史测试门槛仍正确。
+
+## 根目录入口
+
+| 文件 | 用途 |
+|---|---|
+| [main.py](../main.py) | Kivy 启动入口，沙漏界面、物理协调、渲染与音频控制；APK 必须有此入口 |
+| [buildozer.spec](../buildozer.spec) | APK 构建配置、依赖锁、版本来源、资源白名单和排除目录 |
+| [README.md](../README.md) | 项目运行与文档入口 |
+| [AGENTS.md](../AGENTS.md) | 当前项目工作规则 |
+| [CLAUDE.md](../CLAUDE.md) | 简短开发规则与历史资料入口 |
+| [.gitignore](../.gitignore) | 忽略输出、原始素材和缓存，不控制 APK 打包 |
+| [.gitattributes](../.gitattributes) | Git 行尾等文件属性 |
+| [.githooks/pre-push](../.githooks/pre-push) | 本次外观推送核对 MuMu 外观证据、源码身份、干净工作区与版本标题；不要求帧率或完整回归 |
+| [.github/workflows/build-apk.yml](../.github/workflows/build-apk.yml) | GitHub Actions 构建、检查、发布 |
+| [.github/workflows/check-file-index.yml](../.github/workflows/check-file-index.yml) | 每日北京时间 09:00 及 push / PR 时检查索引和目录布局 |
+| [.github/workflows/check-regression.yml](../.github/workflows/check-regression.yml) | CI 目录、版本、语法和资料基础检查；失败拦截构建，不执行完整应用回归 |
+
+## 应用模块
+
+这些文件进入 APK，不作为可删除的临时工具。带 `experiment` 的文件名是历史命名，
+并不代表它未被应用使用。可选路径不因此默认开启。
+
+| 文件 | 用途 |
+|---|---|
+| [__init__.py](../src/app/__init__.py) | 应用 Python 包入口 |
+| [app_version.py](../src/app/app_version.py) | APK、Benchmark 和复制报告共用的 `APP_VERSION` |
+| [frame_benchmark.py](../src/app/frame_benchmark.py) | 帧间隔采样、统计、曲线、报告与测试状态恢复 |
+| [flow_numpy.py](../src/app/flow_numpy.py) | 主沙流的向量化物理内核，与标量路径保持等价 |
+| [splash_motion.py](../src/app/splash_motion.py) | 飞溅弹道、沙面阻尼和重新入流剔除 |
+| [sand_flow_material.py](../src/app/sand_flow_material.py) | 沙体、颈部、接触面的 GPU 材质 |
+| [flow_batch_experiment.py](../src/app/flow_batch_experiment.py) | 批处理几何、缓冲区和各渲染器共用实现 |
+| [flow_texture_experiment.py](../src/app/flow_texture_experiment.py) | 端点纹理沙流渲染路径 |
+| [stream_rendering.py](../src/app/stream_rendering.py) | 沙柱绘制密度与落点补齐的共用计算；不改变粒子物理 |
+| [flow_gpu_experiment.py](../src/app/flow_gpu_experiment.py) | 可选择的 GPU 平移渲染路径 |
+| [flow_splash_experiment.py](../src/app/flow_splash_experiment.py) | 飞溅、颈部颗粒、闪光的批处理实现 |
+| [marker_batch_experiment.py](../src/app/marker_batch_experiment.py) | 沙面标记的可选批处理；不能擅自默认开启 |
+| [prof_android.py](../src/app/prof_android.py) | 主程序加载的可选函数耗时挂点，无标记文件时不采样 |
+| [_tail_selfcheck.py](../src/app/_tail_selfcheck.py) | 主程序调用的可选末段自检，按标记文件触发 |
+
+## 构建与维护
+
+除 `.sh` 外，命令形式为 `python src/tools/<文件名> [参数]`，在仓库根目录运行。
+Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装入 APK。
+
+| 文件 | 用途与限制 |
+|---|---|
+| [android_hook.py](../src/tools/android_hook.py) | 构建时给 Manifest 注入方向与可缩放属性，不直接启动 |
+| [check_release_version.py](../src/tools/check_release_version.py) | 检查 `--base` / `--head` 的版本递增与中文标题，兼容旧目录历史 |
+| [test_release_version.py](../src/tools/test_release_version.py) | 无窗口测试版本规则和统一版本来源 |
+| [test_repository_layout.py](../src/tools/test_repository_layout.py) | 检查资源路径、文档链接、文件索引和暂存区隔离 |
+| [_prepush.sh](../src/tools/_prepush.sh) | 兼容 shell 入口，核对此次外观范围的 MuMu 证据；不自动运行全量测试 |
+| [run_regression.py](../src/tools/run_regression.py) | 关联测试选择、完整执行、完成检查、报告摘要与人工证据核对；PC 限定 |
+| [test_regression_gate.py](../src/tools/test_regression_gate.py) | 正负对照验证漏测、超时、失败、旧报告和坏图片确实会阻挡 |
+| [check_design_pages.py](../src/tools/check_design_pages.py) | 解析所有设计 HTML，检查图片解码、相对链接与页内锚点；浏览器实显仍需另验 |
+| [build_sand_flow_docs.py](../src/tools/build_sand_flow_docs.py) | 生成图文规则、逐编号版本记录和索引；可创建默认全未测的新版本记录，核对证据摘要，不启动应用或运行测试 |
+| [capture_sand_flow_media.py](../src/tools/capture_sand_flow_media.py) | 固定预留 MuMu 采集指定版本；核对 APK、源码或安装版身份及配置，录完整周期和暂停恢复，采集结束保持暂停 |
+| [deploy_mumu_source.py](../src/tools/deploy_mumu_source.py) | 备份预留 MuMu 应用，再覆盖源码和资源、回读摘要；不是新 APK 安装证明 |
+| [run_mumu_checks.py](../src/tools/run_mumu_checks.py) | 在指定 MuMu 运行公式、配置取图或真实帧率检查，校验源码/原 APK 对照身份，结束恢复正常入口；不启动 PC 应用 |
+| [check_visual_review.py](../src/tools/check_visual_review.py) | 按用户要求核对本次外观范围的 MuMu 证据、源码身份和未改区域，供推送钩子使用；不是完整或性能验收 |
+| [mumu_probe_entry.py](../src/tools/mumu_probe_entry.py) | 仅供上述工具临时放入模拟器的入口，调用真实应用与 BenchmarkRunner；矩阵取图标明逻辑推进，不是实时过程证明 |
+| [compare_mumu_frames.py](../src/tools/compare_mumu_frames.py) | 离线比较 MuMu 同种子同进度前后图、粒子数与沙量账本，标出预期区域之外差异；不自动验收改动区域，也不重写基线 |
+| [prepare_sand_flow_media.py](../src/tools/prepare_sand_flow_media.py) | 离线裁出真实原速短循环、阶段配图与逐编号素材记录；保留未验收状态，原始录屏移入暂存区 |
+| [prepare_sand_flow_review.py](../src/tools/prepare_sand_flow_review.py) | 离线整理修复轮次的原速录像、出口/边缘循环和连续帧拼图；大原片归档暂存区，不判通过 |
+| [_watch_build.sh](../src/tools/_watch_build.sh) | 以 run 基线监视 GitHub 构建，网络失败不代表构建成功 |
+| [_temp.py](../src/tools/_temp.py) | `list` / `sweep` / `clear`；默认预览，`--go` 才删除，不清理用户待审阅资料 |
+| [_pack_source_md.py](../src/tools/_pack_source_md.py) | 生成 `docs/generated/source.md`，只含当前运行代码白名单 |
+| [README.md](../src/tools/README.md) | 工具分类与常用入口 |
+
+## 回归与性能
+
+这些是独立 CLI，不被 import 不代表无用。截图不能充当 FPS 成绩；
+本轮没有重标定全部历史视觉门槛。
+
+| 文件 | 用途与限制 |
+|---|---|
+| [verify_hourglass.py](../src/tools/verify_hourglass.py) | PC 综合回归和三周期 Benchmark；部分对照依赖历史参考源码 |
+| [verify_sand_finish.py](../src/tools/verify_sand_finish.py) | 沙量守恒、暂停、重置、长帧、收尾、Benchmark 恢复；可渲染末段 |
+| [verify_completion_popup.py](../src/tools/verify_completion_popup.py) | 完成弹窗文案与排版人工预览，不能当作无人值守测试 |
+| [verify_dev_levels.py](../src/tools/verify_dev_levels.py) | 开发者菜单档位的逻辑/画面检查，失败或未完成返回非零 |
+| [verify_grain_levels.py](../src/tools/verify_grain_levels.py) | 检查六档可见差异和实际尺寸，失败/空测量不放行；历史门槛需确认适用性 |
+| [verify_particle_hot_loop.py](../src/tools/verify_particle_hot_loop.py) | 物理热循环状态等价与 CPU 成本，需要 `--before` 参考；不是 FPS |
+| [test_physics_equiv.py](../src/tools/test_physics_equiv.py) | NumPy 与标量参考逐位等价 |
+| [test_pack_equiv.py](../src/tools/test_pack_equiv.py) | 向量化端点打包与逐粒子打包的字节等价 |
+| [test_stream_rendering.py](../src/tools/test_stream_rendering.py) | 使用真实共用公式检查开局密度、局部落点补齐、收尾及标量/向量/分桶等价；不代表视觉验收 |
+| [smoke_splash_origin.py](../src/tools/smoke_splash_origin.py) | 接触位置、宽度相关飞溅密度的短 PC 烟测 |
+| [profile_frames.py](../src/tools/profile_frames.py) | 真实 Kivy flip 间隔统计，不读写个人设置 |
+| [_hot_desktop.py](../src/tools/_hot_desktop.py) | 用 cProfile 测稳态热点；PC 排名不能直接代替 Android 成本 |
+| [analyze_ab.py](../src/tools/analyze_ab.py) | 分析已有 A/B 报告，按轮配对；只读离线数据，不连接设备 |
+| [flow_chunk_experiment.py](../src/tools/flow_chunk_experiment.py) | 保留 Line、按块挂载画布的 PC 可选实验；不属于应用运行模块 |
+
+## 视觉诊断
+
+通常读取 `_temp/benchmark_logs/flow_visual_<标签>/`；缺少输入时应先生成配套截图。
+这些单项工具只覆盖各自的判据，不代表整个应用验证完成。
+
+| 文件 | 用途与限制 |
+|---|---|
+| [inspect_flow.py](../src/tools/inspect_flow.py) | 固定种子、时刻和尺寸取图与测量；输出 `flow_visual_<标签>` |
+| [_pixdiff.py](../src/tools/_pixdiff.py) | 两个取图目录逐像素对比，可屏蔽版本号；没有图片不算成功 |
+| [_side_by_side.py](../src/tools/_side_by_side.py) | 同时刻、同尺寸截图生成并排图，给用户审阅 |
+| [_diff_map.py](../src/tools/_diff_map.py) | 用 ASCII 和差异图定位不同像素的形状 |
+| [_render_golden.py](../src/tools/_render_golden.py) | `--check` 核对渲染指纹；`--save` 改基线需明确依据 |
+| [_splash_golden.py](../src/tools/_splash_golden.py) | 飞溅轨迹指纹对照；不要把重新保存基线当作修复 |
+| [render_golden.fp.json](../src/tools/render_golden.fp.json) | Git 跟踪的渲染参考指纹，不是可再生垃圾 |
+| [splash_golden.fp.json](../src/tools/splash_golden.fp.json) | Git 跟踪的飞溅参考指纹，不是普通输出 |
+| [_accept_check.py](../src/tools/_accept_check.py) | `design/checks/notes/old-criteria.md` 的 A1-A7；标定依赖指定好/坏标签截图 |
+| [_xz_geom_accept.py](../src/tools/_xz_geom_accept.py) | 下球沙堆几何判据，旧阈值不自动适用于新视觉 |
+| [_probe_geom_invariants.py](../src/tools/_probe_geom_invariants.py) | 多种实际尺寸下的几何不变量 |
+| [_probe_neck_batch_equiv.py](../src/tools/_probe_neck_batch_equiv.py) | 颈部 Line 与批处理几何、颜色等价，不证明像素一致 |
+| [_probe_grain_motion.py](../src/tools/_probe_grain_motion.py) | 相邻帧互相关估计颗粒纹理运动，不能跨重排点乱配帧 |
+| [_probe_speed_ratio.py](../src/tools/_probe_speed_ratio.py) | 图案下移速度与粒子速度的对照诊断 |
+| [_probe_gap_structure.py](../src/tools/_probe_gap_structure.py) | 沙柱连续、断续的空间结构诊断 |
+| [_probe_stream_ink.py](../src/tools/_probe_stream_ink.py) | 沙流与沙堆的墨量、亮度剖面 |
+| [_probe_ink_cover.py](../src/tools/_probe_ink_cover.py) | 查看墨量覆盖率闸在不同尺寸下的作用 |
+| [neck_ab.py](../src/tools/neck_ab.py) | 读取 A/B 颈部裁图，拼接、放大、叠加差分 |
+| [neck_density.py](../src/tools/neck_density.py) | 在固定颈部窗口测可见沙密度 |
+| [neck_profile.py](../src/tools/neck_profile.py) | 逐行统计颈部颜色游程、沙宽和玻璃边界 |
+| [sand_material_ab.py](../src/tools/sand_material_ab.py) | 运行时替换材质候选生成对照，不改正式源码 |
+
+## 素材与资料
+
+| 文件或目录 | 用途 |
+|---|---|
+| [make_clock_loop.py](../src/tools/make_clock_loop.py) | 从本地 `sounds/source/zhongbiao.mp3` 按拍加工 `sounds/clock.wav` |
+| [generate_completion_voice.py](../src/tools/generate_completion_voice.py) | 使用在线 TTS 重新生成完成播报，需要开发依赖；会写入播放资源 |
+| [generate_voice_tokens.py](../src/tools/generate_voice_tokens.py) | 重新生成拼接播报词块，需要在线 TTS；会写入 `sounds/voice/` |
+| `sounds/*.wav` | 沙沙、水流、风、钟表和完成播报的播放素材 |
+| `sounds/voice/*.wav` | 按数字、单位、短语和档位分块的 90 个预录词块，不需联网播放 |
+| `sounds/source/` | 本地原始音效，删除不影响播放，但会失去重新加工的输入 |
+| `ui/icon.png` / `ui/startup_blank.png` | 启动器图标、启动遮罩占位 |
+| `ui/slider_track.png` / `ui/slider_cursor.png` | 周期滑杆贴图 |
+| `ui/fonts/NotoSansSC-Medium.otf` | 应用中文字体 |
+| [design/README.md](../design/README.md) | 设计与测试的分类入口 |
+| [design/pages/hourglass.html](../design/pages/hourglass.html) | 按 MuMu 安卓截图记录初始/运行/暂停界面，区分截图事实、代码行为与未覆盖项 |
+| `design/history/*.html` | 历史对照与候选方案，英文文件名保留版本号；历史结论不当作当前状态 |
+| `design/images/` / `design/old-assets/` | 页面共用配图与停用素材，不进入 APK |
+| `design/images/mumu-2.96-20261013/*.png` | 四张原始安卓截图的正式副本，供设计页引用；不因清理临时输出失效 |
+| `design/images/mumu-2.96-20261013/details/*.png` | 设计文档的控件、玻璃、沙体、颈部、沙流与落点裁图；structure-marked.png 另加编号框，不是新运行证据 |
+| `design/images/mumu-2.96-20261013/session-20261013-165114/` | GitHub 2.96 APK 真正安装后的同局阶段原图、暂停恢复原图及逐部位裁图；封面只用于视频定位 |
+| `design/images/mumu-2.96-20261013/review-20261013/` | 用户指出的开局稀疏、出口接缝原图及已有录像连续抽帧；供 S04、NS03、S05 作为已知错误对照，不是正确基线 |
+| `design/media/v2.96-20261013-165114/` | 完整原速录像、5 种循环短片、开局/末段片段与 manifest.json；记录 APK 摘要、运行代码、原始配置及采集时序 |
+| `design/images/mumu-2.97-20261013/session-20261013-193739/` | 三项修复第三轮的真实阶段原图与连续裁图；前两轮试验归档暂存区 |
+| `design/images/mumu-2.97-20261013/focused/` | 最新源码与原 APK 的同条件外观对照，以及 64 秒附近连续指定时刻裁图 |
+| `design/media/v2.97-20261013-193739/` | 三项修复的完整/开局/暂停录像与出口、边缘原速循环；源码为 2.97，容器 APK 为 2.96 |
+| [design/checks/README.md](../design/checks/README.md) / [index.html](../design/checks/index.html) | rules（规则）、records（版本记录）、notes（备注）的入口及资料生成方法 |
+| [design/checks/style.css](../design/checks/style.css) | 检查资料共用样式，章节、局部图、操作与预期分别呈现 |
+| [design/checks/rules/how-to-check.md](../design/checks/rules/how-to-check.md) | 执行环境、关联回归、发布拦截与当前覆盖缺口 |
+| [design/checks/rules/checklist.json](../design/checks/rules/checklist.json) | 自动检查命令、完成标记、关联部件及人工必查项，统一入口读取 |
+| [design/checks/rules/sand-flow-cases.json](../design/checks/rules/sand-flow-cases.json) | 9 组 36 个固定表现编号的唯一维护源：整体、局部、进度、操作、预期、配图、证据与关联项；新增 S04 首次落地疏密、NS03 出口接缝、S05 颗粒外缘 |
+| [design/checks/rules/sand-flow.html](../design/checks/rules/sand-flow.html) | 从用例清单生成的带图规则，不是某版测试通过记录 |
+| [design/checks/records/index.html](../design/checks/records/index.html) / [history.html](../design/checks/records/history.html) | 当前版本与旧版本的图示记录索引，旧结论不当作本轮复测 |
+| [design/checks/records/v2.96/20261013.json](../design/checks/records/v2.96/20261013.json) / [图文记录](../design/checks/records/v2.96/20261013.html) | 已有开局/暂停片段按固定用例编号登记，所有用例均未验收 |
+| [design/checks/records/v2.96/20261013-165114.json](../design/checks/records/v2.96/20261013-165114.json) / [安装版记录](../design/checks/records/v2.96/20261013-165114.html) | 2.96 APK 安装版素材补录，33 个编号各写实际现象、状态及证据；0 项通过，不与旧容器混用 |
+| [design/checks/records/v2.96/20261013-review.json](../design/checks/records/v2.96/20261013-review.json) / [三项问题复核](../design/checks/records/v2.96/20261013-review.html) | 离线复核已有安装版录像与用户反馈；S04、NS03、S05 不通过，其余 33 项本轮未重新验收；旧采集及规则快照保留 |
+| `design/checks/records/v2.96/evidence/` | 原部署/启动资料、12 项旧 PC 检查报告及日志副本、不可回填当前结果的规则快照 |
+| [design/checks/records/v2.97/20261013.json](../design/checks/records/v2.97/20261013.json) / [修复图文记录](../design/checks/records/v2.97/20261013.html) | S04、NS03、S05 与暂停恢复的本配置初步观察，其余 32 项未验收；保留 8 项 MuMu 公式检查、部署摘要及规则快照 |
+| [design/checks/notes/index.html](../design/checks/notes/index.html) / [记录格式](../design/checks/notes/record-template.md) | 版本变化、不能再犯的错、历史规则适用性与记录状态定义 |
+| [design/checks/notes/qa-rules.md](../design/checks/notes/qa-rules.md) | 证据分级和量具纪律，唯一正式副本 |
+| [design/checks/notes/old-criteria.md](../design/checks/notes/old-criteria.md) | 历史验收标定、红线与失败原因，唯一正式副本 |
+| [design/checks/notes/old-acceptance.html](../design/checks/notes/old-acceptance.html) | 原 S/P 判据与历史图示，保留矛盾和过时结论并明确不作为当前规则 |
+| `docs/` | [文档用途索引](README.md)；规则、验收、经验与决策历史 |
+| `_temp/retired-tools/inventory.json` | 94 个旧工具的原位置、暂存位置、哈希和移出原因 |
+| `_temp/retired-docs/` | 过期问答、交接、实施计划、旧代码快照，待用户确认删除 |
+| `_temp/benchmark_logs/` | 本地测试输出和参照臂；删除不影响启动，但可能影响发布对照 |
+| `_temp/regression-runs/` | 每次统一回归的日志、报告与人工记录模板；删除后须重新验证才可发布 |
+| `_temp/mumu-media/` / `_temp/mumu-20261013/` | 原始大录屏、旧容器试录、安装包、重装前 APK/私有目录/设置备份；不影响正式页面或应用启动 |
+
+## 快速查找
+
+```powershell
+rg -n "飞溅|音频|颈部|版本" docs/file-index.md
+rg --files src
+```
+
+旧探针需要恢复到原位置并重新核查才能运行。不能把“已归档”说成“已经验证无用”，
+也不能把“文件还保留”说成“测试有效”。

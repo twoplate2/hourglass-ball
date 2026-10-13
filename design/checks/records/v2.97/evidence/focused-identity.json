@@ -1,0 +1,285 @@
+{
+  "request": {
+    "id": "20261013-195517-current-matrix",
+    "mode": "matrix",
+    "arm": "current",
+    "periods": [
+      1,
+      5,
+      15,
+      50
+    ],
+    "cases": [
+      {
+        "name": "p1-stage0",
+        "period": 1,
+        "color": 0,
+        "elapsed": 0.2
+      },
+      {
+        "name": "p1-stage1",
+        "period": 1,
+        "color": 0,
+        "elapsed": 0.5
+      },
+      {
+        "name": "p1-stage2",
+        "period": 1,
+        "color": 0,
+        "elapsed": 0.6
+      },
+      {
+        "name": "p1-stage3",
+        "period": 1,
+        "color": 0,
+        "elapsed": 0.9
+      },
+      {
+        "name": "p1-stage4",
+        "period": 1,
+        "color": 0,
+        "elapsed": 1
+      },
+      {
+        "name": "p5-stage0",
+        "period": 5,
+        "color": 0,
+        "elapsed": 0.2
+      },
+      {
+        "name": "p5-stage1",
+        "period": 5,
+        "color": 0,
+        "elapsed": 0.6
+      },
+      {
+        "name": "p5-stage2",
+        "period": 5,
+        "color": 0,
+        "elapsed": 1.2
+      },
+      {
+        "name": "p5-stage3",
+        "period": 5,
+        "color": 0,
+        "elapsed": 1.8
+      },
+      {
+        "name": "p5-stage4",
+        "period": 5,
+        "color": 0,
+        "elapsed": 2.1
+      },
+      {
+        "name": "p5-stage5",
+        "period": 5,
+        "color": 0,
+        "elapsed": 2.5
+      },
+      {
+        "name": "p5-stage6",
+        "period": 5,
+        "color": 0,
+        "elapsed": 4.5
+      },
+      {
+        "name": "p50-stage0",
+        "period": 50,
+        "color": 0,
+        "elapsed": 0.2
+      },
+      {
+        "name": "p50-stage1",
+        "period": 50,
+        "color": 0,
+        "elapsed": 0.6
+      },
+      {
+        "name": "p50-stage2",
+        "period": 50,
+        "color": 0,
+        "elapsed": 1.2
+      },
+      {
+        "name": "p50-stage3",
+        "period": 50,
+        "color": 0,
+        "elapsed": 1.8
+      },
+      {
+        "name": "p50-stage4",
+        "period": 50,
+        "color": 0,
+        "elapsed": 2.1
+      },
+      {
+        "name": "p50-stage5",
+        "period": 50,
+        "color": 0,
+        "elapsed": 25.0
+      },
+      {
+        "name": "p50-stage6",
+        "period": 50,
+        "color": 0,
+        "elapsed": 45.0
+      },
+      {
+        "name": "color1-t12",
+        "period": 50,
+        "color": 1,
+        "elapsed": 1.2
+      },
+      {
+        "name": "color1-t250",
+        "period": 50,
+        "color": 1,
+        "elapsed": 25
+      },
+      {
+        "name": "color1-t450",
+        "period": 50,
+        "color": 1,
+        "elapsed": 45
+      },
+      {
+        "name": "color2-t12",
+        "period": 50,
+        "color": 2,
+        "elapsed": 1.2
+      },
+      {
+        "name": "color2-t250",
+        "period": 50,
+        "color": 2,
+        "elapsed": 25
+      },
+      {
+        "name": "color2-t450",
+        "period": 50,
+        "color": 2,
+        "elapsed": 45
+      },
+      {
+        "name": "color3-t12",
+        "period": 50,
+        "color": 3,
+        "elapsed": 1.2
+      },
+      {
+        "name": "color3-t250",
+        "period": 50,
+        "color": 3,
+        "elapsed": 25
+      },
+      {
+        "name": "color3-t450",
+        "period": 50,
+        "color": 3,
+        "elapsed": 45
+      },
+      {
+        "name": "color4-t12",
+        "period": 50,
+        "color": 4,
+        "elapsed": 1.2
+      },
+      {
+        "name": "color4-t250",
+        "period": 50,
+        "color": 4,
+        "elapsed": 25
+      },
+      {
+        "name": "color4-t450",
+        "period": 50,
+        "color": 4,
+        "elapsed": 45
+      },
+      {
+        "name": "color5-t12",
+        "period": 50,
+        "color": 5,
+        "elapsed": 1.2
+      },
+      {
+        "name": "color5-t250",
+        "period": 50,
+        "color": 5,
+        "elapsed": 25
+      },
+      {
+        "name": "color5-t450",
+        "period": 50,
+        "color": 5,
+        "elapsed": 45
+      },
+      {
+        "name": "long64-0",
+        "period": 600,
+        "color": 0,
+        "elapsed": 63.96
+      },
+      {
+        "name": "long64-1",
+        "period": 600,
+        "color": 0,
+        "elapsed": 63.98
+      },
+      {
+        "name": "long64-2",
+        "period": 600,
+        "color": 0,
+        "elapsed": 64.0
+      },
+      {
+        "name": "long64-3",
+        "period": 600,
+        "color": 0,
+        "elapsed": 64.02
+      },
+      {
+        "name": "long64-4",
+        "period": 600,
+        "color": 0,
+        "elapsed": 64.04
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "main.py",
+      "sha256": "20681deae46444bf3e9ce69f6e64ad9bfe7e756b76e16d0094fdf0178215d1ed"
+    },
+    {
+      "path": "qa_runtime.py",
+      "sha256": "8aafa232576bb9bf83f7d4697384e31ddf19b6c7ad1ba61d0b818b63d278930d"
+    },
+    {
+      "path": "_qa/request.json",
+      "sha256": "0b05a236e8f1765f5c4890bad31ee0fed1ba859dea212a264c0449fe0bb97473"
+    },
+    {
+      "path": "_qa/test_stream_rendering.py",
+      "sha256": "676738b769e81c60deb5a8c207cdad57811471e3c199f5fba4008ad523507342"
+    }
+  ],
+  "current_source_sha256": "8aafa232576bb9bf83f7d4697384e31ddf19b6c7ad1ba61d0b818b63d278930d",
+  "source_files": {
+    "src/app/app_version.py": "e609f6dcd2c23f9fe3549d4ce0dad5f2a6f385dbc2272a814d0552430635da34",
+    "src/app/flow_batch_experiment.py": "2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07",
+    "src/app/flow_gpu_experiment.py": "2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24",
+    "src/app/flow_numpy.py": "bbb055cce7ffc27d0d89e09da68cc27c8f15fd0e3d45b6628eb2142974d1f4a0",
+    "src/app/flow_splash_experiment.py": "920d55545f2264fc48b8af55c205b12f4d3ae57d61420d06a3e8f1c66d4f29e4",
+    "src/app/flow_texture_experiment.py": "cc2a4d499fe2afcd2d4337577de280fa8768ef02aa86cb5420c01b5e9b313c4f",
+    "src/app/frame_benchmark.py": "4bc67f99f87550e7723f2aa678237a1aee9d58d0f44302c3c18060fe35586b66",
+    "src/app/marker_batch_experiment.py": "6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a",
+    "src/app/prof_android.py": "d89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3",
+    "src/app/sand_flow_material.py": "93ecef6159b7394ce6f7fd8d7bbfab6eb1a96e8cd7a20064ea504de96929f4c0",
+    "src/app/splash_motion.py": "ef5c8a15e2cdf815e53abde122965827e1f325a92a5b3637dfe5089c4e23f1a6",
+    "src/app/stream_rendering.py": "bad8298598c4c419227dc2a0e7543be65acd18e569b63b1d56c5a5fcc15e9999",
+    "src/app/_tail_selfcheck.py": "a5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2"
+  },
+  "apk_sha256": null
+}

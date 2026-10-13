@@ -1,0 +1,290 @@
+--------- beginning of main
+W/nativebridge(57653): Failed to bind-mount /system/etc/cpuinfo.arm64.txt as /proc/cpuinfo: No such file or directory
+E/Zygote  (57653): pkg name is 0 => org.shalou.hourglass, data dir is /data/user/0/org.shalou.hourglass
+W/zygote64(57653): Thread Pool max thread count is 0. Cannot cache binder as linkToDeath cannot be implemented. serviceName: nemuhotd
+I/Zygote  (57653): seccomp disabled by setenforce 0
+I/halou.hourglass(57653): Late-enabling -Xcheck:jni
+I/halou.hourglass(57653): Using CollectorTypeCMC GC.
+W/halou.hourglass(57653): Unexpected CPU variant for x86: x86_64.
+W/halou.hourglass(57653): Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, alderlake, default
+V/libnb   (57653): enter native_bridge2_initialize /data/user/0/org.shalou.hourglass/code_cache arm64
+E/libnb   (57653): The translator implementation library has not been set.
+E/libnb   (57653): get_callbacks native_handle 0x48c0c1ca9a2d8dd1: 1 libnb:/system/lib64/libhoudini.so
+I/libnb   (57653): Found /system/lib64/libhoudini.so version 7
+E/HP      (57653): patch_houdini_linker_null_crash: patched +0x2FFECE (je->jmp) OK
+D/HP      (57653): no libmumuhooker.so
+D/HP      (57653): mAbi = arm64 enableHighFrame = 0
+D/houdini (57653): [57653] Houdini now in android app mode
+D/houdini (57653): [57653] Intel Bridge Technology for Netease Mumu only, Copyright(C) Intel Corp. 2012-2025.
+D/houdini (57653): [57653] Use permitted only under a valid commercial software license agreement - all other rights reserved.
+D/houdini (57653): [57653] Initialize library(version: 15.0.0_z.Netease_com2.0 RELEASE)... successfully.
+W/HP      (57653): x_initialize private_dir:/data/user/0/org.shalou.hourglass/code_cache instruction_set:arm64 getMethodShorty:0x7e777be9a700 ret:1
+I/halou.hourglass(57653): type=1400 audit(0.0:2173): avc:  denied  { write } for  name="property_service" dev="tmpfs" ino=664 scontext=u:r:untrusted_app_32:s0:c124,c256,c512,c768 tcontext=u:object_r:property_socket:s0 tclass=sock_file permissive=1 app=org.shalou.hourglass
+I/halou.hourglass(57653): type=1400 audit(0.0:2174): avc:  denied  { connectto } for  path="/dev/socket/property_service" scontext=u:r:untrusted_app_32:s0:c124,c256,c512,c768 tcontext=u:r:init:s0 tclass=unix_stream_socket permissive=1 app=org.shalou.hourglass
+D/nativeloader(57653): Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+I/unknown (57653): type=1400 audit(0.0:2178): avc:  denied  { connectto } for  comm=4144422D4A44575020436F6E6E6563 path=006A6477702D636F6E74726F6C scontext=u:r:untrusted_app_32:s0:c124,c256,c512,c768 tcontext=u:r:su:s0 tclass=unix_stream_socket permissive=1 app=org.shalou.hourglass
+D/nativeloader(57653): Configuring clns-7 for other apk /data/app/~~raOCLUr8tNU9Dn0UXvscfg==/org.shalou.hourglass-JFkqqBh3X22NU1420-9evQ==/base.apk. target_sdk_version=33, uses_libraries=, library_path=/data/app/~~raOCLUr8tNU9Dn0UXvscfg==/org.shalou.hourglass-JFkqqBh3X22NU1420-9evQ==/lib/arm64:/data/app/~~raOCLUr8tNU9Dn0UXvscfg==/org.shalou.hourglass-JFkqqBh3X22NU1420-9evQ==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/org.shalou.hourglass
+I/halou.hourglass(57653): AssetManager2(0x7e78ed0edf98) locale list changing from [] to [zh-Hans-CN]
+V/GraphicsEnvironment(57653): Currently set values for:
+V/GraphicsEnvironment(57653):   angle_gl_driver_selection_pkgs=[]
+V/GraphicsEnvironment(57653):   angle_gl_driver_selection_values=[]
+V/GraphicsEnvironment(57653): org.shalou.hourglass is not listed in per-application setting
+V/GraphicsEnvironment(57653): Neither updatable production driver nor prerelease driver is supported.
+E/libEGL  (57653): intercept_property_get () for (persist.graphics.egl)
+I/halou.hourglass(57653): AssetManager2(0x7e78ed0ef258) locale list changing from [] to [zh-Hans-CN]
+I/EGL_emulation(57653): EGL display initialized (version 1.4, rendererVersion=0x3, configs=120)
+V/PythonActivity(57653): PythonActivity onCreate running
+V/PythonActivity(57653): About to do super onCreate
+V/SDL     (57653): Device: cupid
+V/SDL     (57653): Model: 2201123C
+V/SDL     (57653): onCreate()
+V/PythonActivity(57653): Did super onCreate
+V/SDL     (57653): getting identifier
+V/SDL     (57653): kind is layout and name lottie
+V/SDL     (57653): result is 0
+E/halou.hourglass(57653): Invalid resource ID 0x00000000.
+V/SDL     (57653): couldn't find lottie layout or animation, trying static splash
+V/SDL     (57653): getting identifier
+V/SDL     (57653): kind is drawable and name presplash
+V/SDL     (57653): result is 2130771969
+W/HWUI    (57653): Image decoding logging dropped!
+V/SDL     (57653): asked to get string presplash_color
+V/SDL     (57653): getting identifier
+V/SDL     (57653): kind is string and name presplash_color
+V/SDL     (57653): result is 2131034113
+D/DesktopModeFlagsUtil(57653): Toggle override initialized to: OVERRIDE_OFF
+V/PythonActivity(57653): Ready to unpack
+V/pythonutil(57653): Unpacking private app
+V/pythonutil(57653): Data version is 0cf9a477008d2394f8a304b11dabe1ecffb58980
+V/SDL     (57653): onStart()
+V/pythonutil(57653): Unpacking /data/app/~~raOCLUr8tNU9Dn0UXvscfg==/org.shalou.hourglass-JFkqqBh3X22NU1420-9evQ==/lib/arm64/libpybundle app
+V/pythonutil(57653): Data version is 0cf9a477008d2394f8a304b11dabe1ecffb58980
+V/PythonActivity(57653): onResume()
+V/SDL     (57653): onResume()
+W/HWUI    (57653): Unknown dataspace 0
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libffi.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libmain.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libsqlite3.so
+V/pythonutil(57653): Pattern libsqlite3\.so matched file libsqlite3.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libsqlite3\.so against libSDL2.so
+V/pythonutil(57653): Checking pattern libffi\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libffi\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libffi\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libffi\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libffi\.so against libffi.so
+V/pythonutil(57653): Pattern libffi\.so matched file libffi.so
+V/pythonutil(57653): Checking pattern libffi\.so against libmain.so
+V/pythonutil(57653): Checking pattern libffi\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libffi\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libffi\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libffi\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libffi\.so against libSDL2.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libffi.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libmain.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libpng16\.so against libSDL2.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libffi.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libmain.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libssl1.1.so
+V/pythonutil(57653): Pattern libssl.*\.so matched file libssl1.1.so
+V/pythonutil(57653): Checking pattern libssl.*\.so against libSDL2.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libffi.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libmain.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libcrypto1.1.so
+V/pythonutil(57653): Pattern libcrypto.*\.so matched file libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libcrypto.*\.so against libSDL2.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libffi.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libmain.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libSDL2\.so against libSDL2.so
+V/pythonutil(57653): Pattern libSDL2\.so matched file libSDL2.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libffi.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libmain.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libSDL2_image.so
+V/pythonutil(57653): Pattern libSDL2_image\.so matched file libSDL2_image.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libSDL2_image\.so against libSDL2.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libSDL2_mixer.so
+V/pythonutil(57653): Pattern libSDL2_mixer\.so matched file libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libffi.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libmain.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libSDL2_mixer\.so against libSDL2.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libpybundle.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libpython3.11.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libSDL2_mixer.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libSDL2_ttf.so
+V/pythonutil(57653): Pattern libSDL2_ttf\.so matched file libSDL2_ttf.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libffi.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libmain.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libsqlite3.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libcrypto1.1.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libSDL2_image.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libssl1.1.so
+V/pythonutil(57653): Checking pattern libSDL2_ttf\.so against libSDL2.so
+V/pythonutil(57653): Loading library: sqlite3
+V/pythonutil(57653): Loading library: ffi
+V/pythonutil(57653): Loading library: ssl1.1
+V/pythonutil(57653): Loading library: crypto1.1
+V/pythonutil(57653): Loading library: SDL2
+I/halou.hourglass(57653): JIT allocated 52KB for compiled code of void android.view.View.<init>(android.content.Context, android.util.AttributeSet, int, int)
+V/pythonutil(57653): Loading library: SDL2_image
+V/pythonutil(57653): Loading library: SDL2_mixer
+V/pythonutil(57653): Loading library: SDL2_ttf
+V/pythonutil(57653): Loading library: python3.5m
+V/pythonutil(57653): Library loading error: dlopen failed: library "libpython3.5m.so" not found
+V/pythonutil(57653): Loading library: python3.6m
+V/pythonutil(57653): Library loading error: dlopen failed: library "libpython3.6m.so" not found
+V/pythonutil(57653): Loading library: python3.7m
+V/pythonutil(57653): Library loading error: dlopen failed: library "libpython3.7m.so" not found
+V/pythonutil(57653): Loading library: python3.8
+V/pythonutil(57653): Library loading error: dlopen failed: library "libpython3.8.so" not found
+V/pythonutil(57653): Loading library: python3.9
+V/pythonutil(57653): Library loading error: dlopen failed: library "libpython3.9.so" not found
+V/pythonutil(57653): Loading library: python3.10
+V/pythonutil(57653): Library loading error: dlopen failed: library "libpython3.10.so" not found
+V/pythonutil(57653): Loading library: python3.11
+V/pythonutil(57653): Loading library: main
+V/pythonutil(57653): Loaded everything!
+V/SDL     (57653): nativeSetupJNI()
+V/SDL     (57653): AUDIO nativeSetupJNI()
+V/SDL     (57653): CONTROLLER nativeSetupJNI()
+D/AudioSystem(57653): onNewService: media.audio_policy service obtained 0x7e78dd168b80
+D/AudioSystem(57653): getService: checking for service media.audio_policy: 0x7e78dd168b80
+V/PythonActivity(57653): Setting env vars for start.c and Python to use
+V/PythonActivity(57653): Access to our meta-data...
+I/PythonActivity(57653): Surface will NOT be transparent
+I/Choreographer(57653): Skipped 93 frames!  The application may be doing too much work on its main thread.
+I/EGL_emulation(57653): EGL display initialized (version 1.4, rendererVersion=0x3, configs=120)
+V/SDL     (57653): surfaceCreated()
+V/SDL     (57653): surfaceChanged()
+V/SDL     (57653): Window size: 1080x1848
+V/SDL     (57653): Device size: 1080x1920
+V/SDL     (57653): Running main function SDL_main from library /data/app/~~raOCLUr8tNU9Dn0UXvscfg==/org.shalou.hourglass-JFkqqBh3X22NU1420-9evQ==/lib/arm64/libmain.so
+V/PythonActivity(57653): appConfirmedActive() -> preparing loading screen removal
+V/SDL     (57653): nativeRunMain()
+E/HidlServiceManagement(57653): getService: Potential race detected, descriptor: android.hardware.configstore@1.0::ISurfaceFlingerConfigs instance: default
+I/python  (57653): Initializing Python for Android
+I/python  (57653): Setting additional env vars from p4a_env_vars.txt
+I/python  (57653): Changing directory to the one provided by ANDROID_ARGUMENT
+I/python  (57653): /data/user/0/org.shalou.hourglass/files/app
+W/HWUI    (57653): Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+I/python  (57653): Preparing to initialize python
+I/python  (57653): _python_bundle dir exists
+I/python  (57653): calculated paths to be...
+I/python  (57653): /data/user/0/org.shalou.hourglass/files/app/_python_bundle/stdlib.zip:/data/user/0/org.shalou.hourglass/files/app/_python_bundle/modules
+I/python  (57653): set wchar paths...
+E/HidlServiceManagement(57653): getService: Potential race detected, descriptor: android.hardware.graphics.mapper@2.0::IMapper instance: default
+E/HidlServiceManagement(57653): getService: Potential race detected, descriptor: android.hardware.graphics.allocator@2.0::IAllocator instance: default
+D/gralloc_kona(57653): gralloc_alloc: Creating ashmem region of size 8298496
+D/gralloc_kona(57653): gralloc_alloc: Creating ashmem region of size 8298496
+I/python  (57653): Initialized python
+I/python  (57653): AND: Init threads
+I/python  (57653): testing python print redirection
+V/SDL     (57653): onWindowFocusChanged(): true
+I/python  (57653): Android path ['.', '/data/user/0/org.shalou.hourglass/files/app/_python_bundle/stdlib.zip', '/data/user/0/org.shalou.hourglass/files/app/_python_bundle/modules', '/data/user/0/org.shalou.hourglass/files/app/_python_bundle/site-packages']
+D/InsetsController(57653): hide(ime(), fromIme=false)
+I/ImeTracker(57653): org.shalou.hourglass:caabca8a: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+I/python  (57653): os.environ is environ({'PATH': '/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin', 'ANDROID_BOOTLOGO': '1', 'ANDROID_ROOT': '/system', 'ANDROID_ASSETS': '/system/app', 'ANDROID_DATA': '/data', 'ANDROID_STORAGE': '/storage', 'ANDROID_ART_ROOT': '/apex/com.android.art', 'ANDROID_I18N_ROOT': '/apex/com.android.i18n', 'ANDROID_TZDATA_ROOT': '/apex/com.android.tzdata', 'EXTERNAL_STORAGE': '/sdcard', 'ASEC_MOUNTPOINT': '/mnt/asec', 'HISTFILE': '/sdcard/.bash_history', 'HISTSIZE': '1000', 'DOWNLOAD_CACHE': '/data/cache', 'BOOTCLASSPATH': '/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:/apex/com.android.art/javalib/okhttp.jar:/apex/com.android.art/javalib/bouncycastle.jar:/apex/com.android.art/javalib/apache-xml.jar:/system/framework/framework.jar:/system/framework/framework-graphics.jar:/system/framework/framework-location.jar:/system/framework/framework-connectivity-b.jar:/system/framework/ext.jar:/system/framework/telephony-common.jar:/system/framework/voip-common.jar:/system/framework/ims-common.jar:/system/framework/framework-platformcrashrecovery.jar:/system/framework/framework-ondeviceintelligence-platform.jar:/apex/com.android.i18n/javalib/core-icu4j.jar:/apex/com.android.adservices/javalib/framework-adservices.jar:/apex/com.android.adservices/javalib/framework-sdksandbox.jar:/apex/com.android.appsearch/javalib/framework-appsearch.jar:/apex/com.android.btservices/javalib/framework-bluetooth.jar:/apex/com.android.configinfrastructure/javalib/framework-configinfrastructure.jar:/apex/com.android.conscrypt/javalib/conscrypt.jar:/apex/com.android.devicelock/javalib/framework-devicelock.jar:/apex/com.android.healthfitness/javalib/framework-healthfitness.jar:/apex/com.android.ipsec/javalib/android.net.ipsec.ike.jar:/apex/com.android.media/javalib/updatable-media.jar:/apex/com.android.mediaprovider/javalib/framework-mediaprovider.jar:/apex/com.android.mediaprovider/javalib/framework-pdf.jar:/apex/com.android.mediaprovider/javalib/framework-pdf-v.jar:/apex/com.android.mediaprovider/javalib/framework-photopicker.jar:/apex/com.android.nfcservices/javalib/framework-nfc.jar:/apex/com.android.ondevicepersonalization/javalib/framework-ondevicepersonalization.jar:/apex/com.android.os.statsd/javalib/framework-statsd.jar:/apex/com.android.permission/javalib/framework-permission.jar:/apex/com.android.permission/javalib/framework-permission-s.jar:/apex/com.android.profiling/javalib/framework-profiling.jar:/apex/com.android.scheduling/javalib/framework-scheduling.jar:/apex/com.android.sdkext/javalib/framework-sdkextensions.jar:/apex/com.android.tethering/javalib/framework-connectivity.jar:/apex/com.android.tethering/javalib/framework-connectivity-t.jar:/apex/com.android.tethering/javalib/framework-tethering.jar:/apex/com.android.uwb/javalib/framework-uwb.jar:/apex/com.android.virt/javalib/framework-virtualization.jar:/apex/com.android.wifi/javalib/framework-wifi.jar', 'DEX2OATBOOTCLASSPATH': '/apex/com.android.art/javalib/core-oj.jar:/apex/com.android.art/javalib/core-libart.jar:/apex/com.android.art/javalib/okhttp.jar:/apex/com.android.art/javalib/bouncycastle.jar:/apex/com.android.art/javalib/apache-xml.jar:/system/framework/framework.jar:/system/framework/framework-graphics.jar:/system/framework/framework-location.jar:/system/framework/framework-connectivity-b.jar:/system/framework/ext.jar:/system/framework/telephony-common.jar:/system/framework/voip-common.jar:/system/framework/ims-common.jar:/system/framework/framework-platformcrashrecovery.jar:/system/framework/framework-ondeviceintelligence-platform.jar:/apex/com.android.i18n/javalib/core-icu4j.jar', 'SYSTEMSERVERCLASSPATH': '/system/framework/com.android.location.provider.jar:/system/framework/services.jar:/apex/com.android.adservices/javalib/service-adservices.jar:/apex/com.android.adservices/javalib/service-sdksandbox.jar:/apex/com.android.appsearch/javalib/service-appsearch.jar:/apex/com.android.art/javalib/ser
+I/python  (57653): Android kivy bootstrap done. __name__ is __main__
+I/python  (57653): AND: Ran string
+I/python  (57653): Run user program, change dir and execute entrypoint
+I/python  (57653): [INFO   ] [Logger      ] Record log in /data/user/0/org.shalou.hourglass/files/app/.kivy/logs/kivy_26-10-13_9.txt
+I/python  (57653): [INFO   ] [Kivy        ] v2.3.0
+I/python  (57653): [INFO   ] [Kivy        ] Installed at "/data/user/0/org.shalou.hourglass/files/app/_python_bundle/site-packages/kivy/__init__.pyc"
+I/python  (57653): [INFO   ] [Python      ] v3.11.5 (main, Oct  3 2026, 03:59:50) [Clang 14.0.6 (https://android.googlesource.com/toolchain/llvm-project 4c603efb0
+I/python  (57653): [INFO   ] [Python      ] Interpreter at ""
+I/python  (57653): [INFO   ] [Logger      ] Purge log fired. Processing...
+I/python  (57653): [INFO   ] [Logger      ] Purge finished!
+I/python  (57653): [INFO   ] [Factory     ] 195 symbols loaded
+I/python  (57653): [INFO   ] [Image       ] Providers: img_tex, img_dds, img_sdl2 (img_pil, img_ffpyplayer ignored)
+I/python  (57653): [INFO   ] [Text        ] Provider: sdl2
+I/python  (57653): [INFO   ] [Window      ] Provider: sdl2
+V/hidapi  (57653): initialize(true, false)
+D/gralloc_kona(57653): gralloc_alloc: Creating ashmem region of size 8298496
+V/SDL     (57653): setOrientation() requestedOrientation=10 width=800 height=600 resizable=true hint=Portrait PortraitUpsideDown LandscapeLeft LandscapeRight
+D/gralloc_kona(57653): gralloc_alloc: Creating ashmem region of size 7987200
+I/SDL/APP (57653): pixel format wanted SDL_PIXELFORMAT_RGBA8888 (1), got SDL_PIXELFORMAT_RGBA8888 (1)
+I/python  (57653): [INFO   ] [GL          ] Using the "OpenGL ES 2" graphics system
+I/python  (57653): [INFO   ] [GL          ] Backend used <sdl2>
+I/python  (57653): [INFO   ] [GL          ] OpenGL version <b'OpenGL ES 3.2 v334 R'>
+I/python  (57653): [INFO   ] [GL          ] OpenGL vendor <b'Qualcomm'>
+I/python  (57653): [INFO   ] [GL          ] OpenGL renderer <b'Adreno (TM) 740'>
+I/python  (57653): [INFO   ] [GL          ] OpenGL parsed version: 3, 2
+I/python  (57653): [INFO   ] [GL          ] Texture max size <32768>
+I/python  (57653): [INFO   ] [GL          ] Texture max units <32>
+I/python  (57653): [INFO   ] [Window      ] auto add sdl2 input provider
+I/python  (57653): [INFO   ] [Window      ] virtual keyboard not allowed, single mode, not docked
+I/python  (57653): sand material mode = 'grain' (no marker: [Errno 2] No such file or directory: '/data/data/org.shalou.hourglass/files/app/matmode')
+I/python  (57653): flow trail_scale=1.000 (main)
+I/python  (57653): batch renderers wired: splash=batch neck=batch flare=batch marker=line
+D/AudioSystem(57653): onNewServiceWithAdapter: media.audio_flinger service obtained 0x7e77bd1299a0
+D/AudioSystem(57653): getService: checking for service media.audio_flinger: 0x7e78dd15a260
+I/python  (57653): _init_audio_track wav_rate=48000 native_rate=48000
+I/python  (57653): backend=audiotrack
+I/python  (57653): _init_audio_track wav_rate=24000 native_rate=48000
+I/python  (57653): backend=audiotrack
+I/python  (57653): clump level = 自然 (出厂九元组)
+I/python  (57653): [INFO   ] [GL          ] NPOT texture support is available
+I/python  (57653): TAILCHECK import ok  flag=/data/data/org.shalou.hourglass/files/app
+I/python  (57653): Refresh modes: modes=1080x1920@480#1 now=480 screen_cap=480 sys_cap=0 cap=0 want=480#1 res=1080x1920
+I/python  (57653): Refresh rate: requested 480.0Hz (was 480.0Hz, mode #1)
+I/python  (57653): setFrameRate failed: 'android.view.Window' object has no attribute 'setFrameRate'
+I/python  (57653): [WARNING] [Base        ] Unknown <android> provider
+I/python  (57653): [INFO   ] [Base        ] Start application main loop
+I/python  (57653): voice bank: 90 tokens @ 24000Hz
+I/python  (57653): GPU sand flow active: upper reservoir + neck
+I/python  (57653): flare batch active (shader compiled)
+D/gralloc_kona(57653): gralloc_alloc: Creating ashmem region of size 7987200
+D/gralloc_kona(57653): gralloc_alloc: Creating ashmem region of size 7987200
+D/gralloc_kona(57653): gralloc_alloc: Creating ashmem region of size 7987200
+I/python  (57653): Refresh modes: modes=1080x1920@480#1 now=480 screen_cap=480 sys_cap=0 cap=0 want=480#1 res=1080x1920
+I/python  (57653): Refresh rate: requested 480.0Hz (was 480.0Hz, mode #1)
+I/python  (57653): setFrameRate failed: 'android.view.Window' object has no attribute 'setFrameRate'

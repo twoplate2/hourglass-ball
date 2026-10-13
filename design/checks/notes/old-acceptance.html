@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>验收标准 · 沙柱与视觉类改动</title>
+<style>
+  :root{ --ink:#2b2620; --mut:#6d6459; --line:#ded5c7; --bg:#fbf8f2; --card:#fff;
+         --bad:#c0281f; --good:#1f7a3f; --warn:#a86a00; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.75 "Microsoft YaHei","PingFang SC",system-ui,sans-serif;}
+  main{max-width:1000px;margin:0 auto;padding:32px 22px 90px;}
+  h1{font-size:30px;margin:0 0 6px}
+  h2{font-size:22px;margin:44px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+  h3{font-size:17.5px;margin:26px 0 8px}
+  .sub{color:var(--mut);font-size:14.5px;margin:0 0 4px}
+  p,li{font-size:15.5px}
+  code{background:#f1ece2;padding:1px 5px;border-radius:4px;font-size:13.5px;
+       font-family:Consolas,"Courier New",monospace}
+  table{border-collapse:collapse;width:100%;margin:12px 0;background:var(--card);font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:7px 9px;vertical-align:top;text-align:left}
+  th{background:#f4eee2;font-weight:600}
+  .bad{color:var(--bad);font-weight:700}
+  .good{color:var(--good);font-weight:700}
+  .warnc{color:var(--warn);font-weight:700}
+  .callout{border-left:5px solid var(--warn);background:#fdf6e6;padding:10px 14px;margin:14px 0;border-radius:0 8px 8px 0}
+  .callout.badc{border-color:var(--bad);background:#fdeeec}
+  .callout.goodc{border-color:var(--good);background:#eaf6ee}
+  figure{margin:16px 0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+  figure img{display:block;max-width:100%;margin:0 auto;border-radius:6px}
+  figcaption{font-size:14px;color:var(--mut);margin-top:10px;text-align:center}
+  .pair{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+  .pair figure{flex:1 1 260px;margin:10px 0}
+  .tag{display:inline-block;font-size:12.5px;padding:1px 8px;border-radius:99px;
+       vertical-align:2px;font-weight:600}
+  .tag.b{background:#fdeeec;color:var(--bad);border:1px solid #f0c3bd}
+  .tag.g{background:#eaf6ee;color:var(--good);border:1px solid #bfe0cb}
+  .tag.w{background:#fdf6e6;color:var(--warn);border:1px solid #ecd9a8}
+  .small{font-size:13.5px;color:var(--mut)}
+  ol.redline li{margin:6px 0}
+</style>
+</head>
+<body>
+<main>
+
+<div class="callout badc">
+<b>历史原稿，不是当前规则。</b> 本页保留旧测量、旧门槛和原始矛盾结论；其中有后来被推翻或未完成跨档验证的内容。
+当前看 <a href="../rules/sand-flow.html">按部位分组的图文用例</a>；每版结果看
+<a href="../records/index.html">版本记录</a>。本轮没有重跑这些实验，旧“已修复 / 通过”不自动适用于当前版本。
+</div>
+
+<h1>验收标准 —— 视觉类改动（含出口以下的下落沙柱）</h1>
+<p class="sub">位置 <code>design/checks/notes/old-acceptance.html</code> · 2026-10-12 首版 · 配套
+<a href="../../pages/hourglass.html">hourglass.html</a>、<a href="qa-rules.md">QA 纪律</a>（证据等级）、<a href="old-criteria.md">历史判据 A1–A7</a></p>
+
+<div class="callout badc">
+<b>起因。</b> 2.78 出货后用户质问「2.78 的 QA 是谁」「这种也能通过？」「我不是让你每次测试都去安卓版本跑吗？」。
+复盘：<b>所有闸门都是作者自证的</b> —— 金标准每改必重标定（只回答"像不像上一版"）、
+旋钮关掉一致（只证明"可控"）、剖面单调（只证明"它做了我让它做的事"）；
+唯一能判观感的那道闸门（并排图交用户）是我自己看的，而且我预先写了「觉得太多/太少都不用发版」。
+装机实测被我降级成"push + 一张缩放模拟器图"，而 <code>pc/apk/CLAUDE.md:51</code> 写的是「桌面三态 + <b>装机实测</b>」。<br>
+<b>这份文件写给"改之前"：不满足就不许说改好了、不许 push。</b>
+</div>
+
+<h2>0. 元规则</h2>
+<ul>
+<li><b>R0「通过」两个字归用户。</b> 我最多能说两种话：
+  ① 「机械判据 X/Y 通过（附原始输出）」；② 「并排图与设备 1:1 截图在此，<b>待你裁决</b>」。
+  在用户表态之前写「更自然 / 更好 / 没问题 / 可以发版」<b>都是越权</b>。</li>
+<li><b>R1 证据等级</b>（<code>QA_RULES.md</code> 铁律 0）：<b>E1</b> 有对照的实测 · <b>E2</b> 有实测无对照 ·
+  <b>E3</b> 只有断言 / 只看了代码 · <b>E4</b> 事后被推翻。<b>没到 E1 不许写"验证通过"</b>；E2/E3 要如实标。</li>
+<li><b>R2 作者自证类闸门，各自只能证明一件事</b>（都<b>不能</b>证明"好"）：</li>
+</ul>
+<table>
+<tr><th>闸门</th><th>能证明</th><th class="bad">不能证明</th></tr>
+<tr><td>金标准 <code>_render_golden --check</code></td><td>与<b>上一版</b>逐图一致 / 变化范围</td><td>对不对 —— 它每改必重标定，等于盖章放行</td></tr>
+<tr><td>关旋钮逐像素回参照</td><td>改动可控、可回退</td><td>开的时候对不对</td></tr>
+<tr><td>剖面单调 / 达标</td><td>它做了<b>我让它做的事</b></td><td>那个事该不该做（2.78 剖面 1.1→55.6% 完全达标，结果是错的）</td></tr>
+<tr><td><code>test_physics_equiv</code> / pyflakes</td><td>没破坏既有契约</td><td>视觉正确</td></tr>
+<tr><td>同帧 md5 稳定</td><td>不闪</td><td>图案对不对</td></tr>
+</table>
+<ul>
+<li><b>R3 判据集不许由实现者自选。</b> 至少要有<b>一条与本次改动目标正交</b>的量。
+  2.78 只量了它自己造的那个剖面 ⇒ 三条正交量（连续性 S1、图案速度 S2、墨量 S3）一条都没进判据集。</li>
+<li><b>R4 门槛必须先标定</b>：先拿「已知好」与「已知坏」各跑一遍，门槛要能把两者分开。
+  本对象的标定对：<b>已知好 = 1.244</b>（用户裁决过的参照）· <b>已知坏 = 2.78</b>（用户判词：断成虚线）。
+  分不开的门槛等于没有门槛（旧 A1 的 <code>[0.6,1.5]</code> 已知错也落在里面，属反例）。</li>
+<li><b>R5 观感归用户</b>：改像素之前先把<b>改前/改后并排图</b>交上去（项目红线 <code>CLAUDE.md</code> §八）；
+  统计量只能事后解释"为什么"，不许用来裁决"好不好"。</li>
+<li><b>R6 量具的五个已知陷阱</b>（都栽过）：
+  ① <b>缩放图判细结构</b> —— 缩图把 1~4px 的缝与亮沙混在一起（我把缝读成亮沙，用户纠正）；
+  ② <b>行平均覆盖率</b>看不见竖缝、<b>中位数</b>对混合比变化不敏感（要用均值）；
+  ③ <b>录像不能当量具</b>（编码器对 1~3px 细颗粒有码率呼吸，同一静止区域能摆 2.9 倍）；
+  ④ <b>窗口污染</b>（下球沙堆是另一个层且静止，窗口压到堆上会得出"材质不动"的假结论）；
+  ⑤ <b>对照图不同倍率</b>（左 ×10 右 ×3，被读成"放大 2.5 倍"）。</li>
+</ul>
+
+<h2>1. 结构性判据（S —— 对象正确性，与"好不好看"无关）</h2>
+
+<div class="pair">
+<figure><img src="../../images/bad_278_sieve.png" alt="2.78 断成虚线" style="max-width:250px">
+<figcaption><b>已知坏（S1）</b>：2.78 —— 缝比沙流还宽，断成一段段。</figcaption></figure>
+<figure><img src="../../images/bad_276_gap_zoom.png" alt="衔接横缝" style="max-width:300px">
+<figcaption><b>已知坏（S6）</b>：2.76 —— 落沙与沙堆之间一条 <b>6px 全宽空横缝</b>（红框）。</figcaption></figure>
+<figure><img src="../../images/good_276_column.png" alt="参照柱" style="max-width:230px">
+<figcaption><b>参照</b>：只有粒子一层的柱子（墨量 56~62 px/行）。</figcaption></figure>
+</div>
+
+<table>
+<tr><th>#</th><th>判据</th><th>怎么量</th><th>门槛</th><th>已知好</th><th>已知坏</th></tr>
+<tr><td><b>S1</b></td><td>柱身<b>不许整宽横断</b>；缝必须短、稀疏</td>
+  <td>柱带内逐行"整行背景（≥90% 窗宽）"的<b>连续 run 长度</b>（<code>_probe_gap_structure.py</code> 的 <code>run_*</code>）</td>
+  <td class="good">≤ 2 行（已标定：0 vs 16 行）</td><td>1.244 = 0 行（实测，t=8.77/46.0）· 2.76 = 0 行（实测）</td><td>2.78 = <b>16 行</b>（实测，t=8.77 行 2130–2145）</td></tr>
+<tr><td><b>S2</b></td><td>图案必须随沙走：图案速度 ÷ 粒子速度 ≈ 1</td>
+  <td>逐帧互相关（<code>_probe_speed_ratio.py</code>），<b>只在柱子高度带内</b>（避开沙堆窗口）</td>
+  <td>落在标定带，<b>跨档一致（极差 ≤1.15×）</b>（已标定过）</td><td>粒子的固有纹理 ≈ 1</td><td class="bad">2.78 的筛子 = 0（钉在空间）</td></tr>
+<tr><td><b>S3</b></td><td>墨量不许被大比例静默拿掉</td>
+  <td>柱内每行沙色像素（中位）× 分带；沙色用 <b>1-近邻分类</b>（与配色无关）</td>
+  <td>默认档各带 ≥ 参照臂 × X%（<b>X 待标定</b>；已知坏深处只剩 44%）</td><td>1.244 = 56 px/行</td><td>2.78 深处 −55%</td></tr>
+<tr><td><b>S4</b></td><td>出口以下前 N px <b>不许断续</b>（物理：最上段平滑均匀）</td>
+  <td>与 S1 同法，取 <code>d &lt; N</code> 的行</td>
+  <td>N 与门槛待标定</td><td>1.244</td><td>——</td></tr>
+<tr><td><b>S5</b></td><td>跨档与跨口径都要过</td>
+  <td>1s / 50s / ≥600s × 桌面 400×875 与平板 1904×2890；转屏各一次</td>
+  <td>全部档位都过 S1–S4</td><td>——</td><td>2.77 的"发丝颈"只在 ≥36000s 档出现</td></tr>
+<tr><td><b>S6</b></td><td><b>落沙↔沙堆的衔接处不许出现全宽空横缝</b></td>
+  <td>柱带内「整行背景」连续 run；位置限定在沙堆顶面 ±40px</td>
+  <td class="good">≤ 2 行（<b>已双侧标定</b>）</td><td><b>1.244 = 0 行</b>（实测 t=46.0/48.4）· 材质带开 = 0 行（最小 S=78/91）</td>
+  <td class="bad">2.76 / 2.78 = <b>3 行</b>（≥90% 口径；66% 松口径 6 行）· 宽 170px</td></tr>
+<tr><td><b>S7</b></td><td>不许破坏既有契约</td>
+  <td><code>_pixdiff.py</code>（屏蔽版本号）关旋钮对比 · <code>test_physics_equiv.py</code> · pyflakes 未定义名</td>
+  <td>差异 = 0 · PASS · 0 个</td><td>——</td><td>——</td></tr>
+<tr><td><b>S8</b></td><td><b>用户可见设置项必须有活性守卫</b></td>
+  <td>把该设置拧到两个极端，渲染必须<b>不同</b>（md5）</td>
+  <td>md5 必须不同</td><td>——</td>
+  <td class="bad">2.72「沙流断续」、2.62 孔隙率 = md5 相同（死）</td></tr>
+</table>
+<div class="callout">
+<b>两条门槛今天都已标定（用实测两侧）：</b> S6 的"已知好"有两条独立读数（<b>1.244 = 0 行</b>；材质带开 = 0 行）、
+"已知坏"是 2.76/2.78 = 3 行（≥90% 口径）⇒ 取 ≤2 行。S1 的"已知好"是 1.244/2.76 的 0 行，
+"已知坏"是 2.78 的 <b>16 行</b>（t=8.77 行 2130–2145）⇒ 同一个 ≤2 行门槛，余量 8 倍。
+⚠️ 两条都还只验过 50s + 平板口径 —— 跨档复核（S5）仍是欠账。
+⚠️ <b>口径必须写死</b>：同一条缝在 66% 口径下是 6 行、90% 口径下是 3 行 —— 报数时两个数一起给，别只挑一个。
+</div>
+
+<h3 id="score">1.5 评分制：不是"通过 / 不通过"二元（2026-10-12 增）</h3>
+<p>上面每条判据其实都是<b>连续量</b>，所以给<b>分数</b>（0–100）：<b>0 分 = 已知坏、100 分 = 已知好</b>，锚点全部出自实测。
+<b>均分只用于排序</b>；<b>最低分项必须同时列出</b>（分数会掩盖致命单项）。是否允许"以长补短"由用户定。</p>
+<table>
+<tr><th>判据</th><th>连续量</th><th>打分式（锚 = 实测）</th><th>1.244</th><th>2.76 / 2.77</th><th>2.78</th></tr>
+<tr><td>S1 连续性</td><td>柱带内"整行背景(≥90%)"最长连续行数</td><td>100·(1 − run/16)；16 行 = 2.78 实测</td>
+  <td class="good">100（0 行）</td><td class="good">100（0 行）</td><td class="bad">0（16 行）</td></tr>
+<tr><td>S2 图案随材料走</td><td>相隔 20.7s 两帧、同批像素上的背景重合 J(0)</td><td>100·(1 − (J−0.015)/0.373)；0.388 = 2.78 实测</td>
+  <td class="good">100（J=0.015）</td><td>93（J=0.042）</td><td class="bad">0（J=0.388）</td></tr>
+<tr><td>S3 墨量</td><td>柱内每行沙色像素（中位）</td><td>100·min(1, ink/55)；55 = 1.244 参照</td>
+  <td class="good">100</td><td class="good">100（64，封顶）</td><td>87（48）</td></tr>
+<tr><td>S4 出口段</td><td>出口下 0–25px 背景率</td><td>无已知坏锚 ⇒ 暂<b>不分档</b>，只报数</td>
+  <td>100（10.4%）</td><td>100（9.4%）</td><td>100（9.4%）</td></tr>
+<tr><td>S6 衔接缝</td><td>衔接处"整行背景"最长连续行数</td><td>100·(1 − run/3)；3 行 = 2.76/2.78 实测</td>
+  <td class="good">100（0 行）</td><td class="bad">0（3 行）</td><td class="bad">0（3 行）</td></tr>
+<tr><td>S7 契约</td><td>物理等价 / pyflakes / 关旋钮逐像素</td><td>二值</td>
+  <td>100</td><td>100</td><td>100</td></tr>
+<tr><td>S8 设置活性</td><td>失效的用户可见设置项个数 n</td><td>100·(1 − n/2)</td>
+  <td>N/A（它还没有这些菜单项）</td><td class="bad">0（死 2 项）</td><td class="bad">0（死 2 项）</td></tr>
+<tr><th colspan="3">均分（N/A 不计入分母）</th><th class="good">100.0（6 项）</th><th>70.4（7 项）</th><th class="bad">41.0（7 项）</th></tr>
+</table>
+<p class="small">⚠️ <b>这张表量的是"沙柱与衔接"这一块，不是整个 app。</b>1.244 在这六项上满分，
+但它在尺子之外有实测缺陷（长周期"发丝颈"：内孔 0.7~2.9px，2.77 才修）与工程欠账（2.x 的批处理/预热/165Hz 它没有）；
+2.76 的 0 分项是 S6 / S8，2.78 的是 S1 / S2 / S6 / S8。<b>分数低 ≠ 该扔，分数高 ≠ 没事。</b>
+S5（跨档跨口径）还没有分 —— 三版都只验过 50s + 平板口径。</p>
+
+<h2>2. 过程判据（P —— 交付与流程）</h2>
+<table>
+<tr><th>#</th><th>判据</th><th>说明</th></tr>
+<tr><td><b>P1</b></td><td><b>装机实测</b> = 设备上跑 + <b>原始分辨率</b>截图 / 录屏</td>
+  <td>不许拿缩放图判细结构；截图里<b>版本号要看得见</b>；档位用<b>用户会看的那个</b>（本轮是 50s）；
+  <code>pc/apk/CLAUDE.md:51</code> 原话：「桌面三态 + 装机实测」</td></tr>
+<tr><td><b>P2</b></td><td>交付物齐备（见 §3），缺一不许交</td><td>——</td></tr>
+<tr><td><b>P3</b></td><td><b>改前/改后并排图先交用户，再谈 push</b></td>
+  <td>2.78 的顺序是反的：自己看、自己判、push、然后才给图</td></tr>
+<tr><td><b>P4</b></td><td>回退口必须<b>被读到</b></td>
+  <td>每臂回读并打印实际值（标记文件有<b>两个目录</b>：<code>&lt;app&gt;/</code> 与 <code>&lt;app&gt;/tools/</code>，本项目为此栽过；
+  环境变量在设备上不存在）</td></tr>
+<tr><td><b>P5</b></td><td>单变量对照臂</td>
+  <td>改前/改后各一臂，除被测变量外逐字节相同（回读 <code>code_hash</code> 核对）</td></tr>
+<tr><td><b>P6</b></td><td>题面里没量过的档位 / 状态要如实列进"未验证项"</td>
+  <td>不许用"主力档通过"代表"全档通过"</td></tr>
+</table>
+
+<h2>3. 交付物清单（交给用户的那一份）</h2>
+<ol>
+<li><b>并排图</b>：改前 / 改后，<b>同时刻、同口径、同倍率、1:1 不缩放</b>，附标签与 md5；</li>
+<li><b>设备 1:1 截图</b>（P1），能看清柱子，版本号可见；</li>
+<li><b>机械判据表</b>：每行 = 判据 / 命令 / <b>原始输出</b> / 结论（原样贴，不许转述）；</li>
+<li><b>回退口</b>：一个真的被读到的旋钮 + 自证输出；</li>
+<li><b>如实列</b>：已知代价、未验证项、没覆盖的档位。</li>
+</ol>
+
+<h2>4. 一票否决（禁用做法）</h2>
+<ol class="redline">
+<li>用统计量代替眼睛；用「作者觉得更自然」代替用户裁决。</li>
+<li><b>先 push 再给图</b>（2.78 的顺序）。</li>
+<li>拿「金标准全绿」当「没问题」—— 它每改必重标定。</li>
+<li>拿脚手架通过（旋钮关掉一致 / 单测 / pyflakes）当「视觉正确」。</li>
+<li>没标定过的门槛当依据；缩放图判 1~4px 结构；录像当量具。</li>
+<li>把「机械判据通过」写成「验证通过 / 修好了 / 没问题」而不标证据等级。</li>
+</ol>
+
+<h2>5. 附表：拿这套判据去量今天的三棵树</h2>
+<table>
+<tr><th>判据</th><th>1.244（参照）</th><th>2.76（已出货）</th><th>2.78（已出货）</th><th>分辨力</th></tr>
+<tr><td>S1 柱身整宽横断</td><td>——</td><td>中段 0 行</td><td class="bad">大面积（断成虚线）</td><td class="warnc">门槛待标定</td></tr>
+<tr><td>S2 图案速度比</td><td>≈1</td><td>≈1（无额外图案）</td><td class="bad">0</td><td class="good">✅ 分得开</td></tr>
+<tr><td>S3 墨量（深处带）</td><td>100%（基准）</td><td>≈100%</td><td class="bad">44%</td><td class="good">✅ 分得开</td></tr>
+<tr><td>S6 衔接横缝</td><td class="good">0 行（实测 t=46.0 / 48.4）</td><td class="bad">3 行 / 宽 170px</td><td class="bad">3 行（同 2.76）</td><td class="good">✅ 已双侧标定</td></tr>
+<tr><td>S8 设置项活性</td><td>——</td><td class="bad">2 项死</td><td class="bad">2 项死</td><td class="good">✅ 二元判定</td></tr>
+</table>
+<div class="callout badc">
+<b>这张表本身就是今天的结论</b>：这套判据<b>今天就能判死 2.78</b>（S2 / S3），
+也判出 2.76/2.78/1.244 <b>都带着同一条衔接横缝</b>（S6，用户今天报的那条「空着的横线」）。
+而 S1 / S3 / S4 的门槛还没标定 —— 标定它们是把量具做全的第一步。
+</div>
+
+<h2>6. 变更记录</h2>
+<ul class="small">
+<li><b>2026-10-12 首版</b>：起因见页首。S6 由当天的实测新增（用户报「明显的空着的横线」，1:1 复现 + 单变量对照标定）；
+  S8 由当天发现的死旋钮新增（<code>clump_level</code> / <code>holegrow</code>）。</li>
+</ul>
+
+<p class="small" style="margin-top:36px">本文件与 <a href="../../pages/hourglass.html">hourglass.html</a> 配套；
+历史判据（A1–A7、标定记录、外部文献）在 <code>shalou_acceptance.md</code>。</p>
+
+</main>
+</body>
+</html>

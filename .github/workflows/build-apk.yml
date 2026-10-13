@@ -9,7 +9,10 @@ permissions:
   contents: write        # 建 Release 要它 —— 见最后那步"Publish APK to Release"
 
 jobs:
+  regression:
+    uses: ./.github/workflows/check-regression.yml
   build:
+    needs: regression
     runs-on: ubuntu-22.04          # 不要用 24.04, buildozer 还没适配
     timeout-minutes: 90
 
@@ -29,10 +32,13 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-        run: python tools/check_release_version.py --base "$BASE_SHA" --head "$HEAD_SHA" --check-title
+        run: python src/tools/check_release_version.py --base "$BASE_SHA" --head "$HEAD_SHA" --check-title
 
       - name: 验证 APK 版本来源一致
-        run: python tools/test_release_version.py
+        run: python src/tools/test_release_version.py
+
+      - name: 检查目录与资源引用
+        run: python src/tools/test_repository_layout.py
 
       - name: 静态检查未定义名字 (pyflakes)
         # 只挡 "undefined name" —— 那是**启动即死**级别的错误, 而 ast.parse 只查语法、
@@ -42,7 +48,7 @@ jobs:
         # (其余告警如"未使用的变量/import"不挡, 只报告。)
         run: |
           pip install pyflakes
-          python -m pyflakes main.py frame_benchmark.py app_version.py tools/*.py > /tmp/pf.txt 2>&1 || true
+          python -m pyflakes main.py src/app/*.py src/tools/*.py > /tmp/pf.txt 2>&1 || true
           if grep -q "undefined name" /tmp/pf.txt; then
             grep "undefined name" /tmp/pf.txt
             echo "::error::存在未定义名字 —— Android 上会启动即死"

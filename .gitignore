@@ -5,8 +5,8 @@ __pycache__/
 *.pyc
 .hourglass_config.json
 backup/
-mp3/
-MP3/
+sounds/source/
+docs/generated/
 benchmark_logs/
 _review/
 
@@ -42,5 +42,7 @@ tools/_p2*.py
 tools/_p1*.sh
 
 # 2026-10-13: `_temp/` = **待删暂存区**(拿不准要不要留的东西扔这儿, 过几天 sweep 掉)。
-#   本地暂存 —— 不入仓库(⇒ 不进 CI 的 APK)。规矩与用法: `tools/_temp.py`, 或 `_temp/README.txt`。
+#   本地暂存 —— 不入仓库且排除 APK。规矩与用法: `src/tools/_temp.py`, 或 `_temp/README.txt`。
 _temp/
+Temp/
+_kivyhome/

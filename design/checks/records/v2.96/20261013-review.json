@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "date": "2026-10-13",
+  "session": "用户反馈与已有安装版录像复核；没有新运行、没有操作设备",
+  "source_version": "2.96",
+  "package_version": "2.96",
+  "environment": "离线查看 20261013-165114 的 MuMu 安装版录像及原始 PNG；原采集为 1080×1920、density 480、50 秒金沙",
+  "rules_revision": "2026-10-13.5",
+  "rules_snapshot": "design/checks/records/v2.96/evidence/rules-2026-10-13.5.json",
+  "rules_snapshot_sha256": "445631a984a8a31eefaf756598b9e4dad5e46d53894b006af8b8820d43162b08",
+  "source_identity": {
+    "path": "design/media/v2.96-20261013-165114/manifest.json",
+    "sha256": "1cb04577c7f994330a1944d1c9f82e99a5b2da7f113a7ad0e9bbee7f02b898c8",
+    "label": "原采集的 APK、运行代码、配置与时间记录"
+  },
+  "review_status": "failed",
+  "conclusion": "用户指出的三项问题均在已有 v2.96 安装版素材中找到证据：S04 首次落地前后疏密突变、NS03 出口横向材质接缝、S05 外缘随机颗粒感不足，分别记为不通过。当前规则共 36 项，本次仅复核这三项，其余 33 项未在本轮重新验收；0 项通过。没有修应用或新跑测试，旧采集记录保留。",
+  "screenshots": [
+    {
+      "path": "design/images/mumu-2.96-20261013/review-20261013/user-opening-sparse.png",
+      "caption": "问题 1 / S04 · 用户提供的 v2.96 开局截图：未落地的沙柱稀疏。与已有录像交叉确认；用户截图的精确时间及完整配置未登记。",
+      "max_width": 330
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/review-20261013/user-outlet-seam.png",
+      "caption": "问题 2 / NS03 · 用户提供的 v2.96 5 / 50 截图：颈部出口接沙柱处有横向材质分界。",
+      "max_width": 330
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-middle.png",
+      "caption": "问题 3 / S05 · 已有中段原始 PNG 裁图：内部纹理在变化，但两侧主体轮廓仍过于平整。",
+      "max_width": 330
+    }
+  ],
+  "videos": [
+    {
+      "path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4",
+      "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+      "width": 1080,
+      "height": 1920,
+      "loop": false,
+      "caption": "同次安装版完整原速录像。源录像约 3.8–3.9 秒定位首次落地前后密度硬切；17–18.75 秒看两侧颗粒边缘；44–49.5 秒看出口接缝。以上是媒体时间，不是界面剩余计时。无声。"
+    }
+  ],
+  "scope": [
+    "只复核用户列出的三项可见问题，不宣称完整沙流验收、音频或性能测试完成。",
+    "S04：从原录像抽取约 3.4–4.3 秒，每 0.1 秒一帧，保留出口、完整下落段和球底。约 3.8 秒仍稀疏，约 3.9 秒整柱变密并开始形成下堆。",
+    "NS03：从原录像抽取约 44–49.5 秒，每 0.5 秒一帧，出口横向纹理分界连续存在；另用原始 neck-late.png 核对不是仅有视频压缩痕迹。",
+    "S05：从原录像抽取约 17–18.75 秒，每 0.25 秒一帧，以原像素裁图看两侧，再与原始 stream-middle.png 对照。边缘并非完全不变，但平整主体轮廓占主导，随机颗粒感不足。",
+    "原始录像 full-cycle-raw.mp4 的采集 SHA256 为 b95388fc84bb9313fb325729adfee114b42051cde7d9b0e757cd1de98db47eb9；正式完整转码录像保留，并登记到三项证据。抽帧图没有补画沙子。",
+    "三个新编号从本版开始逐版本登记。原 33 个编号的采集结果仍见 20261013-165114，不把其片段观察冒充本轮通过。"
+  ],
+  "observations": [],
+  "results": {
+    "U00": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "U01": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "U02": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "U03": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "L00": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "L01": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "L02": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "L03": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "N00": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "N01": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "N02": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "N03": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "UN00": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "UN01": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "UN02": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "NS00": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "NS01": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "NS02": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "NS03": {
+      "status": "failed",
+      "actual": "问题 2 存在。用户 5 / 50 截图及已有末段原始 PNG 中，颈部出口与沙柱之间可见横向纹理接缝；原录像约 44–49.5 秒连续帧中也有同高度分界。上方较细碎、下方偏竖向条纹，不能因两块沙色连在一起就算衔接通过。没有确认代码根因或标定像素阈值。",
+      "checked_by": "Codex（用户反馈、已有录像连续帧与原始 PNG 的离线复核，非新运行）",
+      "checked_at": "2026-10-13T19:17:45+08:00",
+      "evidence": [
+        {"path": "design/images/mumu-2.96-20261013/review-20261013/user-outlet-seam.png", "sha256": "771c858d7847a29c3ad951c5899b812f10daf198823fcba85ed23f0a1679e145", "label": "用户指出的出口接缝"},
+        {"path": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-late.png", "sha256": "ec08c829883f73e08dbe7fd6d953584542a45cbb5ecce1c287c2847f5d4be6f5", "label": "原始 PNG：出口横线与材质分界"},
+        {"path": "design/images/mumu-2.96-20261013/review-20261013/outlet-late-contact.png", "sha256": "b95be9d9625dc3e4033fc9d17d66437e32ccfc7f6e30fec28657d3ca4433a554", "label": "44–49.5 秒连续抽帧：接缝不是单帧偶然"},
+        {"path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4", "sha256": "8951ce5a859799854e6823f6c8778087d1f12e5d622413f96ae491ee4e67e90a", "label": "原采集正式完整录像"}
+      ]
+    },
+    "S00": {"status": "not_tested", "actual": "本轮未完整验收；已知专项问题见 S04、S05 和 NS03，不得据旧素材宣称整体通过。", "evidence": []},
+    "S01": {"status": "not_tested", "actual": "本轮未完整验收宽度、方向与断带；外缘颗粒不足单独登记 S05，不替代本项全部检查。", "evidence": []},
+    "S02": {"status": "not_tested", "actual": "本轮未完整验收速度及动态；首次落地前后密度跳变单独登记 S04。", "evidence": []},
+    "S03": {"status": "not_tested", "actual": "本轮未完整验收颗粒量及末段纯色化；首次落地疏密和外缘分别见 S04、S05。", "evidence": []},
+    "S04": {
+      "status": "failed",
+      "actual": "问题 1 存在。原录像约 3.8 秒，前缘已接近球底但已有沙柱仍明显稀疏；约 3.9 秒首次落地附近，出口以下整柱突然变密，不是单纯延长了沙柱。对比同一已被前缘经过的高度带也能看出变化。与用户开局截图一致；具体代码原因尚未确认。",
+      "checked_by": "Codex（用户反馈与已有录像连续帧的离线复核，非新运行）",
+      "checked_at": "2026-10-13T19:17:45+08:00",
+      "evidence": [
+        {"path": "design/images/mumu-2.96-20261013/review-20261013/user-opening-sparse.png", "sha256": "41cd93db1750eb30116983b7ac4a3475af79d9827d29ff2c54c30715015c81ec", "label": "用户指出的未落地稀疏沙柱"},
+        {"path": "design/images/mumu-2.96-20261013/review-20261013/first-landing-contact.png", "sha256": "8db66e0235a74e057ca43d10f0f7dcfda5662de8a742c0d561ed6e57030a2b7a", "label": "3.4–4.3 秒连续抽帧：首次落地前后整柱密度硬切"},
+        {"path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4", "sha256": "8951ce5a859799854e6823f6c8778087d1f12e5d622413f96ae491ee4e67e90a", "label": "原采集正式完整录像"}
+      ]
+    },
+    "S05": {
+      "status": "failed",
+      "actual": "问题 3 的可见表现存在。原录像约 17–18.75 秒的原像素裁图与中段原始 PNG 显示，两侧有少量不规则变化，并非绝对直线或完全静止；但主体轮廓仍连续平整，随机颗粒边缘很弱，整体更像色带。内部条纹、空隙或落点飞溅不能代替外缘颗粒化。没有据录像作独立随机性数值量测。",
+      "checked_by": "Codex（已有录像连续帧与原始 PNG 的离线视觉复核，非新运行）",
+      "checked_at": "2026-10-13T19:17:45+08:00",
+      "evidence": [
+        {"path": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-middle.png", "sha256": "fc02cbd401fd9b61ded7d3d4513bf012650ba3042129e120db0b62dad63eee08", "label": "原始 PNG：两侧主体轮廓与内部纹理分别查看"},
+        {"path": "design/images/mumu-2.96-20261013/review-20261013/stream-edge-contact.png", "sha256": "b5178902c24af16b98bbe531c3126311c43247b6a081d098324493760a1a0ef1", "label": "17–18.75 秒原像素连续裁图：随机颗粒边缘很弱"},
+        {"path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4", "sha256": "8951ce5a859799854e6823f6c8778087d1f12e5d622413f96ae491ee4e67e90a", "label": "原采集正式完整录像"}
+      ]
+    },
+    "SL00": {"status": "not_tested", "actual": "本轮未完整验收落地整体；首次落地密度跳变单独登记 S04。", "evidence": []},
+    "SL01": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "SL02": {"status": "not_tested", "actual": "本轮未重新验收；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "C00": {"status": "not_tested", "actual": "本轮未完整验收全过程；三项专项不通过，不能据已有完整录像宣称整体通过。", "evidence": []},
+    "C01": {"status": "not_tested", "actual": "本轮未重新验收暂停恢复；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "C02": {"status": "not_tested", "actual": "本轮未重新验收重置及取消；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "C03": {"status": "not_tested", "actual": "本轮未重新验收收尾；已有素材及片段观察见原安装版记录。", "evidence": []},
+    "X00": {"status": "not_tested", "actual": "本轮未验收其他配置或版本对照；仅确认本配置三项专项问题。", "evidence": []},
+    "X01": {"status": "not_tested", "actual": "未覆盖全部配色、颗粒、起伏及极端组合。", "evidence": []},
+    "X02": {"status": "not_tested", "actual": "未新增方向、尺寸或资源打包验收。", "evidence": []},
+    "X03": {"status": "not_tested", "actual": "未执行前后物理、性能、听音及未改区域对照。", "evidence": []}
+  },
+  "historical_automation": [
+    "本次没有运行应用测试、自动回归、CI、模拟器或 ADB；只读取已有媒体、抽帧和生成资料。",
+    "只运行 --plan 列出关联检查，没有执行该计划。三项关联的自动工具不等于已有专门视觉拦截，仍需逐编号人工审阅。"
+  ],
+  "limitations": [
+    "这是已有素材的失败复核，不是新版本修复后的测试，也不证明所有配置都有相同问题。",
+    "截图和连续帧支持可见表现判断；尚未确认代码根因、独立物理量或随机性数值。",
+    "原录像已进行有损编码；抽帧输出为 PNG 不会恢复被压缩丢失的信息。S04 拼图缩小一半用于看整体硬切，NS03 和 S05 拼图裁切不缩放；像素门槛另用原始截图并标定。",
+    "连续帧拼图按行从左到右，时间标签是源录像起始偏移加格内时间。抽帧时间近似到取样间隔，不能当应用精确时间。",
+    "音频、性能、其他配色、档位、周期和布局未验收；其余编号本轮未测不抹去旧采集记录。",
+    "规则和已知反例可防止遗漏这三项，但没有据此声称所有未来回归都能自动阻止。"
+  ]
+}

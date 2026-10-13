@@ -1,0 +1,849 @@
+{
+  "started_at": "2026-10-13T16:51:14.462234+08:00",
+  "serial": "127.0.0.1:16416",
+  "source_version": "2.96",
+  "package_version": "2.96",
+  "package_info": "Activity Resolver Table:\n  Non-Data Actions:\n      android.intent.action.MAIN:\n        ec72744 org.shalou.hourglass/org.kivy.android.PythonActivity filter b5aa02d\n          Action: \"android.intent.action.MAIN\"\n          Category: \"android.intent.category.LAUNCHER\"\n\nDomain verification status:\n\nKey Set Manager:\n  [org.shalou.hourglass]\n      Signing KeySets: 94\n\nPackages:\n  Package [org.shalou.hourglass] (a39d14f):\n    appId=10126\n    pkg=Package{6e7daa4 org.shalou.hourglass}\n    codePath=/data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==\n    resourcePath=/data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==\n    legacyNativeLibraryDir=/data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==/lib\n    extractNativeLibs=true\n    primaryCpuAbi=arm64-v8a\n    secondaryCpuAbi=null\n    cpuAbiOverride=null\n    versionCode=1021296 minSdk=21 targetSdk=33\n    minExtensionVersions=[]\n    versionName=2.96\n    hiddenApiEnforcementPolicy=2\n    usesNonSdkApi=false\n    splits=[base]\n    apkSigningVersion=2\n    flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]\n    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]\n    forceQueryable=false\n    pageSizeCompat=0\n    scannedAsStoppedSystemApp=false\n    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]\n    timeStamp=2026-10-13 16:47:54\n    lastUpdateTime=2026-10-13 16:47:54\n    installerPackageName=null\n    installerPackageUid=-1\n    initiatingPackageName=com.android.shell\n    originatingPackageName=null\n    packageSource=1\n    appMetadataFilePath=null\n    appMetadataSource=0\n    signatures=PackageSignatures{42e400d version:2, signatures:[a5fdca79], past signatures:[]}\n    installPermissionsFixed=false\n    pkgFlags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]\n    privatePkgFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]\n    apexModuleName=null\n    User 0: ceDataInode=3802659 deDataInode=8257715 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false quarantined=false\n      installReason=0\n      dataDir=/data/user/0/org.shalou.hourglass\n      firstInstallTime=2026-10-13 16:47:54\n      uninstallReason=0\n      overlay paths:\n        /data/resource-cache/com.android.systemui-neutral-Dy1H.frro\n        /data/resource-cache/com.android.systemui-accent-pvyj.frro\n        /data/resource-cache/com.android.systemui-dynamic-agNJ.frro\n      runtime permissions:\n\nQueries:\n  system apps queryable: false\n  queries via forceQueryable:\n  queries via package name:\n  queries via component:\n    com.android.settings.intelligence:\n      org.shalou.hourglass\n  queryable via interaction:\n    User 0:\n      [com.mumu.store,com.android.server.telecom,com.android.localtransport,com.android.providers.settings,com.android.location.fused,com.android.settings,android,com.android.keychain,com.android.documentsui,com.android.packageinstaller,com.sohu.inputmethod.sogou.chuizi,com.netease.mumu.cloner,com.mumu.shared.sdk]:\n        org.shalou.hourglass\n  queryable via uses-library:\n\nDexopt state:\n  [org.shalou.hourglass]\n    path: /data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==/base.apk\n      x86_64: [status=run-from-apk] [reason=unknown] [primary-abi]\n        [location is error]\n\nCompiler stats:\n  [org.shalou.hourglass]\n     base.apk - 86\n",
+  "apk_sha256": "30ab2a6efbb0d7e26c2a70cc4c8341c1023cf3c31a2ef92610a3ba3f8189b09f",
+  "runtime_files": [
+    {
+      "path": "app_version.pyc",
+      "sha256": "2718dba1b2e317b9b24b8a1bc133df417c15963344024e2974d11dd1f4020ea8"
+    },
+    {
+      "path": "frame_benchmark.pyc",
+      "sha256": "aee29c059d76832a734ad0d7ef7139fd6f34d82f8c3723f347a91af8ec8228c1"
+    },
+    {
+      "path": "main.pyc",
+      "sha256": "f2d1624941c9fe49c5c6b2e33234560b1b74acf2872be58d76fe988b7a103b34"
+    },
+    {
+      "path": "p4a/hook.pyc",
+      "sha256": "bb758ff72bd0d542c3b8427af7c6de02ceb1cff445258e9d16e590b69cdcff9c"
+    },
+    {
+      "path": "sitecustomize.pyc",
+      "sha256": "3302c769a4bbc082941cdb3c2f569f98baab80c36b8d66b9bb2168b46187bfd9"
+    },
+    {
+      "path": "tools/_a1_silhouette.pyc",
+      "sha256": "a09b010789c7b8fc5768d09df247df8d97df873a2b7209a6f06bb53c2150ff1a"
+    },
+    {
+      "path": "tools/_a2_bucket_probe.pyc",
+      "sha256": "ef3a8e9f6828565e8145382681025ec407ca2bc2b9497f118573b03b718fdc5c"
+    },
+    {
+      "path": "tools/_a2_hist_probe.pyc",
+      "sha256": "f1f88e7e2590a066200a3bc71edeadfefcae04192cfb9639e4fccdd0cf5ed5d0"
+    },
+    {
+      "path": "tools/_a2_scale_probe.pyc",
+      "sha256": "2e438dbadd1172a6cf33fab04c6f832ab96e3055b26c1c9903d7baf54727a140"
+    },
+    {
+      "path": "tools/_accept_check.pyc",
+      "sha256": "cfb5d37a40554936ef13fb64aceea44da0d61bd12ebd40eb36aab2addcec2f1c"
+    },
+    {
+      "path": "tools/_bisect_rough.pyc",
+      "sha256": "ab57d84b67cf3b71beb73abb2a2138bed6965408172c9d747ab2ceb63f2af6a4"
+    },
+    {
+      "path": "tools/_dev_aniso_bands.pyc",
+      "sha256": "1fe79d41e5534c99a1fab061ac7145b17ac7102cce70fccf1005b5991027f2a7"
+    },
+    {
+      "path": "tools/_dev_rowscan.pyc",
+      "sha256": "f5e784bc9a41552213f0d1bdee55bf1cdca2ff23662fcb6a560635d33649b0fc"
+    },
+    {
+      "path": "tools/_diff_map.pyc",
+      "sha256": "6f28a40a2ab1e2356e0b7c84616a6c508eb790f6feb9a70c216a26834a99d9cb"
+    },
+    {
+      "path": "tools/_hot_desktop.pyc",
+      "sha256": "a9c6d580d2014396ee5a39a49259138799aaabddc17badc8fc4d78d21ef1af96"
+    },
+    {
+      "path": "tools/_p1_probe_rows.pyc",
+      "sha256": "6587792425256149f0807eb251d4ad1f2ff4ea7fd5c3751fe2d2a3db82b7090a"
+    },
+    {
+      "path": "tools/_p2_shrink_two_impl.pyc",
+      "sha256": "7e1d9a7afce81814b15fb7d5d5203ab366693541227cc9d5cd3aa9ed3ca5fadf"
+    },
+    {
+      "path": "tools/_pack_source_md.pyc",
+      "sha256": "66f29b92dcdaae147cda41d0aed7ad6736e9affe08b958323994175a5af79e2e"
+    },
+    {
+      "path": "tools/_pixdiff.pyc",
+      "sha256": "be767193a743e03f87ebdf908f90598cca17f3cad779184c91337b2df0a4094e"
+    },
+    {
+      "path": "tools/_probe_band_aniso.pyc",
+      "sha256": "077705794345ee37c63f173bad81c825ccc3487662cdeefb7ec7c55c141af8a1"
+    },
+    {
+      "path": "tools/_probe_below_outlet.pyc",
+      "sha256": "8d39e98db024842b23ab98cb8eb9bef45c7434bc221718170e2549773fd0cd4f"
+    },
+    {
+      "path": "tools/_probe_canvas_cost.pyc",
+      "sha256": "7e1b2844ace1129264533b64f74824e0ea362f94333de6c2e47dd4b36fae095b"
+    },
+    {
+      "path": "tools/_probe_canvas_instr.pyc",
+      "sha256": "66f14ab6bc6bfd6385761e86ab000aa61bc634350c2646e4ac327e03b9c865b9"
+    },
+    {
+      "path": "tools/_probe_cap_diff.pyc",
+      "sha256": "b3c6b43becf80587604c85b009c59f72bb6f7dcd307198c69ec39478eac00ee4"
+    },
+    {
+      "path": "tools/_probe_chunk_need.pyc",
+      "sha256": "7649b3d5a51689c8f0443c00d00aed9baaff1310c3a7572959661f0bdfa4a6fe"
+    },
+    {
+      "path": "tools/_probe_column_alpha.pyc",
+      "sha256": "9cfca3a4fd95cfa43df7c23a146cbd3cc76a4502045d239afddc492ea7fd181b"
+    },
+    {
+      "path": "tools/_probe_ctab_equiv.pyc",
+      "sha256": "d64c98549160e6e4e8d30097519d0b63873383bbfb7a82dc537da68144789bf3"
+    },
+    {
+      "path": "tools/_probe_density_layout.pyc",
+      "sha256": "e1b3714407795b4d77c7aaf83db6d5ac7cc4a99e05682a4cd89881dc317c7cd7"
+    },
+    {
+      "path": "tools/_probe_dev_column.pyc",
+      "sha256": "00f4877292d27c1a90cf25f871f2eda78e4b14fcb8ef5b062b276210729d2a20"
+    },
+    {
+      "path": "tools/_probe_dev_levels.pyc",
+      "sha256": "01c96635ec11abed3d300932d3fdf3a4b2546ac5435170c2678704850df353ae"
+    },
+    {
+      "path": "tools/_probe_first_contact_extra.pyc",
+      "sha256": "ab90704e1ced0ad895b783b54b2e5e1ff9cbcdb92118f1b1493fa3c5e9121b1e"
+    },
+    {
+      "path": "tools/_probe_flare_equiv.pyc",
+      "sha256": "1b3291098fd125e3eabdf871e34771203d78a7418c1453f363cc1ee896945ac2"
+    },
+    {
+      "path": "tools/_probe_flare_hitgap.pyc",
+      "sha256": "6149c7192206680d6ba5e10b3b6857b0bf9d53221756e0d28377cc47669177eb"
+    },
+    {
+      "path": "tools/_probe_frame_cost.pyc",
+      "sha256": "9d58983cdd67d2f7d452a7d357b0d0cd12582b79a6c8534a71216209aa6a2aee"
+    },
+    {
+      "path": "tools/_probe_front_shape.pyc",
+      "sha256": "aa377941f19624c109c759c446311b338c162d7f75c3cce5d0ec2572c940f943"
+    },
+    {
+      "path": "tools/_probe_funnel_now.pyc",
+      "sha256": "66da3cef65f55dbd01f84689c754d14bed6d4ec165698de5f6b55eaba88ad323"
+    },
+    {
+      "path": "tools/_probe_gap_structure.pyc",
+      "sha256": "4c8988c9c81eb4e8038e5a9983adac1428d559a622e95d45c6878a67cb6481ac"
+    },
+    {
+      "path": "tools/_probe_geom_invariants.pyc",
+      "sha256": "cb4916e577d3aee7df3f8586feae53172064fcd815803b4d61d677273a9cbb71"
+    },
+    {
+      "path": "tools/_probe_grain_motion.pyc",
+      "sha256": "455230ebb1e39bcfdfe99ba515be797b7ef560188911986123f6f98a19850f5d"
+    },
+    {
+      "path": "tools/_probe_head_profile.pyc",
+      "sha256": "590b7728c7167224bcfb6d47fa5bd89884c23dbaf1fd94bdce82ad309d7ce24a"
+    },
+    {
+      "path": "tools/_probe_hold_area.pyc",
+      "sha256": "756dc981a1321c278f854e7c32915b8ebdb0a9dcb0231ce0dd56ed1902c7db58"
+    },
+    {
+      "path": "tools/_probe_ink_cover.pyc",
+      "sha256": "003bcf73c280504e7c062a8ae876aeeb8ec7275be036767f16d5be18371b3764"
+    },
+    {
+      "path": "tools/_probe_junction_img.pyc",
+      "sha256": "508d218d880e099a789474623c65d678de2626d7cfcb04dfc3b1da2b698a89a8"
+    },
+    {
+      "path": "tools/_probe_junction_seam.pyc",
+      "sha256": "3764a534d715ccce0dee54b13743ae0eb6fe5dc8cef9018e3a28e2700b55c97d"
+    },
+    {
+      "path": "tools/_probe_land_overlay.pyc",
+      "sha256": "871516998a335886dcccd93f15150db9e55b34292ed04a3bacad062b6fd59507"
+    },
+    {
+      "path": "tools/_probe_linew.pyc",
+      "sha256": "68b7ba8c139d6a45e99007eb5b29cc5dabbd4613859ad776acd3850a12faf842"
+    },
+    {
+      "path": "tools/_probe_marker_equiv.pyc",
+      "sha256": "d8e905b8ef4dc6c498df3042ab81504d76121b911e6a1d31e743c6881f3e1f07"
+    },
+    {
+      "path": "tools/_probe_marker_fallback.pyc",
+      "sha256": "61fa00563a9426e78e3bd1a193fe13d75727baaa0b5f6421df8ccd5037ecf7d7"
+    },
+    {
+      "path": "tools/_probe_marker_float.pyc",
+      "sha256": "dd072c2c55cd56b4fdc350f59478a136fb4690d301826ae066b21004082a4a45"
+    },
+    {
+      "path": "tools/_probe_n1_tone.pyc",
+      "sha256": "8a6ce16e03d9ca294fcd26b58091e434c65881bea59542e77a23d11d67b7945f"
+    },
+    {
+      "path": "tools/_probe_neck_ablate.pyc",
+      "sha256": "bdd8b67e2c732d125c451f9b1758ccd217cdfd4d2aa5abc8a8202383cc79c341"
+    },
+    {
+      "path": "tools/_probe_neck_batch_equiv.pyc",
+      "sha256": "b9a812768601f11fb3d849addc11ba3529ca835dbd8a780b8b1fa9adbcb0e2c4"
+    },
+    {
+      "path": "tools/_probe_neck_batches_size.pyc",
+      "sha256": "4dbda19903cd632948b5f2b2cd3579d44544a7dba809a6633e4348338785827c"
+    },
+    {
+      "path": "tools/_probe_neck_connected.pyc",
+      "sha256": "83fd780963f6f0562067d89589ea6dedb366b874c0f205dc3e41e8f78883ffb7"
+    },
+    {
+      "path": "tools/_probe_neck_equiv.pyc",
+      "sha256": "c3ffe9d3e2a3d61b37b74797e997457e00863b92824a6df42154410848b9f38a"
+    },
+    {
+      "path": "tools/_probe_neck_second.pyc",
+      "sha256": "b469949acae508b7212a68815dc5a4452fd7c8004f33ee7d7291f88a0d0755b6"
+    },
+    {
+      "path": "tools/_probe_neck_uv.pyc",
+      "sha256": "d3c7a2ec3e149c7a9923218ed4238ff0f574cd8c72ba8f2f75af64278862ffa9"
+    },
+    {
+      "path": "tools/_probe_oldruler_control.pyc",
+      "sha256": "d49c318ec2c654ee746695057e47e2491d90146e66b3a06c01f2548a8926137b"
+    },
+    {
+      "path": "tools/_probe_overlay_band.pyc",
+      "sha256": "96bb42350dec65e67d64524c8f576db68bf1570a6fa163083414f722e8303f07"
+    },
+    {
+      "path": "tools/_probe_overlay_color.pyc",
+      "sha256": "a6b7563baad85d5e4b6914b1bb99a6bb335df39d51c1627ea670af48a447bc9b"
+    },
+    {
+      "path": "tools/_probe_popup_height.pyc",
+      "sha256": "dc0f68802a30ee8831a440816867586e4053a1ec3ef8609f7b51268c0639ea3e"
+    },
+    {
+      "path": "tools/_probe_quadmesh_equiv.pyc",
+      "sha256": "404278d19013350827db619f18eb88ecc8b8dc197610d0dc7c53bf16691e5272"
+    },
+    {
+      "path": "tools/_probe_rect_vs_limit.pyc",
+      "sha256": "593eda221cda37735f51f50e20bf4f77c4e6014d53676e6c12cca6fa3b046ae5"
+    },
+    {
+      "path": "tools/_probe_rect_vs_surface.pyc",
+      "sha256": "f1e8c9e2a6ca0bfbef85a822c89675a13158aa0a7ced7a573d0350c0adee32fe"
+    },
+    {
+      "path": "tools/_probe_ref_instance.pyc",
+      "sha256": "325b3a6c64aae58e54eb930fdf283c87a0a5e15902788258ff049101dfb9638e"
+    },
+    {
+      "path": "tools/_probe_row_ink.pyc",
+      "sha256": "42c8002a051bdb4fa0c86cfa04c3cb6eca02b1f584b7c3bdff99190b37dde77c"
+    },
+    {
+      "path": "tools/_probe_sandmix.pyc",
+      "sha256": "f5305f441bf94865f62ac3865547f606e8d3fdfcb362a56344ffcf33b07bb36b"
+    },
+    {
+      "path": "tools/_probe_shrink_curve.pyc",
+      "sha256": "0f497962887a128970ccd5338621d368318a18832f3d14adb2e8983899a40801"
+    },
+    {
+      "path": "tools/_probe_shrink_equiv.pyc",
+      "sha256": "b225cc88433b74e68fcac99c81ce2805b1017d2f085939cf8037e6487dcf77cd"
+    },
+    {
+      "path": "tools/_probe_speed_ratio.pyc",
+      "sha256": "cc7b5d626c113521b5b4fa3f9db5b8f0595b81522caee8ed166ea5118e9e5e02"
+    },
+    {
+      "path": "tools/_probe_splash_count.pyc",
+      "sha256": "3084b88f1f4f84cbf484c7a22716847cc2a02cd53070ae0a049b4371f87149cb"
+    },
+    {
+      "path": "tools/_probe_splash_population.pyc",
+      "sha256": "67c75d13a683c39d52f74cdcc68626d038def14ea014d5bac911315c6c45d809"
+    },
+    {
+      "path": "tools/_probe_splash_scalar_equiv.pyc",
+      "sha256": "4703a109e6bd17fdca7be7eaee66a803ec595f1478f357d5f57fb60df06b415f"
+    },
+    {
+      "path": "tools/_probe_splash_sigma.pyc",
+      "sha256": "64aac06e3e96a9527338c0aa9aef25fc9affd326c2047bb48ee687755ce559e6"
+    },
+    {
+      "path": "tools/_probe_stream_ink.pyc",
+      "sha256": "9bed467c3d8dd90ea31f6944f1e4e10c2ec2dfd0258daa804c7c30d06a665c13"
+    },
+    {
+      "path": "tools/_probe_tap_deadzone.pyc",
+      "sha256": "8ab892575865e4e182807d2e6f4ff1de846093a0ea64b6e2c34269f07538c1a0"
+    },
+    {
+      "path": "tools/_probe_texture_anisotropy.pyc",
+      "sha256": "555226d2557574106367556a9a13ad26924b2e77bd5a1a69360582968c2d8f84"
+    },
+    {
+      "path": "tools/_probe_tube_rects.pyc",
+      "sha256": "d3d62f39ca516247003101a2575e068c93042ff32517c8231c02f29e0687caf4"
+    },
+    {
+      "path": "tools/_probe_two_clocks.pyc",
+      "sha256": "fd0fd8f592563af4ea29d8f1c685c511da81b37e077625ac881fb019f2a7ebee"
+    },
+    {
+      "path": "tools/_probe_upper_cols_gen.pyc",
+      "sha256": "03b62823fea141d9c02a40c39c469b47332ee2d555d53d3efa3ab2f679a57046"
+    },
+    {
+      "path": "tools/_probe_vertical_budget.pyc",
+      "sha256": "6e371f106f6b7e3596d374f4031b729e2fae53e9b04980903ba58a6a4e7ec2f4"
+    },
+    {
+      "path": "tools/_r1_probe.pyc",
+      "sha256": "07d8ed769e26a760373e8a5625e9a8c09c52688d01f224b7aec64e6721e4fd67"
+    },
+    {
+      "path": "tools/_r1_probe3.pyc",
+      "sha256": "6f04600dafcfb38da8c6163ce5ba84611dfca094cc145e724f149a91776349aa"
+    },
+    {
+      "path": "tools/_r1_probe4.pyc",
+      "sha256": "0c50a9d5c22181db09784d494ca7dfeeb0f9a61b3822d46c1f9a96b1bf54ad39"
+    },
+    {
+      "path": "tools/_r2_rows.pyc",
+      "sha256": "4dc14f19ea4f48721b4117c3d4927edf6df8d3502ef7b8da4d50e6a78a1af090"
+    },
+    {
+      "path": "tools/_r37_ab_capture.pyc",
+      "sha256": "42b8b5a94411d990d0a481881c541662ed8a71cc6cf7dfb42b83cb150f0f0f64"
+    },
+    {
+      "path": "tools/_r37_ab_compare.pyc",
+      "sha256": "6ec025d797c79d94c39724c9212d561dc363755d03b8e94413fe32d67531cb2a"
+    },
+    {
+      "path": "tools/_r37_f2_fit.pyc",
+      "sha256": "dc5bcdc668660f67b25a2822e6f822571b92aa9fdc5b97a0a9513b5965ab3dc4"
+    },
+    {
+      "path": "tools/_r37_marker_xy.pyc",
+      "sha256": "db31cea541584bad24aa2a121faa59b59a87134c33dfaab9b289fb3c8058aeac"
+    },
+    {
+      "path": "tools/_render_golden.pyc",
+      "sha256": "9a638b3b012687b5aaea8d8161b364cd7b60daa118dd4a8d756455cea171b13d"
+    },
+    {
+      "path": "tools/_rv2_geom.pyc",
+      "sha256": "8b87dea77e60342cf8c15bb7abf09985f5a993f51f8703675302467cc1de0a3c"
+    },
+    {
+      "path": "tools/_shrink_dev_report.pyc",
+      "sha256": "04ee79f2e903ac37dadeb0dbdc2a84130ee88466ca4fadd7915689d9939cbc08"
+    },
+    {
+      "path": "tools/_side_by_side.pyc",
+      "sha256": "39143db4e30bbc54211502e729386dcce2215febda2ff149759c55180db588ea"
+    },
+    {
+      "path": "tools/_splash_ab_frames.pyc",
+      "sha256": "01ee719a29fc3271a8b027c6b4af6c5a329edadc9f98ba8c93e425e6f03c0e85"
+    },
+    {
+      "path": "tools/_splash_golden.pyc",
+      "sha256": "3e17c2ca22e65d760d37a4199472566a926933a25ed1a012021f9db90b61e220"
+    },
+    {
+      "path": "tools/_splash_max_report.pyc",
+      "sha256": "3e54561740f977acb5fb0c02aa2ce37957640f0f3ddf8bae6f8056f431d1b261"
+    },
+    {
+      "path": "tools/_tablet_report.pyc",
+      "sha256": "528a832726e5a0ccda4949dbc77675c7c48f19d41477bffb703c3941282d208e"
+    },
+    {
+      "path": "tools/_tail_selfcheck.pyc",
+      "sha256": "d5c630bfcd1f1d552a59173f470035b60e96d694c05d113cfff303211d0fa4c2"
+    },
+    {
+      "path": "tools/_temp.pyc",
+      "sha256": "61855e3a7cadc7beb27ecea43eb11b4acc33803af7698d4c04fc67ce6d26068d"
+    },
+    {
+      "path": "tools/_tidy_repo.pyc",
+      "sha256": "83fce39212080b602eee61a7752c0bb2e3071febfecc8f9e8f3be6920989383d"
+    },
+    {
+      "path": "tools/_warm_probe_report.pyc",
+      "sha256": "d0ebb6a714f46c0c621ebf992881f6fbbff6e30bf257e43f95df904d2db7cee5"
+    },
+    {
+      "path": "tools/_xz_geom_accept.pyc",
+      "sha256": "45a43a10c677e91229268181083cde0466efd07d4458e0c2d12000edd29a3214"
+    },
+    {
+      "path": "tools/analyze_ab.pyc",
+      "sha256": "f7a35083ca441026cd524346be86fe8dfc44d682fccdf652cce85fe369c10173"
+    },
+    {
+      "path": "tools/check_release_version.pyc",
+      "sha256": "9fd2150a73e9bfefe61959842408a3fd89938ceeca046939cba15ff4bd715f73"
+    },
+    {
+      "path": "tools/flow_batch_experiment.pyc",
+      "sha256": "f8ce11608bd6747d756a15cddce372381b22e4de1f74fd2a1eb42994ba2beb9c"
+    },
+    {
+      "path": "tools/flow_chunk_experiment.pyc",
+      "sha256": "91a368481bb7ba35074f1e39bba4a795eec8fd419ab7c73f3999a20c4182e5a7"
+    },
+    {
+      "path": "tools/flow_gpu_experiment.pyc",
+      "sha256": "f59896fde55d63a04ae9618dc2b011e98a88d7814a1d94a57d88c895381bae83"
+    },
+    {
+      "path": "tools/flow_numpy.pyc",
+      "sha256": "22775f7bcf33731353601da6a0a30a0722e14a49cb688b406ae85c6ecab22340"
+    },
+    {
+      "path": "tools/flow_splash_experiment.pyc",
+      "sha256": "6ee9f4c3b811ac8c63ed0368e6f94fed59a6038318280d7258250e02138e0bc4"
+    },
+    {
+      "path": "tools/flow_texture_experiment.pyc",
+      "sha256": "9d796494d5affa62860abf059cec0fc8a07c564de4de84c1e52e72ab45fe97b0"
+    },
+    {
+      "path": "tools/generate_completion_voice.pyc",
+      "sha256": "599149c2939a07f89782d8255773b49c935e85745ba58e4d223bbef23811f71a"
+    },
+    {
+      "path": "tools/generate_voice_tokens.pyc",
+      "sha256": "58181b0641247ed5ace0cde48907f064be969ff7279a04e5d578841a2ef4f6cd"
+    },
+    {
+      "path": "tools/inspect_flow.pyc",
+      "sha256": "cc36e0d5df19d1b499e7a291b265512f81c253fecbf42e3da6d80e904bbd1455"
+    },
+    {
+      "path": "tools/make_clock_loop.pyc",
+      "sha256": "a9e0abf07576e5c3f8e74c878711846ab2e87bc066f615048b508312f18d0d2f"
+    },
+    {
+      "path": "tools/marker_batch_experiment.pyc",
+      "sha256": "6a80fc326c49595af79f97e08b7aa94d80112655c46950ebc1ab03487900e009"
+    },
+    {
+      "path": "tools/neck_ab.pyc",
+      "sha256": "852e3937de9b416414dba904b2a4d9d53ccb2005c012276e77d69b6619467740"
+    },
+    {
+      "path": "tools/neck_density.pyc",
+      "sha256": "cbeea5745406a210cba3e2b63b480d692d092f622b71866e67384339775ec6be"
+    },
+    {
+      "path": "tools/neck_profile.pyc",
+      "sha256": "8383d80b0f0332445e80923f6f00397887e38e31c494b585a395f8c0becd7389"
+    },
+    {
+      "path": "tools/prof_android.pyc",
+      "sha256": "fcc946b82692575de8987ac3400a29ff1b404a447bf306938ab86634c75125d0"
+    },
+    {
+      "path": "tools/profile_frames.pyc",
+      "sha256": "67a8097f3d0f1fc377ba08bf6dfe7b7130c34ac3270b6eaf485535b346c7095f"
+    },
+    {
+      "path": "tools/sand_flow_material.pyc",
+      "sha256": "a71f613f438b6aaa9cf41934fe75eceb09672dd138ff2d72527237f3beb122e6"
+    },
+    {
+      "path": "tools/sand_material_ab.pyc",
+      "sha256": "80d220a7c2f98a0964928a45f7da0eacf255f10610702ec89687bf9495083b42"
+    },
+    {
+      "path": "tools/smoke_splash_origin.pyc",
+      "sha256": "2cf1153676b6d2420bc53e28780d9663c52ab004d63ef7b582a15664ea93b09b"
+    },
+    {
+      "path": "tools/splash_motion.pyc",
+      "sha256": "37463b40de9bcf4ac8bffeebfd33bd5223587b94f9a3e5294d5fb8a5c8648870"
+    },
+    {
+      "path": "tools/test_pack_equiv.pyc",
+      "sha256": "3a237e0cfecf5bb5a83f82be27ef1b42ce61a8996ffc2dafca585979abe562e6"
+    },
+    {
+      "path": "tools/test_physics_equiv.pyc",
+      "sha256": "d4ec4198975e8a4a5c16a6ca81ab8bc27650852e57765534e8839a25d1c7cf5a"
+    },
+    {
+      "path": "tools/test_release_version.pyc",
+      "sha256": "27c596217725360c3288dcb34224104cf248c230be6183a812a0a7b0a776c7c3"
+    },
+    {
+      "path": "tools/verify_completion_popup.pyc",
+      "sha256": "b6c98faa75a8d30355fd35ba68e08d9775745441cb68d8578ee94d8f18124e28"
+    },
+    {
+      "path": "tools/verify_dev_levels.pyc",
+      "sha256": "174c87c2dd6d1eb949bd0d8bdddc8af0e321d1001fbe4dd43e11b6529edbd99e"
+    },
+    {
+      "path": "tools/verify_grain_levels.pyc",
+      "sha256": "cd175732e2d3fb98c01ddf5ca3b60428c672ddd1d84dd5bf86b9ba72f2381709"
+    },
+    {
+      "path": "tools/verify_hourglass.pyc",
+      "sha256": "8741eb499937229720c07292ab3bf3adec0085fba5a76d459a26ec8bb00be398"
+    },
+    {
+      "path": "tools/verify_particle_hot_loop.pyc",
+      "sha256": "8d81903f153d049710b4ebcae519078ca442c81446242a3de874d55aae5a1043"
+    },
+    {
+      "path": "tools/verify_sand_finish.pyc",
+      "sha256": "0c43867655e6bebfee762ec8f6a4dc2adb53ad9ffe7e5126377a606be8f0b4ee"
+    }
+  ],
+  "runtime_matches_apk": true,
+  "apk_download_url": "https://github.com/twoplate2/hourglass-ball/releases/download/latest/hourglass-2.96-arm64-v8a-debug.apk",
+  "release_commit": "7ee12ad",
+  "config": {
+    "duration": 50.0,
+    "color_name": "金沙",
+    "sound_name": "沙沙声",
+    "sand_mode": "grain",
+    "sand_grain": 0.35,
+    "grain_level": "3",
+    "rough_level": "3",
+    "clump_level": "自然",
+    "grain_rev": 3
+  },
+  "size": "Physical size: 1080x1920",
+  "density": "Physical density: 480",
+  "audio_recorded": false,
+  "events": [
+    {
+      "event": "screenshot",
+      "name": "before",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "reset_before_cycle",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "screenshot",
+      "name": "initial",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "start_cycle",
+      "request_offset": 2.0,
+      "returned_offset": 2.063000000001921
+    },
+    {
+      "event": "screenshot",
+      "name": "early",
+      "request_offset": 5.0,
+      "returned_offset": 5.264999999999418
+    },
+    {
+      "event": "screenshot",
+      "name": "middle",
+      "request_offset": 25.0,
+      "returned_offset": 25.28099999999904
+    },
+    {
+      "event": "screenshot",
+      "name": "late",
+      "request_offset": 45.0,
+      "returned_offset": 45.29699999999866
+    },
+    {
+      "event": "screenshot",
+      "name": "tail",
+      "request_offset": 49.0,
+      "returned_offset": 49.26499999999942
+    },
+    {
+      "event": "screenshot",
+      "name": "after_zero",
+      "request_offset": 51.0,
+      "returned_offset": 51.28099999999904
+    },
+    {
+      "event": "screenshot",
+      "name": "settled",
+      "request_offset": 56.0,
+      "returned_offset": 56.28099999999904
+    },
+    {
+      "event": "screenshot",
+      "name": "after_cycle",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "reset_before_pause",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "start_pause_run",
+      "request_offset": 2.0,
+      "returned_offset": 2.0940000000009604
+    },
+    {
+      "event": "screenshot",
+      "name": "running_before_pause",
+      "request_offset": 7.0,
+      "returned_offset": 7.265999999999622
+    },
+    {
+      "event": "pause",
+      "request_offset": 7.265999999999622,
+      "returned_offset": 7.313000000001921
+    },
+    {
+      "event": "screenshot",
+      "name": "paused",
+      "request_offset": 9.015999999999622,
+      "returned_offset": 9.2970000000023
+    },
+    {
+      "event": "screenshot",
+      "name": "paused_later",
+      "request_offset": 12.0,
+      "returned_offset": 12.28099999999904
+    },
+    {
+      "event": "resume",
+      "request_offset": 12.28099999999904,
+      "returned_offset": 12.328000000001339
+    },
+    {
+      "event": "screenshot",
+      "name": "resumed",
+      "request_offset": 16.0,
+      "returned_offset": 16.26599999999962
+    },
+    {
+      "event": "pause_after_recording",
+      "request_offset": 18.0,
+      "returned_offset": 18.06300000000192
+    },
+    {
+      "event": "screenshot",
+      "name": "final_paused",
+      "request_offset": null,
+      "returned_offset": null
+    }
+  ],
+  "files": [
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/before.png",
+      "sha256": "a685fcee5220306e5802bb1e87acaa5326487b939757dc2f42269e4c2e1f7d6d"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+      "sha256": "a685fcee5220306e5802bb1e87acaa5326487b939757dc2f42269e4c2e1f7d6d"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/early.png",
+      "sha256": "3a8a9c560501de55ffaefbe700e63650f5c47c9be8f3ee3cc66ad4d1ed152347"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/middle.png",
+      "sha256": "7824d74ffbf35f7ecd2480adfb62ed723b2e8f30992d71ad5ccee9d0f1625b60"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+      "sha256": "773fc10751f6204fe9a031db4702c5beb9eec541a6c8628907bcc4a75686f53e"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/tail.png",
+      "sha256": "e6cced0d20e3a5607990b5c40d6d5dd4be0a3f5aee3e6caf80e85c8e35519994"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/after_zero.png",
+      "sha256": "2c319900e051f98a50c6af94f757fc030ccc68a66f17d76baecc009d4dcca7f1"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/settled.png",
+      "sha256": "2c319900e051f98a50c6af94f757fc030ccc68a66f17d76baecc009d4dcca7f1"
+    },
+    {
+      "path": "_temp/mumu-media/20261013-165114/full-cycle-raw.mp4",
+      "sha256": "b95388fc84bb9313fb325729adfee114b42051cde7d9b0e757cd1de98db47eb9"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/after_cycle.png",
+      "sha256": "2c319900e051f98a50c6af94f757fc030ccc68a66f17d76baecc009d4dcca7f1"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/running_before_pause.png",
+      "sha256": "c1ad5db93ca206913797a8b5453dd1e3d17984e4ca0d64b91d36cfd4fefe2172"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/paused.png",
+      "sha256": "58391097e372a787ddf317a06d96bfea41ce24a80f2dfedf44355b378d383681"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/paused_later.png",
+      "sha256": "58391097e372a787ddf317a06d96bfea41ce24a80f2dfedf44355b378d383681"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/resumed.png",
+      "sha256": "78c42d4a799cbabb95ed9fe241e3c17e245cdc012c92363feb02d709207329ae"
+    },
+    {
+      "path": "_temp/mumu-media/20261013-165114/pause-resume-raw.mp4",
+      "sha256": "555556d2d735442038b044553b5fb3d57b95e947f9a6dfc07d4bafbfd200114d"
+    },
+    {
+      "path": "design/images/mumu-2.96-20261013/session-20261013-165114/final_paused.png",
+      "sha256": "c94729e72f6e17d99e2ed5fc064a67da98c3bcbc99237a69c4b00af4c3a0591e"
+    }
+  ],
+  "timing_note": "Host monotonic offsets bracket ADB requests, not exact app elapsed values.",
+  "performance_note": "Screen recording and capture add load; this is not a performance benchmark.",
+  "device_source_hashes": "2718dba1b2e317b9b24b8a1bc133df417c15963344024e2974d11dd1f4020ea8  /data/data/org.shalou.hourglass/files/app/app_version.pyc\naee29c059d76832a734ad0d7ef7139fd6f34d82f8c3723f347a91af8ec8228c1  /data/data/org.shalou.hourglass/files/app/frame_benchmark.pyc\nf2d1624941c9fe49c5c6b2e33234560b1b74acf2872be58d76fe988b7a103b34  /data/data/org.shalou.hourglass/files/app/main.pyc\nbb758ff72bd0d542c3b8427af7c6de02ceb1cff445258e9d16e590b69cdcff9c  /data/data/org.shalou.hourglass/files/app/p4a/hook.pyc\n3302c769a4bbc082941cdb3c2f569f98baab80c36b8d66b9bb2168b46187bfd9  /data/data/org.shalou.hourglass/files/app/sitecustomize.pyc\na09b010789c7b8fc5768d09df247df8d97df873a2b7209a6f06bb53c2150ff1a  /data/data/org.shalou.hourglass/files/app/tools/_a1_silhouette.pyc\nef3a8e9f6828565e8145382681025ec407ca2bc2b9497f118573b03b718fdc5c  /data/data/org.shalou.hourglass/files/app/tools/_a2_bucket_probe.pyc\nf1f88e7e2590a066200a3bc71edeadfefcae04192cfb9639e4fccdd0cf5ed5d0  /data/data/org.shalou.hourglass/files/app/tools/_a2_hist_probe.pyc\n2e438dbadd1172a6cf33fab04c6f832ab96e3055b26c1c9903d7baf54727a140  /data/data/org.shalou.hourglass/files/app/tools/_a2_scale_probe.pyc\ncfb5d37a40554936ef13fb64aceea44da0d61bd12ebd40eb36aab2addcec2f1c  /data/data/org.shalou.hourglass/files/app/tools/_accept_check.pyc\nab57d84b67cf3b71beb73abb2a2138bed6965408172c9d747ab2ceb63f2af6a4  /data/data/org.shalou.hourglass/files/app/tools/_bisect_rough.pyc\n1fe79d41e5534c99a1fab061ac7145b17ac7102cce70fccf1005b5991027f2a7  /data/data/org.shalou.hourglass/files/app/tools/_dev_aniso_bands.pyc\nf5e784bc9a41552213f0d1bdee55bf1cdca2ff23662fcb6a560635d33649b0fc  /data/data/org.shalou.hourglass/files/app/tools/_dev_rowscan.pyc\n6f28a40a2ab1e2356e0b7c84616a6c508eb790f6feb9a70c216a26834a99d9cb  /data/data/org.shalou.hourglass/files/app/tools/_diff_map.pyc\na9c6d580d2014396ee5a39a49259138799aaabddc17badc8fc4d78d21ef1af96  /data/data/org.shalou.hourglass/files/app/tools/_hot_desktop.pyc\n6587792425256149f0807eb251d4ad1f2ff4ea7fd5c3751fe2d2a3db82b7090a  /data/data/org.shalou.hourglass/files/app/tools/_p1_probe_rows.pyc\n7e1d9a7afce81814b15fb7d5d5203ab366693541227cc9d5cd3aa9ed3ca5fadf  /data/data/org.shalou.hourglass/files/app/tools/_p2_shrink_two_impl.pyc\n66f29b92dcdaae147cda41d0aed7ad6736e9affe08b958323994175a5af79e2e  /data/data/org.shalou.hourglass/files/app/tools/_pack_source_md.pyc\nbe767193a743e03f87ebdf908f90598cca17f3cad779184c91337b2df0a4094e  /data/data/org.shalou.hourglass/files/app/tools/_pixdiff.pyc\n077705794345ee37c63f173bad81c825ccc3487662cdeefb7ec7c55c141af8a1  /data/data/org.shalou.hourglass/files/app/tools/_probe_band_aniso.pyc\n8d39e98db024842b23ab98cb8eb9bef45c7434bc221718170e2549773fd0cd4f  /data/data/org.shalou.hourglass/files/app/tools/_probe_below_outlet.pyc\n7e1b2844ace1129264533b64f74824e0ea362f94333de6c2e47dd4b36fae095b  /data/data/org.shalou.hourglass/files/app/tools/_probe_canvas_cost.pyc\n66f14ab6bc6bfd6385761e86ab000aa61bc634350c2646e4ac327e03b9c865b9  /data/data/org.shalou.hourglass/files/app/tools/_probe_canvas_instr.pyc\nb3c6b43becf80587604c85b009c59f72bb6f7dcd307198c69ec39478eac00ee4  /data/data/org.shalou.hourglass/files/app/tools/_probe_cap_diff.pyc\n7649b3d5a51689c8f0443c00d00aed9baaff1310c3a7572959661f0bdfa4a6fe  /data/data/org.shalou.hourglass/files/app/tools/_probe_chunk_need.pyc\n9cfca3a4fd95cfa43df7c23a146cbd3cc76a4502045d239afddc492ea7fd181b  /data/data/org.shalou.hourglass/files/app/tools/_probe_column_alpha.pyc\nd64c98549160e6e4e8d30097519d0b63873383bbfb7a82dc537da68144789bf3  /data/data/org.shalou.hourglass/files/app/tools/_probe_ctab_equiv.pyc\ne1b3714407795b4d77c7aaf83db6d5ac7cc4a99e05682a4cd89881dc317c7cd7  /data/data/org.shalou.hourglass/files/app/tools/_probe_density_layout.pyc\n00f4877292d27c1a90cf25f871f2eda78e4b14fcb8ef5b062b276210729d2a20  /data/data/org.shalou.hourglass/files/app/tools/_probe_dev_column.pyc\n01c96635ec11abed3d300932d3fdf3a4b2546ac5435170c2678704850df353ae  /data/data/org.shalou.hourglass/files/app/tools/_probe_dev_levels.pyc\nab90704e1ced0ad895b783b54b2e5e1ff9cbcdb92118f1b1493fa3c5e9121b1e  /data/data/org.shalou.hourglass/files/app/tools/_probe_first_contact_extra.pyc\n1b3291098fd125e3eabdf871e34771203d78a7418c1453f363cc1ee896945ac2  /data/data/org.shalou.hourglass/files/app/tools/_probe_flare_equiv.pyc\n6149c7192206680d6ba5e10b3b6857b0bf9d53221756e0d28377cc47669177eb  /data/data/org.shalou.hourglass/files/app/tools/_probe_flare_hitgap.pyc\n9d58983cdd67d2f7d452a7d357b0d0cd12582b79a6c8534a71216209aa6a2aee  /data/data/org.shalou.hourglass/files/app/tools/_probe_frame_cost.pyc\naa377941f19624c109c759c446311b338c162d7f75c3cce5d0ec2572c940f943  /data/data/org.shalou.hourglass/files/app/tools/_probe_front_shape.pyc\n66da3cef65f55dbd01f84689c754d14bed6d4ec165698de5f6b55eaba88ad323  /data/data/org.shalou.hourglass/files/app/tools/_probe_funnel_now.pyc\n4c8988c9c81eb4e8038e5a9983adac1428d559a622e95d45c6878a67cb6481ac  /data/data/org.shalou.hourglass/files/app/tools/_probe_gap_structure.pyc\ncb4916e577d3aee7df3f8586feae53172064fcd815803b4d61d677273a9cbb71  /data/data/org.shalou.hourglass/files/app/tools/_probe_geom_invariants.pyc\n455230ebb1e39bcfdfe99ba515be797b7ef560188911986123f6f98a19850f5d  /data/data/org.shalou.hourglass/files/app/tools/_probe_grain_motion.pyc\n590b7728c7167224bcfb6d47fa5bd89884c23dbaf1fd94bdce82ad309d7ce24a  /data/data/org.shalou.hourglass/files/app/tools/_probe_head_profile.pyc\n756dc981a1321c278f854e7c32915b8ebdb0a9dcb0231ce0dd56ed1902c7db58  /data/data/org.shalou.hourglass/files/app/tools/_probe_hold_area.pyc\n003bcf73c280504e7c062a8ae876aeeb8ec7275be036767f16d5be18371b3764  /data/data/org.shalou.hourglass/files/app/tools/_probe_ink_cover.pyc\n508d218d880e099a789474623c65d678de2626d7cfcb04dfc3b1da2b698a89a8  /data/data/org.shalou.hourglass/files/app/tools/_probe_junction_img.pyc\n3764a534d715ccce0dee54b13743ae0eb6fe5dc8cef9018e3a28e2700b55c97d  /data/data/org.shalou.hourglass/files/app/tools/_probe_junction_seam.pyc\n871516998a335886dcccd93f15150db9e55b34292ed04a3bacad062b6fd59507  /data/data/org.shalou.hourglass/files/app/tools/_probe_land_overlay.pyc\n68b7ba8c139d6a45e99007eb5b29cc5dabbd4613859ad776acd3850a12faf842  /data/data/org.shalou.hourglass/files/app/tools/_probe_linew.pyc\nd8e905b8ef4dc6c498df3042ab81504d76121b911e6a1d31e743c6881f3e1f07  /data/data/org.shalou.hourglass/files/app/tools/_probe_marker_equiv.pyc\n61fa00563a9426e78e3bd1a193fe13d75727baaa0b5f6421df8ccd5037ecf7d7  /data/data/org.shalou.hourglass/files/app/tools/_probe_marker_fallback.pyc\ndd072c2c55cd56b4fdc350f59478a136fb4690d301826ae066b21004082a4a45  /data/data/org.shalou.hourglass/files/app/tools/_probe_marker_float.pyc\n8a6ce16e03d9ca294fcd26b58091e434c65881bea59542e77a23d11d67b7945f  /data/data/org.shalou.hourglass/files/app/tools/_probe_n1_tone.pyc\nbdd8b67e2c732d125c451f9b1758ccd217cdfd4d2aa5abc8a8202383cc79c341  /data/data/org.shalou.hourglass/files/app/tools/_probe_neck_ablate.pyc\nb9a812768601f11fb3d849addc11ba3529ca835dbd8a780b8b1fa9adbcb0e2c4  /data/data/org.shalou.hourglass/files/app/tools/_probe_neck_batch_equiv.pyc\n4dbda19903cd632948b5f2b2cd3579d44544a7dba809a6633e4348338785827c  /data/data/org.shalou.hourglass/files/app/tools/_probe_neck_batches_size.pyc\n83fd780963f6f0562067d89589ea6dedb366b874c0f205dc3e41e8f78883ffb7  /data/data/org.shalou.hourglass/files/app/tools/_probe_neck_connected.pyc\nc3ffe9d3e2a3d61b37b74797e997457e00863b92824a6df42154410848b9f38a  /data/data/org.shalou.hourglass/files/app/tools/_probe_neck_equiv.pyc\nb469949acae508b7212a68815dc5a4452fd7c8004f33ee7d7291f88a0d0755b6  /data/data/org.shalou.hourglass/files/app/tools/_probe_neck_second.pyc\nd3c7a2ec3e149c7a9923218ed4238ff0f574cd8c72ba8f2f75af64278862ffa9  /data/data/org.shalou.hourglass/files/app/tools/_probe_neck_uv.pyc\nd49c318ec2c654ee746695057e47e2491d90146e66b3a06c01f2548a8926137b  /data/data/org.shalou.hourglass/files/app/tools/_probe_oldruler_control.pyc\n96bb42350dec65e67d64524c8f576db68bf1570a6fa163083414f722e8303f07  /data/data/org.shalou.hourglass/files/app/tools/_probe_overlay_band.pyc\na6b7563baad85d5e4b6914b1bb99a6bb335df39d51c1627ea670af48a447bc9b  /data/data/org.shalou.hourglass/files/app/tools/_probe_overlay_color.pyc\ndc0f68802a30ee8831a440816867586e4053a1ec3ef8609f7b51268c0639ea3e  /data/data/org.shalou.hourglass/files/app/tools/_probe_popup_height.pyc\n404278d19013350827db619f18eb88ecc8b8dc197610d0dc7c53bf16691e5272  /data/data/org.shalou.hourglass/files/app/tools/_probe_quadmesh_equiv.pyc\n593eda221cda37735f51f50e20bf4f77c4e6014d53676e6c12cca6fa3b046ae5  /data/data/org.shalou.hourglass/files/app/tools/_probe_rect_vs_limit.pyc\nf1e8c9e2a6ca0bfbef85a822c89675a13158aa0a7ced7a573d0350c0adee32fe  /data/data/org.shalou.hourglass/files/app/tools/_probe_rect_vs_surface.pyc\n325b3a6c64aae58e54eb930fdf283c87a0a5e15902788258ff049101dfb9638e  /data/data/org.shalou.hourglass/files/app/tools/_probe_ref_instance.pyc\n42c8002a051bdb4fa0c86cfa04c3cb6eca02b1f584b7c3bdff99190b37dde77c  /data/data/org.shalou.hourglass/files/app/tools/_probe_row_ink.pyc\nf5305f441bf94865f62ac3865547f606e8d3fdfcb362a56344ffcf33b07bb36b  /data/data/org.shalou.hourglass/files/app/tools/_probe_sandmix.pyc\n0f497962887a128970ccd5338621d368318a18832f3d14adb2e8983899a40801  /data/data/org.shalou.hourglass/files/app/tools/_probe_shrink_curve.pyc\nb225cc88433b74e68fcac99c81ce2805b1017d2f085939cf8037e6487dcf77cd  /data/data/org.shalou.hourglass/files/app/tools/_probe_shrink_equiv.pyc\ncc7b5d626c113521b5b4fa3f9db5b8f0595b81522caee8ed166ea5118e9e5e02  /data/data/org.shalou.hourglass/files/app/tools/_probe_speed_ratio.pyc\n3084b88f1f4f84cbf484c7a22716847cc2a02cd53070ae0a049b4371f87149cb  /data/data/org.shalou.hourglass/files/app/tools/_probe_splash_count.pyc\n67c75d13a683c39d52f74cdcc68626d038def14ea014d5bac911315c6c45d809  /data/data/org.shalou.hourglass/files/app/tools/_probe_splash_population.pyc\n4703a109e6bd17fdca7be7eaee66a803ec595f1478f357d5f57fb60df06b415f  /data/data/org.shalou.hourglass/files/app/tools/_probe_splash_scalar_equiv.pyc\n64aac06e3e96a9527338c0aa9aef25fc9affd326c2047bb48ee687755ce559e6  /data/data/org.shalou.hourglass/files/app/tools/_probe_splash_sigma.pyc\n9bed467c3d8dd90ea31f6944f1e4e10c2ec2dfd0258daa804c7c30d06a665c13  /data/data/org.shalou.hourglass/files/app/tools/_probe_stream_ink.pyc\n8ab892575865e4e182807d2e6f4ff1de846093a0ea64b6e2c34269f07538c1a0  /data/data/org.shalou.hourglass/files/app/tools/_probe_tap_deadzone.pyc\n555226d2557574106367556a9a13ad26924b2e77bd5a1a69360582968c2d8f84  /data/data/org.shalou.hourglass/files/app/tools/_probe_texture_anisotropy.pyc\nd3d62f39ca516247003101a2575e068c93042ff32517c8231c02f29e0687caf4  /data/data/org.shalou.hourglass/files/app/tools/_probe_tube_rects.pyc\nfd0fd8f592563af4ea29d8f1c685c511da81b37e077625ac881fb019f2a7ebee  /data/data/org.shalou.hourglass/files/app/tools/_probe_two_clocks.pyc\n03b62823fea141d9c02a40c39c469b47332ee2d555d53d3efa3ab2f679a57046  /data/data/org.shalou.hourglass/files/app/tools/_probe_upper_cols_gen.pyc\n6e371f106f6b7e3596d374f4031b729e2fae53e9b04980903ba58a6a4e7ec2f4  /data/data/org.shalou.hourglass/files/app/tools/_probe_vertical_budget.pyc\n07d8ed769e26a760373e8a5625e9a8c09c52688d01f224b7aec64e6721e4fd67  /data/data/org.shalou.hourglass/files/app/tools/_r1_probe.pyc\n6f04600dafcfb38da8c6163ce5ba84611dfca094cc145e724f149a91776349aa  /data/data/org.shalou.hourglass/files/app/tools/_r1_probe3.pyc\n0c50a9d5c22181db09784d494ca7dfeeb0f9a61b3822d46c1f9a96b1bf54ad39  /data/data/org.shalou.hourglass/files/app/tools/_r1_probe4.pyc\n4dc14f19ea4f48721b4117c3d4927edf6df8d3502ef7b8da4d50e6a78a1af090  /data/data/org.shalou.hourglass/files/app/tools/_r2_rows.pyc\n42b8b5a94411d990d0a481881c541662ed8a71cc6cf7dfb42b83cb150f0f0f64  /data/data/org.shalou.hourglass/files/app/tools/_r37_ab_capture.pyc\n6ec025d797c79d94c39724c9212d561dc363755d03b8e94413fe32d67531cb2a  /data/data/org.shalou.hourglass/files/app/tools/_r37_ab_compare.pyc\ndc5bcdc668660f67b25a2822e6f822571b92aa9fdc5b97a0a9513b5965ab3dc4  /data/data/org.shalou.hourglass/files/app/tools/_r37_f2_fit.pyc\ndb31cea541584bad24aa2a121faa59b59a87134c33dfaab9b289fb3c8058aeac  /data/data/org.shalou.hourglass/files/app/tools/_r37_marker_xy.pyc\n9a638b3b012687b5aaea8d8161b364cd7b60daa118dd4a8d756455cea171b13d  /data/data/org.shalou.hourglass/files/app/tools/_render_golden.pyc\n8b87dea77e60342cf8c15bb7abf09985f5a993f51f8703675302467cc1de0a3c  /data/data/org.shalou.hourglass/files/app/tools/_rv2_geom.pyc\n04ee79f2e903ac37dadeb0dbdc2a84130ee88466ca4fadd7915689d9939cbc08  /data/data/org.shalou.hourglass/files/app/tools/_shrink_dev_report.pyc\n39143db4e30bbc54211502e729386dcce2215febda2ff149759c55180db588ea  /data/data/org.shalou.hourglass/files/app/tools/_side_by_side.pyc\n01ee719a29fc3271a8b027c6b4af6c5a329edadc9f98ba8c93e425e6f03c0e85  /data/data/org.shalou.hourglass/files/app/tools/_splash_ab_frames.pyc\n3e17c2ca22e65d760d37a4199472566a926933a25ed1a012021f9db90b61e220  /data/data/org.shalou.hourglass/files/app/tools/_splash_golden.pyc\n3e54561740f977acb5fb0c02aa2ce37957640f0f3ddf8bae6f8056f431d1b261  /data/data/org.shalou.hourglass/files/app/tools/_splash_max_report.pyc\n528a832726e5a0ccda4949dbc77675c7c48f19d41477bffb703c3941282d208e  /data/data/org.shalou.hourglass/files/app/tools/_tablet_report.pyc\nd5c630bfcd1f1d552a59173f470035b60e96d694c05d113cfff303211d0fa4c2  /data/data/org.shalou.hourglass/files/app/tools/_tail_selfcheck.pyc\n61855e3a7cadc7beb27ecea43eb11b4acc33803af7698d4c04fc67ce6d26068d  /data/data/org.shalou.hourglass/files/app/tools/_temp.pyc\n83fce39212080b602eee61a7752c0bb2e3071febfecc8f9e8f3be6920989383d  /data/data/org.shalou.hourglass/files/app/tools/_tidy_repo.pyc\nd0ebb6a714f46c0c621ebf992881f6fbbff6e30bf257e43f95df904d2db7cee5  /data/data/org.shalou.hourglass/files/app/tools/_warm_probe_report.pyc\n45a43a10c677e91229268181083cde0466efd07d4458e0c2d12000edd29a3214  /data/data/org.shalou.hourglass/files/app/tools/_xz_geom_accept.pyc\nf7a35083ca441026cd524346be86fe8dfc44d682fccdf652cce85fe369c10173  /data/data/org.shalou.hourglass/files/app/tools/analyze_ab.pyc\n9fd2150a73e9bfefe61959842408a3fd89938ceeca046939cba15ff4bd715f73  /data/data/org.shalou.hourglass/files/app/tools/check_release_version.pyc\nf8ce11608bd6747d756a15cddce372381b22e4de1f74fd2a1eb42994ba2beb9c  /data/data/org.shalou.hourglass/files/app/tools/flow_batch_experiment.pyc\n91a368481bb7ba35074f1e39bba4a795eec8fd419ab7c73f3999a20c4182e5a7  /data/data/org.shalou.hourglass/files/app/tools/flow_chunk_experiment.pyc\nf59896fde55d63a04ae9618dc2b011e98a88d7814a1d94a57d88c895381bae83  /data/data/org.shalou.hourglass/files/app/tools/flow_gpu_experiment.pyc\n22775f7bcf33731353601da6a0a30a0722e14a49cb688b406ae85c6ecab22340  /data/data/org.shalou.hourglass/files/app/tools/flow_numpy.pyc\n6ee9f4c3b811ac8c63ed0368e6f94fed59a6038318280d7258250e02138e0bc4  /data/data/org.shalou.hourglass/files/app/tools/flow_splash_experiment.pyc\n9d796494d5affa62860abf059cec0fc8a07c564de4de84c1e52e72ab45fe97b0  /data/data/org.shalou.hourglass/files/app/tools/flow_texture_experiment.pyc\n599149c2939a07f89782d8255773b49c935e85745ba58e4d223bbef23811f71a  /data/data/org.shalou.hourglass/files/app/tools/generate_completion_voice.pyc\n58181b0641247ed5ace0cde48907f064be969ff7279a04e5d578841a2ef4f6cd  /data/data/org.shalou.hourglass/files/app/tools/generate_voice_tokens.pyc\ncc36e0d5df19d1b499e7a291b265512f81c253fecbf42e3da6d80e904bbd1455  /data/data/org.shalou.hourglass/files/app/tools/inspect_flow.pyc\na9e0abf07576e5c3f8e74c878711846ab2e87bc066f615048b508312f18d0d2f  /data/data/org.shalou.hourglass/files/app/tools/make_clock_loop.pyc\n6a80fc326c49595af79f97e08b7aa94d80112655c46950ebc1ab03487900e009  /data/data/org.shalou.hourglass/files/app/tools/marker_batch_experiment.pyc\n852e3937de9b416414dba904b2a4d9d53ccb2005c012276e77d69b6619467740  /data/data/org.shalou.hourglass/files/app/tools/neck_ab.pyc\ncbeea5745406a210cba3e2b63b480d692d092f622b71866e67384339775ec6be  /data/data/org.shalou.hourglass/files/app/tools/neck_density.pyc\n8383d80b0f0332445e80923f6f00397887e38e31c494b585a395f8c0becd7389  /data/data/org.shalou.hourglass/files/app/tools/neck_profile.pyc\nfcc946b82692575de8987ac3400a29ff1b404a447bf306938ab86634c75125d0  /data/data/org.shalou.hourglass/files/app/tools/prof_android.pyc\n67a8097f3d0f1fc377ba08bf6dfe7b7130c34ac3270b6eaf485535b346c7095f  /data/data/org.shalou.hourglass/files/app/tools/profile_frames.pyc\na71f613f438b6aaa9cf41934fe75eceb09672dd138ff2d72527237f3beb122e6  /data/data/org.shalou.hourglass/files/app/tools/sand_flow_material.pyc\n80d220a7c2f98a0964928a45f7da0eacf255f10610702ec89687bf9495083b42  /data/data/org.shalou.hourglass/files/app/tools/sand_material_ab.pyc\n2cf1153676b6d2420bc53e28780d9663c52ab004d63ef7b582a15664ea93b09b  /data/data/org.shalou.hourglass/files/app/tools/smoke_splash_origin.pyc\n37463b40de9bcf4ac8bffeebfd33bd5223587b94f9a3e5294d5fb8a5c8648870  /data/data/org.shalou.hourglass/files/app/tools/splash_motion.pyc\n3a237e0cfecf5bb5a83f82be27ef1b42ce61a8996ffc2dafca585979abe562e6  /data/data/org.shalou.hourglass/files/app/tools/test_pack_equiv.pyc\nd4ec4198975e8a4a5c16a6ca81ab8bc27650852e57765534e8839a25d1c7cf5a  /data/data/org.shalou.hourglass/files/app/tools/test_physics_equiv.pyc\n27c596217725360c3288dcb34224104cf248c230be6183a812a0a7b0a776c7c3  /data/data/org.shalou.hourglass/files/app/tools/test_release_version.pyc\nb6c98faa75a8d30355fd35ba68e08d9775745441cb68d8578ee94d8f18124e28  /data/data/org.shalou.hourglass/files/app/tools/verify_completion_popup.pyc\n174c87c2dd6d1eb949bd0d8bdddc8af0e321d1001fbe4dd43e11b6529edbd99e  /data/data/org.shalou.hourglass/files/app/tools/verify_dev_levels.pyc\ncd175732e2d3fb98c01ddf5ca3b60428c672ddd1d84dd5bf86b9ba72f2381709  /data/data/org.shalou.hourglass/files/app/tools/verify_grain_levels.pyc\n8741eb499937229720c07292ab3bf3adec0085fba5a76d459a26ec8bb00be398  /data/data/org.shalou.hourglass/files/app/tools/verify_hourglass.pyc\n8d81903f153d049710b4ebcae519078ca442c81446242a3de874d55aae5a1043  /data/data/org.shalou.hourglass/files/app/tools/verify_particle_hot_loop.pyc\n0c43867655e6bebfee762ec8f6a4dc2adb53ad9ffe7e5126377a606be8f0b4ee  /data/data/org.shalou.hourglass/files/app/tools/verify_sand_finish.pyc\n",
+  "cycle_start_offset": 2.063000000001921,
+  "full-cycle": {
+    "record_start": 22196.39,
+    "time_limit": 64,
+    "stderr": ""
+  },
+  "pause-resume": {
+    "record_start": 22264.765,
+    "time_limit": 21,
+    "stderr": ""
+  },
+  "raw_archives": [
+    {
+      "path": "_temp/mumu-media/20261013-165114/full-cycle-raw.mp4",
+      "sha256": "b95388fc84bb9313fb325729adfee114b42051cde7d9b0e757cd1de98db47eb9",
+      "label": "原始录屏，临时保留"
+    },
+    {
+      "path": "_temp/mumu-media/20261013-165114/pause-resume-raw.mp4",
+      "sha256": "555556d2d735442038b044553b5fb3d57b95e947f9a6dfc07d4bafbfd200114d",
+      "label": "原始录屏，临时保留"
+    }
+  ],
+  "prepared_at": "2026-10-13T16:58:49.835283+08:00",
+  "prepared_media": {
+    "full_cycle": {
+      "path": "design/media/v2.96-20261013-165114/full-cycle-view.mp4",
+      "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+      "width": 1080,
+      "height": 1920,
+      "loop": false,
+      "caption": "v2.96 安装版完整原速录像：重置后开始，50 秒全过程及完成后等待；保留计时和全屏上下文，不跳转推进，不含声音。"
+    },
+    "pause_resume": {
+      "path": "design/media/v2.96-20261013-165114/pause-resume-view.mp4",
+      "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/paused.png",
+      "width": 1080,
+      "height": 1920,
+      "loop": false,
+      "caption": "v2.96 安装版暂停与恢复原速录像：运行、暂停等待、恢复、再次暂停；计时与全部部位同屏。无声，不能据此登记音频通过。"
+    },
+    "clips": {
+      "upper": {
+        "path": "design/media/v2.96-20261013-165114/upper-loop.mp4",
+        "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/upper-loop-poster.png",
+        "width": 730,
+        "height": 800,
+        "loop": true,
+        "caption": "上沙整体运动 · v2.96 安装版，原速 8 秒循环片段；源录像偏移约 16.06–24.06 秒。结尾回到开头是播放器循环，不是应用重新开始。无声，压缩画面不用作像素判据。"
+      },
+      "lower": {
+        "path": "design/media/v2.96-20261013-165114/lower-loop.mp4",
+        "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/lower-loop-poster.png",
+        "width": 730,
+        "height": 740,
+        "loop": true,
+        "caption": "下沙堆积与坡面 · v2.96 安装版，原速 8 秒循环片段；源录像偏移约 16.06–24.06 秒。结尾回到开头是播放器循环，不是应用重新开始。无声，压缩画面不用作像素判据。"
+      },
+      "neck": {
+        "path": "design/media/v2.96-20261013-165114/neck-loop.mp4",
+        "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/neck-loop-poster.png",
+        "width": 480,
+        "height": 450,
+        "loop": true,
+        "caption": "颈部与上下连接 · v2.96 安装版，原速 8 秒循环片段；源录像偏移约 16.06–24.06 秒。结尾回到开头是播放器循环，不是应用重新开始。无声，压缩画面不用作像素判据。"
+      },
+      "stream": {
+        "path": "design/media/v2.96-20261013-165114/stream-loop.mp4",
+        "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/stream-loop-poster.png",
+        "width": 150,
+        "height": 180,
+        "loop": true,
+        "caption": "自由下落颗粒 · v2.96 安装版，原速 8 秒循环片段；源录像偏移约 16.06–24.06 秒。结尾回到开头是播放器循环，不是应用重新开始。无声，压缩画面不用作像素判据。"
+      },
+      "landing": {
+        "path": "design/media/v2.96-20261013-165114/landing-loop.mp4",
+        "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/landing-loop-poster.png",
+        "width": 580,
+        "height": 580,
+        "loop": true,
+        "caption": "落地与飞溅 · v2.96 安装版，原速 8 秒循环片段；源录像偏移约 16.06–24.06 秒。结尾回到开头是播放器循环，不是应用重新开始。无声，压缩画面不用作像素判据。"
+      },
+      "opening": {
+        "path": "design/media/v2.96-20261013-165114/opening.mp4",
+        "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/initial.png",
+        "width": 1080,
+        "height": 1920,
+        "loop": false,
+        "caption": "v2.96 安装版首次释放原速片段，不循环；无声。完整过程见本版录像。"
+      },
+      "ending": {
+        "path": "design/media/v2.96-20261013-165114/ending.mp4",
+        "poster": "design/images/mumu-2.96-20261013/session-20261013-165114/late.png",
+        "width": 1080,
+        "height": 1920,
+        "loop": false,
+        "caption": "v2.96 安装版末段至完成原速片段，不循环；无声。完整过程见本版录像。"
+      }
+    }
+  }
+}

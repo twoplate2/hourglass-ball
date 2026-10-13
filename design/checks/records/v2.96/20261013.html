@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v2.96：已有沙流观察记录</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body><main>
+<header><h1>v2.96：已有沙流观察记录</h1><nav aria-label="资料导航"><ul><li><a href="../index.html">版本记录目录</a></li><li><a href="../../rules/sand-flow.html">规则与用例</a></li><li><a href="../../notes/index.html">备注</a></li></ul></nav></header>
+<p class="meta">记录日期：2026-10-13 · 源码版本 2.96 · APK 包版本 2.94 · MuMu Android 15.0，1080×1920，density 480</p>
+<div class="notice warning"><p>仅归档已有证据，没有本轮新测试。源码直推到旧 APK 容器；只有 50 秒金沙开局附近的静态片段，不是完整沙流验收，也不是新 APK 安装验证。当前没有任何用例登记为通过。</p></div>
+<div class="notice"><p>仅按新规则补齐 33 个编号的登记，不新增测试结论。9 个整体表现编号是本次补加，全部未测；原有片段仍未完成验收。原采集时的 24 项规则快照保留，不改历史证据。</p></div>
+<p class="small"><a href="evidence/rules-20261013.json">原采集时的 24 项规则快照</a>保留不变；补录整体编号不代表重新执行测试。</p>
+<p class="small">登记依据：<a href="evidence/rules-20261013-2.html">2026-10-13.2 版规则快照</a>。下方用例链接指向此快照，不用日后修改的规则回填旧记录。</p>
+<p><strong>逐项状态：</strong>未测 18 项 · 片段观察，未完成 15 项 · 不通过 0 项 · 中断，未完成 0 项 · 待验收 0 项 · 通过（具名登记） 0 项</p>
+<p class="small">“通过”只表示具名检查、审阅和证据登记满足格式要求；资料生成器只核对文件与摘要，不判断录像内容，也不代替 CI 或发布门禁。</p>
+<h2>已有原图</h2>
+<div class="picture-grid three portrait"><figure><a href="../../../images/mumu-2.96-20261013/start.png"><img src="../../../images/mumu-2.96-20261013/start.png" alt="初始：显示 50 / 50，金沙，上沙满、下球空。" width="1080" height="1920" loading="lazy"></a><figcaption>初始：显示 50 / 50，金沙，上沙满、下球空。</figcaption></figure><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="运行：显示 48 / 50，已有沙柱、小沙堆和飞溅。整数显示不能反推精确进度。" width="1080" height="1920" loading="lazy"></a><figcaption>运行：显示 48 / 50，已有沙柱、小沙堆和飞溅。整数显示不能反推精确进度。</figcaption></figure><figure><a href="../../../images/mumu-2.96-20261013/paused.png"><img src="../../../images/mumu-2.96-20261013/paused.png" alt="暂停：显示 48 / 50，画布变淡，按钮恢复开始。" width="1080" height="1920" loading="lazy"></a><figcaption>暂停：显示 48 / 50，画布变淡，按钮恢复开始。</figcaption></figure></div>
+<h2>这批证据能说明什么</h2>
+<ul><li>原始全图与局部裁图已保存；裁图是同一帧的派生资料，不是额外测试。</li><li>只有 50 秒周期、金沙、一个竖屏尺寸。配置档位未形成完整回读记录，不能假定全部为出厂默认。</li><li>初始、开局附近和暂停这三个状态可静态观察；没有完整开局前缘、中段、末段、恢复或重置的录像。</li><li>暂停后约 2 秒另有一张图，与暂停图字节一致；只能说明这两次采集相同，不能推断所有状态或声音已经正确。</li></ul>
+<h2>每个编号的现象与通过状态</h2>
+<p>“片段观察”不是通过；只看静态图不记动态通过，也不代替完整进度。未覆盖项继续保留，不因补写资料而改变状态。</p>
+<section><h3>1. 上沙</h3>
+<article class="case" id="U00"><h4><a href="evidence/rules-20261013-2.html#U00">U00 整体：一团有体积和颗粒层次的储沙体</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的整团上沙观感未按完整进度执行；现有开局图不能代替中段、末段与整体动态。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="U01"><h4><a href="evidence/rules-20261013-2.html#U01">U01 不同进度的沙量与轮廓</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>初始与开局附近可见上沙减少；缺少 10%、50%、90%、末段和排空的同条件阶段图。</p>
+<p class="small">原片段观察：初始与显示 48/50 的两帧可见上沙减少、沙面和贴壁边缘；未覆盖规定阶段及连续动态。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">开局附近全图，非完整验收证据</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="开局附近全图，非完整验收证据" width="1080" height="1920" loading="lazy"></a><figcaption>开局附近全图，非完整验收证据</figcaption></figure></div></details>
+</article>
+<article class="case" id="U02"><h4><a href="evidence/rules-20261013-2.html#U02">U02 动态：下移、扰动与纹理刷新</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有上沙连续录像及刷新时刻的帧序列，不能判断运动或闪烁。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="U03"><h4><a href="evidence/rules-20261013-2.html#U03">U03 边缘：沙面上沿与球壁外缘</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>开局图可见沙面和贴壁边缘；缺少不同进度、起伏两端档位的全宽对照。</p>
+<p class="small">原片段观察：初始与显示 48/50 的两帧可见上沙减少、沙面和贴壁边缘；未覆盖规定阶段及连续动态。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">开局附近全图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="开局附近全图" width="1080" height="1920" loading="lazy"></a><figcaption>开局附近全图</figcaption></figure></div></details>
+</article>
+</section>
+<section><h3>2. 下沙</h3>
+<article class="case" id="L00"><h4><a href="evidence/rules-20261013-2.html#L00">L00 整体：落地积沙逐渐形成与容器协调的沙堆</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的整个下球积沙观感未执行；缺少中段、末段及稳定终态全貌和录像。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="L01"><h4><a href="evidence/rules-20261013-2.html#L01">L01 不同进度的沙堆形状</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>开局图有球底小堆；未记录从首次落地到完整终态的阶段形状。</p>
+<p class="small">原片段观察：早期小沙堆、球底贴合、落点与飞溅可见；没有末段、碰撞线独立读数或飞溅动态证据。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">早期小堆全图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="早期小堆全图" width="1080" height="1920" loading="lazy"></a><figcaption>早期小堆全图</figcaption></figure></div></details>
+</article>
+<article class="case" id="L02"><h4><a href="evidence/rules-20261013-2.html#L02">L02 动态：堆顶、坡面与纹理</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有下球连续录像，不能判断堆面与纹理动态。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="L03"><h4><a href="evidence/rules-20261013-2.html#L03">L03 边缘：左右坡面、球底与玻璃</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>早期沙堆球底贴合可静态观察；缺少后续坡面、满球附近及档位对照。</p>
+<p class="small">原片段观察：早期小沙堆、球底贴合、落点与飞溅可见；没有末段、碰撞线独立读数或飞溅动态证据。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">早期下球全图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="早期下球全图" width="1080" height="1920" loading="lazy"></a><figcaption>早期下球全图</figcaption></figure></div></details>
+</article>
+</section>
+<section><h3>3. 颈部本身</h3>
+<article class="case" id="N00"><h4><a href="evidence/rules-20261013-2.html#N00">N00 整体：能辨认的连续玻璃通道与颈内沙流</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的完整通道观感未执行；注入、排空及其他周期仍缺证据。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="N01"><h4><a href="evidence/rules-20261013-2.html#N01">N01 几何：内孔、壁厚与圆滑过渡</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>一个 50 秒周期下颈部形状可见；没有内孔测量和短长周期、尺寸对照。</p>
+<p class="small">原片段观察：颈部形状和开局附近连接可见；没有内孔测量、注满过程、排空、速度或其他周期对照。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">单周期颈部全图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="单周期颈部全图" width="1080" height="1920" loading="lazy"></a><figcaption>单周期颈部全图</figcaption></figure></div></details>
+</article>
+<article class="case" id="N02"><h4><a href="evidence/rules-20261013-2.html#N02">N02 初始、注满与排空</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>只有未开始和开局附近画面；没有注入前缘与完整排空过程。</p>
+<p class="small">原片段观察：颈部形状和开局附近连接可见；没有内孔测量、注满过程、排空、速度或其他周期对照。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/start.png">未开始全图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/start.png"><img src="../../../images/mumu-2.96-20261013/start.png" alt="未开始全图" width="1080" height="1920" loading="lazy"></a><figcaption>未开始全图</figcaption></figure></div></details>
+</article>
+<article class="case" id="N03"><h4><a href="evidence/rules-20261013-2.html#N03">N03 颈内颗粒、运动与边界</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>单帧能观察颈内材质；没有颈内速度、暂停全层或回退路径的完整对照。</p>
+<p class="small">原片段观察：颈部形状和开局附近连接可见；没有内孔测量、注满过程、排空、速度或其他周期对照。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">颈内材质单帧</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="颈内材质单帧" width="1080" height="1920" loading="lazy"></a><figcaption>颈内材质单帧</figcaption></figure></div></details>
+</article>
+</section>
+<section><h3>4. 颈部和上沙的连接</h3>
+<article class="case" id="UN00"><h4><a href="evidence/rules-20261013-2.html#UN00">UN00 整体：上沙与颈内沙属于同一团连续供沙</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的上沙到颈部整体供沙观感未执行，没有全过程录像。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="UN01"><h4><a href="evidence/rules-20261013-2.html#UN01">UN01 空间接缝：沙体沿内腔连续收拢</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>开局连接可见；缺少中段、末段和改前改后空间接缝对照。</p>
+<p class="small">原片段观察：颈部形状和开局附近连接可见；没有内孔测量、注满过程、排空、速度或其他周期对照。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">开局连接全图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="开局连接全图" width="1080" height="1920" loading="lazy"></a><figcaption>开局连接全图</figcaption></figure></div></details>
+</article>
+<article class="case" id="UN02"><h4><a href="evidence/rules-20261013-2.html#UN02">UN02 时间接缝：开局与末段衔接</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有连接处首次注入与上沙耗尽附近的逐帧序列。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>5. 颈部和沙柱的连接</h3>
+<article class="case" id="NS00"><h4><a href="evidence/rules-20261013-2.html#NS00">NS00 整体：沙柱确实从颈部出口延续出来</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的出口到沙柱整体延续观感未执行，缺首次释放和停止释放过程。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="NS01"><h4><a href="evidence/rules-20261013-2.html#NS01">NS01 出口宽度与边界</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>一个开局画面可见出口与沙柱；没有内孔、出生带、实际笔画外缘读数及后期对照。</p>
+<p class="small">原片段观察：颈部形状和开局附近连接可见；没有内孔测量、注满过程、排空、速度或其他周期对照。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">出口与沙柱单帧</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="出口与沙柱单帧" width="1080" height="1920" loading="lazy"></a><figcaption>出口与沙柱单帧</figcaption></figure></div></details>
+</article>
+<article class="case" id="NS02"><h4><a href="evidence/rules-20261013-2.html#NS02">NS02 出口接通、头部与结束</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有落地前头部逐帧图和完整出口收尾录像。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>6. 沙柱的表现</h3>
+<article class="case" id="S00"><h4><a href="evidence/rules-20261013-2.html#S00">S00 整体：一股向下流动的颗粒沙，而不是固定色杆</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的全长沙柱颗粒流动观感未执行；单帧不能证明持续向下的运动。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="S01"><h4><a href="evidence/rules-20261013-2.html#S01">S01 外形：宽度、方向与横向断带</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>单帧可见沙柱方向及轮廓；没有各进度三个高度带的完整测量和负对照。</p>
+<p class="small">原片段观察：单帧看得到沙柱和细碎空隙；没有三个高度带的完整测量、末段及同条件改前改后对照。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">完整沙柱单帧</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="完整沙柱单帧" width="1080" height="1920" loading="lazy"></a><figcaption>完整沙柱单帧</figcaption></figure></div></details>
+</article>
+<article class="case" id="S02"><h4><a href="evidence/rules-20261013-2.html#S02">S02 动态：速度、前缘与连续性</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有带真实时间戳的连续帧，不能判断速度、前缘与流动连续性。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="S03"><h4><a href="evidence/rules-20261013-2.html#S03">S03 质感：颗粒量、空隙与末段纯色化</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>开局沙柱可见颗粒和空隙；缺少末段、颗粒数及各配色同条件对照。</p>
+<p class="small">原片段观察：单帧看得到沙柱和细碎空隙；没有三个高度带的完整测量、末段及同条件改前改后对照。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">开局颗粒单帧</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="开局颗粒单帧" width="1080" height="1920" loading="lazy"></a><figcaption>开局颗粒单帧</figcaption></figure></div></details>
+</article>
+</section>
+<section><h3>7. 沙柱和下沙的连接</h3>
+<article class="case" id="SL00"><h4><a href="evidence/rules-20261013-2.html#SL00">SL00 整体：落沙、积沙和飞溅共同形成一个落地过程</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的整套落地观感未执行，缺少堆面抬高和末段收尾录像。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="SL01"><h4><a href="evidence/rules-20261013-2.html#SL01">SL01 落点与实际堆面一致</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>早期落点可见；未独立测量可见面和碰撞线，未覆盖中末段。</p>
+<p class="small">原片段观察：早期小沙堆、球底贴合、落点与飞溅可见；没有末段、碰撞线独立读数或飞溅动态证据。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">早期落点单帧</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="早期落点单帧" width="1080" height="1920" loading="lazy"></a><figcaption>早期落点单帧</figcaption></figure></div></details>
+</article>
+<article class="case" id="SL02"><h4><a href="evidence/rules-20261013-2.html#SL02">SL02 飞溅、坡面与反弹</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>静态图有落点附近飞溅；未观察运动、回落、密度变化或暂停恢复。</p>
+<p class="small">原片段观察：早期小沙堆、球底贴合、落点与飞溅可见；没有末段、碰撞线独立读数或飞溅动态证据。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">飞溅单帧，不证明动态</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="飞溅单帧，不证明动态" width="1080" height="1920" loading="lazy"></a><figcaption>飞溅单帧，不证明动态</figcaption></figure></div></details>
+</article>
+</section>
+<section><h3>8. 状态切换与完整收尾</h3>
+<article class="case" id="C00"><h4><a href="evidence/rules-20261013-2.html#C00">C00 整体：全沙漏按同一进度完成储沙、流动和积沙</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的全沙漏全过程一致性未执行；仅初始、开局和暂停三种静态画面。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="C01"><h4><a href="evidence/rules-20261013-2.html#C01">C01 暂停与恢复</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>两次暂停采集字节相同，进度显示未变；没有恢复、完整动画时间轴和真实听音验证。</p>
+<p class="small">原片段观察：两张暂停图相同，界面进度显示未变；未验证恢复、音频输出及所有动画时间轴。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/paused.png">暂停原图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/paused.png"><img src="../../../images/mumu-2.96-20261013/paused.png" alt="暂停原图" width="1080" height="1920" loading="lazy"></a><figcaption>暂停原图</figcaption></figure></div></details>
+</article>
+<article class="case" id="C02"><h4><a href="evidence/rules-20261013-2.html#C02">C02 重置、换周期与基准取消</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有运行、暂停、收尾或性能测试状态下重置与取消的完整操作证据。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="C03"><h4><a href="evidence/rules-20261013-2.html#C03">C03 短长周期的最后一段</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有本轮短长周期完整末段及完成听音记录；旧 PC 报告不能替代。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<section><h3>9. 配色、尺寸与连带影响</h3>
+<article class="case" id="X00"><h4><a href="evidence/rules-20261013-2.html#X00">X00 整体：换配置或改一处后整套画面仍协调</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>新增的配置与改动后全局协调检查未执行，缺前后同条件全图及组合覆盖。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="X01"><h4><a href="evidence/rules-20261013-2.html#X01">X01 六配色、颗粒与起伏档位</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>只有金沙画面；没有六配色和两组 A-F 档位的实际回读及对照。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+<article class="case" id="X02"><h4><a href="evidence/rules-20261013-2.html#X02">X02 实际尺寸、转屏与资源打包</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status partial">片段观察，未完成</span></p><p><strong>实际现象：</strong>一个 1080×1920 MuMu 竖屏界面有字体和控件；没有其他实际尺寸或新 APK 安装验证。</p>
+<p class="small">原片段观察：一个 1080×1920 MuMu 竖屏界面有中文字体和按钮；没有其他尺寸或新 APK 安装验证。</p>
+<p><strong>证据：</strong><a href="../../../images/mumu-2.96-20261013/running.png">当前竖屏全图</a></p>
+<details class="more-stages"><summary>查看本项实图（1 张）</summary><div class="picture-grid"><figure><a href="../../../images/mumu-2.96-20261013/running.png"><img src="../../../images/mumu-2.96-20261013/running.png" alt="当前竖屏全图" width="1080" height="1920" loading="lazy"></a><figcaption>当前竖屏全图</figcaption></figure></div></details>
+</article>
+<article class="case" id="X03"><h4><a href="evidence/rules-20261013-2.html#X03">X03 未改区域、物理等价与性能</a></h4><p><strong>是否测试通过：</strong>尚未判定 · <span class="status">未测</span></p><p><strong>实际现象：</strong>没有本轮前后同条件对照、完整自动日志、重复性能报告及听音记录。</p>
+<p class="small">证据：未登记本项完整执行证据。</p>
+</article>
+</section>
+<h2>历史自动检查：单独看，不能拼成通过</h2>
+<ul><li>另存 20261013-151210-572a31 的旧 PC 完整检查报告及 12 份日志。这是用户禁止本地测试之前的记录，本次没有重跑。</li><li>报告当时自动项 8/12 满足条件，release_ready=false；收尾、综合检查、几何与飞溅项失败。</li><li>收尾旧日志有 47 项失败；综合检查有 16 条失败且旧参考源码缺失；几何 9/14 尺寸未满足当时判据；飞溅抛出 ctypes.ArgumentError。</li><li>这份报告并非当前 15 项检查清单的完成证明，规则和文件之后又变动，原指纹已过期。</li><li>PC 日志与 MuMu 静态图不是同一轮同一身份的完整验收，不能拼接成全绿，也不由此认定每个失败都是应用缺陷。</li></ul>
+<h2>证据身份与限制</h2>
+<ul><li>界面版本 2.96 与 APK 包版本 2.94 不一致已明确记录；没有安装本轮新构建 APK。</li><li>deployed-files.json 是当时的 16 文件部署身份记录，不是本次回读当前模拟器文件的结果。</li><li>没有视频、真实听音、性能前后对照和用户验收，不能给动态、音频或性能记通过。</li><li>仅登记实际已有证据；不以源码阅读、截图存在或旧工具 PASS 代替当前用例的完整执行。</li></ul>
+<p><a href="20261013.json">本页原始记录 JSON</a></p>
+<p><a href="evidence/pc-151210/report.json">原始报告副本</a> · <a href="evidence/README.md">原始日志说明</a> · <a href="evidence/deployed-files.json">源码部署记录</a> · <a href="evidence/start.log">启动日志</a></p>
+<p><a href="../../../images/mumu-2.96-20261013/paused-later.png">暂停后约 2 秒的原图</a></p>
+<footer>由 sand-flow-cases.json 与版本记录生成。修改后运行 python -B src/tools/build_sand_flow_docs.py；此命令只生成资料，不启动应用或执行测试。</footer>
+</main></body>
+</html>

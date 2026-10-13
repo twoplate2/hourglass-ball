@@ -1,0 +1,9 @@
+{
+  "environment": "reserved MuMu Android Python runtime",
+  "tests": 8,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "passed": true,
+  "log": "test_contact_does_not_elongate_distant_particles (stream_checks.StreamDrawingTests.test_contact_does_not_elongate_distant_particles) ... ok\ntest_contact_preserves_input_arrays (stream_checks.StreamDrawingTests.test_contact_preserves_input_arrays) ... ok\ntest_density_does_not_wait_for_landing (stream_checks.StreamDrawingTests.test_density_does_not_wait_for_landing) ... ok\ntest_fused_and_bucket_math_match (stream_checks.StreamDrawingTests.test_fused_and_bucket_math_match) ... ok\ntest_keeps_dense_body (stream_checks.StreamDrawingTests.test_keeps_dense_body) ... ok\ntest_scalar_vector_bytes_match (stream_checks.StreamDrawingTests.test_scalar_vector_bytes_match) ... ok\ntest_tail_drains_to_one_pixel (stream_checks.StreamDrawingTests.test_tail_drains_to_one_pixel) ... ok\ntest_trail_is_behind_particle_not_in_front (stream_checks.StreamDrawingTests.test_trail_is_behind_particle_not_in_front) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.053s\n\nOK\n"
+}

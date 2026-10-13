@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>沙漏设计文档 · Android 界面</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #ffffff;
+      --background: #f5f6f7;
+      --ink: #242729;
+      --muted: #62696e;
+      --line: #dce1e3;
+      --accent: #246a4c;
+      --notice: #b34732;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 20px; }
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--ink);
+      font: 16px/1.75 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+    main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; background: var(--paper); }
+    header { padding-bottom: 20px; border-bottom: 2px solid var(--line); }
+    h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.3; }
+    h2 { margin: 36px 0 14px; font-size: 22px; line-height: 1.4; }
+    h3 { margin: 24px 0 8px; font-size: 17px; }
+    p { margin: 10px 0; }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .meta, .small, figcaption { color: var(--muted); font-size: 14px; }
+    .meta { margin: 5px 0; }
+    nav { margin-top: 18px; }
+    nav ul { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; padding: 0; list-style: none; }
+    nav a { font-size: 14px; }
+    .note { border-left: 3px solid var(--accent); padding: 8px 14px; margin: 18px 0; background: #f0f6f3; }
+    .note.warning { border-color: var(--notice); background: #fcf2f0; }
+    .note p { margin: 0; }
+    .screens { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; align-items: start; }
+    figure { min-width: 0; margin: 0; }
+    figure img { display: block; width: 100%; height: auto; }
+    .screens img { aspect-ratio: 9 / 16; }
+    figcaption { margin: 10px 0 0; line-height: 1.6; }
+    figcaption strong { display: block; color: var(--ink); font-size: 15px; }
+    .table-wrap { max-width: 100%; overflow-x: auto; margin: 12px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+    th { background: #f0f3f4; font-weight: 600; }
+    td:first-child { font-weight: 600; }
+    ul, ol { padding-left: 24px; }
+    li { margin: 6px 0; }
+    code { font: 13px/1.6 Consolas, "Courier New", monospace; background: #f0f3f4; padding: 2px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+    pre { max-width: 100%; overflow-x: auto; padding: 16px; background: #f0f3f4; font: 13px/1.7 Consolas, "Courier New", monospace; }
+    .colors { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; padding: 0; list-style: none; }
+    .colors li { margin: 0; font-size: 14px; text-align: center; }
+    .swatch { display: block; height: 28px; margin-bottom: 6px; border: 1px solid #00000018; }
+    .gold { background: #d9a667; }
+    .red { background: #c6513e; }
+    .blue { background: #4f97c7; }
+    .green { background: #83ad46; }
+    .purple { background: #9473b8; }
+    .black { background: #4a4640; }
+    .section-lead { max-width: 760px; color: var(--muted); }
+    .visual-overview { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 36px; align-items: center; margin: 24px 0; }
+    .part-list { padding: 0; margin: 0; list-style: none; }
+    .part-list li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .part-number { color: var(--accent); font: bold 18px/1.75 Consolas, monospace; }
+    .part-list strong { display: block; }
+    .part-list p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+    .part { border-top: 1px solid var(--line); margin-top: 30px; padding-top: 26px; }
+    .part h3 { margin: 0 0 14px; font-size: 20px; }
+    .detail-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+    .detail-copy p:first-child { margin-top: 0; }
+    .detail-copy h4 { margin: 18px 0 6px; font-size: 15px; }
+    .detail-copy ul { margin-top: 6px; }
+    .detail-photo { width: 100%; max-width: 400px; justify-self: center; }
+    .detail-photo.narrow { max-width: 250px; }
+    .detail-photo.stream { max-width: 290px; }
+    .photo-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+    .texture-photo { max-width: 260px; margin: 18px auto 0; }
+    .reading-order { padding-left: 24px; margin: 16px 0; }
+    .reading-order li { padding-left: 4px; }
+    .reading-order strong { color: var(--accent); }
+    .control-photo { margin: 14px 0 22px; }
+    .state-flow { padding-left: 24px; }
+    .state-flow li { margin: 14px 0; }
+    .state-flow p { margin: 3px 0 0; }
+    footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--line); }
+    @media (max-width: 760px) {
+      main { padding: 24px 16px 40px; }
+      h1 { font-size: 26px; }
+      h2 { font-size: 20px; }
+      .screens { grid-template-columns: 1fr; gap: 28px; }
+      .screens figure { width: 100%; max-width: 360px; justify-self: center; }
+      .colors { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .visual-overview, .detail-row { grid-template-columns: 1fr; gap: 20px; }
+      .visual-overview > figure { width: 100%; max-width: 340px; justify-self: center; }
+      .part h3 { font-size: 18px; }
+      .photo-pair { gap: 12px; }
+      th, td { padding: 8px; }
+    }
+    @media print {
+      body { background: #ffffff; }
+      main { max-width: none; padding: 0; }
+      nav { display: none; }
+      figure { break-inside: avoid; }
+      .screens { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>沙漏设计文档</h1>
+    <p class="meta">Android 界面 · 2026-10-13 更新 · 截图中显示的应用版本：v2.96</p>
+    <p class="meta">依据：MuMu Android 15.0 的 1080 × 1920 原始截图；本页不使用 PC 渲染图充当当前安卓界面。</p>
+    <p class="meta"><a href="../README.md">目录说明</a> · <a href="../checks/README.md">改完以后怎么检查</a> · <a href="../checks/rules/sand-flow.html">视觉验收标准</a></p>
+    <nav aria-label="文档目录">
+      <ul>
+        <li><a href="#scope">文档范围</a></li>
+        <li><a href="#screens">实际截图</a></li>
+        <li><a href="#layout">主界面</a></li>
+        <li><a href="#sand">沙体与沙流</a></li>
+        <li><a href="#states">状态与操作</a></li>
+        <li><a href="#dialogs">设置与弹窗</a></li>
+        <li><a href="#audio">声音与计时</a></li>
+        <li><a href="#files">文件位置</a></li>
+        <li><a href="#checks">关联检查</a></li>
+        <li><a href="#pending">尚未覆盖</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <section id="scope">
+    <h2>1. 这份文档以什么为准</h2>
+    <p>沙漏是一个以沙子流动呈现计时进度的 Android 应用。进入应用就是计时界面：上方选沙色，中间显示倒计时和沙漏，下方调整周期、音效，并控制开始、暂停和重置。</p>
+    <div class="note">
+      <p><strong>当前外观以本页的安卓截图为准。</strong> 两个上下排列的圆形玻璃球、圆滑细颈、颗粒沙体和下落沙流构成主体。历史 PC 图、旧版本对照和候选方案只供追溯，不能直接当作当前界面。</p>
+    </div>
+    <p>文档区分两种依据：<strong>截图可见</strong>描述已有画面；<strong>代码已有、截图未覆盖</strong>描述当前实现，但不表示已做运行验收。设计要求也不等于测试通过。</p>
+    <p class="small">这批截图来自已安装的 APK 容器内同步源码后的应用：界面源码版本为 2.96，已安装 APK 的包版本为 2.94。它们不是“新构建 2.96 APK 已验收”的证据。本次仅整理文件、阅读截图和代码，没有重新启动应用或执行测试。</p>
+  </section>
+
+  <section id="screens">
+    <h2>2. 三个实际画面</h2>
+    <div class="screens">
+      <figure>
+        <a href="../images/mumu-2.96-20261013/start.png">
+          <img src="../images/mumu-2.96-20261013/start.png" width="1080" height="1920" alt="安卓初始界面：金沙被选中，倒计时50/50，上球装满沙，下球为空，底部显示开始">
+        </a>
+        <figcaption><strong>初始状态 · 50 / 50</strong>金沙选中，上球装满沙，下球为空；底栏依次是“50 秒”“沙沙声”“v2.96”“开始”“重置”。</figcaption>
+      </figure>
+      <figure>
+        <a href="../images/mumu-2.96-20261013/running.png">
+          <img src="../images/mumu-2.96-20261013/running.png" width="1080" height="1920" alt="安卓运行界面：倒计时48/50，上球沙面下降，中央沙流落入下球小沙堆，开始按钮变为橙色暂停">
+        </a>
+        <figcaption><strong>运行状态 · 48 / 50</strong>上球顶部露出玻璃内腔；沙流沿细颈落入下球，小沙堆及周围飞溅可见；按钮变为橙色“暂停”。</figcaption>
+      </figure>
+      <figure>
+        <a href="../images/mumu-2.96-20261013/paused.png">
+          <img src="../images/mumu-2.96-20261013/paused.png" width="1080" height="1920" alt="安卓暂停界面：倒计时48/50，沙漏画布被浅色遮罩淡化，底部恢复绿色开始按钮">
+        </a>
+        <figcaption><strong>暂停状态 · 48 / 50</strong>进度仍显示 48 / 50，沙漏画布整体变淡，顶部选色和底栏保留原色；按钮恢复绿色“开始”。</figcaption>
+      </figure>
+    </div>
+    <p class="small">另存有<a href="../images/mumu-2.96-20261013/paused-later.png">暂停后约 2 秒的截图</a>。两张暂停图显示相同进度；这几个静态画面不能单独证明完整动画、音频控制或所有时间轴都正确。</p>
+  </section>
+
+  <section id="layout">
+    <h2>3. 主界面怎么排</h2>
+    <p class="section-lead">先看信息，再看沙漏，最后操作。四个区域各有职责，不把按钮或数字叠进沙漏主体。截图最上方的黑色状态栏属于 Android，不是应用自己的标题栏。</p>
+    <h3>3.1 顶部：选色在上，倒计时在下</h3>
+    <figure class="control-photo">
+      <img src="../images/mumu-2.96-20261013/details/top-controls.png" width="1080" height="232" alt="运行截图的顶部裁图：六种沙色横排，下面居中显示48/50">
+      <figcaption>运行截图局部。六种颜色按固定顺序横排；金沙左侧的圆点表示选中，倒计时独立占一行。</figcaption>
+    </figure>
+    <p>选色用色块、文字和选中标记共同表达；倒计时是当前剩余时间与总时长的比较。两者不能抢占彼此的空间，也不能为了把沙漏做大而裁掉数字。</p>
+    <h3>3.2 中部：沙漏是主体</h3>
+    <p>上下两个圆球沿同一中轴排列，细颈连接它们。沙漏占据主要高度，玻璃外轮廓不碰到底栏。结构与材质的细节见<a href="#sand">下一节的整体标注图和局部图</a>。</p>
+    <h3>3.3 底部：设置、版本与操作分清楚</h3>
+    <figure class="control-photo">
+      <img src="../images/mumu-2.96-20261013/details/bottom-controls.png" width="1080" height="160" alt="运行截图的底栏裁图：50秒、沙沙声、v2.96、橙色暂停、灰色重置">
+      <figcaption>运行截图局部。左侧调整周期和声音，中间显示版本，右侧控制运行与重置。</figcaption>
+    </figure>
+    <p>周期和音效按钮显示当前值；版本区是长按设置的入口，不是普通按钮。开始为绿色，运行后改成橙色“暂停”，重置保持灰色。窄屏仍要保留版本号和四个按钮，不能把最右侧操作推出屏幕。</p>
+    <h3>3.4 色彩与文字</h3>
+    <p>截图中的背景是浅暖色，玻璃内腔是浅蓝灰，轮廓是较深的灰绿色；沙体保留颗粒明暗。色彩用于明确区分沙子、玻璃和操作状态，不额外添加装饰图案。</p>
+    <ul class="colors" aria-label="六种沙色">
+      <li><span class="swatch gold"></span>金沙</li>
+      <li><span class="swatch red"></span>红沙</li>
+      <li><span class="swatch blue"></span>蓝沙</li>
+      <li><span class="swatch green"></span>绿沙</li>
+      <li><span class="swatch purple"></span>紫沙</li>
+      <li><span class="swatch black"></span>黑沙</li>
+    </ul>
+    <p class="small">色条仅表示六种选项，精确像素颜色以原始截图和代码中的 <code>SAND_PRESETS</code> 为准。当前截图只展示金沙实际沙体，其余五种尚未在这批截图中展开。</p>
+    <p><strong>代码已有、截图未覆盖：</strong>倒计时根据总时长切换秒数、分:秒、时:分:秒；中文字体使用 <code>ui/fonts/NotoSansSC-Medium.otf</code>。布局采用 dp/sp 和内容测量，不把截图坐标直接写成其他设备的固定位置。</p>
+  </section>
+
+  <section id="sand">
+    <h2>4. 沙漏的结构、材质与流动</h2>
+    <p class="section-lead">从整体到局部，分清“容器的形状”“沙子的质感”和“运动的衔接”。下面的配图全部取自已有安卓截图；只有总览图增加了编号框，细节图没有重绘或补造内容。</p>
+    <div class="visual-overview">
+      <figure>
+        <a href="../images/mumu-2.96-20261013/details/structure-marked.png">
+          <img src="../images/mumu-2.96-20261013/details/structure-marked.png" width="840" height="1450" alt="运行中的沙漏结构标注图：01玻璃边缘、02上球沙体、03细颈、04下落沙流、05下球落点">
+        </a>
+        <figcaption>图 4-A · 运行画面的结构总览。编号框由文档添加，对应右侧及下文的五个部位。</figcaption>
+      </figure>
+      <div>
+        <h3>先沿着沙子的路径看一遍</h3>
+        <ol class="part-list">
+          <li><span class="part-number">01</span><div><strong><a href="#sand-glass">玻璃：先确定容器边界</a></strong><p>圆球和细颈属于同一个连续容器，内壁决定沙子可以出现在哪里。</p></div></li>
+          <li><span class="part-number">02</span><div><strong><a href="#sand-upper">上球：储沙量与颗粒质感</a></strong><p>沙面的位置表达进度；沙体内部的明暗表达颗粒，不是一块平色。</p></div></li>
+          <li><span class="part-number">03</span><div><strong><a href="#sand-neck">细颈：从储沙到流动的通道</a></strong><p>沙子沿玻璃内腔收拢，出口与下落段自然连接。</p></div></li>
+          <li><span class="part-number">04</span><div><strong><a href="#sand-stream">下落段：方向、疏密与速度</a></strong><p>细长沙流保留颗粒和空隙，不能读成固定的实体管。</p></div></li>
+          <li><span class="part-number">05</span><div><strong><a href="#sand-mound">下球：落点、堆积与飞溅</a></strong><p>沙流落在可见沙堆上，周围的小颗粒给落地过程增加层次。</p></div></li>
+        </ol>
+      </div>
+    </div>
+
+    <article class="part" id="sand-glass">
+      <h3>4.1 玻璃轮廓：外面有壁，里面有空间</h3>
+      <div class="detail-row">
+        <div class="detail-copy">
+          <p><strong>看左侧球壁的截面关系。</strong> 从外到内依次是暖色背景、深色轮廓和玻璃内部。运行时，上球内还有沙体贴着内壁，这些边界必须能分辨。</p>
+          <h4>形状要求</h4>
+          <ul>
+            <li>两个球保留圆形，不因窗口变化被拉成椭圆。</li>
+            <li>玻璃壁的粗细视觉上连续，球面到细颈是圆滑过渡。</li>
+            <li>沙体贴合内壁，不在边缘留下月牙缝，也不盖到外轮廓上。</li>
+          </ul>
+          <h4>不能只看这个局部</h4>
+          <p>改球半径或描边时，还要看球顶、球底和细颈连接处。这里看起来均匀，不代表其他位置也没有硬折角。</p>
+        </div>
+        <figure class="detail-photo narrow">
+          <img src="../images/mumu-2.96-20261013/details/glass-edge.png" width="250" height="425" alt="上球左侧玻璃边缘裁图：暖色背景、深色轮廓和金色沙体形成清晰边界">
+          <figcaption>图 4-B · 上球左侧边缘，保留原始像素。重点看轮廓的连续性和沙体贴壁处。</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="part" id="sand-upper">
+      <h3>4.2 上球沙体：先看沙面，再看内部颗粒</h3>
+      <div class="detail-row">
+        <div class="detail-copy">
+          <p><strong>初始与运行的区别先体现在沙面。</strong> 初始沙子接近球顶；运行截图中，顶部露出浅色内腔，沙面成为能辨认的分界线。</p>
+          <h4>三个视觉层次</h4>
+          <ol class="reading-order">
+            <li><strong>大形：</strong>沙面位置和填充面积表达剩余沙量。</li>
+            <li><strong>表面：</strong>沙面有轻微起伏，不是一条机械直线。</li>
+            <li><strong>质感：</strong>沙体内部有细碎明暗，能看出颗粒，不能只剩纯色底。</li>
+          </ol>
+          <p>这三个层次要共同存在。强化颗粒不能让整体脏成噪点；压平起伏、抹掉纹理也不能算作性能优化。</p>
+          <p class="small">这里的“层次”是画面的阅读方式，不是对代码绘制顺序的描述。</p>
+        </div>
+        <div>
+          <div class="photo-pair">
+            <figure>
+              <img src="../images/mumu-2.96-20261013/details/upper-start.png" width="515" height="385" alt="初始上球局部：金色颗粒沙体接近球顶">
+              <figcaption>图 4-C1 · 初始，50 / 50。</figcaption>
+            </figure>
+            <figure>
+              <img src="../images/mumu-2.96-20261013/details/upper-sand.png" width="515" height="385" alt="运行上球局部：顶部露出浅蓝内腔，沙面轻微起伏，下方为金色颗粒沙体">
+              <figcaption>图 4-C2 · 运行，48 / 50。两图取相同区域。</figcaption>
+            </figure>
+          </div>
+          <figure class="texture-photo">
+            <img src="../images/mumu-2.96-20261013/details/upper-texture.png" width="260" height="210" alt="上球内部颗粒纹理裁图：金色底上保留细碎深浅变化">
+            <figcaption>图 4-C3 · 内部纹理细节。来自同一运行截图，没有添加颗粒或锐化。</figcaption>
+          </figure>
+        </div>
+      </div>
+    </article>
+
+    <article class="part" id="sand-neck">
+      <h3>4.3 细颈：玻璃收拢，沙子沿内腔通过</h3>
+      <div class="detail-row">
+        <div class="detail-copy">
+          <p><strong>这里是储沙区和下落区的交界。</strong> 上球的轮廓向中间收窄，形成短直颈，然后向下球展开。金色沙子在内腔中延续到出口。</p>
+          <h4>连接要求</h4>
+          <ul>
+            <li>左右玻璃轮廓圆滑，不出现突然变宽的肩台或硬折角。</li>
+            <li>玻璃壁和流动通道能分清，描边不能把内孔吃掉。</li>
+            <li>沙子不穿出内壁；出口与下落段之间不凭空多出一条断带。</li>
+          </ul>
+          <p>换周期会影响颈部几何，因此改这里时要同时检查短周期、长周期和不同尺寸，不能只看当前 50 秒这一档。</p>
+        </div>
+        <figure class="detail-photo">
+          <img src="../images/mumu-2.96-20261013/details/neck.png" width="400" height="365" alt="细颈局部：上球玻璃圆滑收拢成窄口，沙子经过内腔后进入下落段">
+          <figcaption>图 4-D · 细颈与上下连接处。看轮廓、内孔和沙流三者的关系。</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="part" id="sand-stream">
+      <h3>4.4 下落沙流：密而有空隙，不是实心柱</h3>
+      <div class="detail-row">
+        <div class="detail-copy">
+          <p><strong>看柱内的细碎明暗与透出的内腔颜色。</strong> 截图里沙流近乎竖直，主体连续，但内部不是均匀铺满的平色。</p>
+          <h4>静态画面里要保留</h4>
+          <ul>
+            <li>整体宽度和方向清楚，不能散成看不出流向的雾。</li>
+            <li>颗粒、亮暗和空隙共同存在，不能画成不透的绳子。</li>
+            <li>空隙不能整齐重复成横向切断沙柱的虚线。</li>
+          </ul>
+          <h4>动态还要另看</h4>
+          <p>纹理与粒子应有一致的流动感，不出现固定在屏幕上的图案或两层速度。单张截图只能看形态，不能证明速度和连续性；这些仍需要录像。</p>
+        </div>
+        <figure class="detail-photo stream">
+          <img src="../images/mumu-2.96-20261013/details/stream.png" width="290" height="390" alt="下落沙流中段裁图：细长金色沙流内部可见细碎亮暗和浅色空隙">
+          <figcaption>图 4-E · 下落段中部。周围的浅色内腔用于辨认沙流边界与空隙。</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="part" id="sand-mound">
+      <h3>4.5 下球落点：沙流、沙堆和飞溅相接</h3>
+      <div class="detail-row">
+        <div class="detail-copy">
+          <p><strong>落地处不只有一个三角形沙堆。</strong> 从上往下先是沙流，接着是堆顶和颗粒明暗；堆顶两侧有细小飞溅，底部贴合玻璃内壁。</p>
+          <h4>衔接要求</h4>
+          <ul>
+            <li>沙流落在可见堆面上，不悬空停止，也不深入沙堆才出现落地效果。</li>
+            <li>落点、堆顶和周围飞溅彼此协调，不能像三张互不相干的贴图。</li>
+            <li>接触处不出现横贯整条沙流的空白带；沙堆底部不穿出玻璃。</li>
+          </ul>
+          <p>目前这张图只展示早期的小沙堆。中段和末段堆面抬高以后，落点是否仍贴合，需要另外检查。</p>
+        </div>
+        <figure class="detail-photo">
+          <img src="../images/mumu-2.96-20261013/details/mound.png" width="480" height="245" alt="下球落点局部：竖直沙流落到尖顶小沙堆，周围有飞溅颗粒，沙堆底部贴合玻璃">
+          <figcaption>图 4-F · 沙流落地与早期沙堆，来自运行截图。</figcaption>
+        </figure>
+      </div>
+    </article>
+
+    <article class="part" id="sand-pause">
+      <h3>4.6 暂停：整体变淡，但不是重新清空</h3>
+      <p>暂停属于状态变化，不是另一种沙体材质。玻璃、沙流、沙堆和飞溅一起淡化；顶部选色和底栏仍保留原色，按钮变回绿色“开始”。</p>
+      <div class="photo-pair">
+        <figure>
+          <img src="../images/mumu-2.96-20261013/details/mound.png" width="480" height="245" alt="运行状态的下球局部，玻璃和沙堆颜色较深">
+          <figcaption>图 4-G1 · 运行：落点与堆面正常显示。</figcaption>
+        </figure>
+        <figure>
+          <img src="../images/mumu-2.96-20261013/details/pause-detail.png" width="480" height="245" alt="暂停状态的同一区域，玻璃、沙流、沙堆和飞溅一起变淡但仍然保留">
+          <figcaption>图 4-G2 · 暂停：同一裁切区域整体变淡，已有沙子仍可见。</figcaption>
+        </figure>
+      </div>
+      <p class="small">两图不是同一时刻，不能用于逐像素等价判断；这里只说明状态的视觉差别。完整状态图见<a href="#screens">第 2 节</a>。恢复后是否保留进度和停止期间的音频行为，仍需单独验证。</p>
+    </article>
+
+    <h3>整体约束</h3>
+    <p>画面表达的是计时进度，不是逐粒沙子驱动的真实物理计时。沙体高度、在途沙和粒子动画必须协调，但粒子不能反过来决定计时快慢。</p>
+    <div class="note warning">
+      <p><strong>性能优化不能牺牲外观。</strong> 不减少沙粒密度、不简化玻璃轮廓、不删掉肉眼可见的层次来换帧率。优化优先关注 1% low 和最慢帧，并保留改前、改后的相同条件对照。</p>
+    </div>
+    <p class="small">这批画面只覆盖 50 秒周期的开局附近，不证明中段、末段和长周期的衔接已经正确。旧版本的空横缝、断裂等记录在 <a href="../history/plan.html">history/plan.html</a>，不能仅凭开局截图宣布修复。</p>
+  </section>
+
+  <section id="states">
+    <h2>5. 状态与操作</h2>
+    <h3>5.1 日常计时：初始 → 运行 → 暂停 / 恢复</h3>
+    <ol class="state-flow">
+      <li><strong>初始：</strong>上球满沙、下球为空，绿色“开始”。<p>依据：<a href="../images/mumu-2.96-20261013/start.png">初始截图</a>。</p></li>
+      <li><strong>运行：</strong>倒计时减少，沙流与下球沙堆出现，按钮变为橙色“暂停”。<p>依据：<a href="../images/mumu-2.96-20261013/running.png">运行截图</a>。</p></li>
+      <li><strong>暂停：</strong>保留已有进度，画布变淡，按钮仍写“开始”，不另写“继续”。<p>依据：<a href="../images/mumu-2.96-20261013/paused.png">暂停截图</a>。再次开始从旧进度恢复属于代码行为，尚未取恢复截图。</p></li>
+    </ol>
+    <p><strong>代码已有、截图未覆盖：</strong>点击沙漏球体也可开始/暂停；长按底栏版本区约 3 秒打开“沙漏设置”。它们与底部按钮共用状态控制，不能各自维护一套进度。</p>
+    <h3>5.2 重置与换周期：开始新一局</h3>
+    <p>改周期与普通暂停不同：确认一个新周期会重置当前进度；取消周期弹窗不应应用临时选择。重置应停止背景音、完成音，并清除本局粒子和待触发提醒。</p>
+    <h3>5.3 完成与性能测试：两种独立流程</h3>
+    <p><strong>计时完成：</strong>按钮恢复“开始”，提醒按周期门槛决定；再次开始新一局，旧提醒不能跟进新局。</p>
+    <p><strong>性能测试：</strong>主操作可以显示“取消”；取消和结束后恢复原设置与运行状态。这两种流程目前只有代码说明，没有本批截图证据。</p>
+  </section>
+
+  <section id="dialogs">
+    <h2>6. 设置与弹窗</h2>
+    <p><strong>以下内容来自当前代码，尚无这批安卓弹窗截图。</strong> 不沿用旧 PC 弹窗图充当新版实拍，也不写成“已验收”。</p>
+    <h3>6.1 计时设置</h3>
+    <p><strong>入口：</strong>底栏周期按钮。先选基础时间，再通过快捷倍数或滑杆调整总时长。</p>
+    <ul>
+      <li>基础时间：1 秒、10 秒、1 分钟、10 分钟。</li>
+      <li>快捷倍数：1、2、3、5、10、20、30、50、70、100；对数滑杆支持 1 至 600 倍，总时长最多 100 小时。</li>
+      <li>显示总时长预览，取消不生效，确定才应用。运行时提示“修改计时设置将重置当前进度”；调节过程中不逐次播报。</li>
+    </ul>
+    <h3>6.2 选择音效</h3>
+    <p><strong>入口：</strong>底栏音效按钮。选项是沙沙声、水流声、风声、钟表声和无声音。点选后切换音效，弹窗继续保留供连续选择，通过“确定”退出。</p>
+    <h3>6.3 沙漏设置与性能测试</h3>
+    <p><strong>入口：</strong>长按版本。设置项按“浓度 → 颗粒 → 起伏 → 性能测试”排列：沙子浓度用滑杆，沙体颗粒和沙面起伏各有 A-F 六档。</p>
+    <p>调整后应显示效果并保存配置；不重新加入已撤掉的“沙流断续”假开关或不存在的玻璃反光滑杆。性能测试包含运行、结果、复制报告和取消；取消不是成功，报告版本与应用版本一致。</p>
+    <h3>6.4 完成提示</h3>
+    <p>总周期至少 1800 秒时允许弹出，完成后约 1 秒触发；用时文案省略为零的时分单位。重置或重开使旧提示失效。门槛只控制弹窗，不等于短周期没有完成音。</p>
+    <h3>6.5 小窗口的共同要求</h3>
+    <p>当前代码为计时设置和沙漏设置提供了“内容过高时中段滚动、底部确认区保留”的分支。是否在目标尺寸下装得下，仍需要实际安卓截图和点击确认，不能只凭代码存在判断。</p>
+  </section>
+
+  <section id="audio">
+    <h2>7. 声音、计时与保存</h2>
+    <p>截图只能证明按钮上写着“沙沙声”，不能证明已经听到声音。实际验收需要确认开始、暂停、恢复、重置、切换音效和完成提醒的音频输出。</p>
+    <ul>
+      <li><strong>计时：</strong>计时使用实际经过时间；动画允许限制单帧步长，不能把同一限制套在计时上，导致卡顿时计时变慢。</li>
+      <li><strong>暂停：</strong>保留进度，停止循环音；恢复时不能把暂停期间的时间补进进度。</li>
+      <li><strong>完成：</strong>停止循环音，按实际周期拼接完成播报；一次完成不应重复播放。延迟弹窗必须核对本局身份。</li>
+      <li><strong>保存：</strong>周期、沙色、音效和材质档位等写入用户配置；重新打开应用应恢复合法值，旧档位版本不匹配时按代码规则回退。</li>
+    </ul>
+    <p class="small">代码位置：<a href="../../main.py">main.py</a> 中的 <code>HourglassWidget</code>、<code>HourglassApp</code>、<code>_SoundProxy</code>。音频在 <code>sounds/</code>，播报词块在 <code>sounds/voice/</code>；Android 配置在应用私有数据目录。</p>
+  </section>
+
+  <section id="files">
+    <h2>8. 文件放在哪里</h2>
+    <p>所有 <code>design/</code> 下的目录和文件名使用英文；正文和页面标题继续使用中文。设计、历史、配图、检查规则各放一处，不混成一个大目录。</p>
+    <pre>design/
+  README.md
+  pages/
+    hourglass.html
+  history/
+    plan.html
+    ...                 历史对照页，英文文件名保留版本号
+  images/
+    mumu-2.96-20261013/  本页使用的原始安卓截图
+    ...                 历史配图
+  checks/
+    index.html          检查资料入口
+    rules/              按部位分组的图文用例与机器清单
+    records/            按版本保存原图、日志、覆盖与未测项
+    notes/              版本变化、历史判据和不能再犯的错
+  old-assets/
+    presplash.png</pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>位置</th><th>职责</th></tr></thead>
+        <tbody>
+          <tr><td><a href="../../main.py">main.py</a></td><td>应用启动入口、主界面、沙漏协调、交互和音频控制。</td></tr>
+          <tr><td><a href="../../src/app/app_version.py">src/app/app_version.py</a></td><td>统一的 APP_VERSION，APK、Benchmark 和报告不能各写一个版本。</td></tr>
+          <tr><td><a href="../../src/app/frame_benchmark.py">src/app/frame_benchmark.py</a></td><td>内置性能采样、统计和状态恢复。</td></tr>
+          <tr><td><code>src/app/</code></td><td>应用运行模块，包括物理、沙体材质、沙流和飞溅绘制；不是可以随意删除的测试输出。</td></tr>
+          <tr><td><a href="../../src/tools/README.md">src/tools/</a></td><td>构建、检查和诊断工具，不进入 APK；输出一般放在 _temp/。</td></tr>
+          <tr><td><code>ui/</code> 与 <code>sounds/</code></td><td>字体、图标、滑杆素材和实际播放音频。</td></tr>
+          <tr><td><a href="../../docs/file-index.md">docs/file-index.md</a></td><td>文件用途索引，新增、删除、移动时同步更新。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small">本页正式使用的截图已从临时输出复制到 <code>design/images/</code>。清理临时目录不应破坏设计文档中的图。整份 design 是开发资料，不进入 APK。</p>
+  </section>
+
+  <section id="checks">
+    <h2>9. 改了 A，也要检查 B</h2>
+    <p>本页记录外观和行为；实际用例见 <a href="../checks/rules/sand-flow.html">按部位分组的 33 个图文用例</a>，
+    自动检查范围以 <a href="../checks/rules/checklist.json">checklist.json</a> 和 <a href="../checks/rules/how-to-check.md">检查说明</a> 为准。
+    每轮结果单独放入 <a href="../checks/records/index.html">版本记录</a>。下表列出尤其容易被遗漏的关联项。</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>改动位置</th><th>同时检查</th></tr></thead>
+        <tbody>
+          <tr><td>选色、字体、倒计时或底栏</td><td>六种沙色、选中标记、版本长度、长时间格式、窄屏底栏、暂停遮罩范围、弹窗可见性及资源打包。</td></tr>
+          <tr><td>玻璃、颈部或周期</td><td>上下球贴壁、长周期内孔、转屏和尺寸变化、沙柱不越界、下球接触面、重置和末段。</td></tr>
+          <tr><td>颗粒、沙体材质或批处理</td><td>上球、颈部、下落段、下球、飞溅、开局/中段/末段，以及所有配色档位；默认绘制和回退绘制均不能遗漏。</td></tr>
+          <tr><td>计时、暂停、重置或完成提醒</td><td>短长周期、暂停后恢复、在途沙收尾、音频启停、旧弹窗作废、Benchmark 取消与恢复。</td></tr>
+          <tr><td>文件改名、目录迁移或构建配置</td><td>HTML 图片和相对链接、规则清单读取、文档索引、APK 资源包含与开发目录排除；改名不应改变原检查要求。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>不在用户本机桌面启动 PC 测试。PC 自动检查交给 CI；安卓运行验证须在用户明确要求后，使用指定 MuMu 实例，不连接真机。截图不等于听音，模拟器性能也不能冒充真机高刷结论。</p>
+    <p>失败、取消、超时、缺项、旧报告都不能写成通过。<a href="../checks/notes/qa-rules.md">证据规则</a>和<a href="../checks/notes/old-criteria.md">历史判据</a>保留独立副本；不通过改参考指纹掩盖回归。</p>
+  </section>
+
+  <section id="pending">
+    <h2>10. 这次还没有覆盖什么</h2>
+    <ul>
+      <li>五种非金沙配色的实际沙体、所有材质档位和浓度两端效果。</li>
+      <li>周期、音效、沙漏设置、性能测试及完成提示的安卓实拍与完整操作。</li>
+      <li>从暂停恢复、运行中重置、重新启动后恢复配置的完整流程。</li>
+      <li>50 秒周期中后段、1 秒短周期、30 分钟以上和 100 小时周期的行为。</li>
+      <li>横屏、平板、分屏、不同字体大小和更窄屏幕的实际排版。</li>
+      <li>真实听音、完成播报次数、长时间动画连续性，以及改前改后的性能对照。</li>
+      <li>新 APK 的构建、安装和完整回归；已有历史失败不能因重写文档视为已修复。</li>
+    </ul>
+    <p>这些是后续验证范围，不是本次已经执行的任务。新增安卓截图时，把版本、周期、时刻、配色和状态一并记录，再更新对应章节；没有证据的部分继续明确标注。</p>
+  </section>
+
+  <footer>
+    <p class="small">原始截图：start.png、running.png、paused.png、paused-later.png，采集日期 2026-10-13。details/ 中的图为截图裁切，structure-marked.png 另加编号框；没有重绘沙子、玻璃或动画。文档路径：design/pages/hourglass.html。历史对照在 history/，检查规则在 checks/。</p>
+  </footer>
+</main>
+</body>
+</html>

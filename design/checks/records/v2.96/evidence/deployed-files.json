@@ -1,0 +1,82 @@
+[
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/main.py",
+    "sha256": "9ee3f0a9a62a78b9654c7e14c0450524d582d5b6bfc8660b944cde8442109ecc",
+    "path": "main.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/__init__.py",
+    "sha256": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "path": "src/app/__init__.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/_tail_selfcheck.py",
+    "sha256": "a5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb",
+    "path": "src/app/_tail_selfcheck.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/app_version.py",
+    "sha256": "c1446cd7df75712d32346ecd152621945e8ce0325c6ffc6c7da443a84490e7c7",
+    "path": "src/app/app_version.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_batch_experiment.py",
+    "sha256": "2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07",
+    "path": "src/app/flow_batch_experiment.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_gpu_experiment.py",
+    "sha256": "2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24",
+    "path": "src/app/flow_gpu_experiment.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_numpy.py",
+    "sha256": "bbb055cce7ffc27d0d89e09da68cc27c8f15fd0e3d45b6628eb2142974d1f4a0",
+    "path": "src/app/flow_numpy.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_splash_experiment.py",
+    "sha256": "920d55545f2264fc48b8af55c205b12f4d3ae57d61420d06a3e8f1c66d4f29e4",
+    "path": "src/app/flow_splash_experiment.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_texture_experiment.py",
+    "sha256": "6975985e9d994f5ede3ae9e1ecf5e0ee4fe16f8d9e338a9b266d2eea377deca8",
+    "path": "src/app/flow_texture_experiment.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/frame_benchmark.py",
+    "sha256": "4bc67f99f87550e7723f2aa678237a1aee9d58d0f44302c3c18060fe35586b66",
+    "path": "src/app/frame_benchmark.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/marker_batch_experiment.py",
+    "sha256": "6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a",
+    "path": "src/app/marker_batch_experiment.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/prof_android.py",
+    "sha256": "d89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3",
+    "path": "src/app/prof_android.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/sand_flow_material.py",
+    "sha256": "93ecef6159b7394ce6f7fd8d7bbfab6eb1a96e8cd7a20064ea504de96929f4c0",
+    "path": "src/app/sand_flow_material.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/src/app/splash_motion.py",
+    "sha256": "ef5c8a15e2cdf815e53abde122965827e1f325a92a5b3637dfe5089c4e23f1a6",
+    "path": "src/app/splash_motion.py"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/ui/fonts/NotoSansSC-Medium.otf",
+    "sha256": "7633f5a016d4dd95e685a69633d818aabc4644c4b08e26bd35b1b30c45ed5dda",
+    "path": "ui/fonts/NotoSansSC-Medium.otf"
+  },
+  {
+    "target": "/data/data/org.shalou.hourglass/files/app/sounds/sand_loop.wav",
+    "sha256": "e4f99f52f063f71ce7576177a6b93d6dfbbb20b282f41c78a0b2d5da9c270b9d",
+    "path": "sounds/sand_loop.wav"
+  }
+]

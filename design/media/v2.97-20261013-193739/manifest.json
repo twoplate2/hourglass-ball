@@ -1,0 +1,836 @@
+{
+  "started_at": "2026-10-13T19:37:39.850090+08:00",
+  "serial": "127.0.0.1:16416",
+  "source_version": "2.97",
+  "package_version": "2.96",
+  "package_info": "Activity Resolver Table:\n  Non-Data Actions:\n      android.intent.action.MAIN:\n        ec72744 org.shalou.hourglass/org.kivy.android.PythonActivity filter b5aa02d\n          Action: \"android.intent.action.MAIN\"\n          Category: \"android.intent.category.LAUNCHER\"\n\nDomain verification status:\n\nKey Set Manager:\n  [org.shalou.hourglass]\n      Signing KeySets: 94\n\nPackages:\n  Package [org.shalou.hourglass] (8b58f53):\n    appId=10126\n    pkg=Package{6e7daa4 org.shalou.hourglass}\n    codePath=/data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==\n    resourcePath=/data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==\n    legacyNativeLibraryDir=/data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==/lib\n    extractNativeLibs=true\n    primaryCpuAbi=arm64-v8a\n    secondaryCpuAbi=null\n    cpuAbiOverride=null\n    versionCode=1021296 minSdk=21 targetSdk=33\n    minExtensionVersions=[]\n    versionName=2.96\n    hiddenApiEnforcementPolicy=2\n    usesNonSdkApi=false\n    splits=[base]\n    apkSigningVersion=2\n    flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]\n    privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]\n    forceQueryable=false\n    pageSizeCompat=0\n    scannedAsStoppedSystemApp=false\n    supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]\n    timeStamp=2026-10-13 16:47:54\n    lastUpdateTime=2026-10-13 16:47:54\n    installerPackageName=null\n    installerPackageUid=-1\n    initiatingPackageName=com.android.shell\n    originatingPackageName=null\n    packageSource=1\n    appMetadataFilePath=null\n    appMetadataSource=0\n    signatures=PackageSignatures{42e400d version:2, signatures:[a5fdca79], past signatures:[]}\n    installPermissionsFixed=false\n    pkgFlags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]\n    privatePkgFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING ]\n    apexModuleName=null\n    User 0: ceDataInode=3802659 deDataInode=8257715 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false quarantined=false\n      installReason=0\n      dataDir=/data/user/0/org.shalou.hourglass\n      firstInstallTime=2026-10-13 16:47:54\n      uninstallReason=0\n      overlay paths:\n        /data/resource-cache/com.android.systemui-neutral-Dy1H.frro\n        /data/resource-cache/com.android.systemui-accent-pvyj.frro\n        /data/resource-cache/com.android.systemui-dynamic-agNJ.frro\n      runtime permissions:\n\nQueries:\n  system apps queryable: false\n  queries via forceQueryable:\n  queries via package name:\n  queries via component:\n    com.android.settings.intelligence:\n      org.shalou.hourglass\n  queryable via interaction:\n    User 0:\n      [com.mumu.store,com.android.server.telecom,com.android.localtransport,com.android.providers.settings,com.android.location.fused,com.android.settings,android,com.android.keychain,com.android.documentsui,com.android.packageinstaller,com.sohu.inputmethod.sogou.chuizi,com.netease.mumu.cloner,com.mumu.shared.sdk]:\n        org.shalou.hourglass\n  queryable via uses-library:\n\nDexopt state:\n  [org.shalou.hourglass]\n    path: /data/app/~~I9wUg-3faHxgB693NoCqgQ==/org.shalou.hourglass-8jaUhB1O89FOM8j_65z9sw==/base.apk\n      x86_64: [status=run-from-apk] [reason=unknown] [primary-abi]\n        [location is error]\n\nCompiler stats:\n  [org.shalou.hourglass]\n     base.apk - 86\n",
+  "apk_sha256": "30ab2a6efbb0d7e26c2a70cc4c8341c1023cf3c31a2ef92610a3ba3f8189b09f",
+  "runtime_files": [
+    {
+      "path": "main.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/main.py",
+      "sha256": "8aafa232576bb9bf83f7d4697384e31ddf19b6c7ad1ba61d0b818b63d278930d"
+    },
+    {
+      "path": "src/app/__init__.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/__init__.py",
+      "sha256": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2"
+    },
+    {
+      "path": "src/app/_tail_selfcheck.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/_tail_selfcheck.py",
+      "sha256": "a5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb"
+    },
+    {
+      "path": "src/app/app_version.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/app_version.py",
+      "sha256": "e609f6dcd2c23f9fe3549d4ce0dad5f2a6f385dbc2272a814d0552430635da34"
+    },
+    {
+      "path": "src/app/flow_batch_experiment.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_batch_experiment.py",
+      "sha256": "2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07"
+    },
+    {
+      "path": "src/app/flow_gpu_experiment.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_gpu_experiment.py",
+      "sha256": "2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24"
+    },
+    {
+      "path": "src/app/flow_numpy.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_numpy.py",
+      "sha256": "bbb055cce7ffc27d0d89e09da68cc27c8f15fd0e3d45b6628eb2142974d1f4a0"
+    },
+    {
+      "path": "src/app/flow_splash_experiment.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_splash_experiment.py",
+      "sha256": "920d55545f2264fc48b8af55c205b12f4d3ae57d61420d06a3e8f1c66d4f29e4"
+    },
+    {
+      "path": "src/app/flow_texture_experiment.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/flow_texture_experiment.py",
+      "sha256": "99b8fc9a25970b742067a946a122c445f73952627b64a44ad11ddaa89f6eaba4"
+    },
+    {
+      "path": "src/app/frame_benchmark.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/frame_benchmark.py",
+      "sha256": "4bc67f99f87550e7723f2aa678237a1aee9d58d0f44302c3c18060fe35586b66"
+    },
+    {
+      "path": "src/app/marker_batch_experiment.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/marker_batch_experiment.py",
+      "sha256": "6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a"
+    },
+    {
+      "path": "src/app/prof_android.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/prof_android.py",
+      "sha256": "d89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3"
+    },
+    {
+      "path": "src/app/sand_flow_material.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/sand_flow_material.py",
+      "sha256": "93ecef6159b7394ce6f7fd8d7bbfab6eb1a96e8cd7a20064ea504de96929f4c0"
+    },
+    {
+      "path": "src/app/splash_motion.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/splash_motion.py",
+      "sha256": "ef5c8a15e2cdf815e53abde122965827e1f325a92a5b3637dfe5089c4e23f1a6"
+    },
+    {
+      "path": "src/app/stream_rendering.py",
+      "target": "/data/data/org.shalou.hourglass/files/app/src/app/stream_rendering.py",
+      "sha256": "7254d923dc16f9d03c720c35c617383d366172aaec7ccd3b0fa1f99ec3fea458"
+    },
+    {
+      "path": "sounds/clock.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/clock.wav",
+      "sha256": "703cde537a23e1e7323c7515acf44004e1f3b18f0e8a5cae796dd0e2b12a93f5"
+    },
+    {
+      "path": "sounds/completion.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/completion.wav",
+      "sha256": "23161692756eea64c0de78bc7aed9064af6e1b66c2a33320f95a981b2fadaff6"
+    },
+    {
+      "path": "sounds/completion_voice.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/completion_voice.wav",
+      "sha256": "efa04276d75d91c053ca170984ede58f9004dbbb0ca750c5f0c8b33d61327fe4"
+    },
+    {
+      "path": "sounds/sand_loop.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/sand_loop.wav",
+      "sha256": "e4f99f52f063f71ce7576177a6b93d6dfbbb20b282f41c78a0b2d5da9c270b9d"
+    },
+    {
+      "path": "sounds/source/zhongbiao.mp3",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/source/zhongbiao.mp3",
+      "sha256": "2099679b3e66f984ba21183dd0d9779809006406e8b3e4392e529569305969fc"
+    },
+    {
+      "path": "sounds/voice/c0.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/c0.wav",
+      "sha256": "410b206983216b2f0193f64b8abd8c672f9a1c53774cfb14933238d20667dea4"
+    },
+    {
+      "path": "sounds/voice/c1.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/c1.wav",
+      "sha256": "d8e9c25ed6aecd1eddefaab28b97e0b8cb5dcf1542f46881d73f9e93e13c9204"
+    },
+    {
+      "path": "sounds/voice/c2.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/c2.wav",
+      "sha256": "095a47f38e97409f8253b4af4961dcbb654b79e6f2cae1cfebb17e312009f192"
+    },
+    {
+      "path": "sounds/voice/c3.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/c3.wav",
+      "sha256": "eb263c3cf6000a78817f8961a883e05e7f3c47a3519bfd81fb5336bf27bc4c5e"
+    },
+    {
+      "path": "sounds/voice/c4.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/c4.wav",
+      "sha256": "f8c63b3e3f246811b539d02c022ee49c181f26e6be74ec17b5dc05d4b263eaf3"
+    },
+    {
+      "path": "sounds/voice/c5.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/c5.wav",
+      "sha256": "a3635e3e298ac55c2aefe20967e5483a143ea9253c1afc00747c7055348fe4e4"
+    },
+    {
+      "path": "sounds/voice/d1.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d1.wav",
+      "sha256": "3b8ad4f928687b9f348981f1ec685ead7e25bab9d43f8c98535ad878a8cd96ab"
+    },
+    {
+      "path": "sounds/voice/d2.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d2.wav",
+      "sha256": "cd392f8f5639b23436a3701f4325c911f09f7387a876f1d161fe08dae351f332"
+    },
+    {
+      "path": "sounds/voice/d3.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d3.wav",
+      "sha256": "277587bd60a30e87d5b9310e3ef984c56ac7bcd628b91334b5de1ea6a0fae009"
+    },
+    {
+      "path": "sounds/voice/d4.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d4.wav",
+      "sha256": "8d36f43d02877864176903b1409627bdf9c66b554571db3e4efdbe2551101880"
+    },
+    {
+      "path": "sounds/voice/d5.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d5.wav",
+      "sha256": "b1b34fa1257ff9bc85c4fe3220ed555d35ed63f3a709ca43402656b487fec776"
+    },
+    {
+      "path": "sounds/voice/d6.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d6.wav",
+      "sha256": "a510618ad40a4053972a3dd7b1387d447a71848d94f1759bcedfaa1c0b97d973"
+    },
+    {
+      "path": "sounds/voice/d7.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d7.wav",
+      "sha256": "cbd11aa2ccd40bc5ae626807c934073cbac02dab19c8bed19e5b86b2213b4763"
+    },
+    {
+      "path": "sounds/voice/d8.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d8.wav",
+      "sha256": "d86402618fa9e889198e721856534608a15e50fbfde6160b51553b6474d84b44"
+    },
+    {
+      "path": "sounds/voice/d9.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/d9.wav",
+      "sha256": "33adf8bd9edb057a11bef14a21277f4d94e020454e7b4d00a6ac1fac2e342b1d"
+    },
+    {
+      "path": "sounds/voice/e0.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/e0.wav",
+      "sha256": "85791fd4d00e0d01085164ffdd8e0b856d36ecd57c2db4df41de59c40b3e9a64"
+    },
+    {
+      "path": "sounds/voice/e1.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/e1.wav",
+      "sha256": "53a749bfcc9a4af748d5a06b0e7a6011a0023f944f31e916104cf938f8d2e2db"
+    },
+    {
+      "path": "sounds/voice/e2.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/e2.wav",
+      "sha256": "46ecf83deaac78102a3963a1d140d76accd7f6e65fcd105fae0c9c7cb45648ed"
+    },
+    {
+      "path": "sounds/voice/e3.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/e3.wav",
+      "sha256": "a142ad98fd2e811f948f1e1af1e294cc174632edf0872d9c214effa59d847187"
+    },
+    {
+      "path": "sounds/voice/e4.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/e4.wav",
+      "sha256": "3dffdf2bd9a0c151d372d95f7bb12246126c5d85030f9b31b25923d62a66b8bd"
+    },
+    {
+      "path": "sounds/voice/hour.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/hour.wav",
+      "sha256": "5e19caea49ea3b4ab194080cc057394b5a2e14607a97d5be4d46b02c696c3a2d"
+    },
+    {
+      "path": "sounds/voice/hundred.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/hundred.wav",
+      "sha256": "0cc793b04e620399eb36ee88a8dd2c7822abb607695ef1e104163de25159a0c3"
+    },
+    {
+      "path": "sounds/voice/min.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/min.wav",
+      "sha256": "2ddde4d852a678aa4404c7fc55bb01217b5d8c6a698e2ef931e6cb761d79b39d"
+    },
+    {
+      "path": "sounds/voice/n0.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n0.wav",
+      "sha256": "c394dc9b340231682c32a4def9f471bda9340d09d2c4c522bd3ae103d44f671c"
+    },
+    {
+      "path": "sounds/voice/n1.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n1.wav",
+      "sha256": "3b8ad4f928687b9f348981f1ec685ead7e25bab9d43f8c98535ad878a8cd96ab"
+    },
+    {
+      "path": "sounds/voice/n10.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n10.wav",
+      "sha256": "5c0230de640a55ced60b42ae1723a5cc8d6b3706379c6662604ad00130b9d863"
+    },
+    {
+      "path": "sounds/voice/n11.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n11.wav",
+      "sha256": "88a53874b1f4fefd116b8084e32f846ed640a14f80ac203d94cca8b745838457"
+    },
+    {
+      "path": "sounds/voice/n12.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n12.wav",
+      "sha256": "1a96c7d549ed23e48747e562e056af1bac091741c27dc03a0e384b71e5eddd65"
+    },
+    {
+      "path": "sounds/voice/n13.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n13.wav",
+      "sha256": "55bd475db21952f9cc40ab98d0644c2a52bc130328ee2a9ac45075a1d0950dca"
+    },
+    {
+      "path": "sounds/voice/n14.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n14.wav",
+      "sha256": "8ecee97e35aa421472e3ec8e8dc96000b8f3258b95e537582d129ddb62b458c8"
+    },
+    {
+      "path": "sounds/voice/n15.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n15.wav",
+      "sha256": "74019ea61f752b682fdf633be313ced89bf9b8446d50c21c0d3f4da8e194c00e"
+    },
+    {
+      "path": "sounds/voice/n16.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n16.wav",
+      "sha256": "fb7af7f01608aab49c8cdb319c9778e0e41180e472deda8f40f6b583809ea882"
+    },
+    {
+      "path": "sounds/voice/n17.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n17.wav",
+      "sha256": "794eca184828036eb623f2c5d7b7220019e493ab1b276849cbb36dedb148bb10"
+    },
+    {
+      "path": "sounds/voice/n18.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n18.wav",
+      "sha256": "aaaf5d1aa35baabbb78a55d7a371069e085693780b7a00f76d30d20a265bdcad"
+    },
+    {
+      "path": "sounds/voice/n19.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n19.wav",
+      "sha256": "97ac0d80e15c974f03b02e1cea667d18c7f0a7339248aab2d19de9e560670ab2"
+    },
+    {
+      "path": "sounds/voice/n2.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n2.wav",
+      "sha256": "cd392f8f5639b23436a3701f4325c911f09f7387a876f1d161fe08dae351f332"
+    },
+    {
+      "path": "sounds/voice/n20.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n20.wav",
+      "sha256": "623f591387695fe768d084a8b594872671371b26d7f59ff115d6376b73e925c7"
+    },
+    {
+      "path": "sounds/voice/n21.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n21.wav",
+      "sha256": "b08cb9da2a775f8fb083b9053a8552360172a38cdac71654be2035d2008d53dc"
+    },
+    {
+      "path": "sounds/voice/n22.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n22.wav",
+      "sha256": "e92c7c52b73f3778df64bf8f20d081bf1e6c53ceadeda98fd7e7d4a3c12991a4"
+    },
+    {
+      "path": "sounds/voice/n23.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n23.wav",
+      "sha256": "ac86f169f5eb4a4eaf69b6d2e939a0a6d84f0eb572d111c2b02115cc3f06e792"
+    },
+    {
+      "path": "sounds/voice/n24.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n24.wav",
+      "sha256": "4a38e11d241113ef60a96e8d7fb5d7fbc60c75993ca9f6c9b6a9f731f6f84201"
+    },
+    {
+      "path": "sounds/voice/n25.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n25.wav",
+      "sha256": "6630dc9bd49704fc264b14a64f64d2cb2aee14f1162cdf99cf6ced47be28c056"
+    },
+    {
+      "path": "sounds/voice/n26.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n26.wav",
+      "sha256": "a9ef8cab84bf60dc9bae7653f87953d66ef4ec9bd2d57896db6fd930216ab0c6"
+    },
+    {
+      "path": "sounds/voice/n27.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n27.wav",
+      "sha256": "d084e26a4ab6798bc3acda2c913ac035fc150d2a5fa884a4a97af8cecbcac62f"
+    },
+    {
+      "path": "sounds/voice/n28.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n28.wav",
+      "sha256": "f0f0710b8bf32bb49e0e6ba1b5d6db0caff345b8b0278b8a2a13718fd2c7da0d"
+    },
+    {
+      "path": "sounds/voice/n29.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n29.wav",
+      "sha256": "52e4d062e411bd800e37f4cd9eee77cfd6e26e950f690cf46858c96d69eff8de"
+    },
+    {
+      "path": "sounds/voice/n3.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n3.wav",
+      "sha256": "277587bd60a30e87d5b9310e3ef984c56ac7bcd628b91334b5de1ea6a0fae009"
+    },
+    {
+      "path": "sounds/voice/n30.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n30.wav",
+      "sha256": "d6a0639ed12c4b0fa822d79eae2feaa4f16ff3f0074a42688321879c6c663bf2"
+    },
+    {
+      "path": "sounds/voice/n31.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n31.wav",
+      "sha256": "989661705a646678384a5f257249cfc19dcbf951c3e87499381a5d7c230d2951"
+    },
+    {
+      "path": "sounds/voice/n32.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n32.wav",
+      "sha256": "bbda48076fca02ebc68fcd7c88a8f264ba950aa2eb67479a5cf4c860daab4ee8"
+    },
+    {
+      "path": "sounds/voice/n33.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n33.wav",
+      "sha256": "fef3b195908c33e9249ac956844e1e5a1162f291425531a2ef6b76aaa455711a"
+    },
+    {
+      "path": "sounds/voice/n34.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n34.wav",
+      "sha256": "3e61af90a427ff3e67cd492bec1d5f009139b8d563fc083d633d6b1e24b2cd7d"
+    },
+    {
+      "path": "sounds/voice/n35.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n35.wav",
+      "sha256": "fa64734f693fadb00b64f47e22ad7d9427f3051f85873fd7b73d314679c28da1"
+    },
+    {
+      "path": "sounds/voice/n36.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n36.wav",
+      "sha256": "db5ff5e6f9540cb6ac30948f5b965d502504973cc639d67fa7af98d7ebf3c4d6"
+    },
+    {
+      "path": "sounds/voice/n37.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n37.wav",
+      "sha256": "53166be05584eea47a19f2f1d70db1a3b301d9ba59e45dd44e0b9e634b768770"
+    },
+    {
+      "path": "sounds/voice/n38.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n38.wav",
+      "sha256": "6b47de7182e3bd445680fd1278bc519f718a356dbceb532d58d0b4c4d2dd6708"
+    },
+    {
+      "path": "sounds/voice/n39.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n39.wav",
+      "sha256": "dde0721aa8205486cb41b8d20d930848818802a453765c3975aa6a39a75ddb78"
+    },
+    {
+      "path": "sounds/voice/n4.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n4.wav",
+      "sha256": "8d36f43d02877864176903b1409627bdf9c66b554571db3e4efdbe2551101880"
+    },
+    {
+      "path": "sounds/voice/n40.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n40.wav",
+      "sha256": "b0f0bc58235beedd456be4d89f7ee8000fad59444356eabcd0e999aaad90ea2c"
+    },
+    {
+      "path": "sounds/voice/n41.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n41.wav",
+      "sha256": "40ed422d230887097112a5d4ab76d6fdd5dda49258513b19398971a3c223407b"
+    },
+    {
+      "path": "sounds/voice/n42.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n42.wav",
+      "sha256": "c1a8b58b5e57eeeea7dad015e7852b1c7f44abd913a6b452dcb5a76cf6b7fa2e"
+    },
+    {
+      "path": "sounds/voice/n43.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n43.wav",
+      "sha256": "25f3abc0b0a2ca1b9e890ca2ae4e054390c27be840e184752a735f9b13fb9ea0"
+    },
+    {
+      "path": "sounds/voice/n44.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n44.wav",
+      "sha256": "5981e300de9866c008cfa540b49e08a4364ea167e55f1d941ef6417a6eca51ac"
+    },
+    {
+      "path": "sounds/voice/n45.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n45.wav",
+      "sha256": "a7d3cd32c89b518ffe5178f7f2b94f693c8a3da2c75cc936afdb3a966a49d505"
+    },
+    {
+      "path": "sounds/voice/n46.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n46.wav",
+      "sha256": "78488599503c3cc0ee714d6e97351d94bfafc8a4bfcef86ef5579effb6f87755"
+    },
+    {
+      "path": "sounds/voice/n47.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n47.wav",
+      "sha256": "0b297efaaf7494b905c39b5b48adcce2d55986e14f5f8766d6e4eee3b45a94a2"
+    },
+    {
+      "path": "sounds/voice/n48.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n48.wav",
+      "sha256": "59b7a928983f6210cb8d97bd1f21c18e82db7bd0e44766353ad729f4ee790922"
+    },
+    {
+      "path": "sounds/voice/n49.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n49.wav",
+      "sha256": "b8ce4d59b2ef62d9b56f25696f35b30bd43c16af78db98ec3a27c58e3402e4e6"
+    },
+    {
+      "path": "sounds/voice/n5.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n5.wav",
+      "sha256": "b1b34fa1257ff9bc85c4fe3220ed555d35ed63f3a709ca43402656b487fec776"
+    },
+    {
+      "path": "sounds/voice/n50.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n50.wav",
+      "sha256": "c72e2551ce567671b70e10a7608064f663ac0cf35f6777726d8a374092d2b2ed"
+    },
+    {
+      "path": "sounds/voice/n51.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n51.wav",
+      "sha256": "eb97d5310ab1e0b187f15a5a4d8d0d139980bca75adabcd1d35c7e7b4c4c0c60"
+    },
+    {
+      "path": "sounds/voice/n52.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n52.wav",
+      "sha256": "1331083fe64492ce30233aeacdde79856672d4b26c5f173cef38cbf41a0f0edb"
+    },
+    {
+      "path": "sounds/voice/n53.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n53.wav",
+      "sha256": "cbf48abaa70dbb783bbf6b134426da65242314f7357dbc65b0160c4281e37c27"
+    },
+    {
+      "path": "sounds/voice/n54.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n54.wav",
+      "sha256": "22d5ddf053ef560e6c87b3679ccf73fe4a66b7d8251cee6fd603bb4b512b4020"
+    },
+    {
+      "path": "sounds/voice/n55.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n55.wav",
+      "sha256": "6d93695bf152907d2c0428cfba3961a495342a331fd1ea5cb50887143048234d"
+    },
+    {
+      "path": "sounds/voice/n56.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n56.wav",
+      "sha256": "4ecad0894dbe7449d098617feb70b6ab5239b35b4c8a35cb786fbe8b786682e7"
+    },
+    {
+      "path": "sounds/voice/n57.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n57.wav",
+      "sha256": "58498e14bb049ce27fe1be85f0944bf2887d1f29e2e0294f7b201ee90dafd992"
+    },
+    {
+      "path": "sounds/voice/n58.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n58.wav",
+      "sha256": "f818d81187d239f2a08565dc71a4fb3dbf1d9f1b265c96b344849053ad425171"
+    },
+    {
+      "path": "sounds/voice/n59.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n59.wav",
+      "sha256": "f48d74a6c5e1bff76f53a670aa09dfe9c33a045d0fce9e7ad4a59866b0d5da64"
+    },
+    {
+      "path": "sounds/voice/n6.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n6.wav",
+      "sha256": "a510618ad40a4053972a3dd7b1387d447a71848d94f1759bcedfaa1c0b97d973"
+    },
+    {
+      "path": "sounds/voice/n60.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n60.wav",
+      "sha256": "abd06dfb02854be24c34b76be0b2b17a7a79daef943ac5d3af97ed0db0eca3a1"
+    },
+    {
+      "path": "sounds/voice/n7.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n7.wav",
+      "sha256": "cbd11aa2ccd40bc5ae626807c934073cbac02dab19c8bed19e5b86b2213b4763"
+    },
+    {
+      "path": "sounds/voice/n8.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n8.wav",
+      "sha256": "d86402618fa9e889198e721856534608a15e50fbfde6160b51553b6474d84b44"
+    },
+    {
+      "path": "sounds/voice/n9.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/n9.wav",
+      "sha256": "33adf8bd9edb057a11bef14a21277f4d94e020454e7b4d00a6ac1fac2e342b1d"
+    },
+    {
+      "path": "sounds/voice/pre_silent.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/pre_silent.wav",
+      "sha256": "509aaa8bc0d86a5acfe8f23890be9fbd4f11048757bce52a781c642bc6fccb2f"
+    },
+    {
+      "path": "sounds/voice/pre_sound.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/pre_sound.wav",
+      "sha256": "f3d2a09ef4f02d5cd170d104774c786edc967938d89bdae24fba49ee048ab797"
+    },
+    {
+      "path": "sounds/voice/pre_time.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/pre_time.wav",
+      "sha256": "c38932730ea2eeb3aee4f4e4aee978b62cdd1884264ab857c1cc1ff64c41a8aa"
+    },
+    {
+      "path": "sounds/voice/sec.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/sec.wav",
+      "sha256": "18b8dc1023fb24861bef759c5fabf1bc164edc277edc426b11cbf4b66ecb5fe7"
+    },
+    {
+      "path": "sounds/voice/tail.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/tail.wav",
+      "sha256": "5b009b6c23684e9243723c633375b985e0349ba054642e4633b9fc551b9e1eb0"
+    },
+    {
+      "path": "sounds/voice/ten.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/voice/ten.wav",
+      "sha256": "5c0230de640a55ced60b42ae1723a5cc8d6b3706379c6662604ad00130b9d863"
+    },
+    {
+      "path": "sounds/water.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/water.wav",
+      "sha256": "e209a77eba088a303df3cd8192b32e94f249ab673d5b80ac28802ea630fc7785"
+    },
+    {
+      "path": "sounds/wind.wav",
+      "target": "/data/data/org.shalou.hourglass/files/app/sounds/wind.wav",
+      "sha256": "71f7eb0c5de5d8bc6a55a09d5492d8e240820b6cc4dc060c6ac2952d8dea5a86"
+    },
+    {
+      "path": "ui/fonts/NotoSansSC-Medium.otf",
+      "target": "/data/data/org.shalou.hourglass/files/app/ui/fonts/NotoSansSC-Medium.otf",
+      "sha256": "7633f5a016d4dd95e685a69633d818aabc4644c4b08e26bd35b1b30c45ed5dda"
+    },
+    {
+      "path": "ui/icon.png",
+      "target": "/data/data/org.shalou.hourglass/files/app/ui/icon.png",
+      "sha256": "3a3c4c82cb0228bd48542af5721496a4e559329efd3a35779c513155160d9bdb"
+    },
+    {
+      "path": "ui/slider_cursor.png",
+      "target": "/data/data/org.shalou.hourglass/files/app/ui/slider_cursor.png",
+      "sha256": "420a7bf336e9a8fc19813db70e2a4db113cd1c3c8d758370a079271a2ae0992d"
+    },
+    {
+      "path": "ui/slider_track.png",
+      "target": "/data/data/org.shalou.hourglass/files/app/ui/slider_track.png",
+      "sha256": "12c0ae9895f66c7c388c6237470bf81e5e775c1a10076b7ca719e65fe3b39cb7"
+    },
+    {
+      "path": "ui/startup_blank.png",
+      "target": "/data/data/org.shalou.hourglass/files/app/ui/startup_blank.png",
+      "sha256": "d49cdc861606aab439175ef69c3e6ae2760685429689dfd2a30fb1549118e645"
+    }
+  ],
+  "runtime_matches_apk": false,
+  "deployment_mode": "source-overlay",
+  "overlay_receipt": "_temp\\mumu-fixes\\20261013-193718\\deployed-files.json",
+  "overlay_receipt_sha256": "c7a51fb5b85263122b7bdce0c56c59f9a73002d2ae892222aa7c40c5fecbbf2b",
+  "apk_download_url": "https://github.com/twoplate2/hourglass-ball/releases/download/latest/hourglass-2.96-arm64-v8a-debug.apk",
+  "release_commit": "7ee12ad",
+  "config": {
+    "duration": 50.0,
+    "color_name": "金沙",
+    "sound_name": "沙沙声",
+    "sand_mode": "grain",
+    "sand_grain": 0.35,
+    "grain_level": "3",
+    "rough_level": "3",
+    "clump_level": "自然",
+    "grain_rev": 3
+  },
+  "size": "Physical size: 1080x1920",
+  "density": "Physical density: 480",
+  "audio_recorded": false,
+  "events": [
+    {
+      "event": "screenshot",
+      "name": "before",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "reset_before_cycle",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "screenshot",
+      "name": "initial",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "start_cycle",
+      "request_offset": 2.0,
+      "returned_offset": 2.063000000001921
+    },
+    {
+      "event": "screenshot",
+      "name": "before_landing",
+      "request_offset": 1.2029999999977008,
+      "returned_offset": 1.5
+    },
+    {
+      "event": "screenshot",
+      "name": "first_landing",
+      "request_offset": 2.0,
+      "returned_offset": 2.264999999999418
+    },
+    {
+      "event": "screenshot",
+      "name": "early",
+      "request_offset": 5.0,
+      "returned_offset": 5.28099999999904
+    },
+    {
+      "event": "screenshot",
+      "name": "middle",
+      "request_offset": 25.0,
+      "returned_offset": 25.29699999999866
+    },
+    {
+      "event": "screenshot",
+      "name": "late",
+      "request_offset": 45.0,
+      "returned_offset": 45.28099999999904
+    },
+    {
+      "event": "screenshot",
+      "name": "tail",
+      "request_offset": 49.0,
+      "returned_offset": 49.28099999999904
+    },
+    {
+      "event": "screenshot",
+      "name": "after_zero",
+      "request_offset": 51.0,
+      "returned_offset": 51.28099999999904
+    },
+    {
+      "event": "screenshot",
+      "name": "settled",
+      "request_offset": 56.0,
+      "returned_offset": 56.29699999999866
+    },
+    {
+      "event": "screenshot",
+      "name": "after_cycle",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "reset_before_pause",
+      "request_offset": null,
+      "returned_offset": null
+    },
+    {
+      "event": "start_pause_run",
+      "request_offset": 2.0,
+      "returned_offset": 2.061999999998079
+    },
+    {
+      "event": "screenshot",
+      "name": "running_before_pause",
+      "request_offset": 7.0,
+      "returned_offset": 7.296999999998661
+    },
+    {
+      "event": "pause",
+      "request_offset": 7.296999999998661,
+      "returned_offset": 7.359000000000378
+    },
+    {
+      "event": "screenshot",
+      "name": "paused",
+      "request_offset": 9.0,
+      "returned_offset": 9.296999999998661
+    },
+    {
+      "event": "screenshot",
+      "name": "paused_later",
+      "request_offset": 12.0,
+      "returned_offset": 12.31199999999808
+    },
+    {
+      "event": "resume",
+      "request_offset": 12.31199999999808,
+      "returned_offset": 12.359000000000378
+    },
+    {
+      "event": "screenshot",
+      "name": "resumed",
+      "request_offset": 16.01599999999962,
+      "returned_offset": 16.31199999999808
+    },
+    {
+      "event": "pause_after_recording",
+      "request_offset": 18.0,
+      "returned_offset": 18.06199999999808
+    },
+    {
+      "event": "screenshot",
+      "name": "final_paused",
+      "request_offset": null,
+      "returned_offset": null
+    }
+  ],
+  "files": [
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/before.png",
+      "sha256": "30aeb99ba8e883c6f554fd5247fdd2da0ad7c15968520ba1986c9f8566e0e744"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/initial.png",
+      "sha256": "30aeb99ba8e883c6f554fd5247fdd2da0ad7c15968520ba1986c9f8566e0e744"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/before_landing.png",
+      "sha256": "f6057ff8f85d2bfebedf0be0097496b99ccbce8f44b069902791a909e5145d67"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/first_landing.png",
+      "sha256": "df03af2385144e3736b9dfb6fafdab39945a28e27b4c7a686b9ecdf565245719"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/early.png",
+      "sha256": "4553f5f03671dd557ba7cb528fa59bc0b4759d33c29699afe5a6a3c7c293b1dc"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/middle.png",
+      "sha256": "6c56052fc74fc821cbd2bbe407cd51b2cd04ec796a289109ad977be20b24bc6e"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/late.png",
+      "sha256": "7681261d6fb0dec949c9bd10a2c58b41718c880f7f8d1fa8dbd7da00c4f7a534"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/tail.png",
+      "sha256": "35a3f56d48e91dd1ba6402b2775063c537aa48a23e6cdfbc6a9d5a2a664172a9"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/after_zero.png",
+      "sha256": "84a7aeff8e2e8b26c4fdd83315846a7c610ce080e1d51e79914438f52bd1616a"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/settled.png",
+      "sha256": "84a7aeff8e2e8b26c4fdd83315846a7c610ce080e1d51e79914438f52bd1616a"
+    },
+    {
+      "path": "design/media/v2.97-20261013-193739/full-cycle.mp4",
+      "sha256": "d91524eee475fe71dae560df3cd4a36bfab69394fdffafb3bf33d89524542111"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/after_cycle.png",
+      "sha256": "84a7aeff8e2e8b26c4fdd83315846a7c610ce080e1d51e79914438f52bd1616a"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/running_before_pause.png",
+      "sha256": "3d05bfa1d06f9d78b14856a5581ab5b4460210234dfb23097b48b0cd5117d363"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/paused.png",
+      "sha256": "2a9c1cd7857539624d14abaef57c65c8bc40b94f6e191bb3bdc7bf6d16dc9bb6"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/paused_later.png",
+      "sha256": "af7fe66b429f75767bc431c7b305395f8c1aa3a386c218d0cc4264683542db49"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/resumed.png",
+      "sha256": "304fee60b79c030bc919419ce977672f11d98400c39bcebf29e78c03efaca934"
+    },
+    {
+      "path": "design/media/v2.97-20261013-193739/pause-resume.mp4",
+      "sha256": "1d490ef751e193890002c7823c00c6fc7ff307d2f9f3993695761ca89204620d"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/final_paused.png",
+      "sha256": "534962150cf4a2411610829dc9022a2d72af7d7db427c1b6acde0b903db17328"
+    }
+  ],
+  "timing_note": "Host monotonic offsets bracket ADB requests, not exact app elapsed values.",
+  "performance_note": "Screen recording and capture add load; this is not a performance benchmark.",
+  "device_source_hashes": "8aafa232576bb9bf83f7d4697384e31ddf19b6c7ad1ba61d0b818b63d278930d  /data/data/org.shalou.hourglass/files/app/main.py\n00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2  /data/data/org.shalou.hourglass/files/app/src/app/__init__.py\na5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb  /data/data/org.shalou.hourglass/files/app/src/app/_tail_selfcheck.py\ne609f6dcd2c23f9fe3549d4ce0dad5f2a6f385dbc2272a814d0552430635da34  /data/data/org.shalou.hourglass/files/app/src/app/app_version.py\n2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07  /data/data/org.shalou.hourglass/files/app/src/app/flow_batch_experiment.py\n2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24  /data/data/org.shalou.hourglass/files/app/src/app/flow_gpu_experiment.py\nbbb055cce7ffc27d0d89e09da68cc27c8f15fd0e3d45b6628eb2142974d1f4a0  /data/data/org.shalou.hourglass/files/app/src/app/flow_numpy.py\n920d55545f2264fc48b8af55c205b12f4d3ae57d61420d06a3e8f1c66d4f29e4  /data/data/org.shalou.hourglass/files/app/src/app/flow_splash_experiment.py\n99b8fc9a25970b742067a946a122c445f73952627b64a44ad11ddaa89f6eaba4  /data/data/org.shalou.hourglass/files/app/src/app/flow_texture_experiment.py\n4bc67f99f87550e7723f2aa678237a1aee9d58d0f44302c3c18060fe35586b66  /data/data/org.shalou.hourglass/files/app/src/app/frame_benchmark.py\n6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a  /data/data/org.shalou.hourglass/files/app/src/app/marker_batch_experiment.py\nd89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3  /data/data/org.shalou.hourglass/files/app/src/app/prof_android.py\n93ecef6159b7394ce6f7fd8d7bbfab6eb1a96e8cd7a20064ea504de96929f4c0  /data/data/org.shalou.hourglass/files/app/src/app/sand_flow_material.py\nef5c8a15e2cdf815e53abde122965827e1f325a92a5b3637dfe5089c4e23f1a6  /data/data/org.shalou.hourglass/files/app/src/app/splash_motion.py\n7254d923dc16f9d03c720c35c617383d366172aaec7ccd3b0fa1f99ec3fea458  /data/data/org.shalou.hourglass/files/app/src/app/stream_rendering.py\n703cde537a23e1e7323c7515acf44004e1f3b18f0e8a5cae796dd0e2b12a93f5  /data/data/org.shalou.hourglass/files/app/sounds/clock.wav\n23161692756eea64c0de78bc7aed9064af6e1b66c2a33320f95a981b2fadaff6  /data/data/org.shalou.hourglass/files/app/sounds/completion.wav\nefa04276d75d91c053ca170984ede58f9004dbbb0ca750c5f0c8b33d61327fe4  /data/data/org.shalou.hourglass/files/app/sounds/completion_voice.wav\ne4f99f52f063f71ce7576177a6b93d6dfbbb20b282f41c78a0b2d5da9c270b9d  /data/data/org.shalou.hourglass/files/app/sounds/sand_loop.wav\n2099679b3e66f984ba21183dd0d9779809006406e8b3e4392e529569305969fc  /data/data/org.shalou.hourglass/files/app/sounds/source/zhongbiao.mp3\n410b206983216b2f0193f64b8abd8c672f9a1c53774cfb14933238d20667dea4  /data/data/org.shalou.hourglass/files/app/sounds/voice/c0.wav\nd8e9c25ed6aecd1eddefaab28b97e0b8cb5dcf1542f46881d73f9e93e13c9204  /data/data/org.shalou.hourglass/files/app/sounds/voice/c1.wav\n095a47f38e97409f8253b4af4961dcbb654b79e6f2cae1cfebb17e312009f192  /data/data/org.shalou.hourglass/files/app/sounds/voice/c2.wav\neb263c3cf6000a78817f8961a883e05e7f3c47a3519bfd81fb5336bf27bc4c5e  /data/data/org.shalou.hourglass/files/app/sounds/voice/c3.wav\nf8c63b3e3f246811b539d02c022ee49c181f26e6be74ec17b5dc05d4b263eaf3  /data/data/org.shalou.hourglass/files/app/sounds/voice/c4.wav\na3635e3e298ac55c2aefe20967e5483a143ea9253c1afc00747c7055348fe4e4  /data/data/org.shalou.hourglass/files/app/sounds/voice/c5.wav\n3b8ad4f928687b9f348981f1ec685ead7e25bab9d43f8c98535ad878a8cd96ab  /data/data/org.shalou.hourglass/files/app/sounds/voice/d1.wav\ncd392f8f5639b23436a3701f4325c911f09f7387a876f1d161fe08dae351f332  /data/data/org.shalou.hourglass/files/app/sounds/voice/d2.wav\n277587bd60a30e87d5b9310e3ef984c56ac7bcd628b91334b5de1ea6a0fae009  /data/data/org.shalou.hourglass/files/app/sounds/voice/d3.wav\n8d36f43d02877864176903b1409627bdf9c66b554571db3e4efdbe2551101880  /data/data/org.shalou.hourglass/files/app/sounds/voice/d4.wav\nb1b34fa1257ff9bc85c4fe3220ed555d35ed63f3a709ca43402656b487fec776  /data/data/org.shalou.hourglass/files/app/sounds/voice/d5.wav\na510618ad40a4053972a3dd7b1387d447a71848d94f1759bcedfaa1c0b97d973  /data/data/org.shalou.hourglass/files/app/sounds/voice/d6.wav\ncbd11aa2ccd40bc5ae626807c934073cbac02dab19c8bed19e5b86b2213b4763  /data/data/org.shalou.hourglass/files/app/sounds/voice/d7.wav\nd86402618fa9e889198e721856534608a15e50fbfde6160b51553b6474d84b44  /data/data/org.shalou.hourglass/files/app/sounds/voice/d8.wav\n33adf8bd9edb057a11bef14a21277f4d94e020454e7b4d00a6ac1fac2e342b1d  /data/data/org.shalou.hourglass/files/app/sounds/voice/d9.wav\n85791fd4d00e0d01085164ffdd8e0b856d36ecd57c2db4df41de59c40b3e9a64  /data/data/org.shalou.hourglass/files/app/sounds/voice/e0.wav\n53a749bfcc9a4af748d5a06b0e7a6011a0023f944f31e916104cf938f8d2e2db  /data/data/org.shalou.hourglass/files/app/sounds/voice/e1.wav\n46ecf83deaac78102a3963a1d140d76accd7f6e65fcd105fae0c9c7cb45648ed  /data/data/org.shalou.hourglass/files/app/sounds/voice/e2.wav\na142ad98fd2e811f948f1e1af1e294cc174632edf0872d9c214effa59d847187  /data/data/org.shalou.hourglass/files/app/sounds/voice/e3.wav\n3dffdf2bd9a0c151d372d95f7bb12246126c5d85030f9b31b25923d62a66b8bd  /data/data/org.shalou.hourglass/files/app/sounds/voice/e4.wav\n5e19caea49ea3b4ab194080cc057394b5a2e14607a97d5be4d46b02c696c3a2d  /data/data/org.shalou.hourglass/files/app/sounds/voice/hour.wav\n0cc793b04e620399eb36ee88a8dd2c7822abb607695ef1e104163de25159a0c3  /data/data/org.shalou.hourglass/files/app/sounds/voice/hundred.wav\n2ddde4d852a678aa4404c7fc55bb01217b5d8c6a698e2ef931e6cb761d79b39d  /data/data/org.shalou.hourglass/files/app/sounds/voice/min.wav\nc394dc9b340231682c32a4def9f471bda9340d09d2c4c522bd3ae103d44f671c  /data/data/org.shalou.hourglass/files/app/sounds/voice/n0.wav\n3b8ad4f928687b9f348981f1ec685ead7e25bab9d43f8c98535ad878a8cd96ab  /data/data/org.shalou.hourglass/files/app/sounds/voice/n1.wav\n5c0230de640a55ced60b42ae1723a5cc8d6b3706379c6662604ad00130b9d863  /data/data/org.shalou.hourglass/files/app/sounds/voice/n10.wav\n88a53874b1f4fefd116b8084e32f846ed640a14f80ac203d94cca8b745838457  /data/data/org.shalou.hourglass/files/app/sounds/voice/n11.wav\n1a96c7d549ed23e48747e562e056af1bac091741c27dc03a0e384b71e5eddd65  /data/data/org.shalou.hourglass/files/app/sounds/voice/n12.wav\n55bd475db21952f9cc40ab98d0644c2a52bc130328ee2a9ac45075a1d0950dca  /data/data/org.shalou.hourglass/files/app/sounds/voice/n13.wav\n8ecee97e35aa421472e3ec8e8dc96000b8f3258b95e537582d129ddb62b458c8  /data/data/org.shalou.hourglass/files/app/sounds/voice/n14.wav\n74019ea61f752b682fdf633be313ced89bf9b8446d50c21c0d3f4da8e194c00e  /data/data/org.shalou.hourglass/files/app/sounds/voice/n15.wav\nfb7af7f01608aab49c8cdb319c9778e0e41180e472deda8f40f6b583809ea882  /data/data/org.shalou.hourglass/files/app/sounds/voice/n16.wav\n794eca184828036eb623f2c5d7b7220019e493ab1b276849cbb36dedb148bb10  /data/data/org.shalou.hourglass/files/app/sounds/voice/n17.wav\naaaf5d1aa35baabbb78a55d7a371069e085693780b7a00f76d30d20a265bdcad  /data/data/org.shalou.hourglass/files/app/sounds/voice/n18.wav\n97ac0d80e15c974f03b02e1cea667d18c7f0a7339248aab2d19de9e560670ab2  /data/data/org.shalou.hourglass/files/app/sounds/voice/n19.wav\ncd392f8f5639b23436a3701f4325c911f09f7387a876f1d161fe08dae351f332  /data/data/org.shalou.hourglass/files/app/sounds/voice/n2.wav\n623f591387695fe768d084a8b594872671371b26d7f59ff115d6376b73e925c7  /data/data/org.shalou.hourglass/files/app/sounds/voice/n20.wav\nb08cb9da2a775f8fb083b9053a8552360172a38cdac71654be2035d2008d53dc  /data/data/org.shalou.hourglass/files/app/sounds/voice/n21.wav\ne92c7c52b73f3778df64bf8f20d081bf1e6c53ceadeda98fd7e7d4a3c12991a4  /data/data/org.shalou.hourglass/files/app/sounds/voice/n22.wav\nac86f169f5eb4a4eaf69b6d2e939a0a6d84f0eb572d111c2b02115cc3f06e792  /data/data/org.shalou.hourglass/files/app/sounds/voice/n23.wav\n4a38e11d241113ef60a96e8d7fb5d7fbc60c75993ca9f6c9b6a9f731f6f84201  /data/data/org.shalou.hourglass/files/app/sounds/voice/n24.wav\n6630dc9bd49704fc264b14a64f64d2cb2aee14f1162cdf99cf6ced47be28c056  /data/data/org.shalou.hourglass/files/app/sounds/voice/n25.wav\na9ef8cab84bf60dc9bae7653f87953d66ef4ec9bd2d57896db6fd930216ab0c6  /data/data/org.shalou.hourglass/files/app/sounds/voice/n26.wav\nd084e26a4ab6798bc3acda2c913ac035fc150d2a5fa884a4a97af8cecbcac62f  /data/data/org.shalou.hourglass/files/app/sounds/voice/n27.wav\nf0f0710b8bf32bb49e0e6ba1b5d6db0caff345b8b0278b8a2a13718fd2c7da0d  /data/data/org.shalou.hourglass/files/app/sounds/voice/n28.wav\n52e4d062e411bd800e37f4cd9eee77cfd6e26e950f690cf46858c96d69eff8de  /data/data/org.shalou.hourglass/files/app/sounds/voice/n29.wav\n277587bd60a30e87d5b9310e3ef984c56ac7bcd628b91334b5de1ea6a0fae009  /data/data/org.shalou.hourglass/files/app/sounds/voice/n3.wav\nd6a0639ed12c4b0fa822d79eae2feaa4f16ff3f0074a42688321879c6c663bf2  /data/data/org.shalou.hourglass/files/app/sounds/voice/n30.wav\n989661705a646678384a5f257249cfc19dcbf951c3e87499381a5d7c230d2951  /data/data/org.shalou.hourglass/files/app/sounds/voice/n31.wav\nbbda48076fca02ebc68fcd7c88a8f264ba950aa2eb67479a5cf4c860daab4ee8  /data/data/org.shalou.hourglass/files/app/sounds/voice/n32.wav\nfef3b195908c33e9249ac956844e1e5a1162f291425531a2ef6b76aaa455711a  /data/data/org.shalou.hourglass/files/app/sounds/voice/n33.wav\n3e61af90a427ff3e67cd492bec1d5f009139b8d563fc083d633d6b1e24b2cd7d  /data/data/org.shalou.hourglass/files/app/sounds/voice/n34.wav\nfa64734f693fadb00b64f47e22ad7d9427f3051f85873fd7b73d314679c28da1  /data/data/org.shalou.hourglass/files/app/sounds/voice/n35.wav\ndb5ff5e6f9540cb6ac30948f5b965d502504973cc639d67fa7af98d7ebf3c4d6  /data/data/org.shalou.hourglass/files/app/sounds/voice/n36.wav\n53166be05584eea47a19f2f1d70db1a3b301d9ba59e45dd44e0b9e634b768770  /data/data/org.shalou.hourglass/files/app/sounds/voice/n37.wav\n6b47de7182e3bd445680fd1278bc519f718a356dbceb532d58d0b4c4d2dd6708  /data/data/org.shalou.hourglass/files/app/sounds/voice/n38.wav\ndde0721aa8205486cb41b8d20d930848818802a453765c3975aa6a39a75ddb78  /data/data/org.shalou.hourglass/files/app/sounds/voice/n39.wav\n8d36f43d02877864176903b1409627bdf9c66b554571db3e4efdbe2551101880  /data/data/org.shalou.hourglass/files/app/sounds/voice/n4.wav\nb0f0bc58235beedd456be4d89f7ee8000fad59444356eabcd0e999aaad90ea2c  /data/data/org.shalou.hourglass/files/app/sounds/voice/n40.wav\n40ed422d230887097112a5d4ab76d6fdd5dda49258513b19398971a3c223407b  /data/data/org.shalou.hourglass/files/app/sounds/voice/n41.wav\nc1a8b58b5e57eeeea7dad015e7852b1c7f44abd913a6b452dcb5a76cf6b7fa2e  /data/data/org.shalou.hourglass/files/app/sounds/voice/n42.wav\n25f3abc0b0a2ca1b9e890ca2ae4e054390c27be840e184752a735f9b13fb9ea0  /data/data/org.shalou.hourglass/files/app/sounds/voice/n43.wav\n5981e300de9866c008cfa540b49e08a4364ea167e55f1d941ef6417a6eca51ac  /data/data/org.shalou.hourglass/files/app/sounds/voice/n44.wav\na7d3cd32c89b518ffe5178f7f2b94f693c8a3da2c75cc936afdb3a966a49d505  /data/data/org.shalou.hourglass/files/app/sounds/voice/n45.wav\n78488599503c3cc0ee714d6e97351d94bfafc8a4bfcef86ef5579effb6f87755  /data/data/org.shalou.hourglass/files/app/sounds/voice/n46.wav\n0b297efaaf7494b905c39b5b48adcce2d55986e14f5f8766d6e4eee3b45a94a2  /data/data/org.shalou.hourglass/files/app/sounds/voice/n47.wav\n59b7a928983f6210cb8d97bd1f21c18e82db7bd0e44766353ad729f4ee790922  /data/data/org.shalou.hourglass/files/app/sounds/voice/n48.wav\nb8ce4d59b2ef62d9b56f25696f35b30bd43c16af78db98ec3a27c58e3402e4e6  /data/data/org.shalou.hourglass/files/app/sounds/voice/n49.wav\nb1b34fa1257ff9bc85c4fe3220ed555d35ed63f3a709ca43402656b487fec776  /data/data/org.shalou.hourglass/files/app/sounds/voice/n5.wav\nc72e2551ce567671b70e10a7608064f663ac0cf35f6777726d8a374092d2b2ed  /data/data/org.shalou.hourglass/files/app/sounds/voice/n50.wav\neb97d5310ab1e0b187f15a5a4d8d0d139980bca75adabcd1d35c7e7b4c4c0c60  /data/data/org.shalou.hourglass/files/app/sounds/voice/n51.wav\n1331083fe64492ce30233aeacdde79856672d4b26c5f173cef38cbf41a0f0edb  /data/data/org.shalou.hourglass/files/app/sounds/voice/n52.wav\ncbf48abaa70dbb783bbf6b134426da65242314f7357dbc65b0160c4281e37c27  /data/data/org.shalou.hourglass/files/app/sounds/voice/n53.wav\n22d5ddf053ef560e6c87b3679ccf73fe4a66b7d8251cee6fd603bb4b512b4020  /data/data/org.shalou.hourglass/files/app/sounds/voice/n54.wav\n6d93695bf152907d2c0428cfba3961a495342a331fd1ea5cb50887143048234d  /data/data/org.shalou.hourglass/files/app/sounds/voice/n55.wav\n4ecad0894dbe7449d098617feb70b6ab5239b35b4c8a35cb786fbe8b786682e7  /data/data/org.shalou.hourglass/files/app/sounds/voice/n56.wav\n58498e14bb049ce27fe1be85f0944bf2887d1f29e2e0294f7b201ee90dafd992  /data/data/org.shalou.hourglass/files/app/sounds/voice/n57.wav\nf818d81187d239f2a08565dc71a4fb3dbf1d9f1b265c96b344849053ad425171  /data/data/org.shalou.hourglass/files/app/sounds/voice/n58.wav\nf48d74a6c5e1bff76f53a670aa09dfe9c33a045d0fce9e7ad4a59866b0d5da64  /data/data/org.shalou.hourglass/files/app/sounds/voice/n59.wav\na510618ad40a4053972a3dd7b1387d447a71848d94f1759bcedfaa1c0b97d973  /data/data/org.shalou.hourglass/files/app/sounds/voice/n6.wav\nabd06dfb02854be24c34b76be0b2b17a7a79daef943ac5d3af97ed0db0eca3a1  /data/data/org.shalou.hourglass/files/app/sounds/voice/n60.wav\ncbd11aa2ccd40bc5ae626807c934073cbac02dab19c8bed19e5b86b2213b4763  /data/data/org.shalou.hourglass/files/app/sounds/voice/n7.wav\nd86402618fa9e889198e721856534608a15e50fbfde6160b51553b6474d84b44  /data/data/org.shalou.hourglass/files/app/sounds/voice/n8.wav\n33adf8bd9edb057a11bef14a21277f4d94e020454e7b4d00a6ac1fac2e342b1d  /data/data/org.shalou.hourglass/files/app/sounds/voice/n9.wav\n509aaa8bc0d86a5acfe8f23890be9fbd4f11048757bce52a781c642bc6fccb2f  /data/data/org.shalou.hourglass/files/app/sounds/voice/pre_silent.wav\nf3d2a09ef4f02d5cd170d104774c786edc967938d89bdae24fba49ee048ab797  /data/data/org.shalou.hourglass/files/app/sounds/voice/pre_sound.wav\nc38932730ea2eeb3aee4f4e4aee978b62cdd1884264ab857c1cc1ff64c41a8aa  /data/data/org.shalou.hourglass/files/app/sounds/voice/pre_time.wav\n18b8dc1023fb24861bef759c5fabf1bc164edc277edc426b11cbf4b66ecb5fe7  /data/data/org.shalou.hourglass/files/app/sounds/voice/sec.wav\n5b009b6c23684e9243723c633375b985e0349ba054642e4633b9fc551b9e1eb0  /data/data/org.shalou.hourglass/files/app/sounds/voice/tail.wav\n5c0230de640a55ced60b42ae1723a5cc8d6b3706379c6662604ad00130b9d863  /data/data/org.shalou.hourglass/files/app/sounds/voice/ten.wav\ne209a77eba088a303df3cd8192b32e94f249ab673d5b80ac28802ea630fc7785  /data/data/org.shalou.hourglass/files/app/sounds/water.wav\n71f7eb0c5de5d8bc6a55a09d5492d8e240820b6cc4dc060c6ac2952d8dea5a86  /data/data/org.shalou.hourglass/files/app/sounds/wind.wav\n7633f5a016d4dd95e685a69633d818aabc4644c4b08e26bd35b1b30c45ed5dda  /data/data/org.shalou.hourglass/files/app/ui/fonts/NotoSansSC-Medium.otf\n3a3c4c82cb0228bd48542af5721496a4e559329efd3a35779c513155160d9bdb  /data/data/org.shalou.hourglass/files/app/ui/icon.png\n420a7bf336e9a8fc19813db70e2a4db113cd1c3c8d758370a079271a2ae0992d  /data/data/org.shalou.hourglass/files/app/ui/slider_cursor.png\n12c0ae9895f66c7c388c6237470bf81e5e775c1a10076b7ca719e65fe3b39cb7  /data/data/org.shalou.hourglass/files/app/ui/slider_track.png\nd49cdc861606aab439175ef69c3e6ae2760685429689dfd2a30fb1549118e645  /data/data/org.shalou.hourglass/files/app/ui/startup_blank.png\n",
+  "cycle_start_offset": 2.063000000001921,
+  "full-cycle": {
+    "record_start": 32181.64,
+    "time_limit": 64,
+    "stderr": ""
+  },
+  "pause-resume": {
+    "record_start": 32249.859,
+    "time_limit": 21,
+    "stderr": ""
+  }
+}

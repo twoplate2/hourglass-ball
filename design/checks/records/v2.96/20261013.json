@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "rules_revision": "2026-10-13.2",
+  "rules_snapshot": "design/checks/records/v2.96/evidence/rules-20261013-2.json",
+  "capture_rules_snapshot": "design/checks/records/v2.96/evidence/rules-20261013.json",
+  "coverage_update_note": "仅按新规则补齐 33 个编号的登记，不新增测试结论。9 个整体表现编号是本次补加，全部未测；原有片段仍未完成验收。原采集时的 24 项规则快照保留，不改历史证据。",
+  "date": "2026-10-13",
+  "session": "旧容器片段：2.94 APK 容器内直推 2.96 源码",
+  "source_version": "2.96",
+  "package_version": "2.94",
+  "environment": "MuMu Android 15.0，1080×1920，density 480",
+  "review_status": "pending",
+  "conclusion": "仅归档已有证据，没有本轮新测试。源码直推到旧 APK 容器；只有 50 秒金沙开局附近的静态片段，不是完整沙流验收，也不是新 APK 安装验证。当前没有任何用例登记为通过。",
+  "screenshots": [
+    {"path": "design/images/mumu-2.96-20261013/start.png", "caption": "初始：显示 50 / 50，金沙，上沙满、下球空。"},
+    {"path": "design/images/mumu-2.96-20261013/running.png", "caption": "运行：显示 48 / 50，已有沙柱、小沙堆和飞溅。整数显示不能反推精确进度。"},
+    {"path": "design/images/mumu-2.96-20261013/paused.png", "caption": "暂停：显示 48 / 50，画布变淡，按钮恢复开始。"}
+  ],
+  "capture_hashes": {
+    "start.png": "05880950b8467c16bec0512dee5100cfba132d8747a656256393ceb07fb7fa44",
+    "running.png": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e",
+    "paused.png": "166091b7c3898f268a45c463f04cccf907955e9abed1c0d426b295af58fe0db4",
+    "paused-later.png": "166091b7c3898f268a45c463f04cccf907955e9abed1c0d426b295af58fe0db4"
+  },
+  "pause_followup": "design/images/mumu-2.96-20261013/paused-later.png",
+  "scope": [
+    "原始全图与局部裁图已保存；裁图是同一帧的派生资料，不是额外测试。",
+    "只有 50 秒周期、金沙、一个竖屏尺寸。配置档位未形成完整回读记录，不能假定全部为出厂默认。",
+    "初始、开局附近和暂停这三个状态可静态观察；没有完整开局前缘、中段、末段、恢复或重置的录像。",
+    "暂停后约 2 秒另有一张图，与暂停图字节一致；只能说明这两次采集相同，不能推断所有状态或声音已经正确。"
+  ],
+  "observations": [
+    {"case_ids": ["U01", "U03"], "description": "初始与显示 48/50 的两帧可见上沙减少、沙面和贴壁边缘；未覆盖规定阶段及连续动态。"},
+    {"case_ids": ["L01", "L03", "SL01", "SL02"], "description": "早期小沙堆、球底贴合、落点与飞溅可见；没有末段、碰撞线独立读数或飞溅动态证据。"},
+    {"case_ids": ["N01", "N02", "N03", "UN01", "NS01"], "description": "颈部形状和开局附近连接可见；没有内孔测量、注满过程、排空、速度或其他周期对照。"},
+    {"case_ids": ["S01", "S03"], "description": "单帧看得到沙柱和细碎空隙；没有三个高度带的完整测量、末段及同条件改前改后对照。"},
+    {"case_ids": ["C01"], "description": "两张暂停图相同，界面进度显示未变；未验证恢复、音频输出及所有动画时间轴。"},
+    {"case_ids": ["X02"], "description": "一个 1080×1920 MuMu 竖屏界面有中文字体和按钮；没有其他尺寸或新 APK 安装验证。"}
+  ],
+  "results": {
+    "U00": {"status": "not_tested", "actual": "新增的整团上沙观感未按完整进度执行；现有开局图不能代替中段、末段与整体动态。", "evidence": []},
+    "U01": {"status": "partial", "actual": "初始与开局附近可见上沙减少；缺少 10%、50%、90%、末段和排空的同条件阶段图。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "开局附近全图，非完整验收证据"}]},
+    "U02": {"status": "not_tested", "actual": "没有上沙连续录像及刷新时刻的帧序列，不能判断运动或闪烁。", "evidence": []},
+    "U03": {"status": "partial", "actual": "开局图可见沙面和贴壁边缘；缺少不同进度、起伏两端档位的全宽对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "开局附近全图"}]},
+    "L00": {"status": "not_tested", "actual": "新增的整个下球积沙观感未执行；缺少中段、末段及稳定终态全貌和录像。", "evidence": []},
+    "L01": {"status": "partial", "actual": "开局图有球底小堆；未记录从首次落地到完整终态的阶段形状。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "早期小堆全图"}]},
+    "L02": {"status": "not_tested", "actual": "没有下球连续录像，不能判断堆面与纹理动态。", "evidence": []},
+    "L03": {"status": "partial", "actual": "早期沙堆球底贴合可静态观察；缺少后续坡面、满球附近及档位对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "早期下球全图"}]},
+    "N00": {"status": "not_tested", "actual": "新增的完整通道观感未执行；注入、排空及其他周期仍缺证据。", "evidence": []},
+    "N01": {"status": "partial", "actual": "一个 50 秒周期下颈部形状可见；没有内孔测量和短长周期、尺寸对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "单周期颈部全图"}]},
+    "N02": {"status": "partial", "actual": "只有未开始和开局附近画面；没有注入前缘与完整排空过程。", "evidence": [{"path": "design/images/mumu-2.96-20261013/start.png", "sha256": "05880950b8467c16bec0512dee5100cfba132d8747a656256393ceb07fb7fa44", "label": "未开始全图"}]},
+    "N03": {"status": "partial", "actual": "单帧能观察颈内材质；没有颈内速度、暂停全层或回退路径的完整对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "颈内材质单帧"}]},
+    "UN00": {"status": "not_tested", "actual": "新增的上沙到颈部整体供沙观感未执行，没有全过程录像。", "evidence": []},
+    "UN01": {"status": "partial", "actual": "开局连接可见；缺少中段、末段和改前改后空间接缝对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "开局连接全图"}]},
+    "UN02": {"status": "not_tested", "actual": "没有连接处首次注入与上沙耗尽附近的逐帧序列。", "evidence": []},
+    "NS00": {"status": "not_tested", "actual": "新增的出口到沙柱整体延续观感未执行，缺首次释放和停止释放过程。", "evidence": []},
+    "NS01": {"status": "partial", "actual": "一个开局画面可见出口与沙柱；没有内孔、出生带、实际笔画外缘读数及后期对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "出口与沙柱单帧"}]},
+    "NS02": {"status": "not_tested", "actual": "没有落地前头部逐帧图和完整出口收尾录像。", "evidence": []},
+    "S00": {"status": "not_tested", "actual": "新增的全长沙柱颗粒流动观感未执行；单帧不能证明持续向下的运动。", "evidence": []},
+    "S01": {"status": "partial", "actual": "单帧可见沙柱方向及轮廓；没有各进度三个高度带的完整测量和负对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "完整沙柱单帧"}]},
+    "S02": {"status": "not_tested", "actual": "没有带真实时间戳的连续帧，不能判断速度、前缘与流动连续性。", "evidence": []},
+    "S03": {"status": "partial", "actual": "开局沙柱可见颗粒和空隙；缺少末段、颗粒数及各配色同条件对照。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "开局颗粒单帧"}]},
+    "SL00": {"status": "not_tested", "actual": "新增的整套落地观感未执行，缺少堆面抬高和末段收尾录像。", "evidence": []},
+    "SL01": {"status": "partial", "actual": "早期落点可见；未独立测量可见面和碰撞线，未覆盖中末段。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "早期落点单帧"}]},
+    "SL02": {"status": "partial", "actual": "静态图有落点附近飞溅；未观察运动、回落、密度变化或暂停恢复。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "飞溅单帧，不证明动态"}]},
+    "C00": {"status": "not_tested", "actual": "新增的全沙漏全过程一致性未执行；仅初始、开局和暂停三种静态画面。", "evidence": []},
+    "C01": {"status": "partial", "actual": "两次暂停采集字节相同，进度显示未变；没有恢复、完整动画时间轴和真实听音验证。", "evidence": [{"path": "design/images/mumu-2.96-20261013/paused.png", "sha256": "166091b7c3898f268a45c463f04cccf907955e9abed1c0d426b295af58fe0db4", "label": "暂停原图"}]},
+    "C02": {"status": "not_tested", "actual": "没有运行、暂停、收尾或性能测试状态下重置与取消的完整操作证据。", "evidence": []},
+    "C03": {"status": "not_tested", "actual": "没有本轮短长周期完整末段及完成听音记录；旧 PC 报告不能替代。", "evidence": []},
+    "X00": {"status": "not_tested", "actual": "新增的配置与改动后全局协调检查未执行，缺前后同条件全图及组合覆盖。", "evidence": []},
+    "X01": {"status": "not_tested", "actual": "只有金沙画面；没有六配色和两组 A-F 档位的实际回读及对照。", "evidence": []},
+    "X02": {"status": "partial", "actual": "一个 1080×1920 MuMu 竖屏界面有字体和控件；没有其他实际尺寸或新 APK 安装验证。", "evidence": [{"path": "design/images/mumu-2.96-20261013/running.png", "sha256": "427a1af35d16944338007a77fcb91a58a7a9c37045c9168a7f60433f3b602e9e", "label": "当前竖屏全图"}]},
+    "X03": {"status": "not_tested", "actual": "没有本轮前后同条件对照、完整自动日志、重复性能报告及听音记录。", "evidence": []}
+  },
+  "historical_automation": [
+    "另存 20261013-151210-572a31 的旧 PC 完整检查报告及 12 份日志。这是用户禁止本地测试之前的记录，本次没有重跑。",
+    "报告当时自动项 8/12 满足条件，release_ready=false；收尾、综合检查、几何与飞溅项失败。",
+    "收尾旧日志有 47 项失败；综合检查有 16 条失败且旧参考源码缺失；几何 9/14 尺寸未满足当时判据；飞溅抛出 ctypes.ArgumentError。",
+    "这份报告并非当前 15 项检查清单的完成证明，规则和文件之后又变动，原指纹已过期。",
+    "PC 日志与 MuMu 静态图不是同一轮同一身份的完整验收，不能拼接成全绿，也不由此认定每个失败都是应用缺陷。"
+  ],
+  "automatic_report": "design/checks/records/v2.96/evidence/pc-151210/report.json",
+  "evidence_readme": "design/checks/records/v2.96/evidence/README.md",
+  "deployment": "design/checks/records/v2.96/evidence/deployed-files.json",
+  "startup_log": "design/checks/records/v2.96/evidence/start.log",
+  "limitations": [
+    "界面版本 2.96 与 APK 包版本 2.94 不一致已明确记录；没有安装本轮新构建 APK。",
+    "deployed-files.json 是当时的 16 文件部署身份记录，不是本次回读当前模拟器文件的结果。",
+    "没有视频、真实听音、性能前后对照和用户验收，不能给动态、音频或性能记通过。",
+    "仅登记实际已有证据；不以源码阅读、截图存在或旧工具 PASS 代替当前用例的完整执行。"
+  ]
+}

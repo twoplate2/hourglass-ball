@@ -26,7 +26,7 @@ import wave
 import json
 
 
-# 沙流粒子的并行数组字段(见 NUMPY_PLAN.md)。numpy 缺失时整条向量化路径关闭,
+# 沙流粒子的并行数组字段。numpy 缺失时整条向量化路径关闭,
 # 自动退回 update_particles 里的原标量循环 —— 不给沙漏制造风险。
 _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt",
              "pmass")
@@ -113,9 +113,11 @@ class _FlowView:
         return self._lazy("_wp", self.nwp)
 
 
-_TOOLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
-if _TOOLS_DIR not in sys.path:
-    sys.path.insert(0, _TOOLS_DIR)
+_SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+_RUNTIME_DIR = os.path.join(_SRC_DIR, "app")
+for _module_dir in (_SRC_DIR, _RUNTIME_DIR):
+    if _module_dir not in sys.path:
+        sys.path.insert(0, _module_dir)
 try:
     import numpy as _np
     import flow_numpy as _flow_numpy
@@ -126,7 +128,8 @@ except Exception as _exc:                    # 别静默: 退回标量循环时�
 
 import gc
 
-from app_version import APP_VERSION
+from app.app_version import APP_VERSION
+from app.stream_rendering import trail_length
 
 # ---- 生产: 关掉 Kivy Clock 的软件节拍(仅 Android) ----
 # kivy/clock.py `ClockBaseBehavior.idle()` + `_check_ready`(实测 resolution = 1/(3*fps)):
@@ -211,7 +214,7 @@ from kivy.uix.slider import Slider
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import platform
-from frame_benchmark import (BenchmarkHoldArea, BenchmarkRunner, PERIODS,
+from app.frame_benchmark import (BenchmarkHoldArea, BenchmarkRunner, PERIODS,
                              BenchmarkFrameChart,
                              format_benchmark_result, format_benchmark_report,
                              benchmark_log_text, save_benchmark_log)
@@ -219,7 +222,7 @@ from frame_benchmark import (BenchmarkHoldArea, BenchmarkRunner, PERIODS,
 
 # ---- 中文字体: 用 name="Roboto" 覆盖 Kivy 默认字体,全局生效 ----
 _FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          "fonts", "NotoSansSC-Medium.otf")
+                          "ui", "fonts", "NotoSansSC-Medium.otf")
 try:
     if os.path.exists(_FONT_PATH):
         LabelBase.register(name="Roboto", fn_regular=_FONT_PATH,
@@ -2204,7 +2207,7 @@ def _stream_open_probe(name, fname, dflt):
 #   本实现**一个片元都不丢**, 只是在 CPU 侧少喂一颗粒子进桶。
 # 🔴🔴 2026-10-12 用户裁决后**默认关**(0.42 → 0.0): 用户看完设备截图判「断成虚线」,
 #   并且它违反了三条已标定的结构性判据(S1 整宽横断 16 行 / S2 图案钉在空间 J=0.388 /
-#   S3 墨量 −25%) —— 详见 design/验收标准.html 与 design/沙漏设计文档.html §7。
+#   S3 墨量 −25%) —— 历史判据见 design/checks/notes/old-acceptance.html；当前用例见 design/checks/rules/sand-flow.html。
 #   旋钮保留: 想再试"空隙"这条方向时把它打开即可(或按 2.78 的提交回查)。
 STREAM_OPEN = _stream_open_probe("HG_STREAM_OPEN", "streamopen", 0.0)
 STREAM_OPEN_START = _stream_open_probe("HG_STREAM_OPEN_START", "openstart", 0.06)
@@ -2954,11 +2957,11 @@ DUST_LIFETIME = 1.0
 # 删掉的东西: 常量 FLASH_DURATION / `flash_end` / `_flash_color` / `_flash_rect`
 # 及其每帧的 alpha+size 更新。
 
-WAV_FILENAME = "sand_loop.wav"
+WAV_FILENAME = "sounds/sand_loop.wav"
 
 # ---- 音效库(名字两版逐字一致,配置持久化按名字存) ----
 SOUND_EFFECTS = [
-    ("沙沙声", "sand_loop.wav"),
+    ("沙沙声", WAV_FILENAME),
     ("水流声", "sounds/water.wav"),
     ("风声", "sounds/wind.wav"),
     ("钟表声", "sounds/clock.wav"),
@@ -5814,7 +5817,7 @@ class HourglassWidget(Widget):
     # ------------------------------------------------------------- 粒子存储(numpy)
     # 并行数组是真值; 渲染层的读端一律按**下标**读 `_pv`(本帧的 list 快照),
     # `particles` 只是给外部工具看的 dict 列表视图, 按需构建、不再每帧同步。
-    # 迁移计划与消费方清单见 NUMPY_PLAN.md。
+    # 数组布局与消费方见本文件的 _P_FIELDS / _S_FIELDS 和 _FlowView。
     @staticmethod
     def _newbuf(cap):
         """numpy 缺席时退回 Python list —— 存储层两种后端都能跑, 只有物理分叉。"""
@@ -8904,15 +8907,8 @@ class HourglassWidget(Widget):
             for i, index in enumerate(indices):
                 y = ys[index]
                 x = xs[index]
-                trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale)
-                trail = trail * (1.0 - pv.tail_blend) + pv.tail_blend
-                if TRAIL_SCALE != 1.0:
-                    # A5: 只缩"由速度决定的那一段", `max(2.0, ...)` 的下限与 `tail_blend`
-                    # 的偏置保持原样 —— 否则会连"慢粒子也该有的 2px"一起缩掉，
-                    # 那就不是单变量了。
-                    trail = max(2.0, abs(vys[index]) * trails[index] / motion_scale
-                                * TRAIL_SCALE)
-                    trail = trail * (1.0 - pv.tail_blend) + pv.tail_blend
+                trail = trail_length(vys[index], trails[index], motion_scale,
+                                     TRAIL_SCALE, pv.tail_blend)
                 top = min(top_limit, y + trail)
                 coords = (x, y, x, top)
                 if i == len(pool):
@@ -8936,7 +8932,7 @@ class HourglassWidget(Widget):
              写死 `== 8` ⇒ 从 `TRAIL_SCALE` 进来的那天起就一直是红的(陈旧判据)。
         """
         scale = self._particle_motion_scale if motion_scale is None else motion_scale
-        trail = max(2.0, abs(particle["vy"]) * particle["trail_time"] / scale * TRAIL_SCALE)
+        trail = trail_length(particle["vy"], particle["trail_time"], scale, TRAIL_SCALE)
         return trail * (1.0 - self._pv.tail_blend) + self._pv.tail_blend
 
     def _hide_neck_grains(self):
@@ -10265,7 +10261,7 @@ class HourglassApp(App):
 
     def _benchmark_save_dir(self):
         """保存目录:Android 优先外部私有目录(adb / 文件管理器免 root 可取),
-        取不到再退回内部 user_data_dir;桌面仍写工程目录下的 benchmark_logs。"""
+        取不到再退回内部 user_data_dir;桌面写工程目录下的 _temp/benchmark_logs。"""
         if platform == "android":
             try:
                 from jnius import autoclass
@@ -10278,7 +10274,7 @@ class HourglassApp(App):
                 print(f"External dir unavailable: {exc}")
             return os.path.join(self.user_data_dir, "benchmark_logs")
         return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "benchmark_logs")
+                            "_temp", "benchmark_logs")
 
     @staticmethod
     def _publish_via_mediastore(filename, data):
@@ -10380,7 +10376,8 @@ class HourglassApp(App):
         self._benchmark_results = results
         self._benchmark_cancelled = cancelled
         directory = (self.user_data_dir if platform == "android"
-                     else os.path.dirname(os.path.abspath(__file__)))
+                     else os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                       "_temp"))
         try:
             self._benchmark_log_path = save_benchmark_log(
                 os.path.join(directory, "benchmark_logs"), results, cancelled)
@@ -10671,7 +10668,7 @@ def _install_flow_renderer(widget_class):
     if FLOW_RENDERER == "line":
         return
     import importlib
-    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    tools = _RUNTIME_DIR
     if tools not in sys.path:
         sys.path.insert(0, tools)
     target = {"batch": "flow_batch_experiment",
@@ -10738,7 +10735,7 @@ def _install_splash_renderer(widget_class):
     if SPLASH_RENDERER != "batch":
         return
     import importlib
-    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    tools = _RUNTIME_DIR
     if tools not in sys.path:
         sys.path.insert(0, tools)
     mod = importlib.import_module("flow_splash_experiment")
@@ -10799,7 +10796,7 @@ if platform == "android" or os.environ.get("HG_SPLASH_RENDERER"):
 # ⚠️ 量四栏 benchmark 时要把标记删掉(那套探针自己包了 `update_particles`/`redraw`,
 #    叠起来互相算进去)。理由与口径见 `tools/prof_android.py` 顶部。
 def _install_prof():
-    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    tools = _RUNTIME_DIR
     if tools not in sys.path:
         sys.path.insert(0, tools)
     import prof_android

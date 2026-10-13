@@ -1,0 +1,58 @@
+[WARNING] [Config      ] Older configuration version detected (0 instead of 27)
+[WARNING] [Config      ] Upgrading configuration in progress.
+[DEBUG  ] [Config      ] Upgrading from 0 to 1
+[INFO   ] [deps        ] Successfully imported "kivy_deps.angle" 0.4.0
+[INFO   ] [deps        ] Successfully imported "kivy_deps.glew" 0.3.1
+[INFO   ] [deps        ] Successfully imported "kivy_deps.sdl2" 0.8.0
+[INFO   ] [Kivy        ] v2.3.1
+[INFO   ] [Kivy        ] Installed at "C:\Program Files\Python311\Lib\site-packages\kivy\__init__.py"
+[INFO   ] [Python      ] v3.11.4 (tags/v3.11.4:d2340ef, Jun  7 2023, 05:45:37) [MSC v.1934 64 bit (AMD64)]
+[INFO   ] [Python      ] Interpreter at "C:\Program Files\Python311\python.exe"
+[INFO   ] [Factory     ] 195 symbols loaded
+[INFO   ] [Image       ] Providers: img_tex, img_dds, img_sdl2, img_pil (img_ffpyplayer ignored)
+[INFO   ] [Text        ] Provider: sdl2
+[INFO   ] [Window      ] Provider: sdl2
+[INFO   ] [GL          ] Using the "OpenGL" graphics system
+[INFO   ] [GL          ] GLEW initialization succeeded
+[INFO   ] [GL          ] Backend used <glew>
+[INFO   ] [GL          ] OpenGL version <b'4.6.0 NVIDIA 617.14'>
+[INFO   ] [GL          ] OpenGL vendor <b'NVIDIA Corporation'>
+[INFO   ] [GL          ] OpenGL renderer <b'NVIDIA GeForce RTX 4070/PCIe/SSE2'>
+[INFO   ] [GL          ] OpenGL parsed version: 4, 6
+[INFO   ] [GL          ] Shading version <b'4.60 NVIDIA'>
+[INFO   ] [GL          ] Texture max size <32768>
+[INFO   ] [GL          ] Texture max units <32>
+[INFO   ] [Window      ] auto add sdl2 input provider
+[INFO   ] [Window      ] virtual keyboard not allowed, single mode, not docked
+sand material mode = 'grain' (no marker: [Errno 2] No such file or directory: 'E:\\AI_Tools\\other\\ShaLou\\matmode')
+clump level = 自然 (出厂九元组)
+[INFO   ] [GL          ] NPOT texture support is available
+[INFO   ] [Base        ] Start application main loop
+voice bank: 90 tokens @ 24000Hz
+GPU sand flow active: upper reservoir + neck
+
+  尺寸           R       ow      | 违反的不变量
+  --------------------------------------------------------------------------------------------
+  320x560      131.7   5.1     | 上溢出 3.4; 下溢出 -3.4
+  384x631      148.4   6.1     | 上溢出 4.1; 下溢出 -4.1
+  400x800      176.0   6.3     | ok
+  720x1280     301.1   11.4    | 上溢出 7.6; 下溢出 -7.6
+  1080x1920    451.7   17.1    | 上溢出 11.3; 下溢出 -11.3
+  1080x2400    475.2   17.1    | ok
+  1200x2560    528.0   18.9    | ok
+  1600x2560    602.2   25.3    | 上溢出 17.0; 下溢出 -17.0
+  1440x3200    633.6   22.7    | ok
+  600x2000     264.0   9.5     | ok
+  1080x1080    254.1   17.1    | 上溢出 11.6; 下溢出 -11.6
+  800x1280     301.1   12.6    | 上溢出 8.5; 下溢出 -8.5
+  2560x2560    602.2   40.4    | 上溢出 27.4; 下溢出 -27.4
+  900x1600     376.4   14.2    | 上溢出 9.5; 下溢出 -9.5
+
+  9/14 个**竖盒**尺寸有违反
+GEOMETRY_DONE cases=14 failures=9
+
+  --- 下面这些是**横向**尺寸: 应用产生不出来(锚盒保持竖屏), 只作记录, 不给结论 ---
+     2560x1600   R=376.4 肩台=169.7 w_out=169.4 (喇叭口比肩台窄 0.3 —— 但该尺寸不可达)
+     2400x1080   R=254.1 肩台=133.5 w_out=114.3 (喇叭口比肩台窄 19.2 —— 但该尺寸不可达)
+     2000x600    R=141.2 肩台=89.0 w_out=76.0 (喇叭口比肩台窄 13.0 —— 但该尺寸不可达)
+[INFO   ] [Base        ] Leaving application in progress...

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>沙漏整改计划</title>
+<style>
+  :root{--bg:#f2efe9;--ink:#23201b;--mut:#6d665c;--line:#ddd6c9;--acc:#a8761f;--good:#2f6b46;--bad:#c0281f}
+  body{background:var(--bg);color:var(--ink);font:16px/1.7 "Microsoft YaHei",system-ui,sans-serif;
+       margin:0;padding:22px 18px 60px}
+  main{max-width:780px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:26px 0 6px}
+  .sub{color:var(--mut);font-size:14px;margin:0 0 8px}
+  table{border-collapse:collapse;width:100%;font-size:14.5px;margin:8px 0}
+  th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+  th{background:#efe9dc}
+  code{background:#eee7d9;padding:1px 5px;border-radius:4px;font-size:13px}
+  ol,ul{padding-left:22px;margin:6px 0} li{margin:4px 0}
+  .k{font-weight:700}
+  .bad{color:var(--bad);font-weight:700} .good{color:var(--good);font-weight:700}
+  .box{border-left:5px solid var(--acc);background:#fdf6e6;padding:8px 12px;margin:10px 0;border-radius:0 8px 8px 0}
+</style>
+<main>
+<h1>沙漏整改计划</h1>
+<p class="sub">历史整改记录，状态仅代表记录当时 · 2026-10-12 自订 · 每条都按 <a href="../checks/rules/sand-flow.html">验收标准</a> 走；当前检查入口见 <a href="../checks/README.md">测试规则</a></p>
+
+<div class="box">
+<b>铁律（今天用血换的）</b>：
+① 改代码<b>只用 Edit 工具</b>（三次坏文件全是脚本/正则）；
+② 改完先<b>烟测</b>（<code>_prepush.sh</code> 第 2 道：真跑起来 + 查 Traceback + 查材质 context 真起来）——
+   pyflakes 对"少方法 / uniform 没喂 / 着色器静默兜底"全绿；
+③ <b>先标定再生效</b>：分不开的尺子 ⇒ 该项作废、不许报数；
+④ <b>会改画面的改动，先给用户并排图</b>，点过头才 push；
+⑤ 每次 push 后<b>主动报</b> CI（含红的）；每版贴 <code>git diff --stat</code>。
+</div>
+
+<h2>P1 · 上球"每 16 秒刷新一次" <span class="bad">（设备侧未复现，挂起）</span></h2>
+<ul>
+<li><b>桌面脚手架的证据判作废</b>：连渲 41 帧（t=8→18s）时 t=16.00→16.25 一步相关从 0.98 塌到 0.10 再花 2 秒爬回；
+  但<b>单独跳到同一对时刻（新会话两帧）完全不塌</b> ⇒ 是**渲染历史相关的瞬态**（脚手架伪影），不是时间的周期事件。
+  两次"重跑"读数一字不差 ⇒ 只证明脚手架确定性，不是独立样本。</li>
+<li><b>设备侧（MuMu，1080×1920，每 0.8s 一张 × 40 张 ≈ 52 秒）</b>：上球沙体逐张互相关 <b>0.98→0.91 平滑下降，无任何塌点</b>
+  （判据 r&lt;0.6）⇒ **设备上这一段里没有"刷新"事件**。</li>
+<li>⇒ <b>结案（当作"非周期事件"处理）</b>：桌面那次是**一次性的、由渲染历史决定的瞬态** —— 与项目已知的
+  "`_build_dynamic_canvas()` 重建会让 28.8% 像素变化"、以及**推迟的材质重烘**(`_warm_sand_materials`
+  每 0.05s 的队列) 同一类：**落地在哪一帧取决于队列，不取决于时间**。
+  <b>设备上的对应触发条件最可能是"运行中改了设置"</b>（改沙面起伏/沙体颗粒/沙色都会重烘材质 ⇒ 图案刷新一次）；
+  52 秒静置序列里没有 ⇒ 与"每 x 秒"不符。<b>要证它</b>：在设备上运行中改一次设置、看是否正好"刷新"一下
+  —— 这条命令已写在下面。</li>
+<li>相关修复（不回绕时钟）已撤：它改全幅图案却零收益，不许出货。工作树 = 2.81 干净态。</li>
+</ul>
+
+<h2>P2 · 落沙与沙堆之间那条空横线 <span class="bad">（未修；下一刀已定位到"下标域"）</span></h2>
+<ul>
+<li><b>已排除</b>：销毁线偏移（KILL_INSET 12px ⇒ 5/9→5/9，一像素没动）· 落点接不上（两版中轴 0px）· 末段变稀（两版 91/91）。</li>
+<li><b>已定位</b>：逐层消融（<code>HG_FLOW_RATE=1</code>）证明 1530–1554 <b>整段都是粒子</b> ⇒ 缝在沙流自己身上（渲染侧）。</li>
+<li><b>一次尝试已证伪并回退</b>（2026-10-12）：「线段向下延到接触面」<code>bottom -= reach</code> ⇒ 整行空 <b>5/9 → 9/9</b>，
+  并在 <b>行 1497–1511（= 材质柱下缘那一带）</b>打出一条固定 15 行空带 ⇒ 已 <code>git checkout</code>，工作树回到 2.80。</li>
+<li><b>坐标约定已核实（下一刀不必再推）</b>：<code>_MoundProfile.bounds()</code> 返回 <code>r-half, r+half</code>（**相对球内底**，不是屏幕 y）；
+  <code>_mound_top_at = _lower_sand_bot + contact(...)</code>；独立佐证 <code>main.py:5878</code>。⇒ 上一刀的 <code>+ _lower_sand_bot</code> **是对的**。</li>
+<li><b>下一刀的第一个嫌疑：下标域</b> —— <code>reach</code> 按"全局粒子序"算（<code>view.nx[:pn]</code>），而 <code>_pv</code> 的数组
+  可能已被**分桶排序**过；<code>reach[idx]</code>/<code>reach[i]</code> 若落在别的粒子上，就会把线段延到无关高度
+  （那条新空带正落在"别的东西的高度"上，与这个嫌疑吻合）。
+  <b>做法</b>：先打印同一帧的 <code>view.nx[i]</code> 与 <code>self.px[i]</code> 是否一致（取 20 个 i），再决定下标怎么给。</li>
+</ul>
+
+<h2>P3 · 菜单里两个点了没反应的选项</h2>
+<ul><li>「沙流断续」三档 / 孔隙率 —— 自 2.76 起对画面零作用。<b>修活或删</b>（用户在清单 D 里勾了"清掉"）。</li></ul>
+
+<h2>P4 · 已记方向、未排期</h2>
+<ul><li>「有连续、有断续」（用户在清单 B 里勾了方向）—— 排在 P1–P3 之后，且必须先有一把标定过的"缝结构"尺（<code>_probe_gap_structure.py</code> 已有）。</li></ul>
+
+<h2>P5 · 末段沙柱变「实心色条」 <span class="good">（✅ 2.83 已修）</span></h2>
+<ul>
+<li><b>用户判词</b>（4/50、1/50 平板截图）：「沙柱的颜色<b>纯色化</b>」+「<b>造型不合理</b>」。</li>
+<li><b>根因</b>：末段落程 700px→70px，同一流量挤进 1/10 体积 ⇒ 2px 墨块并成一块板（出口以下每行沙色覆盖 t=46/47/48 = <b>81/86/86%</b>，连续宽度 <b>82px = 与管径一字不差</b>）。</li>
+<li><b>为什么旧机制没生效</b>：<code>FLOW_TAIL_NARROW/TAPER</code> 按<b>剩余沙量</b>触发（最后 4% 计时），比物理压缩晚 5 秒以上 —— 实测 t=47 时 <code>_tail</code> 仍是 1.0。</li>
+<li><b>改法（一处）</b>：新增净空触发 <code>_stream_headroom_tail()</code>，与时间那条取更窄的一条；净空那一路有自己的下限（不动老曲线）。<code>HG_TAIL_GAP=0</code> 一键回旧。</li>
+<li><b>实测</b>：覆盖 81/86/86% → <b>40/39/36%</b>；宽度 82 → <b>62/57/56px</b>（比管径窄）；中段 t=25 <b>逐像素 0 差异</b>；设备 MuMu 直推实测通过。并排图见 <a href="tail-stream-fix-2.83.html">tail-stream-fix-2.83.html</a>。</li>
+<li><b>★ 顺带证伪一条自述</b>：我先前说「管内那截沙比沙堆平」—— <b>不成立</b>。同窗同刻（80×80，平板 50s/t=25）实测三处持平：上球 1.26/1.23、<b>管内 1.24/1.11</b>、沙堆 1.18/1.20（特征尺度 3.2~3.6px）。原因是拿 <b>4x 与 2x 两张不同倍率的裁图</b>比的。<b>倍率不同的裁图不可比。</b></li>
+</ul>
+<h2>P6 · 沙柱「越流越细」 <span class="good">（✅ 2.85 已修：宽度全程 = 初始）</span></h2>
+<ul>
+<li><b>用户判词</b>：「这个可以重现，这个是不合理的，我们的<b>设计约束</b>是：沙子的初始流速是固定的，但是这里沙子<b>越流，沙柱越细</b>。需要改，<b>都改为初始的那个就行</b>」。</li>
+<li><b>两条来源</b>：① 2026-10-10 的末段收窄（0.45×管径）② <b>2.83 我加的净空触发（0.25×管径）</b> ⇒ 两者都关（<code>FLOW_TAIL_NARROW=1.0 / TAPER=1.0 / GAP=0.0</code>）。</li>
+<li><b>实测</b>（平板 50s，出口以下连续宽度，管径 82px）：2.83 = 37/33/34/34（t=47/48/49/49.5）→ <b>2.85 = 82/82/82/82</b>；中段 t=25 逐像素一致。并排图见 <a href="stream-width-2.85.html">stream-width-2.85.html</a>。</li>
+</ul>
+<h2>P7 · 末段沙柱「太纯色」 <span class="good">（✅ 2.86 已修：只压线宽、不动宽度）</span></h2>
+<ul>
+<li><b>用户判词</b>：「再看看这个沙柱是不是<b>太纯色</b>了 2.85 版本」。</li>
+<li><b>根因</b>：宽度已在 2.85 回到管径 ⇒ 剩下的"纯色"是<b>墨水饱和</b>（末段落程只剩几十 px，2px 墨块重叠成板）。<b>2.83 把宽度收窄反而加剧了它</b>（同样的粒子挤进更窄的空间）—— 这是 2.83 的真正错误。</li>
+<li><b>改法</b>：按净空把每颗粒<b>线宽</b> 2px→1px（复用同一次随机抽取只换阈值 ⇒ 不新增随机数、中段逐位不变）。</li>
+<li><b>实测</b>：外廓宽度 96/99/95/99 → 93/98/94/97（<b>不变</b>）；柱内粒度 2.22/1.32/1.63/1.46 → 2.45/<b>3.90</b>/<b>3.04</b>/<b>3.15</b>。并排图见 <a href="tail-grains-2.86.html">tail-grains-2.86.html</a>。</li>
+</ul>
+<h2>P8 · 柱子不许超出瓶颈 <span class="good">（✅ 2.87：出生带按半个线宽内缩）</span></h2>
+<ul>
+<li><b>用户问</b>：「你算下沙柱的宽度，pc 50分钟 是不是远比瓶颈宽？这个是否需要调整到不超过瓶颈所决定的数值？」</li>
+<li><b>答</b>：差<b>恒为 ~2px</b>（= 粒子线自身粗细），不是物理；细颈档 +25%，平板内孔 82px 只有 +2.4%。</li>
+<li><b>改</b>：出生时横向位置等比缩到「内孔 − 半个线宽」⇒ 50 分钟档 <b>10 → 8px = 内孔</b>（15 秒 21→20；平板不变）。</li>
+<li><b>顺带</b>：那条"扣线宽"的横向 clamp <b>实测不生效</b>（额外加 6px 内缩柱宽不变）；柱子确认是粒子画的。并排图见 <a href="stream-neck-width-2.87.html">stream-neck-width-2.87.html</a>。</li>
+</ul>
+<h2>P9 · 上球「每秒一次的扰动刷新」 <span class="good">（✅ 2.91：真根因 = 相位 b 的位移式子）</span></h2>
+<ul>
+<li><b>用户判词</b>：「上层的沙子会不断的扰动和刷新 …… 1.244 好像就没有」+「很不明显，差点以为是幻觉」+「2.82 也有」。</li>
+<li><b>根因（2.91 更正）</b>：<b>不是钟</b> —— 1.244 的 <code>update_flow</code> 每帧都写 <code>sand_clock</code>，它的上球材质<b>一直在动</b>（连续下漂 25~43 px/s、越靠颈口越快、无台阶）。
+真凶是 <code>samp_b</code> 的位移式子：<code>adv + 0.5</code> 与 1.244 的 <code>fract(t+0.5)</code> 在 <code>a ≥ 0.5</code> 的半个周期里<b>差整整一个 <code>velocity</code>（≈50px）</b>，
+而相位 b 的权重恰在 <code>a → 1</code> 时最大 ⇒ <b>每秒一次跳变</b>。
+⚠️ 2.88「刚性下滚」与 2.89「冻钟」都是<b>误诊之后的过度反应</b>（前者做成真平移、后者把运动一起冻掉，用户：「完全不变化了」/「幅度比较小」）。</li>
+<li><b>判据（成对）</b>：① 无 1 Hz 尖峰 <b>且</b> ② 帧间差 ≈ 1.244。实测（平板口径 50s，上球沙体）：<br>
+未修的旧路径 = 尖峰 <b>1.79</b> · 2.90 冻钟 = <b>1.03 但帧间差 1.027</b>（不动）· <b>2.91 = 1.03 且帧间差 2.004</b>（1.244 = 1.995）✓</li>
+<li><b>顺带</b>：粒子线密度 <code>FLOW_BASE_RATE</code> 1500 → 760（5.50 → <b>2.787 颗/px</b>，= 1.244 的 2.64~2.80）。</li>
+<li>并排图见 <a href="upper-texture-2.91.html">upper-texture-2.91.html</a>（2.88 那页的结论<b>已被推翻</b>，保留作误诊记录）。</li>
+</ul>
+<h2>当前状态（随时可查）</h2>
+<table>
+<tr><th>项</th><th>状态</th></tr>
+<tr><td>2.80（颈部回退）</td><td class="good">已出货 · CI #399 ✅ · Release latest 已是 2.80 · MuMu 已更新</td></tr>
+<tr><td>P1 的修复</td><td>不在树里（判「未复现」，不留代码；机制假设与复跑命令见上）</td></tr>
+<tr><td>P2 / P3</td><td class="good">✅ 完成：2.82（那条空横线，9 帧窗口 5/9 → <b>0/9</b>）· 2.81（撤死菜单项）</td></tr>
+<tr><td>出货线</td><td class="good">2.92 = 回退 2.91 的 <code>FLOW_BASE_RATE</code>（760→1500）——柱内"孔"消失 · 见 <a href="stream-density-2.92.html">stream-density-2.92.html</a></td></tr>
+<tr><td>2.91</td><td>上球材质相位 b 修复（与 1.244 逐像素一致）✓ 保留；同版误降的 rate 已回退</td></tr>
+<tr><td>下一件（未做）</td><td><b>下球沙堆轮廓每 0.375s 硬切一次</b>（<code>_sync_mound_frame</code> 无插值，2.7px/6.4px、2.67Hz；上球有 lerp）—— 先出并排图给用户判</td></tr>
+</table>
+<p class="sub">自查命令：<code>git diff --stat HEAD</code>（本轮全部改动）· <code>bash tools/_prepush.sh</code>（出货闸门）</p>
+</main>

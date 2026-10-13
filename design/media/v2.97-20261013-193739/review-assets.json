@@ -1,0 +1,55 @@
+{
+  "source_manifest": "design/media/v2.97-20261013-193739/manifest.json",
+  "source_manifest_sha256": "a1e4bff9ae44aa8667362a58cea7182ce147c697d16e092d44f1f70202c86ede",
+  "files": [
+    {
+      "path": "design/media/v2.97-20261013-193739/full-cycle-view.mp4",
+      "sha256": "47b99655c1fc655fdf0d27e3fd08d15cae5012fd3e6a2b10d9349da88d517a03"
+    },
+    {
+      "path": "design/media/v2.97-20261013-193739/pause-resume-view.mp4",
+      "sha256": "fc3629070b94e08734dcb9d794d1af1dc964da14dedb8a0d0627b34c8cd19b0e"
+    },
+    {
+      "path": "design/media/v2.97-20261013-193739/opening.mp4",
+      "sha256": "5c2ca6f32a75fd67a14450afc4422cff2b477243e3c31cf10167098cee60854a"
+    },
+    {
+      "path": "design/media/v2.97-20261013-193739/outlet-loop.mp4",
+      "sha256": "94ee17b0aa5fe7606d8f0971b4df63ba7c6e82118a59ff6bca909d46a1ee7887"
+    },
+    {
+      "path": "design/media/v2.97-20261013-193739/edge-loop.mp4",
+      "sha256": "b79403e9d7406abf4e06ff4607eeb676b4dc4dac70d4bbeebb4851db506b81ab"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/first-landing.png",
+      "sha256": "0167551461cbc97ddba8b2ee28446f52e8a729788ac5ac217d8d24fdcf83adce"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/outlet-late.png",
+      "sha256": "76fa2970e0e1ae8e68ed02613288e52c0ab5e92232befa12eebf7ab092ca0df1"
+    },
+    {
+      "path": "design/images/mumu-2.97-20261013/session-20261013-193739/review/stream-edge.png",
+      "sha256": "0e48d4cbca6956bc99d8645c7a1af1189d8e5e81a8e41aebdcf610f1492775c4"
+    },
+    {
+      "path": "_temp/mumu-media/20261013-193739/full-cycle-raw.mp4",
+      "sha256": "d91524eee475fe71dae560df3cd4a36bfab69394fdffafb3bf33d89524542111",
+      "captured_path": "design/media/v2.97-20261013-193739/full-cycle.mp4",
+      "raw": true
+    },
+    {
+      "path": "_temp/mumu-media/20261013-193739/pause-resume-raw.mp4",
+      "sha256": "1d490ef751e193890002c7823c00c6fc7ff307d2f9f3993695761ca89204620d",
+      "captured_path": "design/media/v2.97-20261013-193739/pause-resume.mp4",
+      "raw": true
+    }
+  ],
+  "created_at": "2026-10-13T19:40:11.060424+08:00",
+  "note": "Real frames only. Video timestamps are not app elapsed readings.",
+  "deployment_mode": "source-overlay",
+  "source_version": "2.97",
+  "package_version": "2.96"
+}

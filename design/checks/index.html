@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>沙子流动 · 检查资料</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body><main>
+  <header>
+    <h1>沙子流动的检查资料</h1>
+    <p class="meta">规则、版本结果和备注分别保存 · 2026-10-13 整理</p>
+    <nav aria-label="资料导航"><ul>
+      <li><a href="rules/sand-flow.html">沙子流动测试规则（图文）</a></li>
+      <li><a href="records/index.html">版本测试记录</a></li>
+      <li><a href="notes/index.html">备注</a></li>
+      <li><a href="../pages/hourglass.html">应用设计文档</a></li>
+      <li><a href="rules/how-to-check.md">执行说明</a></li>
+      <li><a href="../../docs/file-index.md">文件用途索引</a></li>
+    </ul></nav>
+  </header>
+  <section class="rules-entry" aria-labelledby="rules-title">
+    <h2 id="rules-title"><a href="rules/sand-flow.html">沙子流动测试规则（图文）</a></h2>
+    <p class="small">9 组、36 个固定编号：先看整体表现，再看形状、动态、边缘和连接处。每个版本逐项记录是否测试通过。</p>
+    <p><a href="records/v2.96/20261013-review.html">v2.96 已确认的三处问题：疏密突变、出口接缝、边缘颗粒不足</a></p>
+    <p><a href="records/v2.97/20261013.html">v2.97 外观修复：开局密度、出口连接和随机颗粒边缘</a>（补充 39 组同条件对照；不作为完整应用或性能验收）</p>
+    <p class="small">对应规则：<a href="rules/sand-flow.html#S04">S04 首次落地前后疏密</a> · <a href="rules/sand-flow.html#NS03">NS03 出口材质接缝</a> · <a href="rules/sand-flow.html#S05">S05 随机颗粒边缘</a>。已有录像复核，三项不通过，不是新运行测试。</p>
+    <p><a href="records/v2.96/20261013-165114.html">查看 v2.96 安装版逐项记录与完整录像</a></p>
+    <nav aria-label="按部位查看测试规则"><ul>
+      <li><a href="rules/sand-flow.html#C00">全沙漏整体表现 C00</a></li>
+      <li><a href="rules/sand-flow.html#upper">1. 上沙</a></li>
+      <li><a href="rules/sand-flow.html#lower">2. 下沙</a></li>
+      <li><a href="rules/sand-flow.html#neck">3. 颈部</a></li>
+      <li><a href="rules/sand-flow.html#upper-neck">4. 颈部和上沙</a></li>
+      <li><a href="rules/sand-flow.html#neck-stream">5. 颈部和沙柱</a></li>
+      <li><a href="rules/sand-flow.html#stream">6. 沙柱</a></li>
+      <li><a href="rules/sand-flow.html#landing">7. 沙柱和下沙</a></li>
+      <li><a href="rules/sand-flow.html#state">8. 状态切换与收尾</a></li>
+      <li><a href="rules/sand-flow.html#cross">9. 配色与尺寸</a></li>
+    </ul></nav>
+  </section>
+  <div class="chapters">
+    <section>
+      <h2>1. 规则：测什么</h2>
+      <p>每个部位先列整体表现，再细查形状、动态、边缘和连接处。一个编号固定对应一项表现。</p>
+      <p><a href="rules/sand-flow.html">查看沙子流动测试规则（图文）</a></p>
+      <p class="small">上沙、下沙、颈部、上沙接颈部、颈部接沙柱、沙柱、沙柱落地、状态切换、配色与尺寸。</p>
+    </section>
+    <section>
+      <h2>2. 记录：某版测了什么</h2>
+      <p>每个版本列出全部编号，逐项记录实际现象、是否测试通过、检查人和证据；未测项不能省略。</p>
+      <p><a href="records/index.html">打开版本记录</a></p>
+      <p class="small">2.96 安装版已补齐阶段实图、完整过程和暂停恢复录像；旧容器资料分开保存，仍未完成全部配置验收。</p>
+    </section>
+    <section>
+      <h2>3. 备注：变化与教训</h2>
+      <p>什么时候加了或撤掉什么，以及哪些误判、遗漏和取巧不能再发生。</p>
+      <p><a href="notes/index.html">打开备注</a></p>
+      <p class="small">历史数字保留出处，但不自动成为当前版本的通过门槛。</p>
+    </section>
+  </div>
+  <h2>怎样避免改 A，坏了 B</h2>
+  <p>先按部位找到用例，再沿每条的“还要连带看”检查其他部位。改连接处时必须看连接两侧，改运动时必须看完整过程，不能只验改动区域或一张中段图。</p>
+  <div class="notice warning"><p>图示说明“看哪里”，不等于“已经通过”。缺少录像、对照、指定进度或其他档位，就在版本记录里保留未测。</p></div>
+  <footer>只在用户明确要求后进行运行验证。PC 自动检查交给 CI，安卓交互使用指定 MuMu，不连接真机。</footer>
+</main></body>
+</html>

@@ -1,0 +1,27 @@
+E:\AI_Tools\other\ShaLou\main.py:19:1: 'array.array' imported but unused
+E:\AI_Tools\other\ShaLou\main.py:22:1: 'bisect.insort as _insort' imported but unused
+E:\AI_Tools\other\ShaLou\main.py:216:1: 'app.frame_benchmark.format_benchmark_report' imported but unused
+E:\AI_Tools\other\ShaLou\main.py:4396:13: local variable 'flight' is assigned to but never used
+E:\AI_Tools\other\ShaLou\main.py:6097:9: local variable '_prof' is assigned to but never used
+E:\AI_Tools\other\ShaLou\main.py:6098:9: local variable '_apex' is assigned to but never used
+E:\AI_Tools\other\ShaLou\main.py:6552:9: local variable 'sand_half_w' is assigned to but never used
+E:\AI_Tools\other\ShaLou\main.py:6563:9: local variable 'mound_top_plus_1' is assigned to but never used
+E:\AI_Tools\other\ShaLou\main.py:6895:16: local variable 'Ri' is assigned to but never used
+E:\AI_Tools\other\ShaLou\main.py:6897:9: local variable 'nw' is assigned to but never used
+E:\AI_Tools\other\ShaLou\src\app\flow_splash_experiment.py:38:1: 'math' imported but unused
+E:\AI_Tools\other\ShaLou\src\app\flow_splash_experiment.py:665:13: local variable 'append' is assigned to but never used
+E:\AI_Tools\other\ShaLou\src\app\flow_texture_experiment.py:5:1: 'math' imported but unused
+E:\AI_Tools\other\ShaLou\src\app\marker_batch_experiment.py:55:1: 'flow_splash_experiment.TEXELS_PER_SPLASH' imported but unused
+E:\AI_Tools\other\ShaLou\src\app\marker_batch_experiment.py:55:1: 'flow_splash_experiment.PAD' imported but unused
+E:\AI_Tools\other\ShaLou\src\app\marker_batch_experiment.py:58:1: 'kivy.graphics.Color' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\_probe_ink_cover.py:22:1: 'kivy.core.window.Window' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\_splash_golden.py:149:9: 'kivy.app.App' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\_xz_geom_accept.py:9:1: 'math' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\generate_voice_tokens.py:13:1: 'struct' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\inspect_flow.py:74:9: 'kivy.app.App' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\inspect_flow.py:80:9: 'main' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\neck_ab.py:162:9: local variable 'dq' is assigned to but never used
+E:\AI_Tools\other\ShaLou\src\tools\test_regression_gate.py:6:1: 'json' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\test_regression_gate.py:8:1: 'sys' imported but unused
+E:\AI_Tools\other\ShaLou\src\tools\verify_hourglass.py:82:13: redefinition of unused 'app_module' from line 78
+STATIC_DONE files=58
