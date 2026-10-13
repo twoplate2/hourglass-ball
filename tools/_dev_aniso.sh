@@ -13,7 +13,11 @@ set -u
 ADB="C:/Program Files/Netease/MuMu/nx_main/adb.exe"
 SER=127.0.0.1:16416
 APP=/data/data/org.shalou.hourglass/files/app
-ROOT=/e/AI_Tools/other/shalou_claude/pc/apk
+# 🔴 **2026-10-13: `ROOT` 不再写死绝对路径** —— 工程从 `shalou_claude/pc/apk/`
+#    挪到了 `E:\AI_Tools\other\ShaLou`(用户要求: 只保留安卓版)。写死的话一挪就失效,
+#    而且是**静默失效**(臂跑起来了、只是输出落到一个不存在的老目录)。
+#    改成从脚本自身位置推 —— 与 `_review_push.sh` 同一套写法。
+ROOT="$(cd "$(dirname "$0")/.." && pwd -W)"
 LABEL="$1"; shift
 OUT="$ROOT/benchmark_logs/_dev/aniso_$LABEL"
 mkdir -p "$OUT"; rm -f "$OUT"/*.png

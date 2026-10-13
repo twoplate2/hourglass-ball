@@ -1,5 +1,16 @@
 # CLAUDE.md
 
+> 🔴 **2026-10-13: 工程已挪到 `E:\AI_Tools\other\ShaLou`(用户: 「只保留安卓版, 不要 PC 版」)。**
+> · 这个目录**就是** `twoplate2/hourglass-ball` 的克隆(clone 自 GitHub), `origin` 已配好,
+>   凭据走 Windows 凭据管理器 ⇒ `git push` 直接可用。
+> · 仓库**不带**的本地内容(GitHub 上没有的)已一并搬来: `benchmark_logs/`(证据 + 307 个设备
+>   报告)、`design/`(给你看的 HTML 页)、`_shot/`、`_review/`、`_temp/`(待删暂存区)、`mp3/`。
+> · ⚠️ **PC 版不在这个目录** —— 视觉基准 `hourglass_v4.py` 仍在
+>   `E:\AI_Tools\other\shalou_claude\pc\`(本文件里凡写 `../hourglass_v4.py` 的,
+>   现在按**那个绝对路径**去找)。
+> · ⚠️ CI 有**版本递增闸门**: 每次 push 必须把 `app_version.py` 加一版, 否则 run 十几秒就失败
+>   (`tools/check_release_version.py`)。
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 🔴 铁律 0：先看 `QA_RULES.md`（2026-10-05 用户质问后立）
