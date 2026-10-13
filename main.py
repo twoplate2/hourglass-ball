@@ -1775,6 +1775,33 @@ FLOW_TONE_QUANT = (max(1, int(float(_TQ))) if _TQ
 #    调它的判据是 `tools/_accept_check.py` 的 A1(柱内颗粒量 / 上球 ∈[0.6,1.5])
 #    与 A2(连续平填行 ≤2), 外加并排图。
 FLOW_GRAIN_GAIN = float(os.environ.get("HG_GRAIN_GAIN", "1.0"))
+
+
+def _grain_gain_probe():
+    """`HG_GRAIN_GAIN` 环境变量优先, 其次与 main.py 同目录的 `graingain` 标记文件。
+
+    ⚠️ 与 `_grain_tone_probe` 同一条理由: **安卓读不到宿主环境变量** ⇒ 设备上要试
+    "材质取色 + 放大对比"这一档(判据见 `_stream_grain_idx` 的注释)只能写标记文件
+    (`<app>/graingain`, 内容如 `2.5`)。文件缺失/坏掉 ⇒ 恒等 1.0(旧行为)。
+    """
+    env = os.environ.get("HG_GRAIN_GAIN")
+    if env:
+        return env
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "graingain"), "r") as fh:
+            text = fh.read().strip()
+        return text or None
+    except Exception:
+        return None
+
+
+_GAIN_PROBE = _grain_gain_probe()
+if _GAIN_PROBE is not None:
+    try:
+        FLOW_GRAIN_GAIN = float(_GAIN_PROBE)
+    except ValueError:
+        pass
 # 🔴 **2026-10-10: 出口以下那段沙柱的**几何**要加宽, 让它的硬边退到看不见的地方。**
 #    病(用户判词): 「整个边缘非常奇怪, 说不规整吧, **他额外带了一层直线**」。
 #    实测: 把材质关掉(平色四边形)、把粒子抽掉, 柱子就是一个**边缘笔直的矩形**
@@ -1833,6 +1860,40 @@ FLOW_TAIL_GAP_NARROW = float(os.environ.get("HG_TAIL_GAP_NARROW", "0.25"))
 #    取值 = 净空 / 球径 的阈值: 0.30 ⇒ 净空 < 30% 球径(约 372px @平板 / 270px @1080,
 #    即 50s 档最后 ~7 秒)开始压细。0 = 关(逐位回 2.85)。
 INK_HEADROOM = float(os.environ.get("HG_INK_HEADROOM", "0.30"))
+# 🔴 **2026-10-13: 墨量**覆盖率闸** —— 小窗口上把线宽压薄, 让各口径的相对墨量一致。**
+#    用户判词(MuMu 1080×1920 截图): 「这个沙子变成了**半纯色+实心**了?」
+#    实测归因: 柱内墨量 ≈ `rate × 拖尾 × 线宽 ÷ 柱宽` —— **柱宽随窗口缩放, 线宽不随**
+#    ⇒ 1080 口径 1.85px 线时墨量 = **161%**(饱和) ⇒ 一块板; 连 2.78 那套"先0后更多"
+#    的深度筛都咬不动(实测 `HG_STREAM_OPEN=0` vs 默认 = **0 像素差**)。
+#    两个口径的标定(预测 vs 实测): 平板 1904 柱宽 82px ⇒ 85% vs 实测 **87%**(用户没骂过,
+#    当基准); 手机 1080 柱宽 43px ⇒ 161% vs 实测 **100%(饱和)**。
+#    ⇒ 目标取平板那个档, 各口径统一; `>= 1.0` 或柱子够宽 ⇒ `q = 1.0` ⇒ **逐位旧行为**。
+def _ink_cover_probe():
+    """`HG_INK_COVER` 环境变量优先(桌面), 其次与 main.py 同目录的 `inkcover` 标记文件。
+
+    ⚠️ 安卓 app **读不到宿主环境变量** ⇒ 设备上做单变量对照只能写标记文件
+    (app 私有目录 = `<app>/inkcover`, 与 `flowrate`/`outletoverlap` 同一套)。
+    两个都没有/内容坏掉 ⇒ None ⇒ 走出货默认。写 `0` 即可**逐位回到加闸之前**。
+    """
+    env = os.environ.get("HG_INK_COVER")
+    if env:
+        return env
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "inkcover"), "r") as fh:
+            text = fh.read().strip()
+        return text or None
+    except Exception:
+        return None
+
+
+_INK_COVER_PROBE = _ink_cover_probe()
+try:
+    INK_COVER_TARGET = (0.87 if _INK_COVER_PROBE is None
+                        else float(_INK_COVER_PROBE))
+except ValueError:
+    INK_COVER_TARGET = 0.87
+INK_TRAIL_MEAN = 0.025      # `random.uniform(0.018, 0.032)` 的均值(覆盖率算式里的拖尾项)
 # 🔴 **2026-10-12(2.87): 柱子不许超出瓶颈 —— 出生带按"半个线宽"内缩。**
 #    用户问(附 50 分钟档截图): 「你算下沙柱的宽度, pc 50分钟 是不是远比瓶颈宽?
 #    这个是否需要调整到**不超过瓶颈所决定的数值**?」
@@ -4932,6 +4993,27 @@ class HourglassWidget(Widget):
             return 1.0
         return min(1.0, self._stream_headroom() / INK_HEADROOM)
 
+    def _stream_ink_cover_q(self, x_clip):
+        """**覆盖率闸**(2026-10-13): 墨量过饱和的口径上把线宽压薄 —— 见 `INK_COVER_TARGET`。
+
+        墨量(每行的墨水长度 ÷ 柱宽) ≈ `rate × 拖尾均值 × 线宽 ÷ 柱宽`。
+        `rate = FLOW_BASE_RATE × motion_scale`、拖尾 = `INK_TRAIL_MEAN`,
+        **柱宽随窗口缩放而线宽不随** ⇒ 小窗口过饱和。
+
+        返回"2px 线该占的比例 ÷ 0.85"(与 `_stream_ink_q` 同一个量纲: 1 = 旧行为)。
+        ⚠️ **只动线宽, 不动位置/数量/速度, 也不新增随机数**(出生处同一次
+        `random.random()` 只换阈值) ⇒ **柱宽与设计约束不受影响**。
+        """
+        if INK_COVER_TARGET <= 0.0:
+            return 1.0
+        colw = 2.0 * max(1.0, x_clip - 1.0)        # 画出来的柱宽(扣半个线宽, 同 2.87)
+        rate = FLOW_BASE_RATE * self._particle_motion_scale
+        if rate <= 0.0 or colw <= 0.0:
+            return 1.0
+        want = INK_COVER_TARGET * colw / (rate * INK_TRAIL_MEAN)   # 期望的平均线宽
+        p2 = min(1.0, max(0.0, want - 1.0))                        # 2px 线该占的比例
+        return min(1.0, p2 / 0.85)
+
     def _stream_headroom_tail(self):
         """出口到**底面堆面**的净空 → 收尾权重(1 = 不收窄, 0 = 收到最窄)。
 
@@ -6357,6 +6439,12 @@ class HourglassWidget(Widget):
                             + (1.0 - FLOW_TAIL_GAP_NARROW) * _tail_gap)
             _tail = min(_tail, _tail_gap)
             x_clip = max(1.0, (neck_w - ow) * _band)
+            # 🔴 **2026-10-13: 叠一条"覆盖率闸"** —— 见 `_stream_ink_cover_q`。
+            #    与末端净空那条(`_stream_ink_q`, 2.86)取**更薄**的一条:
+            #    前者管"小窗口过饱和", 后者管"快流完时挤成一块板"。
+            #    ⚠️ 必须在 `x_clip` 之后(算式要用柱宽); `q == 1.0` 时出生处那次
+            #    `random.random() < 0.85` **逐位**与旧版相同。
+            _ink_q = min(_ink_q, self._stream_ink_cover_q(x_clip))
             _taper = 1.0 + (FLOW_TAIL_TAPER - 1.0) * (1.0 - _tail)
             # 🔴 **2026-10-12(2.87): 柱子不许超出瓶颈(用户判据)。**
             #    用户问(附 50 分钟档截图): 「你算下沙柱的宽度, **pc 50分钟 是不是远比瓶颈宽**?
