@@ -29,6 +29,17 @@ from PIL import Image
 # 底栏版本号所在区域(400x800 窗口)。改窗口尺寸要重量 —— 它贴在右下那一块。
 DEFAULT_MASKS = ((196, 756, 232, 784),)
 
+# 🔴 2026-10-13: 输出里带 ⚠️/⇒/✓ 这类非 GBK 字符, 而 **Windows 控制台与重定向管道默认 GBK**
+#    ⇒ 走到"有差异"那条分支时 print 抛 UnicodeEncodeError, **工具在报结论那一刻崩掉**,
+#    而 `_prepush.sh` 第 3 步正好是 `... | tail -4`(管道), 于是那一项**看着像跑过了、其实没结论**
+#    (实测: 2.96 那次只留下一个 traceback, 整体仍打"入口闸门全过")。
+#    ⇒ 强制把 stdout 换成 UTF-8 + errors=replace: 控制台照常显示, 管道里也不会再炸。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def main():
     ap = argparse.ArgumentParser()
