@@ -1,0 +1,77 @@
+{
+  "before_result_sha256": "5b3526fbdf50a7beadf4bc9a9920000139188bd18a69bfb6f65b0973a22204e9",
+  "after_result_sha256": "30b8eb8a2ba7b6d01bfb660a2a5dae63f7a7e65355695f22ac3cf9a0b5dda2e2",
+  "frames": [
+    {
+      "name": "opening",
+      "period": 30,
+      "color": 0,
+      "elapsed": 1.1999999999989086,
+      "particles_before": 1424,
+      "particles_after": 1424,
+      "ledger_same": true,
+      "changed_pixels": 20663,
+      "outside_expected_pixels": 0,
+      "excluded_footer_pixels": 20514,
+      "expected_stream_box": [
+        511,
+        917,
+        570,
+        1748
+      ],
+      "before_sha256": "97c5c30d1ccff690c077354067bffcbc0bbee0ceaf81fb0cfe1036755c66cf8a",
+      "after_sha256": "affa025e425b4ad511cc7b39d403f37786be91f64b6f3c13219332897e039351"
+    },
+    {
+      "name": "middle",
+      "period": 30,
+      "color": 0,
+      "elapsed": 14.999999999986358,
+      "particles_before": 1456,
+      "particles_after": 1456,
+      "ledger_same": true,
+      "changed_pixels": 20666,
+      "outside_expected_pixels": 0,
+      "excluded_footer_pixels": 20514,
+      "expected_stream_box": [
+        511,
+        917,
+        570,
+        1748
+      ],
+      "before_sha256": "f00d1168a5e2ce835200cdcf8a755d5c11e43408d0a01baaa8b8f06bbd7a3833",
+      "after_sha256": "ab46cba1e868ec307eea5757f431d80049af053ab0632c6f21a29e161737d460"
+    },
+    {
+      "name": "late",
+      "period": 30,
+      "color": 0,
+      "elapsed": 27.0,
+      "particles_before": 672,
+      "particles_after": 672,
+      "ledger_same": true,
+      "changed_pixels": 20514,
+      "outside_expected_pixels": 0,
+      "excluded_footer_pixels": 20514,
+      "expected_stream_box": [
+        511,
+        917,
+        570,
+        1748
+      ],
+      "before_sha256": "ee6fa162efa4d3e76925e38f90e3b8ed966a7d18731e63f609c6f745362abd51",
+      "after_sha256": "1c41780975d8a4e8ce02c0cd803a7ea246c532b707fd874800d0f77826be4f29"
+    }
+  ],
+  "cases": 3,
+  "same_particle_counts": true,
+  "same_sand_ledgers": true,
+  "outside_expected_pixels": 0,
+  "canvas_only": true,
+  "limitations": [
+    "Matched fixed-step screenshots, not real-time dynamics or performance.",
+    "The expected rectangle covers the nominal stream width, neck overlap and impact area.",
+    "Zero differences outside the mask do not certify the expected region is correct.",
+    "No thresholds or historical reference images were changed."
+  ]
+}

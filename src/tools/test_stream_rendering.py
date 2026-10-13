@@ -10,7 +10,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.stream_rendering import (
     CONTACT_REACH_PX, DENSITY_PAD_PX, EDGE_PERIOD, contact_reach, edge_phase,
-    trail_length, trail_lengths,
+    LOWER_DENSITY_GAIN, LOWER_DENSITY_MAX, LOWER_DENSITY_START, trail_length, trail_lengths,
 )
 
 
@@ -18,7 +18,18 @@ class StreamDrawingTests(unittest.TestCase):
     def test_density_does_not_wait_for_landing(self):
         for speed in (35, 60, 300, 700):
             expected = max(2.0, speed * 0.025) + DENSITY_PAD_PX
+            expected += min(LOWER_DENSITY_MAX, max(0.0, speed - LOWER_DENSITY_START)
+                            * LOWER_DENSITY_GAIN)
             self.assertEqual(trail_length(-speed, 0.025, 1.0), expected)
+
+    def test_upper_density_is_unchanged_and_lower_gain_is_bounded(self):
+        for speed in (35, 60, 200, 350):
+            self.assertEqual(trail_length(-speed, 0.025, 1.0),
+                             max(2.0, speed * 0.025) + DENSITY_PAD_PX)
+        for speed in (500, 750, 4000):
+            extra = trail_length(-speed, 0.025, 1.0) - (speed * 0.025 + DENSITY_PAD_PX)
+            self.assertGreater(extra, 0)
+            self.assertLessEqual(extra, LOWER_DENSITY_MAX)
 
     def test_keeps_dense_body(self):
         self.assertGreaterEqual(DENSITY_PAD_PX, 0.75 * CONTACT_REACH_PX)

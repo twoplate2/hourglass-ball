@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "rules_revision": "2026-10-13.5",
+  "rules_snapshot": "design/checks/records/v3.0/evidence/rules-2026-10-13.5.json",
+  "date": "2026-10-13",
+  "source_version": "3.0",
+  "package_version": "2.99",
+  "environment": "指定 MuMu，30秒金沙；2.99与3.0同种子、同进度局部外观对照",
+  "review_status": "pending",
+  "conclusion": "只减缓下段随落速变快而变稀疏的幅度：归一化落速不超过350px/s时保持原样，超过后轻微增加绘制补量，最多增加6px。上段、粒子数、物理与随机外缘不变。仅比较开局、中段、末段三组相关外观，并检查同一绘制公式；没有帧率或全应用回归。",
+  "screenshots": [{"path": "design/images/mumu-3.0-20261013/lower-density.png", "caption": "左为2.99，右为3.0：30秒金沙同种子、同进度，保留完整下落段；指定时刻逻辑推进取图，不是实时录像。", "max_width": 400}],
+  "scope": [
+    "上球及预期沙柱区域之外，沙漏画布像素没有变化；粒子数与沙量账本相同。中段的下落沙更密，上段与颈部保持原样。",
+    "版本文字变短会让底部工具栏重新排布，因此本次像素对照明确只比较沙漏画布，不把底栏排布算成外观缺陷或声称其像素不变。",
+    "明细见 evidence/lower-density.json；本轮不重新验收其他配置。"
+  ],
+  "observations": [],
+  "results": {
+    "U00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S03": {
+      "status": "partial",
+      "actual": "本配置的下段空隙略少，向下变稀疏的幅度减缓，仍保留颗粒间隙与随机外缘；没有增宽或增加粒子。其他配置未重新验收。",
+      "evidence": [{"path": "design/checks/records/v3.0/evidence/lower-density.json", "sha256": "3abee30a0c698c445c0c654dbed579f275915f1a492e0d12ea9d15bb820aca57", "label": "三组局部外观对照"}]
+    },
+    "S04": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S05": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    }
+  },
+  "historical_automation": [],
+  "limitations": [
+    "仅针对下段疏密变化的简单外观检查，不是全部用例通过。",
+    "当前为3.0源码覆盖2.99安装包，不是3.0新APK安装证明。"
+  ]
+}

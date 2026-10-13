@@ -1,2 +1,3 @@
 .githooks/* text eol=lf
 design/checks/records/v2.98/evidence/density-comparison.json -text
+design/checks/records/v3.0/evidence/lower-density.json -text

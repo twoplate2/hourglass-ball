@@ -1,8 +1,7 @@
 name: Check File Index
 
 on:
-  push:
-  pull_request:
+  # Push/PR checks already run through Build APK / Basic Checks.
   schedule:
     # GitHub cron uses UTC: 01:00 UTC = 09:00 Asia/Shanghai.
     - cron: '0 1 * * *'

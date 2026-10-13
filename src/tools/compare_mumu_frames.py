@@ -90,6 +90,9 @@ def main():
     parser.add_argument("--bench-root", type=Path)
     parser.add_argument("--before-label", default="APK 2.96")
     parser.add_argument("--after-label", default="source 2.97")
+    parser.add_argument("--full-stream", action="store_true", help="Include the lower stream in pairs")
+    parser.add_argument("--canvas-only", action="store_true",
+                        help="Compare the hourglass canvas, excluding the version-dependent toolbar")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.bench_root:
@@ -131,12 +134,18 @@ def main():
         expected[top:bottom, cx - half:cx + half + 1] = True
         # Version glyphs differ by design. Do not mask either bulb or the controls.
         expected[math.floor(height * 0.93):, math.floor(width * 0.44):math.ceil(width * 0.60)] = True
+        footer_changes = 0
+        if args.canvas_only:
+            footer = math.floor(height * 0.91)
+            footer_changes = int(changed[footer:].sum())
+            expected[footer:] = True
         outside = changed & ~expected
         row = {"name": current["name"], "period": current["period"],
                "color": current["color"], "elapsed": current["elapsed_actual"],
                "particles_before": previous["particles"], "particles_after": current["particles"],
                "ledger_same": previous["transfer"] == current["transfer"],
                "changed_pixels": int(changed.sum()), "outside_expected_pixels": int(outside.sum()),
+               "excluded_footer_pixels": footer_changes,
                "expected_stream_box": [cx - half, top, cx + half + 1, bottom],
                "before_sha256": previous["sha256"], "after_sha256": current["sha256"]}
         rows.append(row)
@@ -146,6 +155,7 @@ def main():
         "same_particle_counts": all(r["particles_before"] == r["particles_after"] for r in rows),
         "same_sand_ledgers": all(r["ledger_same"] for r in rows),
         "outside_expected_pixels": sum(r["outside_expected_pixels"] for r in rows),
+        "canvas_only": args.canvas_only,
         "limitations": [
             "Matched fixed-step screenshots, not real-time dynamics or performance.",
             "The expected rectangle covers the nominal stream width, neck overlap and impact area.",
@@ -158,7 +168,11 @@ def main():
     available = {r["name"] for r in after["frames"]}
     names = [n for n in ("p50-stage2", "p50-stage4", "p50-stage5", "p50-stage6",
                         "color2-t12", "color5-t450") if n in available]
-    pairs = Image.new("RGB", (400, len(names) * 330), "white")
+    if not names:
+        names = [r["name"] for r in after["frames"][:6]]
+    crop_height = 720 if args.full_stream else 300
+    tile_height = crop_height + 30
+    pairs = Image.new("RGB", (400, len(names) * tile_height), "white")
     draw = ImageDraw.Draw(pairs)
     for i, name in enumerate(names):
         for j, folder in enumerate((args.before, args.after)):
@@ -166,11 +180,11 @@ def main():
             w, h = frame["dimensions"]
             half = max(50, math.ceil(frame["half_width"]) + 20)
             top = math.floor(h - frame["outlet_y"] - 70)
-            bottom = min(h, top + 300)
+            bottom = min(h, top + crop_height)
             with Image.open(folder / frame["file"]) as image:
                 crop = image.crop((w // 2 - half, top, w // 2 + half, bottom))
-                pairs.paste(crop, (j * 200 + (200 - crop.width) // 2, i * 330 + 25))
-            draw.text((j * 200 + 4, i * 330 + 5),
+                pairs.paste(crop, (j * 200 + (200 - crop.width) // 2, i * tile_height + 25))
+            draw.text((j * 200 + 4, i * tile_height + 5),
                       (args.before_label if j == 0 else args.after_label) + " | " + name,
                       fill="black")
     pairs.save(args.output / "before-after.png")

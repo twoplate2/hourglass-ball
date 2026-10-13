@@ -34,9 +34,12 @@ def main():
     folder = ROOT / "_temp/mumu-fixes" / stamp
     folder.mkdir(parents=True, exist_ok=False)
     adb("shell", "am", "force-stop", PACKAGE)
+    config_present = adb("shell", "sh", "-c",
+                         "'if [ -f /data/data/" + PACKAGE
+                         + "/files/.hourglass_config.json ]; then echo yes; fi'").strip()
     (folder / "before.tar").write_bytes(adb(
         "exec-out", "tar", "-cf", "-", "-C", "/data/data/%s/files" % PACKAGE,
-        "app", ".hourglass_config.json", binary=True))
+        "app", *([".hourglass_config.json"] if config_present else []), binary=True))
     paths = [ROOT / "main.py"] + sorted((ROOT / "src/app").glob("*.py"))
     paths += sorted(path for directory in ("ui", "sounds")
                     for path in (ROOT / directory).rglob("*")

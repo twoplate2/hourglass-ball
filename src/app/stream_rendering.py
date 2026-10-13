@@ -3,17 +3,27 @@
 DENSITY_PAD_PX = 20.0
 CONTACT_REACH_PX = 20.0
 EDGE_PERIOD = 1024.0
+LOWER_DENSITY_START = 350.0
+LOWER_DENSITY_GAIN = 0.012
+LOWER_DENSITY_MAX = 6.0
 
 
 def trail_length(vy, trail_time, motion_scale, trail_scale=1.0, tail_blend=0.0):
     trail = max(2.0, abs(vy) * trail_time / motion_scale * trail_scale)
-    return (trail + DENSITY_PAD_PX) * (1.0 - tail_blend) + tail_blend
+    # Compensate only the faster lower grains; retain the existing upper stream.
+    lower = min(LOWER_DENSITY_MAX, max(0.0, abs(vy) / motion_scale
+                                     - LOWER_DENSITY_START) * LOWER_DENSITY_GAIN)
+    return (trail + DENSITY_PAD_PX + lower) * (1.0 - tail_blend) + tail_blend
 
 
 def trail_lengths(np, vys, trail_times, motion_scale, trail_scale=1.0, tail_blend=0.0):
     trail = np.abs(vys) * trail_times / motion_scale * trail_scale
     np.maximum(trail, 2.0, out=trail)
     trail += DENSITY_PAD_PX
+    lower = np.maximum(np.abs(vys) / motion_scale - LOWER_DENSITY_START, 0.0)
+    lower *= LOWER_DENSITY_GAIN
+    np.minimum(lower, LOWER_DENSITY_MAX, out=lower)
+    trail += lower
     trail *= 1.0 - tail_blend
     trail += tail_blend
     return trail

@@ -21,7 +21,7 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 | [.gitattributes](../.gitattributes) | Git 行尾等文件属性 |
 | [.githooks/pre-push](../.githooks/pre-push) | 本次外观推送核对 MuMu 外观证据、源码身份、干净工作区与版本标题；不要求帧率或完整回归 |
 | [.github/workflows/build-apk.yml](../.github/workflows/build-apk.yml) | GitHub Actions 构建、检查、发布 |
-| [.github/workflows/check-file-index.yml](../.github/workflows/check-file-index.yml) | 每日北京时间 09:00 及 push / PR 时检查索引和目录布局 |
+| [.github/workflows/check-file-index.yml](../.github/workflows/check-file-index.yml) | 每日北京时间 09:00 或手动检查索引和目录布局；推送时复用打包内的基础检查，不重复触发独立任务 |
 | [.github/workflows/check-regression.yml](../.github/workflows/check-regression.yml) | CI 目录、版本、语法和资料基础检查；失败拦截构建，不执行完整应用回归 |
 
 ## 应用模块
@@ -151,6 +151,8 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | `design/images/mumu-2.97-20261013/session-20261013-193739/` | 三项修复第三轮的真实阶段原图与连续裁图；前两轮试验归档暂存区 |
 | `design/images/mumu-2.97-20261013/focused/` | 最新源码与原 APK 的同条件外观对照，以及 64 秒附近连续指定时刻裁图 |
 | `design/images/mumu-2.98-20261013/` | 用户要求小幅调密后的四组同条件外观对照 |
+| `design/images/mumu-3.0-20261013/` | 减缓下段变稀疏的三组同条件外观裁图 |
+| [design/checks/records/v3.0/20261013.json](../design/checks/records/v3.0/20261013.json) / [下段疏密记录](../design/checks/records/v3.0/20261013.html) | 仅检查下段疏密调整，明确画布范围及底栏版本文字排布差异 |
 | [design/checks/records/v2.98/20261013.json](../design/checks/records/v2.98/20261013.json) / [调密记录](../design/checks/records/v2.98/20261013.html) | 仅针对疏密调整的外观观察与对照明细，不含帧率或全应用回归 |
 | `design/media/v2.97-20261013-193739/` | 三项修复的完整/开局/暂停录像与出口、边缘原速循环；源码为 2.97，容器 APK 为 2.96 |
 | [design/checks/README.md](../design/checks/README.md) / [index.html](../design/checks/index.html) | rules（规则）、records（版本记录）、notes（备注）的入口及资料生成方法 |
