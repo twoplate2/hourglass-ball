@@ -9,6 +9,12 @@
 <body><main>
 <header><h1>按版本查看测试记录</h1><nav aria-label="资料导航"><ul><li><a href="../index.html">检查目录</a></li><li><a href="../rules/sand-flow.html">规则与用例</a></li><li><a href="../notes/index.html">备注</a></li></ul></nav></header>
 <p>每个编号固定对应一项表现；每个版本逐项记录实际现象、是否通过和证据。“未测”“片段观察”“中断”“待验收”均不是通过。</p>
+<section><h2>v2.98 · 2026-10-13</h2>
+<p>按用户反馈将绘制拖尾补量从 16px 小幅提高到 20px，减少沙柱内的可见空隙，宽度、粒子数和物理不变。只对照开局、首次落地、中段、末段四组外观；预期沙柱及版本文字范围之外 0 像素差异。没有新增帧率、音频或完整应用回归。仍是源码覆盖，不是新 APK 安装证明。</p>
+<p class="meta">早期片段资料</p>
+<p>36 个编号 · 通过 0 · 不通过 0 · 尚未完成验收 36</p>
+<div class="picture-grid three portrait"><figure><a href="../../images/mumu-2.98-20261013/density-comparison.png"><img src="../../images/mumu-2.98-20261013/density-comparison.png" alt="左为调密前 2.97，右为调密后 2.98；四个指定时刻同条件原像素裁图，属于逻辑推进取图。" width="400" height="1320" loading="lazy" style="max-width:400px"></a><figcaption>左为调密前 2.97，右为调密后 2.98；四个指定时刻同条件原像素裁图，属于逻辑推进取图。</figcaption></figure></div>
+<p><a href="v2.98/20261013.html">查看本版每个编号的现象与结果</a> · <a href="v2.98/20261013.json">原始登记 JSON</a></p></section>
 <section><h2>v2.97 · 2026-10-13</h2>
 <p>三项外观问题初步改善：开局保持较密的效果；出口纹理逐渐衔接；外缘有细碎随机起伏。后续补了原 2.96 APK 与最新源码的 39 组同种子同进度对照，改动范围之外 0 像素差异，粒子数和沙量账本一致；另修正边缘噪声的 64 秒回绕风险。按用户要求，本次只验外观，不扩展为帧率、音频或完整应用验收。旧录像属于首轮修复，最新代码对应新增对照图；源码覆盖不等于新 APK 已安装。</p>
 <p class="meta">第三轮修复源码覆盖；前两轮试验素材归档暂存区</p>

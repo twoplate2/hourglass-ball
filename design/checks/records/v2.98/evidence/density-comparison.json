@@ -1,0 +1,92 @@
+{
+  "before_result_sha256": "57b175e1adb7c1f45d4b73e0bdae8461397ae6f73b28aefb0f6897e6e6d4d5ca",
+  "after_result_sha256": "cb57ab85e916687b2bbac1f98492c00183198629315db36db111793e0fed63ac",
+  "frames": [
+    {
+      "name": "p50-stage2",
+      "period": 50,
+      "color": 0,
+      "elapsed": 1.1999999999989086,
+      "particles_before": 1424,
+      "particles_after": 1424,
+      "ledger_same": true,
+      "changed_pixels": 1936,
+      "outside_expected_pixels": 0,
+      "expected_stream_box": [
+        512,
+        919,
+        569,
+        1744
+      ],
+      "before_sha256": "b8902cef2c9307c2a9a3853ca793e2929f1eb04fdb36ef42d22ddc50e24882be",
+      "after_sha256": "b92ea264abdc3c18982d10e071d5c42bff4fbfa7d3b0eb927db129b48f54480d"
+    },
+    {
+      "name": "p50-stage4",
+      "period": 50,
+      "color": 0,
+      "elapsed": 2.09999999999809,
+      "particles_before": 2342,
+      "particles_after": 2342,
+      "ledger_same": true,
+      "changed_pixels": 3709,
+      "outside_expected_pixels": 0,
+      "expected_stream_box": [
+        512,
+        919,
+        569,
+        1744
+      ],
+      "before_sha256": "19121b7d091f23544af3130bdbd2217e7f5b783b831d0ff508a68290ae4c1214",
+      "after_sha256": "4618631c3bc70dd2044f1a500ef3c8207b08490ada98d69e1f18f5888486d21c"
+    },
+    {
+      "name": "p50-stage5",
+      "period": 50,
+      "color": 0,
+      "elapsed": 24.999999999990905,
+      "particles_before": 1426,
+      "particles_after": 1426,
+      "ledger_same": true,
+      "changed_pixels": 1973,
+      "outside_expected_pixels": 0,
+      "expected_stream_box": [
+        512,
+        919,
+        569,
+        1744
+      ],
+      "before_sha256": "10ee331c41cae5aafe954c41746a6a4265920eec9facec6e9339145924465565",
+      "after_sha256": "44b189304c29d7d18e26fc97a204d4b51e791bb1a9c7df8e3f031254a989f303"
+    },
+    {
+      "name": "p50-stage6",
+      "period": 50,
+      "color": 0,
+      "elapsed": 45.0,
+      "particles_before": 658,
+      "particles_after": 658,
+      "ledger_same": true,
+      "changed_pixels": 953,
+      "outside_expected_pixels": 0,
+      "expected_stream_box": [
+        512,
+        919,
+        569,
+        1744
+      ],
+      "before_sha256": "6093f60b7b385c56132c1f37948e89df153b730247d70ec49a11b43c615f6f2d",
+      "after_sha256": "436aee48d09e14031c5c8c8ff87b09900374edb4a74cde30e79785b636e7ecaa"
+    }
+  ],
+  "cases": 4,
+  "same_particle_counts": true,
+  "same_sand_ledgers": true,
+  "outside_expected_pixels": 0,
+  "limitations": [
+    "Matched fixed-step screenshots, not real-time dynamics or performance.",
+    "The expected rectangle covers the nominal stream width, neck overlap and impact area.",
+    "Zero differences outside the mask do not certify the expected region is correct.",
+    "No thresholds or historical reference images were changed."
+  ]
+}

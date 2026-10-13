@@ -48,10 +48,12 @@ def units():
 
 
 def application():
-    if REQUEST["arm"] == "apk296":
+    if REQUEST["arm"] in ("apk296", "source"):
         directory = ROOT / "_qa/baseline"
-        sys.path[:0] = [str(directory), str(directory / "tools")]
-        source = directory / "main.pyc"
+        sys.path[:0] = ([str(directory / "src/app"), str(directory / "src"), str(directory)]
+                       if REQUEST["arm"] == "source"
+                       else [str(directory), str(directory / "tools")])
+        source = directory / ("main.py" if REQUEST["arm"] == "source" else "main.pyc")
     else:
         source = ROOT / "qa_runtime.py"
     for key, value in REQUEST.get("env", {}).items():

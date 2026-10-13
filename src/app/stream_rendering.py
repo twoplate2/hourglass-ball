@@ -1,6 +1,6 @@
 """Shared stream drawing math; never changes particle motion or sand mass."""
 
-DENSITY_PAD_PX = 16.0
+DENSITY_PAD_PX = 20.0
 CONTACT_REACH_PX = 20.0
 EDGE_PERIOD = 1024.0
 

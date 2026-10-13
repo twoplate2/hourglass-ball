@@ -21,10 +21,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adb", required=True)
     parser.add_argument("--mode", choices=("units", "matrix", "benchmark"), required=True)
-    parser.add_argument("--arm", choices=("current", "apk296"), default="current")
+    parser.add_argument("--arm", choices=("current", "apk296", "source"), default="current")
+    parser.add_argument("--source-archive", type=Path)
     parser.add_argument("--apk", type=Path)
     parser.add_argument("--label", required=True)
     parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--cases", type=Path, help="Explicit cases for a narrowly scoped matrix")
     args = parser.parse_args()
     if not args.label or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.label):
         raise ValueError("Label must use lowercase ASCII letters, digits, '-' or '_'")
@@ -71,6 +73,10 @@ def main():
         for i, elapsed in enumerate((63.96, 63.98, 64.0, 64.02, 64.04)):
             request["cases"].append({"name": "long64-%d" % i, "period": 600,
                                      "color": 0, "elapsed": elapsed})
+        if args.cases:
+            request["cases"] = json.loads(args.cases.read_text(encoding="utf-8"))
+            if not request["cases"]:
+                raise ValueError("An empty appearance scope cannot pass")
     request_path = folder / "request.json"
     request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
     archive = folder / "probe.tar"
@@ -81,6 +87,20 @@ def main():
                            (ROOT / "src/tools/test_stream_rendering.py", "_qa/test_stream_rendering.py")):
             bundle.add(path, arcname=name, recursive=False)
             files.append({"path": name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+        if args.arm == "source":
+            if not args.source_archive:
+                raise ValueError("The source baseline requires its original archive")
+            with tarfile.open(args.source_archive) as previous:
+                for member in previous.getmembers():
+                    name = PurePosixPath(member.name)
+                    if not member.isfile() or name.is_absolute() or ".." in name.parts:
+                        continue
+                    content = previous.extractfile(member).read()
+                    target = "_qa/baseline/" + name.as_posix()
+                    info = tarfile.TarInfo(target)
+                    info.size, info.mode = len(content), 0o644
+                    bundle.addfile(info, io.BytesIO(content))
+                    files.append({"path": target, "sha256": hashlib.sha256(content).hexdigest()})
         if args.arm == "apk296":
             if not args.apk:
                 raise ValueError("The baseline arm requires the original APK")

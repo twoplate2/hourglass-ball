@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "rules_revision": "2026-10-13.5",
+  "rules_snapshot": "design/checks/records/v2.98/evidence/rules-2026-10-13.5.json",
+  "date": "2026-10-13",
+  "source_version": "2.98",
+  "package_version": "2.96",
+  "environment": "指定 MuMu；2.98 源码覆盖；50 秒金沙、默认颗粒与起伏，四个指定时刻的外观对照",
+  "review_status": "pending",
+  "conclusion": "按用户反馈将绘制拖尾补量从 16px 小幅提高到 20px，减少沙柱内的可见空隙，宽度、粒子数和物理不变。只对照开局、首次落地、中段、末段四组外观；预期沙柱及版本文字范围之外 0 像素差异。没有新增帧率、音频或完整应用回归。仍是源码覆盖，不是新 APK 安装证明。",
+  "screenshots": [{"path": "design/images/mumu-2.98-20261013/density-comparison.png", "caption": "左为调密前 2.97，右为调密后 2.98；四个指定时刻同条件原像素裁图，属于逻辑推进取图。", "max_width": 400}],
+  "scope": [
+    "本轮仅修改外观密度和修正 APK 构建步骤。外观范围为 50 秒金沙的 1.2 / 2.1 / 25 / 45 秒四图，不重跑所有配置。",
+    "前后粒子数量、沙量账本相同，沙柱以外无像素变化；出口连接和细碎外缘没有随调密丢失。明细在 evidence/density-comparison.json。",
+    "2.97 构建失败是打包任务重复运行目录检查时缺少 Pillow；基础任务已检查并通过，该重复步骤已移除，不跳过真正的基础检查。"
+  ],
+  "observations": [],
+  "results": {
+    "U00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "U03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "L03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "N03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "UN02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "NS03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "S04": {
+      "status": "partial",
+      "actual": "本配置初步观察通过：开局与落地后一起调密，没有重新引入落地前后整柱换密度；其他配置本轮未测。",
+      "evidence": [{"path": "design/checks/records/v2.98/evidence/density-comparison.json", "sha256": "86409ef0f5c629f45b672777f97d06f9cced6b46b552823093d272c13cc3d9fe", "label": "四组同条件外观对照"}]
+    },
+    "S05": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "SL02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "C03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X00": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X01": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X02": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    },
+    "X03": {
+      "status": "not_tested",
+      "actual": "未执行，需要按此编号的规则逐项检查。",
+      "evidence": []
+    }
+  },
+  "historical_automation": [],
+  "limitations": [
+    "本次只针对密度调整检查外观，不是全部 36 项验收；帧率后续另测。",
+    "源码版本 2.98，安装容器 APK 仍为 2.96；指定时刻图不是实时过程录像。"
+  ]
+}

@@ -150,6 +150,8 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | `design/media/v2.96-20261013-165114/` | 完整原速录像、5 种循环短片、开局/末段片段与 manifest.json；记录 APK 摘要、运行代码、原始配置及采集时序 |
 | `design/images/mumu-2.97-20261013/session-20261013-193739/` | 三项修复第三轮的真实阶段原图与连续裁图；前两轮试验归档暂存区 |
 | `design/images/mumu-2.97-20261013/focused/` | 最新源码与原 APK 的同条件外观对照，以及 64 秒附近连续指定时刻裁图 |
+| `design/images/mumu-2.98-20261013/` | 用户要求小幅调密后的四组同条件外观对照 |
+| [design/checks/records/v2.98/20261013.json](../design/checks/records/v2.98/20261013.json) / [调密记录](../design/checks/records/v2.98/20261013.html) | 仅针对疏密调整的外观观察与对照明细，不含帧率或全应用回归 |
 | `design/media/v2.97-20261013-193739/` | 三项修复的完整/开局/暂停录像与出口、边缘原速循环；源码为 2.97，容器 APK 为 2.96 |
 | [design/checks/README.md](../design/checks/README.md) / [index.html](../design/checks/index.html) | rules（规则）、records（版本记录）、notes（备注）的入口及资料生成方法 |
 | [design/checks/style.css](../design/checks/style.css) | 检查资料共用样式，章节、局部图、操作与预期分别呈现 |

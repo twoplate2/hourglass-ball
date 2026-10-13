@@ -88,6 +88,8 @@ def main():
     parser.add_argument("--before", type=Path)
     parser.add_argument("--after", type=Path)
     parser.add_argument("--bench-root", type=Path)
+    parser.add_argument("--before-label", default="APK 2.96")
+    parser.add_argument("--after-label", default="source 2.97")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.bench_root:
@@ -100,8 +102,8 @@ def main():
     before = json.loads(before_path.read_text(encoding="utf-8"))
     after = json.loads(after_path.read_text(encoding="utf-8"))
     originals = {frame["name"]: frame for frame in before["frames"]}
-    if set(originals) != {frame["name"] for frame in after["frames"]}:
-        raise ValueError("The two matrix runs do not cover the same cases")
+    if not {frame["name"] for frame in after["frames"]}.issubset(originals):
+        raise ValueError("The baseline does not cover the requested appearance cases")
     rows = []
     for current in after["frames"]:
         previous = originals[current["name"]]
@@ -153,8 +155,9 @@ def main():
     }
     (args.output / "comparison.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
-    names = ["p50-stage2", "p50-stage4", "p50-stage5", "p50-stage6",
-             "color2-t12", "color5-t450"]
+    available = {r["name"] for r in after["frames"]}
+    names = [n for n in ("p50-stage2", "p50-stage4", "p50-stage5", "p50-stage6",
+                        "color2-t12", "color5-t450") if n in available]
     pairs = Image.new("RGB", (400, len(names) * 330), "white")
     draw = ImageDraw.Draw(pairs)
     for i, name in enumerate(names):
@@ -168,7 +171,8 @@ def main():
                 crop = image.crop((w // 2 - half, top, w // 2 + half, bottom))
                 pairs.paste(crop, (j * 200 + (200 - crop.width) // 2, i * 330 + 25))
             draw.text((j * 200 + 4, i * 330 + 5),
-                      ("APK 2.96" if j == 0 else "source 2.97") + " | " + name, fill="black")
+                      (args.before_label if j == 0 else args.after_label) + " | " + name,
+                      fill="black")
     pairs.save(args.output / "before-after.png")
 
     frames = [r for r in after["frames"] if r["name"].startswith("long64-")]
@@ -181,7 +185,8 @@ def main():
             crop = image.crop((w // 2 - 70, top, w // 2 + 70, top + 400))
             sheet.paste(crop, (i * 140, 30))
         draw.text((i * 140 + 4, 7), "%.2fs" % frame["elapsed_actual"], fill="black")
-    sheet.save(args.output / "long64-contact.png")
+    if frames:
+        sheet.save(args.output / "long64-contact.png")
     print("MUMU_COMPARE cases=%s counts_equal=%s ledger_equal=%s unexpected_pixels=%s" %
           (report["cases"], report["same_particle_counts"], report["same_sand_ledgers"],
            report["outside_expected_pixels"]))

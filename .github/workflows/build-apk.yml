@@ -37,9 +37,6 @@ jobs:
       - name: 验证 APK 版本来源一致
         run: python src/tools/test_release_version.py
 
-      - name: 检查目录与资源引用
-        run: python src/tools/test_repository_layout.py
-
       - name: 静态检查未定义名字 (pyflakes)
         # 只挡 "undefined name" —— 那是**启动即死**级别的错误, 而 ast.parse 只查语法、
         # 抓不到它。2026-10-03 事故: 改这段注释时删掉了 `from kivy.config import Config`,

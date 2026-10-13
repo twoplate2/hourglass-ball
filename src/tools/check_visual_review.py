@@ -52,12 +52,13 @@ def main():
             if digest(folder / frame["file"]) != frame["sha256"]:
                 raise ValueError("Missing or changed captured frame")
     compared = read(review["comparison"])
-    if (compared["cases"] != 39 or not compared["same_particle_counts"]
+    if (compared["cases"] != review["expected_cases"] or not compared["same_particle_counts"]
             or not compared["same_sand_ledgers"] or compared["outside_expected_pixels"]):
         raise ValueError("Unexpected collateral appearance changes")
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT).strip():
         raise ValueError("Commit the reviewed work before pushing")
-    print("VISUAL_REVIEW_OK scope=appearance cases=39; not a full or performance acceptance")
+    print("VISUAL_REVIEW_OK scope=appearance cases=%s; not a full or performance acceptance" %
+          compared["cases"])
 
 
 if __name__ == "__main__":
