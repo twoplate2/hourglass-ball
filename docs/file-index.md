@@ -59,7 +59,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | [android_hook.py](../src/tools/android_hook.py) | 构建时给 Manifest 注入方向与可缩放属性，不直接启动 |
 | [Pymunk 构建配方](../src/build/recipes/pymunk/__init__.py) | Android 交叉编译 Pymunk 7.3，不沿用 p4a 内置的 6.0 配方；配方目录不打入 APK |
 | [verify_pymunk_integration.py](../src/tools/verify_pymunk_integration.py) | 隐藏 PC 窗口验证真实应用的新碰撞引擎、计时沙量、暂停重置收尾及相邻画面；不测试帧率或音频 |
-| [check_pymunk_release.py](../src/tools/check_pymunk_release.py) | 推送前检查 PC 接入测试、已审阅配图、源码摘要与已提交内容，不接受部分或中断测试 |
+| [check_pymunk_release.py](../src/tools/check_pymunk_release.py) | 推送前检查 PC 接入测试、已审阅配图、源码摘要与已提交内容；只递增版本时绑定原测试提交复用结果，不接受沙流源码变化、部分或中断测试 |
 | [test_pymunk_release.py](../src/tools/test_pymunk_release.py) | 新专项发布检查的正反例：通过、漏测、失败、空图、路径越界、过期报告与未提交源码 |
 | [check_release_version.py](../src/tools/check_release_version.py) | 检查 `--base` / `--head` 的版本递增与中文标题，兼容旧目录历史 |
 | [test_release_version.py](../src/tools/test_release_version.py) | 无窗口测试版本规则和统一版本来源 |

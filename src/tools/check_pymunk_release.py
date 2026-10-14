@@ -1,10 +1,13 @@
 """Validate scoped PC contact-engine evidence; never treat it as Android/FPS QA."""
 
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
 import subprocess
+
+from check_release_version import parse_version, validate_increment
 
 ROOT = Path(__file__).resolve().parents[2]
 REQUIRED = {
@@ -31,6 +34,32 @@ def local(relative):
     if not path.is_relative_to(ROOT.resolve()) or not path.is_file():
         raise ValueError("Missing evidence or path outside workspace: " + relative)
     return path
+
+
+def version_only(source, expected_digest, source_commit, measured_version):
+    before = subprocess.check_output(
+        ["git", "show", source_commit + ":src/app/app_version.py"], cwd=ROOT)
+    normalized = before.replace(b"\r\n", b"\n")
+    identities = {hashlib.sha256(before).hexdigest(),
+                  hashlib.sha256(normalized.replace(b"\n", b"\r\n")).hexdigest()}
+    if expected_digest not in identities:
+        raise ValueError("Version baseline is not the tested source")
+    old, new = ast.parse(before), ast.parse(source.read_text(encoding="utf-8"))
+    before_version = parse_version(before.decode("utf-8"))
+    after_version = parse_version(source.read_text(encoding="utf-8"))
+    if ".".join(map(str, before_version)) != measured_version:
+        raise ValueError("Version baseline differs from the measured report")
+    validate_increment(before_version, after_version)
+    for tree in (old, new):
+        assignments = [node for node in tree.body if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == "APP_VERSION"
+                               for target in node.targets)]
+        if len(assignments) != 1:
+            raise ValueError("Expected a single version assignment")
+        assignments[0].value = ast.Constant(value="version-only")
+    if ast.dump(old) != ast.dump(new):
+        raise ValueError("Change is not a version-only increment")
+    return ".".join(map(str, after_version))
 
 
 def validate(review, committed=True):
@@ -74,7 +103,10 @@ def validate(review, committed=True):
     for name, value in sources.items():
         source = local(name)
         if digest(source) != value:
-            raise ValueError("Code changed after verification: " + name)
+            if name != "src/app/app_version.py" or not review.get("source_commit"):
+                raise ValueError("Code changed after verification: " + name)
+            report["release_version"] = version_only(
+                source, value, review["source_commit"], report["version"])
         if committed:
             content = subprocess.check_output(["git", "show", "HEAD:" + name], cwd=ROOT)
             if content.replace(b"\r\n", b"\n") != source.read_bytes().replace(b"\r\n", b"\n"):
@@ -88,8 +120,8 @@ def main():
     parser.add_argument("--working-tree", action="store_true")
     args = parser.parse_args()
     report = validate(json.loads(args.review.read_text(encoding="utf-8")), not args.working_tree)
-    print("PYMUNK_RELEASE_OK version=%s scope=PC contacts+appearance; no FPS/audio/Android claim"
-          % report["version"])
+    print("PYMUNK_RELEASE_OK version=%s measured=%s scope=PC contacts+appearance; no FPS/audio/Android claim"
+          % (report.get("release_version", report["version"]), report["version"]))
 
 
 if __name__ == "__main__":

@@ -118,6 +118,45 @@ class ReleaseEvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gate.validate(self.write_report(), committed=True)
 
+    def version_fixture(self):
+        path = self.root / "src/app/app_version.py"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        before = b'"""Version source."""\r\nAPP_VERSION = "3.1"\r\n'
+        path.write_bytes(before)
+        self.report["sources"]["src/app/app_version.py"] = gate.digest(path)
+        self.review["source_commit"] = "tested-commit"
+        return path, before
+
+    def test_allows_only_verified_version_increment(self):
+        path, before = self.version_fixture()
+        path.write_bytes(before.replace(b"3.1", b"3.2"))
+        with patch.object(gate.subprocess, "check_output", return_value=before.replace(b"\r\n", b"\n")):
+            self.assertEqual(self.validate()["release_version"], "3.2")
+
+    def test_version_reuse_rejects_unbound_baseline(self):
+        path, before = self.version_fixture()
+        path.write_bytes(before.replace(b"3.1", b"3.2"))
+        with patch.object(gate.subprocess, "check_output", return_value=b'APP_VERSION = "3.1"\n'):
+            with self.assertRaises(ValueError):
+                self.validate()
+        del self.review["source_commit"]
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_version_reuse_rejects_code_change_and_invalid_increment(self):
+        path, before = self.version_fixture()
+        with patch.object(gate.subprocess, "check_output", return_value=before):
+            for after in (b'APP_VERSION = "3.2"\nextra = True\n',
+                          before.replace(b"3.1", b"3.0"),
+                          before.replace(b"3.1", b"3.9")):
+                path.write_bytes(after)
+                with self.subTest(after=after), self.assertRaises(ValueError):
+                    self.validate()
+            path.write_bytes(before.replace(b"3.1", b"3.2"))
+            self.report["version"] = "3.0"
+            with self.assertRaises(ValueError):
+                self.validate()
+
 
 if __name__ == "__main__":
     unittest.main()

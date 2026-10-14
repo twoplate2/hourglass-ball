@@ -137,6 +137,20 @@ class LayoutTests(unittest.TestCase):
             snapshot_ids = {case["id"] for group in snapshot["groups"] for case in group["cases"]}
             sand_docs.validate_results(record, snapshot_ids)
 
+    def test_committed_report_keeps_evidence_bytes(self):
+        import hashlib
+        import subprocess
+        path = "design/checks/records/v3.1/evidence/report.json"
+        record = json.loads((ROOT / "design/checks/records/v3.1/20261014.json").read_text(
+            encoding="utf-8"))
+        expected = record["results"]["C01"]["evidence"][0]["sha256"]
+        # Local bytes alone miss Git's CRLF-to-LF conversion during staging.
+        content = subprocess.check_output(["git", "show", ":" + path], cwd=ROOT)
+        self.assertEqual(hashlib.sha256(content).hexdigest(), expected)
+        attributes = subprocess.check_output(["git", "check-attr", "text", "--", path],
+                                             cwd=ROOT, text=True)
+        self.assertIn("text: unset", attributes)
+
     def test_sand_records_reject_missing_and_invalid_results(self):
         record = {"results": {"U00": {"status": "not_tested", "actual": "未执行"}}}
         sand_docs.validate_results(record, {"U00"})
