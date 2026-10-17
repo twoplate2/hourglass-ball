@@ -11,7 +11,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         exit 1
     fi
     if [ "$checked" = 0 ]; then
-        python -B src/tools/check_pymunk_release.py || exit 1
+        git diff --quiet HEAD -- main.py buildozer.spec src .githooks .github design/checks/rules || {
+            echo "Release sources must match the pushed commit."
+            exit 1
+        }
+        python -B src/tools/check_rollback_release.py || exit 1
+        python -B src/tools/test_keep_awake.py || exit 1
+        python -B src/tools/verify_keep_awake_runtime.py || exit 1
+        python -B src/tools/run_regression.py --profile core || exit 1
         checked=1
     fi
     case "$remote_ref" in

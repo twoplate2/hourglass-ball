@@ -20,7 +20,7 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 | [handoff-current.txt](../handoff-current.txt) | 当前交接入口；正文按 handoff 技能存入系统 `%TEMP%`，不进入 APK |
 | [.gitignore](../.gitignore) | 忽略输出、原始素材和缓存，不控制 APK 打包 |
 | [.gitattributes](../.gitattributes) | Git 行尾等文件属性 |
-| [.githooks/pre-push](../.githooks/pre-push) | 本次推送核对 Pymunk 的 PC 专项结果、外观、已提交源码身份和版本标题；不要求帧率或完整回归 |
+| [.githooks/pre-push](../.githooks/pre-push) | 核对 3.0 回退身份、防息屏生命周期、基础检查、已提交源码和版本标题；不要求帧率或完整回归 |
 | [.github/workflows/build-apk.yml](../.github/workflows/build-apk.yml) | GitHub Actions 构建、检查、发布 |
 | [.github/workflows/check-file-index.yml](../.github/workflows/check-file-index.yml) | 每日北京时间 09:00 或手动检查索引和目录布局；推送时复用打包内的基础检查，不重复触发独立任务 |
 | [.github/workflows/check-regression.yml](../.github/workflows/check-regression.yml) | CI 目录、版本、语法和资料基础检查；失败拦截构建，不执行完整应用回归 |
@@ -34,8 +34,9 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 |---|---|
 | [__init__.py](../src/app/__init__.py) | 应用 Python 包入口 |
 | [app_version.py](../src/app/app_version.py) | APK、Benchmark 和复制报告共用的 `APP_VERSION` |
+| [keep_awake.py](../src/app/keep_awake.py) | 前台防息屏，Android UI 线程窗口常亮及 Windows 空闲休眠阻止；后台和退出释放 |
 | [pymunk_sand.py](../src/app/pymunk_sand.py) | 06 接入游戏后的真实颗粒碰撞、颈部供沙、下沙接触与粒子绘制；上下沙体保留计时体积模型 |
-| [requirements-pc.txt](../src/app/requirements-pc.txt) | PC 运行依赖，锁定与 06 相同的 Pymunk 7.3 |
+| [requirements-pc.txt](../src/app/requirements-pc.txt) | 当前 PC 运行依赖；回退后不需要 Pymunk |
 | [frame_benchmark.py](../src/app/frame_benchmark.py) | 帧间隔采样、统计、曲线、报告与测试状态恢复 |
 | [flow_numpy.py](../src/app/flow_numpy.py) | 主沙流的向量化物理内核，与标量路径保持等价 |
 | [splash_motion.py](../src/app/splash_motion.py) | 飞溅弹道、沙面阻尼和重新入流剔除 |
@@ -57,6 +58,9 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | 文件 | 用途与限制 |
 |---|---|
 | [android_hook.py](../src/tools/android_hook.py) | 构建时给 Manifest 注入方向与可缩放属性，不直接启动 |
+| [check_rollback_release.py](../src/tools/check_rollback_release.py) | 对照 3.0 提交逐模块验证回退，主程序仅允许常亮钩子变化 |
+| [test_keep_awake.py](../src/tools/test_keep_awake.py) | 防息屏失败用例：UI 线程、嵌套常量、排队竞态、恢复、Windows 双请求和错误日志 |
+| [verify_keep_awake_runtime.py](../src/tools/verify_keep_awake_runtime.py) | 真正隐藏窗口及独立设置的实际应用生命周期检查，Windows 核对原生电源请求 |
 | [Pymunk 构建配方](../src/build/recipes/pymunk/__init__.py) | Android 交叉编译 Pymunk 7.3，不沿用 p4a 内置的 6.0 配方；配方目录不打入 APK |
 | [verify_pymunk_integration.py](../src/tools/verify_pymunk_integration.py) | 隐藏 PC 窗口验证真实应用的新碰撞引擎、计时沙量、暂停重置收尾及相邻画面；不测试帧率或音频 |
 | [check_pymunk_release.py](../src/tools/check_pymunk_release.py) | 推送前检查 PC 接入测试、已审阅配图、源码摘要与已提交内容；只递增版本时绑定原测试提交复用结果，不接受沙流源码变化、部分或中断测试 |
@@ -64,7 +68,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | [check_release_version.py](../src/tools/check_release_version.py) | 检查 `--base` / `--head` 的版本递增与中文标题，兼容旧目录历史 |
 | [test_release_version.py](../src/tools/test_release_version.py) | 无窗口测试版本规则和统一版本来源 |
 | [test_repository_layout.py](../src/tools/test_repository_layout.py) | 检查资源路径、文档链接、文件索引和暂存区隔离 |
-| [_prepush.sh](../src/tools/_prepush.sh) | 兼容 shell 入口，核对此次 Pymunk 接入的 PC 证据；不自动运行全量测试 |
+| [_prepush.sh](../src/tools/_prepush.sh) | 兼容 shell 入口，运行回退、防息屏和基础检查；不自动运行全量测试 |
 | [run_regression.py](../src/tools/run_regression.py) | 关联测试选择、完整执行、完成检查、报告摘要与人工证据核对；PC 限定 |
 | [test_regression_gate.py](../src/tools/test_regression_gate.py) | 正负对照验证漏测、超时、失败、旧报告和坏图片确实会阻挡 |
 | [check_design_pages.py](../src/tools/check_design_pages.py) | 解析所有设计 HTML，检查图片解码、相对链接与页内锚点；浏览器实显仍需另验 |

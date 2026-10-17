@@ -130,9 +130,7 @@ import gc
 
 from app.app_version import APP_VERSION
 from app.stream_rendering import trail_length
-from app.pymunk_sand import GrainCanvas, draw_widget, update_widget
-
-PYMUNK_SAND = os.environ.get("HG_SAND_ENGINE", "pymunk") == "pymunk"
+from app.keep_awake import KeepAwake
 
 # ---- 生产: 关掉 Kivy Clock 的软件节拍(仅 Android) ----
 # kivy/clock.py `ClockBaseBehavior.idle()` + `_check_ready`(实测 resolution = 1/(3*fps)):
@@ -3915,7 +3913,6 @@ class HourglassWidget(Widget):
         self._rebuild_color_table()
 
         self._geom_ready = False
-        self._pymunk_flow = None
         self._vol_to_height = []
 
         self.pn = 0
@@ -4288,12 +4285,6 @@ class HourglassWidget(Widget):
                 self._p_refresh_view()
         self._build_glass_shell()
         self._build_dynamic_canvas()
-        if PYMUNK_SAND:
-            self._pymunk_canvas = GrainCanvas(
-                self.canvas, before=self._bore_color,
-                bulk_canvas=self._sand_flow_contexts[1] if self._sand_flow_contexts else None)
-            if self._pymunk_flow is not None:
-                self._pymunk_flow.remap(self)
 
     def _raw_height_ratio(self, vol_ratio):
         """体积比 → 高度比 raw=v⁻¹(vol)。
@@ -5143,7 +5134,6 @@ class HourglassWidget(Widget):
 
     def _reset_run_state(self):
         self._stop_completion_sound()
-        self._pymunk_flow = None
         self.pn = 0
         self._p_refresh_view()
         self.particle_acc = 0.0
@@ -6347,9 +6337,6 @@ class HourglassWidget(Widget):
     def update_particles(self, dt, flow_dt=None):
         if not self._geom_ready:
             return
-        if PYMUNK_SAND:
-            update_widget(self, dt if flow_dt is None else flow_dt, SAND_MATERIAL_COARSE)
-            return
         self._splash_jet_cache = None
         self._splash_rows_cache = None
         effect_dt = dt
@@ -7065,8 +7052,6 @@ class HourglassWidget(Widget):
         if material is None:
             return False
         self.rebind_sand_material(material)     # ⚠️ 轻量绑定, 不重建画布
-        if PYMUNK_SAND and self._pymunk_flow is not None:
-            self._pymunk_flow.set_coarse(coarse)
         return True
 
     def set_rough_level(self, label):
@@ -8269,9 +8254,6 @@ class HourglassWidget(Widget):
                     _b.clear(); _b.flush()
         else:
             self._draw_mound_shape(h_mound)
-        if PYMUNK_SAND:
-            draw_widget(self, colors, remaining)
-            return
         # The shared surface, not an independent completion timer, owns the neck.
         side = self._neck_sand_side()
         # 🔴 **消融(2026-10-10)**: 标记文件 `<app>/neckquads` ⇒ 把颈部沙柱四边形整条清空。
@@ -9235,7 +9217,14 @@ class HourglassWidget(Widget):
 class HourglassApp(App):
     title = "跳跳的沙漏"
 
+    def _set_keep_awake(self, enabled):
+        if not hasattr(self, "_keep_awake"):
+            from kivy.logger import Logger
+            self._keep_awake = KeepAwake(platform, Window, Logger)
+        self._keep_awake.set_enabled(enabled)
+
     def on_start(self):
+        self._set_keep_awake(True)
         # 🔴 **2026-10-10: 设备端末段自检钩子**(仅在存在 `tailcheck` 标记文件时生效)。
         #    用户要求「必须在安卓上通过测试才行」, 而墙钟截图追一个 0.2~0.4s 的窗口追不到
         #    (连试 5 次) ⇒ 换成确定性自检: 只推进物理、不渲染, 结果进 logcat 与
@@ -10612,6 +10601,7 @@ class HourglassApp(App):
         popup.dismiss()
 
     def on_pause(self):
+        self._set_keep_awake(False)
         if self._benchmark_active():
             self._benchmark_runner.cancel()
         self.hourglass._stop_completion_sound()
@@ -10627,6 +10617,7 @@ class HourglassApp(App):
         return True
 
     def on_stop(self):
+        self._set_keep_awake(False)
         self._benchmark_closing = True
         if self._benchmark_active():
             self._benchmark_runner.cancel()
@@ -10639,6 +10630,7 @@ class HourglassApp(App):
         self.hourglass._stop_sound()
 
     def on_resume(self):
+        self._set_keep_awake(True)
         if platform == "android":
             self.hourglass._stop_completion_sound()
             if self.hourglass._completion_spoken is not None:

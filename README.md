@@ -1,6 +1,6 @@
 # 跳跳的沙漏
 
-Python + Kivy 沙漏计时应用，使用 Pymunk 处理颈部、沙柱与落地颗粒碰撞，NumPy 处理材质等数据。PC 用于运行和验证，Android APK 由 GitHub Actions 构建。
+Python + Kivy 沙漏计时应用，已恢复 3.0 的沙流、计时和渲染实现，NumPy 处理材质等数据。PC 用于运行和验证，Android APK 由 GitHub Actions 构建。
 版本唯一来源是 `src/app/app_version.py`，不在文档中另写版本号。
 
 ## PC 运行
@@ -11,17 +11,14 @@ python main.py
 ```
 
 沙漏支持开始、暂停、重置、周期和配色设置、循环音效、完成播报及内置 Benchmark。
-只在 PC 上运行和验证，不操作 MuMu、ADB 或真机。自动取图使用隐藏窗口和独立设置目录。
+自动取图使用隐藏窗口和独立设置目录。设备验证仅使用预留 MuMu，不连接真机。
 
-## 沙粒接入
+## 前台常亮
 
-沿用 06 的两层独立 2D 颗粒碰撞，保留上下沙体的计时体积；不是整只沙漏的 3D 模拟。
-出口附近、下落沙粒和落地接触由 Pymunk 求解，上半颈部延续沙体材质和计时体积。
-边缘来自真实颗粒的位置，没有额外摇摆或固定沙柱轮廓；细颈不重复逐颗模拟上方宽漏斗中的沙体。
-粒径按有效瓶颈内宽缩放，颗粒档位同步影响沙体纹理和移动沙粒，颜色纹理共享。
-当前摩擦为 0.90、回弹为 0.03，入口速度为 35、重力为 450，坐标按内球半径 166 归一化。
-通常按 120 Hz 求解，细粒自动缩短步长；极短计时缩时播放，暂停一起冻结。
-计时沙量守恒；只有已经全部落入下沙体后，才清理剩余的无沙量代理粒。
+应用在前台时禁止自动息屏，包括未开始、计时中、暂停、完成和 Benchmark。
+Android 复用弹珠项目的 UI 线程 `FLAG_KEEP_SCREEN_ON` 窗口标志，不需要唤醒锁权限；
+Windows 同时阻止显示器及系统空闲休眠。切后台或退出恢复系统策略，返回前台重新申请。
+不阻止用户手动锁屏、电源键或系统强制关机。历史 Pymunk 工具和记录保留供查阅，不再接入应用。
 
 ## 开发检查
 
@@ -34,9 +31,9 @@ python src/tools/run_regression.py --profile core
 PC 结果不能直接当成 Android 性能结论；检查范围与发布条件见
 [改完以后怎么检查](design/checks/README.md)、[QA 纪律](design/checks/notes/qa-rules.md)。
 外观改动只回归本次外观及相邻连接；帧率、音频和完整回归由用户另行安排。
-本次 Pymunk 接入使用 `python -B src/tools/verify_pymunk_integration.py` 核对真实应用，
-推送前用 `check_pymunk_release.py` 核对完整的专项结果、外观记录、源码身份和版本。
-它不是 Android、音频或帧率验收；上下沙体仍使用现有计时体积模型，不宣称整只沙漏是 3D 物理。
+本次发布用 `check_rollback_release.py` 逐模块核对 3.0 身份，主程序仅允许前台常亮钩子。
+`test_keep_awake.py` 检查 Android UI 线程、窗口标志和时序，`verify_keep_awake_runtime.py`
+检查隐藏 PC 应用生命周期和 Windows 原生请求；这些不是 Android 设备、音频或帧率验收。
 
 ## 构建
 
