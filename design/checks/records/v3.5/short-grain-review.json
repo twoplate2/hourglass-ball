@@ -1,0 +1,40 @@
+{
+  "scope": "short-grain-pc-visual",
+  "appearance": "passed",
+  "reviewer": "root",
+  "release_version": "3.5",
+  "baseline_commit": "9f675a87c51d40b8ede49e2c810fe8726f2415ee",
+  "reviewed_goals": {
+    "short_grains": true,
+    "no_long_lanes": true,
+    "contact": true,
+    "compact_splash": true,
+    "full_cycle": true
+  },
+  "archive_sha256": "6f3f25ab86fb55185912ae83a06c52cd6cd39e33762478736e66c56ddc5fb507",
+  "build_spec_sha256_lf": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+  "validation_sources": {
+    "src/tools/check_short_grain_release.py": "893065cacf8e5654ff9c9eda847cb0ea3fd714c6b0bb30f5e1dd7eb051244fc4",
+    "src/tools/check_short_grain_visual.py": "34321f2896f4d6a252b9d1c8783ca40062a48eedf4277d345d4e2b39aa48ae2f",
+    "src/tools/record_short_grain.py": "66617c689af1cfee5774d58178cf202fab5d6a0f78fd8d37f5774bcf10a592a2",
+    "src/tools/verify_short_grain_runtime.py": "4a322ae627dd39478c8ba1a4e14f9557c93b843849bba8c140e8f613713ccc85",
+    "src/tools/test_short_grain_release.py": "3b98c23bae74425d7475b8530530586cdd813f898273f56ca12e7f44ac4a4ef1",
+    "src/tools/test_short_grain.py": "a3b034116e71275a4d3a84c8f01d7ecf42ff61f4c681bb8c521cba533cb983d5"
+  },
+  "reviewed_files": {
+    "before-after.png": "2080246c023a18f4e511355c49c610dddc1b343a039ff6f9d3153e5d43949496",
+    "colors-review.png": "ce44b9ac0ab89c1adff957395b406dcbb227844aa80b43770514049d16b9add3",
+    "full-cycle-review.png": "60f7648446fbf88f4365713e2573f8d808108ecb6438240089744df22c65901b",
+    "phase-review.png": "96b8eff647803308141a328087e474907562747155f12fc50c69e364932f52e5",
+    "video-after2.mp4": "b0844c312c72764c066eea4bfc12d681b753cd1a9b27a81031365586489c8fd3",
+    "video-before2.mp4": "429c5e38726a3ced3c04cf8bbcafd3a624d8cb619e4c3fe72dfbaf2809e74eaf"
+  },
+  "notes": [
+    "PC only; no audio, performance or Android-device acceptance.",
+    "110 final stage frames, two 60-second real-frame recordings; 12s pause, 15s resume.",
+    "Main particles, mass ledger and glass geometry match baseline. Splash trajectories and short-grain coverage intentionally differ.",
+    "Original long transparent lanes fail the new pixel gate. Invalid frozen recordings retained locally, excluded here.",
+    "Baseline working-tree CRLF and Git LF forms are reconstructed only when their exact SHA256 matches the original capture.",
+    "All colors and grain extremes reviewed; final tail-clock change does not change this appearance design."
+  ]
+}

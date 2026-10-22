@@ -3,7 +3,9 @@
 set -eu
 cd "$(dirname "$0")/../.."
 python -B src/tools/test_material_release.py
-python -B src/tools/check_material_release.py
+python -B src/tools/check_short_grain_release.py
+python -B src/tools/test_short_grain.py
+python -B src/tools/test_short_grain_release.py
 python -B src/tools/test_grain_style.py
 python -B src/tools/test_ui_polish.py
 python -B src/tools/test_keep_awake.py

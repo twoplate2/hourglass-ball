@@ -102,7 +102,7 @@ class GrainStyleTests(unittest.TestCase):
                             self.assertTrue(all(math.isfinite(v) for v in (depth, dx, dy)))
                             self.assertGreaterEqual(depth, 0.0)
                             self.assertLessEqual(depth, min(0.16 * diameter, thickness) + 1e-12)
-                            self.assertLessEqual(math.hypot(dx, dy), 0.14 * diameter + 1e-12)
+                            self.assertLessEqual(math.hypot(dx, dy), 0.28 * diameter + 1e-12)
                             self.assertGreaterEqual(dx * fraction, 0.0)
                             if dx:
                                 self.assertAlmostEqual(dy / dx, slope, places=10)

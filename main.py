@@ -6255,7 +6255,9 @@ class HourglassWidget(Widget):
         reference = self._splash_reference_speed or float(v_impact)
         strength = reference * (0.90 + 0.10 * min(1.0, v_impact / reference))
         speed = strength * gain * self._splash_speed_scale
-        vx, vy = side * math.sin(angle) * speed, abs(math.cos(angle)) * speed
+        # Keep the emitter and grain sizes; shorten the airborne arc so impacts
+        # settle near the contact patch instead of forming a wide spray cloud.
+        vx, vy = side * math.sin(angle) * speed * 0.55, abs(math.cos(angle)) * speed * 0.35
         scale = self._particle_motion_scale
         gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
                            else scale ** SPLASH_G_SCALE) * gd
@@ -10691,14 +10693,13 @@ class HourglassApp(App):
 # 表现为"一整段周期帧率都上不去"。
 # 批处理把同色同线宽的粒子并进一个 Mesh, 端点走顶点纹理;几何(含圆头帽)与
 # 逐 Line 版一致, 实测画面逐像素同一。同机同配置: 15s 47.9→65.4fps, Canvas 8.46→3.06ms。
-FLOW_RENDERER = os.environ.get("HG_FLOW_RENDERER") or "texture"   # line | batch | gpu | texture
-# ⚠️ HG_FLOW_RENDERER 只给**诊断**用: 桌面平时不装这套渲染器(PC 的 GL 余量大, 测不出
-# 它的代价), 但"每帧触发多少次索引重建"这个**计数**是设备无关的, 桌面量得准。
-# 不设这个变量时行为与以前完全一致。
+FLOW_RENDERER = os.environ.get("HG_FLOW_RENDERER") or "grain"   # grain | line | batch | gpu | texture
+# PC 与 Android 默认都使用短颗粒绘制，避免只在诊断路径看见改善。
+# texture / line / batch / gpu 保留为显式旧路径；新绘制失败时回退 Line。
 
 
 def _install_flow_renderer(widget_class):
-    """装载批处理沙流渲染器; 任何不满足都退回原 Line 池, 不给出沙制造风险。
+    """装载沙流渲染器；短颗粒不依赖顶点纹理，旧 texture 路径仍单独探测。
 
     注意 ①: 打包进 APK 的只有 tools/*.pyc, 所以按 sys.path + import 装载 ——
             源码缺失时 CPython 会走 sourceless import, 不能按 .py 路径装载。
@@ -10711,7 +10712,7 @@ def _install_flow_renderer(widget_class):
     tools = _RUNTIME_DIR
     if tools not in sys.path:
         sys.path.insert(0, tools)
-    target = {"batch": "flow_batch_experiment",
+    target = {"grain": "short_grain_stream", "batch": "flow_batch_experiment",
               "gpu": "flow_gpu_experiment",
               "texture": "flow_texture_experiment"}[FLOW_RENDERER]
     if target == "flow_texture_experiment":
@@ -10725,7 +10726,7 @@ def _install_flow_renderer(widget_class):
     importlib.import_module(target).install(widget_class)
 
 
-if platform == "android" or os.environ.get("HG_FLOW_RENDERER"):
+if FLOW_RENDERER:
     try:
         _install_flow_renderer(HourglassWidget)
     except Exception as exc:

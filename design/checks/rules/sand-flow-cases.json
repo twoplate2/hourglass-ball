@@ -1643,7 +1643,9 @@
           "automated": [
             "geometry",
             "packing",
-            "rendering"
+            "rendering",
+            "short-grain-tests",
+            "short-grain-identity"
           ],
           "manual": [
             "visual"
@@ -1805,16 +1807,20 @@
           ],
           "expected": [
             "颗粒密度与可见层次保留，末段不变实心平色色条。",
-            "不能把深色背景误当空隙，不能用单个覆盖率数字代替眼睛。"
+            "不能把深色背景误当空隙，不能用单个覆盖率数字代替眼睛。",
+            "3.4 已知失败：只给长线增加颜色纹理仍保留长直透明缝。新检查须覆盖完整下半柱与接触区的局部覆盖和连续帧，不能把覆盖率不变当作颗粒感改善。"
           ],
           "evidence": [
             "颗粒与空隙 1:1 并排图",
-            "颗粒数量及实际档位回读"
+            "颗粒数量及实际档位回读",
+            "同尺寸 3.4 失败对照、短颗粒候选、50 秒过程及暂停恢复原速记录；不得只用缩小静态图批准。"
           ],
           "automated": [
             "packing",
             "physics",
-            "rendering"
+            "rendering",
+            "short-grain-tests",
+            "short-grain-identity"
           ],
           "manual": [
             "visual"
@@ -2003,7 +2009,9 @@
           ],
           "automated": [
             "finish",
-            "geometry"
+            "geometry",
+            "short-grain-tests",
+            "short-grain-identity"
           ],
           "manual": [
             "visual"
@@ -2039,7 +2047,9 @@
           "automated": [
             "splash",
             "physics",
-            "finish"
+            "finish",
+            "short-grain-tests",
+            "short-grain-identity"
           ],
           "manual": [
             "visual"

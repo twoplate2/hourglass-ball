@@ -16,7 +16,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             exit 1
         }
         python -B src/tools/test_material_release.py || exit 1
-        python -B src/tools/check_material_release.py || exit 1
+        python -B src/tools/check_short_grain_release.py || exit 1
+        python -B src/tools/test_short_grain.py || exit 1
+        python -B src/tools/test_short_grain_release.py || exit 1
         python -B src/tools/test_grain_style.py || exit 1
         python -B src/tools/test_ui_polish.py || exit 1
         python -B src/tools/test_keep_awake.py || exit 1

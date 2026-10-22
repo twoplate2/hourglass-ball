@@ -213,6 +213,14 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 
 ## 快速查找
 
+- `src/app/short_grain_stream.py`：默认短颗粒流场绘制，读取实际前缘与尾部；无沙量或计时写入。
+- `src/tools/verify_short_grain_runtime.py`：隔离设置、原生隐藏 PC 画布的阶段与配色采集，记录实际绘制路径。
+- `src/tools/record_short_grain.py`：按墙钟取真实画布帧、保留可变帧间隔，拒绝未刷新画布的录像。
+- `src/tools/check_short_grain_visual.py`：检查柱内长缝、稀疏带和真实堆顶接触，不以单根线跨过某行视为密实。
+- `src/tools/check_short_grain_release.py`：3.5 发布证据、源码身份、主沙粒与沙量及改动范围核对。
+- `src/tools/test_short_grain.py` / `src/tools/test_short_grain_release.py`：绘制边界、比例、空沙和不完整/冻结录像的正反例。
+- `design/checks/records/v3.5/`：3.4 失败对照、3.5 原始实图、全过程录像与具名审阅；不包含性能或音频验收。
+
 - `src/tools/check_material_release.py`：重放已审阅 PC 材质对照，检查发布源码与实测源码一致，仅允许版本递增。
 - `src/tools/test_material_release.py`：发布证据的正反例，包括漏帧、可见窗口和额外源码变化。
 - `design/checks/records/v3.4/`：本次材质外观发布的原始 PC 证据压缩包、审阅记录及对比图。

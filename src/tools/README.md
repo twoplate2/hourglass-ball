@@ -43,3 +43,13 @@
 
 所有测试输出写 `_temp/`。当前只在真正隐藏的 PC 窗口和独立设置目录运行、验证；
 不连接或操作 MuMu、ADB 或真机。设备脚本仅作历史保留，不按旧授权自动执行。
+
+## 3.5 短颗粒外观检查
+
+当前发布入口是 `check_short_grain_release.py`。原 `check_material_release.py` 保留核对
+3.4 的颜色修改历史，不适用于本次短颗粒几何和飞溅变化。
+`verify_short_grain_runtime.py` 只在真正隐藏的 Windows PC 窗口采集，并隔离设置目录；
+`--renderer texture` 使用新的默认短颗粒和批量飞溅，`native` 使用 PC 默认路径，
+`legacy` 用于旧源码，`fallback` 强制验证 Line 回退。`--video` 录制 50 秒计时及
+3 秒暂停、后续落定；帧时间按墙钟保留，录制开销不用于声称实时帧率通过。
+`check_short_grain_visual.py` 的像素检查必须结合人工审阅，不等同于美观评分。

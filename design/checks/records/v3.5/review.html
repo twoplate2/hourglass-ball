@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>3.5 短颗粒沙流与落点验收</title>
+<style>body{font:16px/1.7 system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 20px;color:#252525;background:#faf8f3}img{max-width:100%;height:auto}video{width:min(100%,420px);max-height:75vh}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:8px;text-align:left}.videos{display:flex;gap:24px;flex-wrap:wrap}figure{margin:12px 0}</style>
+<h1>3.5：短颗粒沙流与集中落点</h1>
+<p>本次解决 3.4 仍保留长线、长直空隙和大范围飞溅的问题。复用既有沙量与主沙粒运动，
+替换沙柱绘制覆盖，并缩短飞溅装饰轨迹。以下均来自真实隐藏 PC 画布，无生成沙子或补帧。</p>
+<figure><img src="before-after.png" alt="左侧3.4长线与分散飞溅，右侧3.5短颗粒与集中落点"><figcaption>同尺寸、同随机种子、同25秒状态；仅裁切与标注。左3.4，右3.5。</figcaption></figure>
+<table><tr><th>检查</th><th>结果与边界</th></tr>
+<tr><td>形态</td><td>高分辨率同一取样区的最长竖向背景缝由48像素缩短至4像素；中心覆盖约91%→99%，保持饱满。</td></tr>
+<tr><td>阶段与配置</td><td>400×800、1080×1848各55帧，含六配色、颗粒档位1/6、起步、落地、暂停恢复、短周期与归零后在途沙。</td></tr>
+<tr><td>保留项</td><td>54组前后对照主沙粒数组、沙量账本、玻璃几何相同；沙柱、颈口与飞溅实际覆盖之外的像素不变。短周期已记录飞溅小矩形，避免把其覆盖当作深层沙体改动。</td></tr>
+<tr><td>收尾与回退</td><td>计时归零后颗粒相位继续推进；暂停画面逐像素相同；强制绘制失败的Line回退完成4帧检查。</td></tr>
+<tr><td>范围</td><td>仅PC外观与相邻状态；没有音频、帧率、Android设备或全应用验收结论。</td></tr></table>
+<h2>全过程实录</h2><p>50秒计时，墙钟约12秒暂停、15秒恢复，继续记录到60秒及落定。可变帧间隔按实际墙钟保存；录制开销不能用于测性能。沙漏画布取证，不含应用按钮或音频。</p>
+<div class="videos"><figure><figcaption>3.4 对照</figcaption><video controls muted playsinline preload="metadata" src="video-before2.mp4"></video></figure>
+<figure><figcaption>3.5 最终代码</figcaption><video controls muted playsinline preload="metadata" src="video-after2.mp4"></video></figure></div>
+<h2>阶段与配色</h2><img src="full-cycle-review.png" alt="最终录像的起步暂停恢复落定阶段"><img src="colors-review.png" alt="六种配色与粗细档位两端"><img src="phase-review.png" alt="高分辨率阶段检查">
+<p>原3.4长缝画面会被新判据拒绝。两段未刷新画布的早期录像已作废并保留本地，不纳入本页或发布证据。
+原3.4验收记录保留；它只能证明当时颜色变化受控，不能证明本次颗粒形态目标达成。</p>
+<p><a href="short-grain-review.json">具名审阅与摘要</a> · <a href="evidence.zip">原始阶段图、状态与源码证据</a></p>
+</html>

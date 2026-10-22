@@ -18,6 +18,6 @@ def contact_surface_profile(offset, diameter, thickness, slope):
     depth = min(thickness, 0.16 * diameter * weight)
     direction = max(-1.0, min(1.0, offset / (0.3 * diameter)))
     direction = direction * (1.5 - 0.5 * direction * direction)
-    distance = 0.14 * diameter * weight
+    distance = 0.28 * diameter * weight
     dx = direction * distance / math.sqrt(1.0 + slope * slope)
     return depth, dx, slope * dx
