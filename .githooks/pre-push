@@ -15,7 +15,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             echo "Release sources must match the pushed commit."
             exit 1
         }
-        python -B src/tools/check_rollback_release.py || exit 1
+        python -B src/tools/test_material_release.py || exit 1
+        python -B src/tools/check_material_release.py || exit 1
+        python -B src/tools/test_grain_style.py || exit 1
+        python -B src/tools/test_ui_polish.py || exit 1
         python -B src/tools/test_keep_awake.py || exit 1
         python -B src/tools/verify_keep_awake_runtime.py || exit 1
         python -B src/tools/run_regression.py --profile core || exit 1

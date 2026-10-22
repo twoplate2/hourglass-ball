@@ -44,6 +44,7 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 | [flow_batch_experiment.py](../src/app/flow_batch_experiment.py) | 批处理几何、缓冲区和各渲染器共用实现 |
 | [flow_texture_experiment.py](../src/app/flow_texture_experiment.py) | 端点纹理沙流渲染路径 |
 | [stream_rendering.py](../src/app/stream_rendering.py) | 沙柱绘制密度与落点补齐的共用计算；不改变粒子物理 |
+| [grain_style.py](../src/app/grain_style.py) | 沙柱材质的有界时间相位和局部落点风格参数；不推进粒子或改变沙量 |
 | [flow_gpu_experiment.py](../src/app/flow_gpu_experiment.py) | 可选择的 GPU 平移渲染路径 |
 | [flow_splash_experiment.py](../src/app/flow_splash_experiment.py) | 飞溅、颈部颗粒、闪光的批处理实现 |
 | [marker_batch_experiment.py](../src/app/marker_batch_experiment.py) | 沙面标记的可选批处理；不能擅自默认开启 |
@@ -60,6 +61,10 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | [android_hook.py](../src/tools/android_hook.py) | 构建时给 Manifest 注入方向与可缩放属性，不直接启动 |
 | [check_rollback_release.py](../src/tools/check_rollback_release.py) | 对照 3.0 提交逐模块验证回退，主程序仅允许常亮钩子变化 |
 | [test_keep_awake.py](../src/tools/test_keep_awake.py) | 防息屏失败用例：UI 线程、嵌套常量、排队竞态、恢复、Windows 双请求和错误日志 |
+| [test_ui_polish.py](../src/tools/test_ui_polish.py) | 无窗口核对开始/继续/重新开始及 Benchmark 文案、暂停设置预览的打开与关闭恢复、沙纹浓淡滑杆原有参数映射；不代替界面实显检查 |
+| [test_grain_style.py](../src/tools/test_grain_style.py) | 无窗口检查材质相位回绕与冻结、落点局部范围及连续边界、真实材质 uniform 的时钟更新；不替代着色器实显验收 |
+| [material_visual_probe.py](../src/tools/material_visual_probe.py) | 材质改动的同种子、同逻辑时刻取图探针；供实际渲染对照，不代表实时动态或性能结论 |
+| [compare_material_frames.py](../src/tools/compare_material_frames.py) | 离线比较材质探针的同配置帧、粒子与沙量不变量和局部改动范围；缺项记为待验，不自动批准新外观 |
 | [verify_keep_awake_runtime.py](../src/tools/verify_keep_awake_runtime.py) | 真正隐藏窗口及独立设置的实际应用生命周期检查，Windows 核对原生电源请求 |
 | [Pymunk 构建配方](../src/build/recipes/pymunk/__init__.py) | Android 交叉编译 Pymunk 7.3，不沿用 p4a 内置的 6.0 配方；配方目录不打入 APK |
 | [verify_pymunk_integration.py](../src/tools/verify_pymunk_integration.py) | 隐藏 PC 窗口验证真实应用的新碰撞引擎、计时沙量、暂停重置收尾及相邻画面；不测试帧率或音频 |
@@ -148,7 +153,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | `sounds/voice/*.wav` | 按数字、单位、短语和档位分块的 90 个预录词块，不需联网播放 |
 | `sounds/source/` | 本地原始音效，删除不影响播放，但会失去重新加工的输入 |
 | `ui/icon.png` / `ui/startup_blank.png` | 启动器图标、启动遮罩占位 |
-| `ui/slider_track.png` / `ui/slider_cursor.png` | 周期滑杆贴图 |
+| `ui/slider_track.png` / `ui/slider_cursor.png` | 滑杆轨道贴图及保留的旧游标；当前游标由 `main.py` 中的 `_SmoothSlider` 按实际尺寸绘制 |
 | `ui/fonts/NotoSansSC-Medium.otf` | 应用中文字体 |
 | [ui/shazhu/index.html](../ui/shazhu/index.html) | 新轮子与五种旧沙柱的 10 秒预览选择页；只是独立外观草案，不是应用录像或验证结果 |
 | [pymunk_grains.py](../ui/shazhu/pymunk_grains.py) | 06 Pymunk 实算预览：上下沙与沙流均为碰撞颗粒，无指定沙柱轮廓或额外飞溅；默认两层独立二维投影，不是三维求解，10 秒片段首尾重播而非无缝循环 |
@@ -207,6 +212,10 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | `_temp/mumu-media/` / `_temp/mumu-20261013/` | 原始大录屏、旧容器试录、安装包、重装前 APK/私有目录/设置备份；不影响正式页面或应用启动 |
 
 ## 快速查找
+
+- `src/tools/check_material_release.py`：重放已审阅 PC 材质对照，检查发布源码与实测源码一致，仅允许版本递增。
+- `src/tools/test_material_release.py`：发布证据的正反例，包括漏帧、可见窗口和额外源码变化。
+- `design/checks/records/v3.4/`：本次材质外观发布的原始 PC 证据压缩包、审阅记录及对比图。
 
 ```powershell
 rg -n "飞溅|音频|颈部|版本" docs/file-index.md

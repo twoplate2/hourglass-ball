@@ -38,6 +38,7 @@ from kivy.graphics.opengl import glGetIntegerv, GL_MAX_VERTEX_TEXTURE_IMAGE_UNIT
 from kivy.graphics.texture import Texture
 
 import flow_batch_experiment
+from grain_style import stream_texture_phase
 from stream_rendering import EDGE_PERIOD, contact_reach, edge_phase, trail_length, trail_lengths
 from sand_flow_material import GRAIN_FRAGMENT_HEADER, SandFlowContext
 
@@ -143,6 +144,7 @@ FRAGMENT_SHADER = GRAIN_FRAGMENT_HEADER + (
     "const float STREAM_EDGE_PERIOD = %.1f;\n" % EDGE_PERIOD) + """
 uniform vec4 stream_geometry; // center, outlet, half-width, blend distance
 uniform float stream_edge_phase;
+uniform float stream_texture_phase;
 float stream_hash(vec2 p, float period) {
     return clump_hash(vec2(p.x, mod(p.y, period)));
 }
@@ -159,31 +161,51 @@ void main(void) {
     float depth = stream_geometry.y - sand_position.y;
     float diameter = max(2.0, 2.0 * sand_geometry.y);
     vec3 rgb = frag_color.rgb;
-    // The same grain field as the neck, confined to existing particle strokes.
-    if (sand_mix > 0.0 && depth < stream_geometry.w) {
+    // Sample the existing grain texture throughout the existing particle strokes.
+    // No coverage or stroke geometry is changed by this color-only material.
+    if (sand_mix > 0.0) {
         vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                        (sand_position.y - sand_geometry.z) / diameter);
-        vec2 mouth = vec2((sand_position.x - sand_geometry.x) / diameter,
-                         max(0.0, sand_position.y - sand_geometry.w) / diameter);
-        float sink = 1.0 / (1.0 + 20.0 * mouth.x * mouth.x + 8.0 * mouth.y * mouth.y);
-        vec2 velocity = vec2(-(sand_position.x - sand_geometry.x) * 0.09 * sink,
-                             -(4.0 + 46.0 * sink)) / diameter;
-        float t = sand_clock + 0.2 * sin(mouth.x * 3.1 + mouth.y * 5.2);
-        float a = fract(t);
-        float b = fract(t + 0.5);
-        float wa = 1.0 - abs(1.0 - 2.0 * a);
-        float wb = 1.0 - wa;
-        vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
-        float ga = grain(uv - velocity * a + floor(t) * jump);
-        float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
-        float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
         vec2 luv = sand_wrap_light > 0.0 ? vec2(uv.x, fract(uv.y)) : uv;
-        float tone = clamp(lighting(luv) + detail, -1.0, 1.0);
-        vec3 flowing = mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
-        vec3 original = texture2D(texture0,
-                            fract(vec2(uv.x, sand_neck_anchor - uv.y))).rgb;
-        rgb = mix(mix(original, flowing, sand_mix), rgb,
-                  smoothstep(0.0, stream_geometry.w, depth));
+        float illumination = lighting(luv);
+        float material_motion = max(0.25, sand_motion_scale);
+        float material_v0 = V0_FALL * material_motion;
+        float material_g = G_FALL * material_motion * material_motion;
+        float material_tau = (sqrt(material_v0 * material_v0
+                              + 2.0 * material_g * max(0.0, depth)) - material_v0)
+                             / material_g;
+        vec2 stream_uv = vec2(uv.x,
+            (stream_geometry.y - sand_geometry.z) / diameter
+            + 400.0 * material_motion * material_tau / diameter - stream_texture_phase);
+        // The CPU phase wraps by one whole grain-texture period, so even long
+        // timers keep a small shader coordinate without a visible phase reset.
+        vec3 stream_color = grain_tone_color(grain(stream_uv), illumination);
+        rgb = mix(rgb, stream_color, sand_mix);
+
+        // Blend only the material over 1.75 full outlet widths. The existing
+        // stream_geometry.w remains dedicated to the unchanged edge ramp below.
+        float texture_blend_distance = max(8.0, 3.5 * stream_geometry.z);
+        if (depth < texture_blend_distance) {
+            vec2 mouth = vec2((sand_position.x - sand_geometry.x) / diameter,
+                             max(0.0, sand_position.y - sand_geometry.w) / diameter);
+            float sink = 1.0 / (1.0 + 20.0 * mouth.x * mouth.x + 8.0 * mouth.y * mouth.y);
+            vec2 velocity = vec2(-(sand_position.x - sand_geometry.x) * 0.09 * sink,
+                                 -(4.0 + 46.0 * sink)) / diameter;
+            float t = sand_clock + 0.2 * sin(mouth.x * 3.1 + mouth.y * 5.2);
+            float a = fract(t);
+            float b = fract(t + 0.5);
+            float wa = 1.0 - abs(1.0 - 2.0 * a);
+            float wb = 1.0 - wa;
+            vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
+            float ga = grain(uv - velocity * a + floor(t) * jump);
+            float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
+            float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
+            vec3 flowing = grain_tone_color(detail, illumination);
+            vec3 original = texture2D(texture0,
+                                fract(vec2(uv.x, sand_neck_anchor - uv.y))).rgb;
+            rgb = mix(mix(original, flowing, sand_mix), rgb,
+                      smoothstep(0.0, texture_blend_distance, depth));
+        }
     }
     if (depth > 0.0 && stream_geometry.z > 1.0) {
         float half_width = stream_geometry.z;
@@ -661,6 +683,7 @@ def install(widget_class):
         # 下标赋值, 2.3.1 才加 —— 设备上是 2.3.0, 写 context.shader[...] 会 TypeError 崩)。
         context[TEXEL_STEP_UNIFORM] = TEXEL_STEP
         context["endpoints"] = 1
+        context["stream_texture_phase"] = 0.0
         first_group = next(iter(self._stream_pools.values()))[0]
         position = self.canvas.children.index(first_group)
         self._flow_batches = {}
@@ -722,6 +745,8 @@ def install(widget_class):
         context["stream_geometry"] = (self._cx, self._fade_base_y, half,
                                       max(8.0, 2.0 * half))
         context["stream_edge_phase"] = edge_phase(self.elapsed, motion, half)
+        context["stream_texture_phase"] = stream_texture_phase(
+            self.elapsed, motion, 2.0 * self._R_inner)
         # Only near-contact particles bridge a gap. Distant particles keep the
         # same trail calculation before and after the first landing (S04).
         reach = None

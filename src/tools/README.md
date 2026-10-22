@@ -8,6 +8,7 @@
 
 - `android_hook.py`：Android Manifest 构建钩子。
 - `check_release_version.py` / `test_release_version.py`：版本与提交规则。
+- `check_material_release.py` / `test_material_release.py`：核对本次材质发布的实图、源码身份和完整 PC 对照；拒绝陈旧或不完整证据，旧回退身份检查保留作历史工具。
 - `_prepush.sh` / `_watch_build.sh`：发布检查与 CI 监视。
 - `test_repository_layout.py`：资源位置、文档链接、暂存区隔离检查。
 - `_pack_source_md.py`：按运行文件白名单生成代码资料包。
@@ -21,12 +22,15 @@
 
 统一入口：`python src/tools/run_regression.py --plan` 列出关联项，
 外观改动只回归本次外观及相邻连接，CI 执行 `--profile core` 基础检查；
-`--profile full` 仅在用户另行要求完整回归时使用。本次推送核对 MuMu 外观证据；
+`--profile full` 仅在用户另行要求完整回归时使用。当前仅在隐藏 PC 窗口验证；
 规则与缺口见 [改完以后怎么检查](../../design/checks/README.md)。
 `check_design_pages.py` 核对全部 HTML 图片和链接，已接入每日基础检查。
 
 - `verify_*.py` / `test_*.py`：逻辑回归与标量、向量化等价检查。
 - `test_stream_rendering.py`：调用真实共用公式检查密度、落点补齐、收尾和绘制分支等价；无窗口，可放到模拟器的 Python 环境执行。
+- `test_ui_polish.py`：无窗口执行真实界面方法，核对计时状态文案、暂停时设置预览及退出恢复、沙纹浓淡滑杆映射；不验证游标外观或设备交互。
+- `test_grain_style.py`：无窗口检查材质时间相位、局部落点范围和连续边界，并执行真实 uniform 更新方法，防止回绕后使用旧时间。
+- `material_visual_probe.py`：历史设备材质专项取图入口，当前 PC 规则下不执行；其中状态、几何与绘制摘要函数可供隐藏 PC 取图复用。固定步进图片不能当成实时或性能测试。
 - `inspect_flow.py` / `_pixdiff.py` / `_side_by_side.py`：取图与视觉对照。
 - `profile_frames.py` / `_hot_desktop.py`：桌面耗时分析。
 - `_render_golden.py` / `_splash_golden.py`：版本化指纹参照；不可随意更新基线。
@@ -37,5 +41,5 @@
 “移出”只表示它们不在当前保留工具及其引用链中，不等于已经证明永远无用。
 历史脚本常依赖原来的 `tools/` 位置，需要恢复原环境后再检查，不能直接当作可运行工具。
 
-所有测试输出写 `_temp/`。用户已授权使用预留的 root MuMu；历史设备脚本须先适配当前
-路径并核对实例，不能直接照跑。不在用户本机启动 PC 测试，不连接真机。
+所有测试输出写 `_temp/`。当前只在真正隐藏的 PC 窗口和独立设置目录运行、验证；
+不连接或操作 MuMu、ADB 或真机。设备脚本仅作历史保留，不按旧授权自动执行。

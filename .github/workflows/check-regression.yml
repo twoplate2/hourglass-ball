@@ -26,9 +26,12 @@ jobs:
           python -m pip install numpy pillow pyflakes kivy==2.3.0
       - name: Check layout, version, syntax and documentation
         run: python src/tools/run_regression.py --profile core
-      - name: Check 3.0 rollback identity and foreground power policy
+      - name: Check reviewed material source, evidence and foreground power policy
         run: |
-          python -B src/tools/check_rollback_release.py
+          python -B src/tools/test_material_release.py
+          python -B src/tools/check_material_release.py
+          python -B src/tools/test_grain_style.py
+          python -B src/tools/test_ui_polish.py
           python -B src/tools/test_keep_awake.py
       - name: Install hidden PC graphics dependencies
         run: sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dri

@@ -4,10 +4,10 @@ Two-phase flow follows Catlike Coding's Texture Distortion / Valve flow-map appr
 Only grain detail is advected; the palette and broad lighting stay in world space.
 """
 
-import math
 import os
 
 from kivy.graphics import Color, Mesh, RenderContext
+from grain_style import contact_surface_profile
 
 
 VERTEX_SHADER = """
@@ -247,6 +247,10 @@ float grain(vec2 uv) {
     float span = delta >= 0.0 ? luma(sand_light) - luma(sand_base)
                              : luma(sand_base) - luma(sand_dark);
     return delta / max(span, 0.001) - lighting(sample_uv);
+}
+vec3 grain_tone_color(float detail, float illumination) {
+    float tone = clamp(illumination + detail, -1.0, 1.0);
+    return mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
 }
 // 程序化平滑噪声(聚团场) —— 见 `sand_clump_gap` 那段。
 // ⚠️ 哈希**不用 `sin`**(Dave Hoskins 那个无 sin 版本): 移动 GPU 上 `sin` 常是 mediump,
@@ -549,7 +553,7 @@ void main(void) {
     vec2 luv = (sand_wrap_light > 0.0) ? vec2(uv.x, fract(uv.y)) : uv;
     float tone = clamp(lighting(luv) + detail, -1.0, 1.0);
     vec3 target = tone >= 0.0 ? sand_light : sand_dark;
-    vec3 flowing = mix(sand_base, target, abs(tone));
+    vec3 flowing = grain_tone_color(detail, lighting(luv));
     float coverage = 1.0;
     if (sand_tail.y > 0.0) {
         float u = 0.5 + (sand_position.x - sand_geometry.x) / (2.0 * sand_tail.z);
@@ -1060,6 +1064,7 @@ class SandFlowContext(RenderContext):
             self[_key] = float(_dflt if _v is None else _v)
         self._material_key = None
         self._clock_key = None
+        self._time_key = None
         self._tail_key = None
         self._free_key = None
         self._mat_key = None
@@ -1091,6 +1096,8 @@ class SandFlowContext(RenderContext):
             #    **静态帧金标准结构性看不见它** —— 判据是 `tools/_probe_speed_ratio.py`
             #    (材料图案速度 ÷ 粒子速度律)。实测(3s 档 ms=2.086, 清粒子 + 关细颗粒):
             #      修前 **2100 px/s**(比值 **2.54**) ⇒ 修后回到 ≈1.2(带内偏置, 与 15s 档同)。
+        if elapsed != self._time_key:
+            self._time_key = elapsed
             self["sand_time"] = float(elapsed)
         if speed_scale != self._mat_key:
             self._mat_key = speed_scale
@@ -1130,11 +1137,11 @@ $HEADER$
 attribute vec2 vFlow;
 attribute float vCoverage;
 varying vec2 sand_position;
-varying vec2 surface_velocity;
+varying vec2 surface_displacement;
 varying float surface_coverage;
 void main(void) {
     sand_position = vPosition;
-    surface_velocity = vFlow;
+    surface_displacement = vFlow;
     surface_coverage = vCoverage;
     tex_coord0 = vTexCoords0;
     frag_color = color * vec4(1.0, 1.0, 1.0, opacity);
@@ -1144,37 +1151,25 @@ void main(void) {
 
 # Keep grain contrast and lighting identical to the existing flow material.
 MOUND_FRAGMENT_SHADER = GRAIN_FRAGMENT_HEADER + """
-varying vec2 surface_velocity;
+varying vec2 surface_displacement;
 varying float surface_coverage;
+uniform float surface_phase;
 void main(void) {
     float diameter = max(2.0, sand_geometry.y * 2.0);
+    // Match the fixed complete UV of the static mound, regardless of pile height.
     vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                   (sand_position.y - sand_geometry.z) / sand_geometry.w);
     vec4 original = texture2D(texture0, uv);
-    vec2 velocity = surface_velocity / vec2(diameter, sand_geometry.w);
-    float t = sand_clock + 0.18 * sin(tex_coord0.x * 5.1);
-    float a = fract(t);
-    float b = fract(t + 0.5);
+    float depth_weight = 1.0 - smoothstep(0.0, 1.0, tex_coord0.y);
+    vec2 displacement = surface_displacement / vec2(diameter, sand_geometry.w)
+                      * clamp(sand_mix, 0.0, 1.0) * surface_coverage * depth_weight;
+    float a = surface_phase;
+    float b = fract(a + 0.5);
     float wa = 1.0 - abs(1.0 - 2.0 * a);
-    float wb = 1.0 - wa;
-    vec2 jump = vec2(0.125, 0.0625);
-    // 🔴 **2026-10-10: 这里是 `a`/`b`, 不是 `adv`。**
-    //    2.42 把主着色器里的 `a`/`b` 全局替换成 `adv` 时**连这个着色器一起换了** ——
-    //    而 `adv` 是在**另一个** `main()` 里算的局部量, 这个着色器里根本没有它
-    //    ⇒ GLSL 编译失败 ⇒ `SandFlowContext.__init__` 抛 RuntimeError。
-    //    ⚠️ 它挂在 `_build_dynamic_canvas` **同一个 try 里**(`moundflowall` 标记) ⇒
-    //    一旦有人打开那个标记, 报错会被 `except` 吞掉, 后果是**整条 GPU 材质**
-    //    (上球+颈部+自由段)**一起退回静态贴图**, 而日志只印一行 "unavailable"。
-    //    2.41 的原样是 `a` / `b`(沙堆面用的是顶点属性 `surface_velocity`, 与自由段的
-    //    连续时间无关) —— 这里没有要跟着改的东西, 是那次全局替换误伤。
-    float ga = grain(uv - velocity * a + floor(t) * jump);
-    float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
-    float detail = (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb);
-    float tone = clamp(lighting(uv) + detail, -1.0, 1.0);
-    vec3 flowing = mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
-    float depth_mix = 1.0 - smoothstep(0.45, 1.0, tex_coord0.y);
-    float coverage = sand_mix * surface_coverage * depth_mix;
-    gl_FragColor = frag_color * vec4(flowing, original.a * coverage);
+    vec3 ca = texture2D(texture0, uv - displacement * a).rgb;
+    vec3 cb = texture2D(texture0, uv - displacement * b).rgb;
+    // At the boundary both samples equal the original: no translucent overlay.
+    gl_FragColor = frag_color * vec4(ca * wa + cb * (1.0 - wa), original.a);
 }
 """
 
@@ -1184,6 +1179,7 @@ class MoundSurfaceFlowContext(SandFlowContext):
 
     def __init__(self, geometry, max_nodes, texture):
         super().__init__(geometry, MOUND_VERTEX_SHADER, MOUND_FRAGMENT_SHADER)
+        self["surface_phase"] = 0.0
         self._max_nodes = max_nodes
         self._vertices = [0.0] * (max_nodes * 2 * 7)
         self._indices = []
@@ -1201,6 +1197,7 @@ class MoundSurfaceFlowContext(SandFlowContext):
     def update_surface(self, clock, speed_scale, material, palette, cols, diameter, strength):
         self.update_flow(clock, speed_scale, material, palette)
         self["sand_mix"] = float(strength)
+        self["surface_phase"] = float((clock * 0.8) % 1.0)
         if strength <= 0.0 or not cols:
             if self._node_count:
                 self._mesh.indices = []
@@ -1208,30 +1205,28 @@ class MoundSurfaceFlowContext(SandFlowContext):
             return
         self._mesh.texture = material.texture
         cx = self["sand_geometry"][0]
-        reach = 2.5 * diameter
+        reach = 2.0 * diameter
         vertices = self._vertices
         count = 0
         visible = False
         for i, (x, y, free, thick) in enumerate(cols):
             if abs(x - cx) > reach:
-                continue
+                # Keep one zero-displacement neighbour at each edge of the patch.
+                adjacent = ((i > 0 and abs(cols[i - 1][0] - cx) <= reach)
+                            or (i + 1 < len(cols) and abs(cols[i + 1][0] - cx) <= reach))
+                if not adjacent:
+                    continue
             before = cols[max(0, i - 1)]
             after = cols[min(len(cols) - 1, i + 1)]
             slope = (after[1] - before[1]) / max(1e-6, after[0] - before[0])
-            norm = math.sqrt(1.0 + slope * slope)
-            u = min(1.0, abs(x - cx) / reach)
-            fade = u * u * (3.0 - 2.0 * u)
-            depth = min(0.14 * diameter * (1.0 - fade) * norm, thick)
-            coverage = (1.0 - fade) * min(1.0, depth) if free else 0.0
+            depth, dx, dy = contact_surface_profile(
+                x - cx, diameter, thick if free else 0.0, slope)
+            coverage = 1.0 if free and depth > 0.0 else 0.0
             visible = visible or coverage > 0.0
-            side = -1.0 if x < cx else 1.0 if x > cx else 0.0
-            speed = diameter * (1.5 + 2.5 * fade)
-            vx = side * speed / norm
-            vy = slope * vx
             k = count * 14
             vertices[k:k + 14] = (
-                x, y, (x - cx) / diameter, 0.0, vx, vy, coverage,
-                x, y - depth, (x - cx) / diameter, 1.0, vx, vy, coverage)
+                x, y, (x - cx) / diameter, 0.0, dx, dy, coverage,
+                x, y - depth, (x - cx) / diameter, 1.0, dx, dy, coverage)
             count += 1
         if count > self._max_nodes:
             raise ValueError("mound flow mesh capacity exceeded")

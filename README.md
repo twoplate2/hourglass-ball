@@ -3,6 +3,11 @@
 Python + Kivy 沙漏计时应用，已恢复 3.0 的沙流、计时和渲染实现，NumPy 处理材质等数据。PC 用于运行和验证，Android APK 由 GitHub Actions 构建。
 版本唯一来源是 `src/app/app_version.py`，不在文档中另写版本号。
 
+当前版本包含界面与材质改进：暂停/完成按钮文案、原色设置预览、清晰滑杆，
+以及同源沙柱颗粒和局部落点纹理位移。沙量、粒子运动和玻璃轮廓保持原模型。
+本轮专项使用 `test_ui_polish.py`、`test_grain_style.py` 和隐藏 PC 画面对照验证。
+历史设备取图和源码覆盖记录单独保留，不能代替当前 PC 验收或正式 APK 安装证明。
+
 ## PC 运行
 
 ```powershell
@@ -11,7 +16,7 @@ python main.py
 ```
 
 沙漏支持开始、暂停、重置、周期和配色设置、循环音效、完成播报及内置 Benchmark。
-自动取图使用隐藏窗口和独立设置目录。设备验证仅使用预留 MuMu，不连接真机。
+自动取图使用真正隐藏的 PC 窗口和独立设置目录，不连接或操作 MuMu、ADB 或真机。
 
 ## 前台常亮
 
@@ -31,7 +36,8 @@ python src/tools/run_regression.py --profile core
 PC 结果不能直接当成 Android 性能结论；检查范围与发布条件见
 [改完以后怎么检查](design/checks/README.md)、[QA 纪律](design/checks/notes/qa-rules.md)。
 外观改动只回归本次外观及相邻连接；帧率、音频和完整回归由用户另行安排。
-本次发布用 `check_rollback_release.py` 逐模块核对 3.0 身份，主程序仅允许前台常亮钩子。
+本次发布用 `check_material_release.py` 重放已审阅的 PC 外观对照并核对全部运行源码。
+仅版本赋值与换行形式允许不同；旧 `check_rollback_release.py` 保留供历史回退核对。
 `test_keep_awake.py` 检查 Android UI 线程、窗口标志和时序，`verify_keep_awake_runtime.py`
 检查隐藏 PC 应用生命周期和 Windows 原生请求；这些不是 Android 设备、音频或帧率验收。
 

@@ -21,6 +21,8 @@ def main():
         from kivy.clock import Clock
         import main as game
 
+        game.config_path = lambda: str(Path(home) / ".hourglass_config.json")
+
         game.HourglassWidget._make_sound_proxy = lambda *_: None
         game.HourglassWidget._make_completion_sound = lambda *_: None
         game.HourglassWidget._load_voice_bank = lambda *_: None

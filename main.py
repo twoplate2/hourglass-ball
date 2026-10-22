@@ -209,6 +209,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
+from kivy.uix.image import Image
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.slider import Slider
@@ -3115,6 +3116,43 @@ def _land_layer():
 
 # ---------- 居中输入框(Kivy TextInput 无 text_align,手动算 padding) ----------
 
+class _SmoothSlider(Slider):
+    """按实际控件尺寸画圆形游标，沿用 Slider 的触摸范围和数值映射。"""
+
+    def __init__(self, **kwargs):
+        kwargs.update(cursor_image="", cursor_disabled_image="")
+        super().__init__(**kwargs)
+        # 空纹理在 Kivy 中仍画白色矩形；仅隐藏旧图，保留原游标的命中区域。
+        for child in self.children:
+            if isinstance(child, Image):
+                child.opacity = 0
+        with self.canvas.after:
+            self._cursor_color = Color(*hex_rgb("#c8a34e"), 1)
+            self._cursor_disc = Ellipse(segments=128)
+            self._cursor_rim_color = Color(*hex_rgb("#8b713b"), 1)
+            self._cursor_rim = Line(circle=(0, 0, 1), width=dp(0.7))
+            self._cursor_center_color = Color(*hex_rgb("#efd591"), 1)
+            self._cursor_center = Ellipse(segments=128)
+        self.bind(pos=self._sync_cursor, size=self._sync_cursor,
+                  value_pos=self._sync_cursor, orientation=self._sync_cursor,
+                  cursor_size=self._sync_cursor, disabled=self._sync_cursor)
+        self._sync_cursor()
+
+    def _sync_cursor(self, *_):
+        cx, cy = (self.value_pos[0], self.center_y) if self.orientation == "horizontal" else (
+            self.center_x, self.value_pos[1])
+        radius = max(1.0, min(self.cursor_size) * 0.5 - dp(1))
+        self._cursor_disc.pos = (cx - radius, cy - radius)
+        self._cursor_disc.size = (2 * radius, 2 * radius)
+        self._cursor_rim.circle = (cx, cy, radius)
+        inner = radius * 0.62
+        self._cursor_center.pos = (cx - inner, cy - inner)
+        self._cursor_center.size = (2 * inner, 2 * inner)
+        alpha = 0.35 if self.disabled else 1
+        for color in (self._cursor_color, self._cursor_rim_color, self._cursor_center_color):
+            color.a = alpha
+
+
 class CenterTextInput(TextInput):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -3903,6 +3941,7 @@ class HourglassWidget(Widget):
         self.duration = 50.0
         self.elapsed = 0.0
         self.running = False
+        self._settings_preview = False
         self.last_tick = None
         self.last_frame = time.perf_counter()
 
@@ -7766,6 +7805,22 @@ class HourglassWidget(Widget):
                     self._sand_flow_logged = True
             except Exception as exc:
                 print("GPU sand flow unavailable, keeping static material: %s" % exc)
+        # RenderContext 构造时会自动挂到当前活动画布；在 with self.canvas 外创建，
+        # 下球 Stencil 内只挂一次，避免重建时留下重复的落点层。
+        if (material and os.environ.get("HG_SAND_FLOW", "1") != "0"
+                and os.environ.get("HG_MOUND_FLOW", "1") == "1"):
+            try:
+                from sand_flow_material import MoundSurfaceFlowContext
+                mound_nodes = max(1, len(self._mound_knots()) - 1 + 4) + 1
+                self._mound_surface_flow = MoundSurfaceFlowContext(
+                    (cx, Ri, self._lower_y_c - Ri, 2.0 * Ri + MOUND_CREST_MARGIN),
+                    mound_nodes, material.texture)
+                if not getattr(self, "_mound_flow_logged", False):
+                    print("GPU mound contact flow active")
+                    self._mound_flow_logged = True
+            except Exception as exc:
+                self._mound_surface_flow = None
+                print("GPU mound flow unavailable, keeping particles: %s" % exc)
         with self.canvas:
             for yc in (self._upper_y_c, self._lower_y_c):
                 bottom = yc - Ri
@@ -7812,20 +7867,8 @@ class HourglassWidget(Widget):
                     self._mound_carve = _QuadBand(n_seg)
                     self._mound_band_color = Color(*(tuple(self.sand_light) + (0.0,)))
                     self._mound_band = _QuadBand(n_seg)
-                    if (material and os.environ.get("HG_SAND_FLOW", "1") != "0"
-                            and os.environ.get("HG_MOUND_FLOW", "0") == "1"):
-                        try:
-                            from sand_flow_material import MoundSurfaceFlowContext
-                            self._mound_surface_flow = MoundSurfaceFlowContext(
-                                (cx, Ri, bottom, 2.0 * Ri + MOUND_CREST_MARGIN),
-                                n_seg + 1, material.texture)
-                            self.canvas.add(self._mound_surface_flow)
-                            if not getattr(self, "_mound_flow_logged", False):
-                                print("GPU mound contact flow active")
-                                self._mound_flow_logged = True
-                        except Exception as exc:
-                            self._mound_surface_flow = None
-                            print("GPU mound flow unavailable, keeping particles: %s" % exc)
+                    if self._mound_surface_flow is not None:
+                        self.canvas.add(self._mound_surface_flow)
                 StencilUnUse()
                 Ellipse(pos=(cx - Ri, bottom), size=(2 * Ri, 2 * Ri))
                 StencilPop()
@@ -8551,7 +8594,18 @@ class HourglassWidget(Widget):
         self._draw_flares(now)
         self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
         self._bore_color.a = 1 if remaining <= 0.001 else 0
-        self._pause_color.a = 0.55 if not self.running and 0 < self.elapsed < self.duration else 0
+        self._update_pause_overlay()
+
+    def set_settings_preview(self, enabled):
+        """仅调整预览遮罩，不推进计时或颗粒状态。"""
+        self._settings_preview = bool(enabled)
+        self._update_pause_overlay()
+
+    def _update_pause_overlay(self):
+        if not hasattr(self, "_pause_color"):
+            return
+        paused = not self.running and 0 < self.elapsed < self.duration
+        self._pause_color.a = 0.55 if paused and not self._settings_preview else 0
         self._pause_rect.size = self.size if self._pause_color.a else (0, 0)
 
     def _draw_flares(self, now):
@@ -9752,14 +9806,13 @@ class HourglassApp(App):
         # --- 对数倍率滑杆(1–1000 倍,与按钮并存但不同步;默认 Kivy 大滑杆样式,
         #     进度条颜色恢复金色值道(与选中态同色的黄色已滑段);
         #     未滑段默认浅灰贴图接近弹窗底色,换暖灰棕贴图 #8a7a68) ---
-        slider = Slider(min=0.0, max=1.0,
+        slider = _SmoothSlider(min=0.0, max=1.0,
                         value=math.log(max(1.0, min(float(MULT_SLIDER_MAX),
                                                    float(init_mult)))) / math.log(MULT_SLIDER_MAX),
                         size_hint=(1, None), height=dp(44),
                         value_track=True,
                         value_track_color=(*POPUP_GOLD_SEL[:3], 0.9),
                         background_horizontal=resource_path("ui/slider_track.png"),
-                        cursor_image=resource_path("ui/slider_cursor.png"),
                         background_width='8dp',                 # 细线化:未滑段=浅蓝细线,不再 36sp 灰槽
                         value_track_width='8dp')                # 金色线同宽,盖住蓝线左段(已滑=纯金无反边)
         mult_label = Label(text=f"×{init_mult}", size_hint=(None, None),
@@ -9923,7 +9976,12 @@ class HourglassApp(App):
             self.start_btn.text = "暂停"
             self.start_btn.background_color = (0.851, 0.557, 0.243, 1)
         else:
-            self.start_btn.text = "开始"
+            if self.hourglass.elapsed >= self.hourglass.duration:
+                self.start_btn.text = "重新开始"
+            elif self.hourglass.elapsed > 0:
+                self.start_btn.text = "继续"
+            else:
+                self.start_btn.text = "开始"
             self.start_btn.background_color = (0.353, 0.620, 0.243, 1)
 
     def _benchmark_active(self):
@@ -9978,12 +10036,11 @@ class HourglassApp(App):
             return row, val
 
         def make_slider(value):
-            return Slider(min=0.0, max=100.0, value=value,
+            return _SmoothSlider(min=0.0, max=100.0, value=value,
                           size_hint=(1, None), height=dp(40),
                           value_track=True,
                           value_track_color=(*POPUP_GOLD_SEL[:3], 0.9),
                           background_horizontal=resource_path("ui/slider_track.png"),
-                        cursor_image=resource_path("ui/slider_cursor.png"),
                           background_width='8dp', value_track_width='8dp')
 
         def make_levels(title, labels, current, on_pick, fmt=None):
@@ -10023,9 +10080,9 @@ class HourglassApp(App):
             box.add_widget(row)
             return box, refresh, btns
 
-        # ---- 沙子浓度 ----
+        # ---- 沙纹浓淡：保留原有 sand_grain 参数和映射 ----
         sand_row, sand_label = make_row(
-            "沙子浓度", "%.2f" % SAND_MATERIAL_GRAIN)
+            "沙纹浓淡", "%.2f" % SAND_MATERIAL_GRAIN)
         _mid(sand_row)
         sand_slider = make_slider(min(100.0, SAND_MATERIAL_GRAIN / SAND_GRAIN_MAX * 100.0))
         _mid(sand_slider)
@@ -10128,7 +10185,10 @@ class HourglassApp(App):
         popup.title_align = "center"
         popup.title_size = sp(17)
         self._dev_popup = popup
-        popup.bind(on_dismiss=lambda *_: setattr(self, "_dev_popup", None))
+        def finish_preview(*_):
+            hg.set_settings_preview(False)
+            self._dev_popup = None
+        popup.bind(on_dismiss=finish_preview)
         # 高度跟着内容长(同周期/音效弹窗那条已跑过真机的链路)
         # ================= F2: 两种结构, 按"装不装得下"选(同周期弹窗) =================
         # 本菜单自然高 **422dp**; 窄盒(长边 < 422dp, 分屏/自由窗口)里「确定」会被推出屏外。
@@ -10167,46 +10227,15 @@ class HourglassApp(App):
             Clock.schedule_once(_fit_dev_height, 0)
 
         popup.pos_hint = {"center_x": 0.5, "y": 0.015}
-        # 🔴🔴 **2026-10-06 用户实测: 「让你把沙漏设置做个预览, 结果你把预览窗口直接灰化了,
-        #     那预览个毛啊」** —— 这条是**真的, 而且是这个界面唯一的用途**:
-        #     它贴底摆就是为了把上半屏的沙漏留出来当预览, 而 `ModalView` 的默认遮罩
-        #     (`overlay_color = (0,0,0,0.70)`, 铺满整个宿主) **把上面那块沙压到只剩 30% 亮度**:
-        #     实测沙色 (217,164,97) → **(66,50,29)** —— 你要调的正是沙面起伏/颗粒,
-        #     而沙被盖在一层 70% 的黑底下 ⇒ **等于没有预览**。
-        # ⚠️ 前面两次修都修错了属性: 试的是 `background_color=(0,0,0,0)` 与 `background=""`,
-        #    **那两个只影响控件自身背景, 根本不管遮罩** ⇒ 所以一直"关不掉"。
-        #    管遮罩的是 **`overlay_color`**, 而全仓库从来没设过它。
-        # ✅ 现按**本文件上方那段注释里原本就写明的意图**落地: "留 10% 只为跟卡片分层"。
-        #    桌面实测 α 是**线性连续**的: 0→(253,246,227) 与无弹窗完全一致 /
-        #    0.10→(228,222,205) / 0.70(原值)→(76,74,69)。取 0.10 = 保留一丝分层感,
-        #    沙仍然看得清。⚠️ 只改**这一个弹窗** —— 周期/音效/完成那三个的压暗是**要的**
-        #    (它们不是预览界面, 压暗是为了把注意力收到卡片上), 一个都不动。
-        popup.overlay_color = (0, 0, 0, 0.10)
-        # ⚠️ **原打算**把这个界面的模态遮罩调到几乎透明（当"预览"用, 留 10% 只跟卡片分层）。
-        #    🔴 **但这个打算从未落地** —— 全仓库**没有任何地方设 `overlay_color`**
-        #    （2026-10-06 实查: `grep -n overlay_color main.py` ⇒ **0 处**;
-        #     r34-1号 设备实测遮罩 alpha 就是 **Kivy 默认的 0.70**:
-        #     沙色 (217,164,97) → (66,50,29)）。
-        #    ⇒ **这一段原先写的"调到几乎透明"是假的, 别按它推理**;
-        #    下面那条「已知未解决」才是实情。（同"玻璃反光滑块"那类注释与代码不符。）
-        # 🔴 **2026-10-06 更正: "关不掉"是错的 —— 一行就能关。**
-        #    之前两次试的是 `background_color=(0,0,0,0)` 与 `background=""` —— **那两个确实不管遮罩**
-        #    (`background_color` 只影响控件自身的背景, Kivy 文档明说; 实测顶栏金沙 (54,41,24)
-        #     vs 正常 (217,163,96) 那两条就是这个原因)。
-        #    管遮罩的是 **`ModalView.overlay_color`(默认 (0,0,0,0.7))**,
-        #    而全仓库**从来没有一处设过它**(r34-1号 实查 `grep -n overlay_color main.py` = 0 处)。
-        #    桌面实测(`tools/_probe_overlay_color.py`, 取沙漏之外的背景采样点):
-        #      无弹窗 (253,246,227) | **α=0 → (253,246,227) 完全恢复** | 0.10 → (228,222,205)
-        #      | 0.25 → (190,184,170) | 0.40 → (152,148,136) | 0.55 → (114,111,102)
-        #      | 0.70(默认) → (76,74,69)
-        #    ⇒ **线性、单调、连续可调。**
-        # ⚠️ **但 α 取多少是观感决定 ⇒ 归用户, 尚未定** —— 本函数**先不动**,
-        #    等用户挑完 α 再加一行 `popup.overlay_color = (0, 0, 0, α)`。
-        #    (用户的待定项里已有一条就是"弹窗后面那层整窗暗底"。)
-        #    ⇒ 沙漏虽然露在弹窗上方（结构上能当预览用）, 但**颜色是被压暗的, 不能用来判色/判质感** ——
-        #    这正是 r17-1号 警告过的那个陷阱（55% 遮罩下蓝沙量到 (173,198,211), 真实 (75,140,192)）。
-        #    下一步要么找到真正的暗底来源, 要么改成"弹窗里放一个小预览"。
-        popup.open()
+        # 设置页用于看真实材质，只在这里取消弹窗暗罩和暂停褪色层。
+        # 确定、返回键及转入 Benchmark 都通过 on_dismiss 恢复原暂停显示。
+        popup.overlay_color = (0, 0, 0, 0)
+        hg.set_settings_preview(True)
+        try:
+            popup.open()
+        except Exception:
+            finish_preview()
+            raise
 
     def on_benchmark(self, *_):
         if self._benchmark_active() or self._benchmark_popup is not None:

@@ -1,0 +1,20 @@
+{
+  "scope": "pc-material-appearance",
+  "appearance": "passed",
+  "reviewer": "root + visual_check_scope",
+  "release_version": "3.4",
+  "measured_version": "3.3",
+  "archive_sha256": "fbd5a6f0bd41392e62d20eb0c8bca0737247833edd9030de3749a14674888cba",
+  "build_spec_sha256_lf": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+  "reviewed_images": {
+    "pc-material-before-after.png": "bc0a9e3f2d9754ce2a7733a469e59b29ef989f0f2e61f2508f386e4f2dd29f40",
+    "pc-colors-extremes-review.png": "cf706c3e4ed9ea1157d9c2f415ae69d9464cf10438d0ec412097a6dd003cc12b",
+    "pc-texture-overview-review.png": "9d142e257a4c234c9c6c0019c08659f0863afe89b53af9a1b2b394593b8ec290"
+  },
+  "notes": [
+    "31 cases / 50 paired texture frames plus 3 paired PC native frames passed.",
+    "Sources differ from the tested version only by APP_VERSION 3.3 -> 3.4; checker enforces this.",
+    "No new mask, hard seam or static mound drift; 36 coverage samples unchanged.",
+    "No performance/audio/Android acceptance is inferred from PC evidence."
+  ]
+}
