@@ -4,10 +4,10 @@ Python + Kivy 沙漏计时应用，已恢复 3.0 的沙流、计时和渲染实�
 版本唯一来源是 `src/app/app_version.py`，不在文档中另写版本号。
 
 当前版本包含界面与材质改进：暂停/完成按钮文案、原色设置预览、清晰滑杆，
-沙柱采用短颗粒流场，颗粒中心适度加速下行，两侧有随流动推进的局部轮廓变化；
-速度不再随颗粒粗细档位改变。落点飞溅集中在堆顶附近，表层纹理沿坡铺开。
+沙柱的每个短粒跟随实际粒子连续下落，材质随颗粒移动，不再用整束波浪轮廓裁切；
+颗粒只从出口进入画面，落入沙堆后被遮挡。落点飞溅集中在堆顶附近，表层纹理沿坡铺开。
 沙量、主沙粒运动和玻璃轮廓保持原模型，飞溅装饰的轨迹按上述目标调整。
-当前发布由 `check_motion_shape_release.py` 分别核对真实画面的速度与形状，以及完整过程和源码身份。
+当前发布由 `check_particle_release.py` 核对粒子连续性、外观、完整过程、PC 工作耗时与源码身份。
 历史设备取图和源码覆盖记录单独保留，不能代替当前 PC 验收或正式 APK 安装证明。
 
 ## PC 运行
@@ -38,8 +38,9 @@ python src/tools/run_regression.py --profile core
 PC 结果不能直接当成 Android 性能结论；检查范围与发布条件见
 [改完以后怎么检查](design/checks/README.md)、[QA 纪律](design/checks/notes/qa-rules.md)。
 外观改动只回归本次外观及相邻连接；帧率、音频和完整回归由用户另行安排。
-本次发布用 `check_material_release.py` 重放已审阅的 PC 外观对照并核对全部运行源码。
-仅版本赋值与换行形式允许不同；旧 `check_rollback_release.py` 保留供历史回退核对。
+本次发布用 `check_particle_release.py` 重放已审阅的 PC 外观对照并核对全部运行源码。
+性能对照计时包括更新、绘制和 GPU 完成等待，不包含截图编码，不等于实屏或 Android FPS。
+历史材质、形状和回退检查保留供对应版本查阅。
 `test_keep_awake.py` 检查 Android UI 线程、窗口标志和时序，`verify_keep_awake_runtime.py`
 检查隐藏 PC 应用生命周期和 Windows 原生请求；这些不是 Android 设备、音频或帧率验收。
 

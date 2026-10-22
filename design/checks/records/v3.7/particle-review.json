@@ -1,0 +1,76 @@
+{
+  "scope": "pc-persistent-particle-stream",
+  "release_version": "3.7",
+  "appearance": "passed",
+  "reviewer": "Codex：审阅真实阶段图、连续帧及完整录像抽帧，结合生命周期和逐帧像素检查",
+  "reviewed_goals": {
+    "stable_axis": true,
+    "particle_continuity": true,
+    "neck": true,
+    "contact": true,
+    "pause_and_settle": true
+  },
+  "archive_sha256": "751b9c51f615a68de7fa29b4d8e65202e38ff3f3913e77ed84dd4c0e8827d563",
+  "build_spec_sha256_lf": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+  "validation_sources": {
+    "src/tools/benchmark_particle_renderer.py": "66149dde2077cd1e5edda573866818a6538a67446229a3d68deafd8aec12474f",
+    "src/tools/capture_stream_motion.py": "5df632c0e1cf3a933a6a97c30df1254a5602d93867e8b3519677252966223899",
+    "src/tools/check_material_release.py": "631a199105dc08f96f063f412643b3b6182464298672cf8c9dd4356ef881e8f9",
+    "src/tools/check_motion_shape_release.py": "dc576d6ed315f4fbf8f7d796a5ff19768badc86d39a1b5924bcc185a3dd058bb",
+    "src/tools/check_particle_release.py": "6950a22c60a024590b48b4f7830402c5b4d1dcba9ef2e7b95c237bf21cea4b5a",
+    "src/tools/check_short_grain_release.py": "893065cacf8e5654ff9c9eda847cb0ea3fd714c6b0bb30f5e1dd7eb051244fc4",
+    "src/tools/compare_material_frames.py": "690c7f487bde359f2f97318c128422036d3604aa82e2b2ef399c6245f959a3fc",
+    "src/tools/material_visual_probe.py": "9a05bb331ebc52bd87644aaa5cbdf1b337fec113bb586c81865e137ac88e522f",
+    "src/tools/record_short_grain.py": "66617c689af1cfee5774d58178cf202fab5d6a0f78fd8d37f5774bcf10a592a2",
+    "src/tools/test_particle_continuity.py": "640ae4e4608be3b639214a5f2ce091c61fd41697941cde07b743d1cc43d4d000",
+    "src/tools/test_particle_release.py": "79ff5b3807dca6c308ed0bdd0f4711a9064bd2b199a224df6f9078d9160992ee",
+    "src/tools/verify_short_grain_runtime.py": "b1e98e7df1cf9f6e8690af5f6ae9d36e3d06706e7d474f2bfb7161f29bd7d5ac"
+  },
+  "reviewed_files": {
+    "before-after.png": "b80e599ccfc63fe2ca9e9eecb76d7aa8060d03620226326112d4b6c939a6dedf",
+    "colors.png": "23eb6450d69f6a378b46f7aac9d30bfa47513a4a9f36ac9946aa52017226941b",
+    "cycle.png": "295a7f1caf92546c770734eb956c7d8e398d087ad7d74bae6a5c65a5a15aa29f",
+    "full-cycle.mp4": "7a0d0922a46d71c0e867286d3428edbad97fce39a96e4b63682a50da1f231ce1"
+  },
+  "performance": {
+    "perf-before": {
+      "frames": 900,
+      "measured_wall_seconds": 3.1731218,
+      "average_frame_ms": 3.5256908888888887,
+      "average_equivalent_fps": 283.63235221541134,
+      "one_percent_low_frame_ms": 5.257777777777778,
+      "one_percent_low_equivalent_fps": 190.1944209636517,
+      "slowest_one_percent_frames": 9,
+      "p99_frame_ms": 4.8203,
+      "max_frame_ms": 6.2298
+    },
+    "perf-after": {
+      "frames": 900,
+      "measured_wall_seconds": 3.7903316,
+      "average_frame_ms": 4.211479555555556,
+      "average_equivalent_fps": 237.44624348961972,
+      "one_percent_low_frame_ms": 6.296466666666666,
+      "one_percent_low_equivalent_fps": 158.8192319501943,
+      "slowest_one_percent_frames": 9,
+      "p99_frame_ms": 5.9631,
+      "max_frame_ms": 6.7651
+    }
+  },
+  "scope_notes": [
+    "真正隐藏的 Windows PC 窗口，独立配置；未操作 MuMu、ADB 或真机。",
+    "55 张同种子阶段图保持主粒子、沙量、玻璃及未改区域一致；含6配色与颗粒1/6档。",
+    "4组共454张连续实图，逐帧核对实际Mesh、粒子生命周期及中段画面可见。",
+    "录像覆盖50秒计时、12秒暂停、15秒恢复、最终落定；通过抽帧与记录核对。",
+    "1080×1848同参数3轮各300帧，计时含更新、绘图、GPU完成等待；不含截图编码。",
+    "上述耗时不等于实屏FPS、Android性能或音频验收。"
+  ],
+  "repaired_during_review": [
+    "Mesh初始化失败时旧Line组恢复不完整：先补失败单测再修。",
+    "1秒周期快速堆面下出现12个额外像素：按真实堆面遮挡，原范围检查通过。",
+    "GL属性状态被其他图层关闭，首帧后整层消失：逐帧像素反例拒绝，精确恢复当前shader属性后重跑全部候选。"
+  ],
+  "limitations": [
+    "代表粒子仍是小图元，不是逐粒碰撞仿真。",
+    "堆面在单粒宽度内线性插值遮挡；未改变物理、计时和粒子密度。"
+  ]
+}

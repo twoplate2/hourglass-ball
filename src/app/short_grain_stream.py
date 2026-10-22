@@ -1,7 +1,8 @@
-"""Dense short grains in a live stream envelope, independent of physics state.
+"""Persistent short sprites following the existing real particle trajectories.
 
-The field replaces the old long-stroke coverage, not just its RGB. All timers,
-emitters and mass accounting remain owned by HourglassWidget.
+HourglassWidget owns births, motion, contact and mass accounting. Rendering adds
+no animated envelope or time-dependent mask that could delete airborne grains.
+The pure field helpers below remain for historical 3.6 evidence tools.
 """
 import os
 import math
@@ -37,221 +38,169 @@ def stream_limits(ys, outlet, surface, pitch, touching):
     return (top, bottom) if top > bottom else None
 
 
+def particle_vertices(xs, ys, phases, sizes, pitch):
+    """One persistent short sprite per real particle; never changes its centre."""
+    import numpy as np
+    xs, ys, phases, sizes = [np.asarray(v) for v in (xs, ys, phases, sizes)]
+    n = len(xs)
+    out = np.empty((n, 4, 5), dtype=np.float32)
+    corners = np.asarray(((-1,-1),(1,-1),(1,1),(-1,1)), dtype=np.float32)
+    radius = 1.6 * max(.8, pitch) * (1.0 + .15 * (sizes > 1))
+    out[:,:,0] = xs[:,None] + radius[:,None] * corners[None,:,0]
+    out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * 1.08
+    out[:,:,2:4] = corners[None,:,:]
+    out[:,:,4] = ((phases / math.tau) % 1.0 - .5)[:,None] * .60
+    return out
+
+
+def mound_surface_at(xs, carve_vertices, floor):
+    """Sample the same polyline that cuts the visible mound, including ripples."""
+    import numpy as np
+    xs = np.asarray(xs)
+    quads = np.asarray(carve_vertices, dtype=np.float32).reshape(-1, 4, 4)
+    valid = quads[quads[:, 1, 0] > quads[:, 0, 0]]
+    if not len(valid):
+        return np.full(xs.shape, floor, dtype=np.float32)
+    surface = valid[:, :2, :2].reshape(-1, 2)
+    return np.interp(xs, surface[:, 0], surface[:, 1]).astype(np.float32)
+
+
 VERTEX_SHADER = """
 $HEADER$
+attribute float vTone;
+attribute float vSurface;
 varying vec2 sand_position;
+varying vec2 grain_local;
+varying float grain_tone;
+varying float grain_surface;
 void main(void) {
     sand_position = vPosition;
-    tex_coord0 = vTexCoords0;
-    frag_color = color * vec4(1.0, 1.0, 1.0, opacity);
-    gl_Position = projection_mat * modelview_mat * vec4(vPosition, 0.0, 1.0);
+    grain_local = vTexCoords0;
+    grain_tone = vTone;
+    grain_surface = vSurface;
+    frag_color = color * vec4(1.0,1.0,1.0,opacity);
+    gl_Position = projection_mat * modelview_mat * vec4(vPosition,0.0,1.0);
 }
 """
 
 FRAGMENT_BODY = """
-uniform vec4 short_geometry; // center, outlet, half-width, pitch
-uniform vec4 short_limits;   // top, front, sparse-tail packing, phase
+uniform vec4 short_geometry;
 uniform float short_contrast;
-uniform float short_contact;
-uniform vec4 short_motion; // initial speed, acceleration, birth rate, shape phase
-uniform float short_shape_gain;
-float cell_hash(vec2 p) {
-    return clump_hash(mod(p, 4096.0));
-}
-float flight_age(float depth, float v0, float g) {
-    return 2.0 * max(0.0, depth) / (sqrt(v0*v0 + 2.0*g*max(0.0, depth)) + v0);
-}
-float edge_noise(float y, float side) {
-    float cell = floor(y), f = fract(y);
-    f = f*f*(3.0-2.0*f);
-    return mix(clump_hash(vec2(side, mod(cell, 256.0))),
-               clump_hash(vec2(side, mod(cell+1.0, 256.0))), f);
-}
+varying vec2 grain_local;
+varying float grain_tone;
+varying float grain_surface;
 void main(void) {
-    float pitch = short_geometry.w;
-    float depth = short_geometry.y - sand_position.y;
-    float qx = (sand_position.x - short_geometry.x) / pitch;
-    float column = floor(qx);
-    float nearest = 9.0;
-    float second = 9.0;
-    float shade = 0.5;
-    float tone_sum = 0.0;
-    float tone_weight = 0.0;
-    vec2 chosen = vec2(column, 0.0);
-    // Move grain centres ballistically, but evaluate their shape in pixels.
-    // Mapping the grain SHAPE through inverse flight time would stretch it.
-    for (int i = -1; i <= 1; i++) {
-        float lane = column + float(i);
-        float variation = 0.90 + 0.20 * cell_hash(vec2(lane, 117.0));
-        float v0 = short_motion.x * variation;
-        float g = short_motion.y * variation;
-        float age0 = flight_age(depth, v0, g);
-        float row = floor(short_limits.w - age0 * short_motion.z);
-        // Dense neck grains overlap; nine birth rows prevent nearest-centre
-        // switches caused by undersampling that packed entrance.
-        for (int j = -4; j <= 4; j++) {
-            vec2 id = vec2(lane, row + float(j));
-            float born = id.y + 0.5 + 0.64 * (cell_hash(id + vec2(71.0, 19.0)) - 0.5);
-            float age = (short_limits.w - born) / short_motion.z;
-            float center_depth = v0*age + 0.5*g*age*age;
-            float center_x = lane + 0.5 + 0.64 * (cell_hash(id) - 0.5);
-            vec2 d = vec2(qx - center_x, (depth - center_depth) / pitch);
-            d.y *= 0.90;
-            float dist = dot(d, d);
-            // Subpixel grains must not flash when their nearest centre changes.
-            // Blend the moving grains' colours within one compact grain radius;
-            // geometry and pore coverage still use the nearest short grain.
-            float weight = max(0.0, 1.0 - dist / 0.90);
-            weight = weight * weight;
-            tone_sum += weight * cell_hash(id + vec2(17.0, 103.0));
-            tone_weight += weight;
-            if (dist < nearest) {
-                second = nearest;
-                nearest = dist;
-                shade = cell_hash(id + vec2(17.0, 103.0));
-                chosen = id;
-            } else {
-                second = min(second, dist);
-            }
-        }
-    }
-    float join = smoothstep(0.0, 3.5 * short_geometry.z, max(depth, 0.0));
-    float travel = flight_age(depth, short_motion.x, short_motion.y);
-    float shape_y = travel * 3.0 - short_motion.w;
-    float side = sand_position.x < short_geometry.x ? 11.7 : 37.3;
-    float shape = 2.0 * edge_noise(shape_y, side) - 1.0;
-    float edge = short_geometry.z * (1.0 - 0.04*join
-                       + 0.18 * join * short_shape_gain * shape);
-    float distance = abs(sand_position.x - short_geometry.x);
-    // A few compact outlying grains break the hard boundary without a haze.
-    float halo = pitch * join * 0.9;
-    if (distance > edge - pitch * join * (0.12 + 0.45 * shade)) {
-        if (distance > edge + halo || shade < 0.88 || nearest > 0.20) discard;
-    }
-    // Small isolated inter-grain pores; never reuse the old transparent lanes.
-    if (nearest > mix(1.1, 0.52, join)) discard;
-    if (cell_hash(chosen + vec2(29.0, 41.0)) > short_limits.z) discard;
-    if (short_contact < 0.5 && sand_position.y < short_limits.y + pitch * shade) discard;
-    if (short_limits.x < short_geometry.y - 3.0 * pitch
-        && sand_position.y > short_limits.x - pitch * shade) discard;
-    float diameter = max(2.0, 2.0 * sand_geometry.y);
-    vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
-                  (sand_position.y - sand_geometry.z) / diameter);
-    float tone = tone_sum / max(0.0001, tone_weight);
-    float detail = (tone - 0.5) * 0.80;
-    float strength = max(0.0, short_contrast / 0.35);
-    vec3 rgb = grain_tone_color(detail * min(1.5, strength), lighting(uv));
-    // RGB continuity at the mouth, not an alpha gradient or rectangular mask.
-    vec2 mouth = vec2((sand_position.x - sand_geometry.x) / diameter,
-                     max(0.0, sand_position.y - sand_geometry.w) / diameter);
-    float sink = 1.0 / (1.0 + 20.0 * mouth.x * mouth.x + 8.0 * mouth.y * mouth.y);
-    vec2 velocity = vec2(-(sand_position.x - sand_geometry.x) * 0.09 * sink,
-                         -(4.0 + 46.0 * sink)) / diameter;
-    float t = sand_clock + 0.2 * sin(mouth.x * 3.1 + mouth.y * 5.2);
-    float a = fract(t), b = fract(t + 0.5);
-    float wa = 1.0 - abs(1.0 - 2.0 * a), wb = 1.0 - wa;
-    vec2 jump = vec2(0.125, 0.0625 * sand_jump_y);
-    float ga = grain(uv - velocity * a + floor(t) * jump);
-    float gb = grain(uv - velocity * b + floor(t + 0.5) * jump + vec2(0.5));
-    vec3 neck = grain_tone_color((ga * wa + gb * wb)
-                     * inversesqrt(wa * wa + wb * wb), lighting(uv));
-    rgb = mix(sand_base, mix(neck, rgb, join), sand_mix);
-    gl_FragColor = vec4(rgb, frag_color.a);
+    // Clip only the aperture, this grain's shape and the actual pile occlusion.
+    // No moving envelope, random deletion, or global-count opacity is applied.
+    if (sand_position.y > short_geometry.y) discard;
+    if (sand_position.y < grain_surface) discard;
+    float r2 = dot(grain_local,grain_local);
+    if (r2 >= 1.0) discard;
+    float strength = min(1.5,max(0.0,short_contrast / .35));
+    float detail = (grain_tone + .07*(1.0-r2) - .06*grain_local.x) * strength;
+    vec2 uv = fract(vec2(grain_tone*17.1,grain_tone*29.7)
+                    + grain_local * (1.6*short_geometry.w) / (2.0*sand_geometry.y));
+    vec3 rgb = mix(grain_tone_color(detail,0.0),texture2D(texture0,uv).rgb,sand_mix);
+    float coverage = 1.0-smoothstep(.80,1.0,r2);
+    gl_FragColor = vec4(rgb,frag_color.a*coverage);
 }
 """
 
 
 def install(widget_class):
-    from kivy.graphics import Color, Mesh
+    import numpy as np
+    from kivy.graphics import Color, Mesh, Callback
+    from kivy.graphics.opengl import glGetIntegerv, GL_CURRENT_PROGRAM, glGetAttribLocation, glEnableVertexAttribArray
     from sand_flow_material import GRAIN_FRAGMENT_HEADER, SandFlowContext
-
-    old_build = widget_class._build_dynamic_canvas
-    old_draw = widget_class._draw_stream
+    old_build, old_draw = widget_class._build_dynamic_canvas, widget_class._draw_stream
+    chunk = 4096
+    indices = (np.arange(chunk,dtype=np.uint16)[:,None]*4
+               + np.asarray([0,1,2,0,2,3],dtype=np.uint16)).ravel()
 
     def build(self):
         self._stream_batched = True
-        try:
-            old_build(self)
-        finally:
-            self._stream_batched = False
+        try: old_build(self)
+        finally: self._stream_batched = False
         self._short_flow_context = None
-        self._short_flow_mesh = None
+        self._particle_meshes, self._particle_buffers, self._particle_counts = [], [], []
         try:
             if os.environ.get("HG_FLOW_FORCE_FAIL"):
-                raise RuntimeError("forced short-grain fallback")
-            context = SandFlowContext((self._cx, self._R_inner, self._upper_sand_bot,
-                                       self._taper["in_pts"][0][1]),
-                                      VERTEX_SHADER, GRAIN_FRAGMENT_HEADER + FRAGMENT_BODY, tag=5)
-            with context:
-                Color(1, 1, 1, 1)
-                mesh = Mesh(mode="triangles", vertices=[], indices=[],
-                            texture=self._sand_material.texture if self._sand_material else None)
-            groups = [row[0] for row in self._stream_pools.values()]
+                raise RuntimeError("forced particle mesh fallback")
+            context = SandFlowContext((self._cx,self._R_inner,self._upper_sand_bot,
+                self._taper["in_pts"][0][1]),VERTEX_SHADER,GRAIN_FRAGMENT_HEADER+FRAGMENT_BODY,tag=6)
+            # Prepare the first Mesh before removing the working Line groups.
+            # A driver/allocation failure must leave a drawable fallback.
+            self._short_flow_context = context
+            ensure(self,0)
+            groups = [r[0] for r in self._stream_pools.values()]
             position = self.canvas.children.index(groups[0])
-            for group in groups:
-                self.canvas.remove(group)
-            self.canvas.insert(position, context)
-            self._short_flow_context, self._short_flow_mesh = context, mesh
-            self.flow_renderer = "short_grain_field"
+            for group in groups:self.canvas.remove(group)
+            self.canvas.insert(position,context)
+            self.flow_renderer = "particle_sprite_pool"
         except Exception as exc:
+            self._short_flow_context = None
+            self._particle_meshes, self._particle_buffers, self._particle_counts = [], [], []
             self._reserve_stream_lines()
             self.flow_renderer = "line_pool"
-            print("short grains unavailable; keeping Line fallback: %s" % exc)
+            print("particle mesh unavailable, using Line: %s" % exc)
+
+    # Other RenderContexts can disable these global GL arrays while Kivy's
+    # per-shader format cache still considers them enabled. Restore only the
+    # locations actually used here; otherwise all grains vanish after frame 1.
+    attribute_cache = {}
+    def restore_attributes(_):
+        program = glGetIntegerv(GL_CURRENT_PROGRAM)[0]
+        if program not in attribute_cache:
+            attribute_cache[program] = [glGetAttribLocation(program, name)
+                for name in (b"vPosition",b"vTexCoords0",b"vTone",b"vSurface")]
+        for location in attribute_cache[program]:
+            if location >= 0:glEnableVertexAttribArray(location)
+
+    def ensure(self, index):
+        while len(self._particle_meshes) <= index:
+            data = np.zeros((chunk,4,6),dtype=np.float32)
+            data[:,:,:2] = -10000
+            with self._short_flow_context:
+                Color(1,1,1,1)
+                Callback(restore_attributes)
+                mesh = Mesh(vertices=data.ravel(),indices=indices,mode="triangles",
+                    texture=self._sand_material.texture if self._sand_material else None,
+                    fmt=[(b"vPosition",2,"float"),(b"vTexCoords0",2,"float"),
+                         (b"vTone",1,"float"),(b"vSurface",1,"float")])
+            self._particle_meshes.append(mesh)
+            self._particle_buffers.append(data)
+            self._particle_counts.append(0)
 
     def draw(self):
-        context, mesh = self._short_flow_context, self._short_flow_mesh
-        if context is None:
-            return old_draw(self)
-        n = self.pn
-        if not n:
-            mesh.vertices, mesh.indices = [], []
-            self._short_flow_state = {"active": False, "particles": 0}
-            return
+        context = self._short_flow_context
+        if context is None:return old_draw(self)
         import sys
-        module = sys.modules[widget_class.__module__]
-        pitch = grain_pitch(self._R_inner, module.SAND_MATERIAL_COARSE)
-        outlet = 2 * self._neck_y - self._taper["y_bot"]
-        surface = self.get_mound_top_y()
-        touching = (self._last_impact_clock is not None
-                    and self._mound_flow_clock - self._last_impact_clock <= 0.05)
-        limits = stream_limits(self.py[:n], outlet, surface, pitch, touching)
-        if limits is None:
-            mesh.vertices, mesh.indices = [], []
-            self._short_flow_state = {"active": False, "particles": n}
-            return
-        top, front = limits
-        half = self._taper["t_in"]
-        # Exact surface columns, including a small overlap; no flat bottom cap.
-        vertices, indices = [], []
-        for i in range(17):
-            x = self._cx + 1.24 * half * (i / 8.0 - 1.0)
-            ground = self._mound_top_at(x)
-            bottom = ground - 0.6 * pitch if touching else max(ground, front)
-            bottom = min(top, bottom)
-            vertices.extend((x, bottom, 0, 0, x, top, 0, 1))
-            if i:
-                k = 2 * (i - 1)
-                indices.extend((k, k + 2, k + 1, k + 1, k + 2, k + 3))
-        mesh.vertices, mesh.indices = vertices, indices
-        material = self._sand_material
-        mesh.texture = material.texture if material else None
-        context.update_flow(self.elapsed, self._particle_motion_scale, material,
-                            (self.sand_base, self.sand_dark, self.sand_light))
-        context["short_geometry"] = (self._cx, outlet, half, pitch)
-        context["short_contrast"] = module.SAND_MATERIAL_GRAIN
-        context["short_contact"] = float(touching)
-        # The timer stops at duration, but this pause-aware clock continues until
-        # in-flight grains settle. Do not freeze their texture at timer zero.
-        v0, gravity, rate = motion_parameters(half, pitch,
-            outlet - (self._lower_y_c - self._R_inner), self._particle_motion_scale)
-        phase = flow_phase(self._mound_flow_clock, rate)
-        context["short_motion"] = (v0, gravity, rate, (self._mound_flow_clock * 3.0) % 256.0)
-        context["short_shape_gain"] = min(1.0, max(0.0, (outlet-surface) / (4.0*half)))
-        context["short_limits"] = (top, front, min(1.0, n / 24.0), phase)
-        self._short_flow_state = {"active": True, "particles": n, "top": top,
-                                  "front": front, "pitch": pitch, "touching": touching,
-                                  "phase": phase, "v0": v0, "gravity": gravity,
-                                  "birth_rate": rate}
+        module=sys.modules[widget_class.__module__]
+        n=self.pn
+        pitch=grain_pitch(self._R_inner,module.SAND_MATERIAL_COARSE)
+        vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch)
+        surfaces=mound_surface_at(vertices[:,:,0], self._mound_carve._v,
+                                  self._lower_sand_bot)
+        for i in range((n+chunk-1)//chunk):ensure(self,i)
+        for i,mesh in enumerate(self._particle_meshes):
+            count=min(chunk,max(0,n-i*chunk))
+            previous=self._particle_counts[i]
+            if not count and not previous:continue
+            data=self._particle_buffers[i]
+            if count:
+                data[:count,:,:5]=vertices[i*chunk:i*chunk+count]
+                data[:count,:,5]=surfaces[i*chunk:i*chunk+count]
+            if count<previous:data[count:previous,:,:2]=-10000
+            mesh.texture=self._sand_material.texture if self._sand_material else None
+            mesh.vertices=data.ravel()
+            self._particle_counts[i]=count
+        context.update_flow(self.elapsed,self._particle_motion_scale,self._sand_material,
+            (self.sand_base,self.sand_dark,self.sand_light))
+        outlet=2*self._neck_y-self._taper["y_bot"]
+        context["short_geometry"]=(self._cx,outlet,self._taper["t_in"],pitch)
+        context["short_contrast"]=module.SAND_MATERIAL_GRAIN
+        self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
+            rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl")
 
-    widget_class._build_dynamic_canvas = build
-    widget_class._draw_stream = draw
+    widget_class._build_dynamic_canvas=build
+    widget_class._draw_stream=draw

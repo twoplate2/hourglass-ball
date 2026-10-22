@@ -1,6 +1,28 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>沙流速度与形状调整计划</title>
 <style>body{font:16px/1.75 system-ui;max-width:980px;margin:30px auto;padding:0 20px}td,th{border:1px solid #bbb;padding:9px;text-align:left}table{border-collapse:collapse}</style>
-<h1>沙流速度与形状调整计划</h1><p>2026-10-23，基于 3.5。先建立失败对照，再修改和检查；仅 PC 隐藏窗口、独立设置目录。</p>
+<h1>沙流速度与形状调整计划</h1>
+<h2>最新约束与轮子选型备忘（2026-10-23）</h2>
+<p><strong>用户已否定3.6的软管式轮廓扭动。当前优先级是单颗砂的连续性和效率，不能再用“轮廓变化幅度够大”代表自然。</strong>
+每颗砂应从出口出生、持续下落、到堆面或被合理遮挡后结束，不能因噪声、遮罩或粒子池复用而在半空突兀出现、消失。
+整体沙流保持稳定，出口、柱身、落点平滑接续。</p>
+<p><strong>投入限制：</strong>轮子方案先记录，不继续扩大搜索或死磕安装、编译和兼容性。
+如果接入不理想或耗时过多，优先用现有工程做小范围修改；不为选库迁移整个客户端，不反复堆砌新指标。
+只有现有实现遇到明确瓶颈时再回看以下候选。</p>
+<table><tr><th>候选</th><th>已核实情况与取舍</th></tr>
+<tr><td>Kivy Mesh＋固定粒子池<br><small>官方资料：<code>https://kivy.org/doc/stable/api-kivy.graphics.vertex_instructions.html#kivy.graphics.vertex_instructions.Mesh</code></small></td>
+<td>优先方向。复用现有粒子状态，批量绘制真正存活的颗粒，接入范围小。Mesh是绘制组件，不是完整沙漏插件；出生、触及动态堆面和回收规则仍需适配。</td></tr>
+<tr><td>KivEnt粒子模块<br><small>官方资料：<code>https://github.com/kivy/kivent</code></small></td>
+<td>有发射器、粒子系统及渲染器，但涉及实体组件架构和编译模块。当前Kivy/Android兼容性与性能未实测，暂不投入接入。</td></tr>
+<tr><td>Godot GPU粒子<br><small>官方资料：<code>https://docs.godotengine.org/en/stable/classes/class_gpuparticles2d.html</code></small></td>
+<td>完整粒子工具链候选，但不是Kivy插件，涉及框架迁移；当前成本不合适，保留备选。</td></tr>
+<tr><td>Garden ParticleSystem<br><small>官方资料：<code>https://github.com/kivy-garden/garden.particlesystem</code></small></td>
+<td>仓库标注Work in Progress、无正式release；不能当作已验证成熟的即插即用方案。</td></tr>
+<tr><td>Pymunk<br><small>官方资料：<code>https://www.pymunk.org/en/latest/installation.html</code></small></td>
+<td>可做刚体运动，但本工程已有接入后回退的历史；本次不因粒子连续性问题重新引入逐砂碰撞。生命周期和显示仍需适配，效率不能由库名保证。</td></tr></table>
+<p><strong>性能约束：</strong>用户已明确要求关注效率。后续小样以60FPS为目标，保留现有沙量、密度和细节，比较平均帧率、1% low和最慢帧。
+这是待验证目标，不是现有结论。先做范围小的同条件对照；PC结果不冒充Android性能，仍遵守仅隐藏PC验证的项目规则。</p>
+<h2>此前3.6计划（保留背景，以上述最新要求为准）</h2>
+<p>2026-10-23，基于 3.5。先建立失败对照，再修改和检查；仅 PC 隐藏窗口、独立设置目录。</p>
 <p>当前问题：纹理约每秒移动一个柱宽，整块匀速平移；上下边界近乎等宽，细颗粒没有改变矩形骨架。
 原先长缝检查通过不能证明这两项目标通过。</p>
 <table><tr><th>步骤</th><th>实现边界</th><th>独立验收</th></tr>

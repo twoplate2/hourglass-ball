@@ -213,15 +213,19 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 
 ## 快速查找
 
+- `src/tools/test_particle_continuity.py`：真实粒子的出生、持续轨迹、接触回收及实际 Mesh 顶点检查；含晚期 Mesh 创建失败的回退反例，不启动窗口。
+- `src/tools/benchmark_particle_renderer.py`：固定状态重复测量 PC 更新、绘制及 GPU 完成的工作量，保留逐帧耗时、最慢 1% 和最慢帧；不等于实屏或 Android 帧率。
+- `src/tools/check_particle_release.py`：3.7 持续粒子的源码身份、完整隐藏运行、外观证据和 PC 工作量发布检查。
+- `src/tools/test_particle_release.py`：持续粒子发布检查的正反例，拒绝缺帧、取消、身份错误和不完整性能证据。
 - `src/tools/capture_stream_motion.py`：隐藏 PC 真实画布连续帧，记录逐帧堆面、尺寸、逻辑时间与源码身份。
 - `src/tools/check_stream_motion_shape.py`：独立像素位移、宏观轮廓及呼吸检查；不使用着色器速度参数作为通过依据。
 - `src/tools/test_stream_motion_shape.py`：速度方向、多采样、静态竖纹误匹配、矩形毛边等正反例。
 - `src/tools/check_stream_wrap.py`：颗粒和轮廓相位循环边界的真实连续帧检查。
 - `src/tools/check_motion_shape_release.py` / `src/tools/test_motion_shape_release.py`：3.6速度与形状分项发布检查及失败证据、源码身份的正反例。
-- `design/checks/notes/stream-motion-shape-plan.html`：本轮速度与形状计划及验收边界。
+- `design/checks/notes/stream-motion-shape-plan.html`：颗粒连续性与性能优先的最新约束、轮子选型备忘及投入限制；保留此前计划背景。
 - `design/checks/records/v3.6/`：速度/形状原始帧、旧版反例和本轮完整过程录像。
 
-- `src/app/short_grain_stream.py`：默认短颗粒流场绘制，读取实际前缘与尾部；无沙量或计时写入。
+- `src/app/short_grain_stream.py`：每颗真实存活粒子对应一个持续的短粒图元，复用 Mesh 缓冲；无沙量或计时写入。
 - `src/tools/verify_short_grain_runtime.py`：隔离设置、原生隐藏 PC 画布的阶段与配色采集，记录实际绘制路径。
 - `src/tools/record_short_grain.py`：按墙钟取真实画布帧、保留可变帧间隔，拒绝未刷新画布的录像。
 - `src/tools/check_short_grain_visual.py`：检查柱内长缝、稀疏带和真实堆顶接触，不以单根线跨过某行视为密实。
@@ -240,3 +244,5 @@ rg --files src
 
 旧探针需要恢复到原位置并重新核查才能运行。不能把“已归档”说成“已经验证无用”，
 也不能把“文件还保留”说成“测试有效”。
+
+- `design/checks/records/v3.7/`：持续粒子、真实像素可见性、完整录像、同条件 PC 工作耗时和源码证据；[本轮审阅](../design/checks/records/v3.7/review.html)。

@@ -26,10 +26,12 @@ jobs:
           python -m pip install numpy pillow pyflakes kivy==2.3.0
       - name: Check layout, version, syntax and documentation
         run: python src/tools/run_regression.py --profile core
-      - name: Check reviewed material source, evidence and foreground power policy
+      - name: Check reviewed particle source, continuity, PC work budget and power policy
         run: |
           python -B src/tools/test_material_release.py
-          python -B src/tools/check_motion_shape_release.py
+          python -B src/tools/check_particle_release.py
+          python -B src/tools/test_particle_continuity.py
+          python -B src/tools/test_particle_release.py
           python -B src/tools/test_stream_motion_shape.py
           python -B src/tools/test_motion_shape_release.py
           python -B src/tools/test_short_grain.py

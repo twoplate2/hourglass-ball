@@ -1645,7 +1645,7 @@
             "packing",
             "rendering",
             "short-grain-tests",
-            "motion-shape-identity"
+            "particle-identity"
           ],
           "manual": [
             "visual"
@@ -1749,7 +1749,7 @@
           "automated": [
             "rendering",
             "motion-shape-tests",
-            "motion-shape-identity"
+            "particle-identity"
           ],
           "manual": [
             "visual"
@@ -1785,7 +1785,7 @@
           "automated": [
             "physics",
             "motion-shape-tests",
-            "motion-shape-identity"
+            "particle-identity"
           ],
           "manual": [
             "visual"
@@ -1826,7 +1826,7 @@
             "physics",
             "rendering",
             "short-grain-tests",
-            "motion-shape-identity",
+            "particle-identity",
             "motion-shape-tests"
           ],
           "manual": [
@@ -2018,7 +2018,7 @@
             "finish",
             "geometry",
             "short-grain-tests",
-            "motion-shape-identity"
+            "particle-identity"
           ],
           "manual": [
             "visual"
@@ -2056,7 +2056,7 @@
             "physics",
             "finish",
             "short-grain-tests",
-            "motion-shape-identity"
+            "particle-identity"
           ],
           "manual": [
             "visual"

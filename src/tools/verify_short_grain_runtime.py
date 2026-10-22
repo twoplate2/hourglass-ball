@@ -268,9 +268,9 @@ def capture(args, helper, report, write_report):
                     widget._warm_batches_step()
                 if widget._warm_queue:
                     raise RuntimeError("Warm queue did not complete")
-                if args.renderer == "texture" and getattr(widget, "flow_renderer", None) != "short_grain_field":
+                if args.renderer == "texture" and getattr(widget, "flow_renderer", None) not in ("short_grain_field", "particle_sprite_pool"):
                     raise RuntimeError("Requested texture path fell back to another renderer")
-                if args.renderer == "native" and getattr(widget, "flow_renderer", "line_pool") != "short_grain_field":
+                if args.renderer == "native" and getattr(widget, "flow_renderer", "line_pool") not in ("short_grain_field", "particle_sprite_pool"):
                     raise RuntimeError("Native PC default short-grain renderer did not activate")
                 if args.renderer == "fallback" and widget.flow_renderer != "line_pool":
                     raise RuntimeError("Forced fallback did not activate")

@@ -1,7 +1,7 @@
 """Real hidden PC GL sequence with exact per-frame geometry and logical time.
 
-This is a fixed-step appearance probe, not a frame-rate benchmark or wall-clock
-recording. Playback timestamps equal the actual simulation timestamps supplied.
+The default is a fixed-step appearance probe, not a frame-rate benchmark or
+wall-clock recording. --benchmark additionally measures real offscreen work.
 """
 import argparse
 import hashlib
@@ -69,6 +69,17 @@ def capture(args):
             random.seed(helper.SEED)
             if game._np is not None:game._np.random.seed(helper.SEED)
             w.last_frame,w.last_tick=helper.EPOCH,None
+            trace=None
+            if args.trace:
+                from test_particle_continuity import snapshot,ContinuityTrace,assert_particle_meshes
+                trace=ContinuityTrace()
+                original_update=w.update_particles
+                def tracked_update(dt,flow_dt=None):
+                    before=snapshot(w)
+                    original_update(dt,flow_dt=flow_dt)
+                    trace.observe(before,snapshot(w),dt if flow_dt is None else flow_dt,
+                        spread_ratio=game.STREAM_SPREAD_RATIO,kill_inset=game.KILL_INSET)
+                w.update_particles=tracked_update
             if args.wrap:
                 import short_grain_stream as stream
                 half=w._taper["t_in"];pitch=stream.grain_pitch(w._R_inner,game.SAND_MATERIAL_COARSE)
@@ -105,6 +116,7 @@ def capture(args):
                 report["dimensions"]=[crop[2]-crop[0],crop[3]-crop[1]]
             for i in range(report["expected_frames"]):
                 t=args.start+i/args.fps;advance(t);w.redraw()
+                if trace:assert_particle_meshes(w)
                 hidden=native_hidden_check(Window,Config)
                 fbo.add(w.canvas)
                 try:fbo.draw();raw=bytes(fbo.pixels)
@@ -120,11 +132,33 @@ def capture(args):
                 report["frames"].append(dict(time=t,file=name,geometry=geo,native_hidden=hidden,
                     sha256=hashlib.sha256((args.output/name).read_bytes()).hexdigest(),elapsed=w.elapsed,
                     draw_state=dict(getattr(w,"_short_flow_state",{}))))
+                if trace:
+                    from check_particle_release import require_stream_pixels
+                    require_stream_pixels(report["frames"][-1],args.output)
                 if i%30==0:save();print("MOTION_FRAME",i,flush=True)
+            report["final_physics"]=helper.physical_state(w,game)
+            if trace:report["continuity"]=dict(passed=True,births=trace.births,
+                contacts=trace.contacts,survivor_steps=trace.survivor_steps,mesh_frames=len(report["frames"]))
+            if args.benchmark:
+                from benchmark_particle_renderer import run_benchmark
+                def prepare_round(index):
+                    nonlocal logical
+                    w.reset();logical=0.0;now[0]=helper.EPOCH
+                    random.seed(helper.SEED)
+                    if game._np is not None:game._np.random.seed(helper.SEED)
+                    w._front_seed=.75;w.last_frame,w.last_tick=helper.EPOCH,None
+                    w.toggle();advance(args.start)
+                def draw_frame():
+                    native_hidden_check(Window,Config)
+                    fbo.add(w.canvas)
+                    try:fbo.draw()
+                    finally:fbo.remove(w.canvas)
+                if trace:raise ValueError("Do not include continuity tracing overhead in benchmark")
+                report["benchmark"]=run_benchmark(w,draw_frame,now,1/60,args.output/"timing.json",
+                    prepare_round=prepare_round,metadata=dict(seed=helper.SEED,renderer=w.flow_renderer))
             report["source_files_end"]=source_manifest(args.runtime,helper)
             report["hidden_at_finish"]=native_hidden_check(Window,Config)
             report["completed"]=report["source_files"]==report["source_files_end"]
-            report["final_physics"]=helper.physical_state(w,game)
             save()
         finally:Window.close()
     print("MOTION_CAPTURE_DONE",target)
@@ -139,5 +173,7 @@ if __name__=="__main__":
     p.add_argument("--period",type=float,default=50)
     p.add_argument("--wrap",choices=("birth","shape"))
     p.add_argument("--crop-stream",action="store_true",help="Lossless stream ROI in each original FBO frame; save full first frame too")
+    p.add_argument("--trace",action="store_true")
+    p.add_argument("--benchmark",action="store_true")
     args=p.parse_args();args.runtime=args.runtime.resolve();args.output=args.output.resolve()
     capture(args)
