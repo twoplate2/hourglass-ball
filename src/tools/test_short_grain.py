@@ -4,10 +4,24 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from short_grain_stream import grain_pitch, flow_phase, stream_limits
+from short_grain_stream import grain_pitch, flow_phase, stream_limits, motion_parameters
 
 
 class ShortGrainTests(unittest.TestCase):
+    def test_speed_is_not_controlled_by_grain_size(self):
+        fine = motion_parameters(12, 1, 400, 1)
+        coarse = motion_parameters(12, 3, 400, 1)
+        self.assertEqual(fine[:2], coarse[:2])
+
+    def test_speed_is_screen_relative_and_accelerates(self):
+        v, g, rate = motion_parameters(12, 2, 400, 1)
+        big = motion_parameters(24, 4, 800, 1)
+        self.assertGreaterEqual(v, 3 * 24)
+        self.assertGreater(g, 0)
+        self.assertAlmostEqual(big[0], 2*v)
+        self.assertAlmostEqual(big[1], 2*g)
+        self.assertAlmostEqual(big[2], rate)
+
     def test_empty_has_no_stream(self):
         self.assertIsNone(stream_limits([], 100, 0, 2, False))
 
@@ -35,11 +49,16 @@ class ShortGrainTests(unittest.TestCase):
 
     def test_phase_is_bounded_and_pause_is_exact(self):
         for t in (0, 1, 25, 360000):
-            self.assertTrue(0 <= flow_phase(t) < 256)
+            self.assertTrue(0 <= flow_phase(t) < 4096)
             self.assertEqual(flow_phase(t), flow_phase(t))
 
     def test_phase_wrap_matches_hash_period(self):
-        self.assertAlmostEqual(flow_phase(1), flow_phase(1 + 256 / 12), places=9)
+        self.assertAlmostEqual(flow_phase(1), flow_phase(1 + 4096 / 12), places=9)
+        for rate in (70.3, 121.7, 250.2):
+            boundary = 4096 / rate
+            before = flow_phase(boundary - .001, rate)
+            after = flow_phase(boundary + .001, rate)
+            self.assertAlmostEqual((after-before) % 4096, .002*rate, places=8)
 
 
 if __name__ == "__main__":

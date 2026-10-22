@@ -1645,7 +1645,7 @@
             "packing",
             "rendering",
             "short-grain-tests",
-            "short-grain-identity"
+            "motion-shape-identity"
           ],
           "manual": [
             "visual"
@@ -1739,14 +1739,17 @@
           ],
           "expected": [
             "主体连续而允许自然空隙，不是规则等间距的筛子。",
-            "不因改疏密丢掉大段沙，不以固定边界纹路替代流动颗粒。"
+            "不因改疏密丢掉大段沙，不以固定边界纹路替代流动颗粒。",
+            "稳定长下落段在去掉单粒毛边后仍有沿高度局部变化；不可用近等宽矩形带或整柱同步呼吸代替砂流。"
           ],
           "evidence": [
             "三个高度带的原图",
             "已知好坏对照与背景行原始读数；数值门槛须重新标定"
           ],
           "automated": [
-            "rendering"
+            "rendering",
+            "motion-shape-tests",
+            "motion-shape-identity"
           ],
           "manual": [
             "visual"
@@ -1772,14 +1775,17 @@
           ],
           "expected": [
             "不出现钉在空间的筛子或两个速度差异大的层。",
-            "前缘与后续粒子协调，流动连续；录像只判断动态观感，细像素测量另用无损帧。"
+            "前缘与后续粒子协调，流动连续；录像只判断动态观感，细像素测量另用无损帧。",
+            "3.5已知失败：每秒只移动约一个柱宽、整块纹理匀速平移。以连续实图验证新版速度明显提高、下段适度加速；粗细设置不改变整体流速。"
           ],
           "evidence": [
             "连续录像",
             "时间戳与无损帧、独立速度来源"
           ],
           "automated": [
-            "physics"
+            "physics",
+            "motion-shape-tests",
+            "motion-shape-identity"
           ],
           "manual": [
             "visual"
@@ -1820,7 +1826,8 @@
             "physics",
             "rendering",
             "short-grain-tests",
-            "short-grain-identity"
+            "motion-shape-identity",
+            "motion-shape-tests"
           ],
           "manual": [
             "visual"
@@ -2011,7 +2018,7 @@
             "finish",
             "geometry",
             "short-grain-tests",
-            "short-grain-identity"
+            "motion-shape-identity"
           ],
           "manual": [
             "visual"
@@ -2049,7 +2056,7 @@
             "physics",
             "finish",
             "short-grain-tests",
-            "short-grain-identity"
+            "motion-shape-identity"
           ],
           "manual": [
             "visual"

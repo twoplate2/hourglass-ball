@@ -4,15 +4,27 @@ The field replaces the old long-stroke coverage, not just its RGB. All timers,
 emitters and mass accounting remain owned by HourglassWidget.
 """
 import os
+import math
 
 
 def grain_pitch(radius, coarse):
     return max(0.6, radius / 150.0 * (0.7 + 0.35 * coarse))
 
 
-def flow_phase(elapsed):
-    # Same 256-cell period as the shader hash; no discontinuity at wrap.
-    return (max(0.0, elapsed) * 12.0) % 256.0
+def flow_phase(elapsed, rate=12.0):
+    # Match the birth-id hash period. Only ids wrap; physical ages never do.
+    return (max(0.0, elapsed) * rate) % 4096.0
+
+
+def motion_parameters(half_width, pitch, max_depth, motion_scale=1.0):
+    """Pixel velocities follow canvas scale, independently of grain coarseness."""
+    width = max(2.0, 2.0 * half_width)
+    speed = min(1.4, max(1.0, motion_scale) ** 0.25)
+    v0, gravity = 3.0 * width * speed, 2.0 * width * speed * speed
+    # Use the fixed empty-bulb depth, not the changing pile height. Include the
+    # fastest lane, so coarse grains do not leave gaps near the bottom.
+    rate = math.sqrt((v0 * 1.1) ** 2 + 2.0 * gravity * 1.1 * max(0.0, max_depth)) / max(.6, pitch)
+    return v0, gravity, rate
 
 
 def stream_limits(ys, outlet, surface, pitch, touching):
@@ -41,28 +53,58 @@ uniform vec4 short_geometry; // center, outlet, half-width, pitch
 uniform vec4 short_limits;   // top, front, sparse-tail packing, phase
 uniform float short_contrast;
 uniform float short_contact;
+uniform vec4 short_motion; // initial speed, acceleration, birth rate, shape phase
+uniform float short_shape_gain;
 float cell_hash(vec2 p) {
-    return clump_hash(mod(p, 256.0));
+    return clump_hash(mod(p, 4096.0));
+}
+float flight_age(float depth, float v0, float g) {
+    return 2.0 * max(0.0, depth) / (sqrt(v0*v0 + 2.0*g*max(0.0, depth)) + v0);
+}
+float edge_noise(float y, float side) {
+    float cell = floor(y), f = fract(y);
+    f = f*f*(3.0-2.0*f);
+    return mix(clump_hash(vec2(side, mod(cell, 256.0))),
+               clump_hash(vec2(side, mod(cell+1.0, 256.0))), f);
 }
 void main(void) {
     float pitch = short_geometry.w;
     float depth = short_geometry.y - sand_position.y;
-    vec2 q = vec2((sand_position.x - short_geometry.x) / pitch,
-                  (sand_position.y - short_geometry.y) / pitch + short_limits.w);
-    vec2 cell = floor(q);
+    float qx = (sand_position.x - short_geometry.x) / pitch;
+    float column = floor(qx);
     float nearest = 9.0;
     float second = 9.0;
     float shade = 0.5;
-    vec2 chosen = cell;
-    // Jittered short cells, never a vertical stroke or a periodically cut stripe.
-    for (int j = -1; j <= 1; j++) {
-        for (int i = -1; i <= 1; i++) {
-            vec2 id = cell + vec2(float(i), float(j));
-            vec2 center = id + 0.5 + 0.64 * (vec2(cell_hash(id),
-                            cell_hash(id + vec2(71.0, 19.0))) - 0.5);
-            vec2 d = q - center;
+    float tone_sum = 0.0;
+    float tone_weight = 0.0;
+    vec2 chosen = vec2(column, 0.0);
+    // Move grain centres ballistically, but evaluate their shape in pixels.
+    // Mapping the grain SHAPE through inverse flight time would stretch it.
+    for (int i = -1; i <= 1; i++) {
+        float lane = column + float(i);
+        float variation = 0.90 + 0.20 * cell_hash(vec2(lane, 117.0));
+        float v0 = short_motion.x * variation;
+        float g = short_motion.y * variation;
+        float age0 = flight_age(depth, v0, g);
+        float row = floor(short_limits.w - age0 * short_motion.z);
+        // Dense neck grains overlap; nine birth rows prevent nearest-centre
+        // switches caused by undersampling that packed entrance.
+        for (int j = -4; j <= 4; j++) {
+            vec2 id = vec2(lane, row + float(j));
+            float born = id.y + 0.5 + 0.64 * (cell_hash(id + vec2(71.0, 19.0)) - 0.5);
+            float age = (short_limits.w - born) / short_motion.z;
+            float center_depth = v0*age + 0.5*g*age*age;
+            float center_x = lane + 0.5 + 0.64 * (cell_hash(id) - 0.5);
+            vec2 d = vec2(qx - center_x, (depth - center_depth) / pitch);
             d.y *= 0.90;
             float dist = dot(d, d);
+            // Subpixel grains must not flash when their nearest centre changes.
+            // Blend the moving grains' colours within one compact grain radius;
+            // geometry and pore coverage still use the nearest short grain.
+            float weight = max(0.0, 1.0 - dist / 0.90);
+            weight = weight * weight;
+            tone_sum += weight * cell_hash(id + vec2(17.0, 103.0));
+            tone_weight += weight;
             if (dist < nearest) {
                 second = nearest;
                 nearest = dist;
@@ -74,8 +116,18 @@ void main(void) {
         }
     }
     float join = smoothstep(0.0, 3.5 * short_geometry.z, max(depth, 0.0));
-    float edge = short_geometry.z - pitch * join * (0.12 + 0.72 * shade);
-    if (abs(sand_position.x - short_geometry.x) > edge) discard;
+    float travel = flight_age(depth, short_motion.x, short_motion.y);
+    float shape_y = travel * 3.0 - short_motion.w;
+    float side = sand_position.x < short_geometry.x ? 11.7 : 37.3;
+    float shape = 2.0 * edge_noise(shape_y, side) - 1.0;
+    float edge = short_geometry.z * (1.0 - 0.04*join
+                       + 0.18 * join * short_shape_gain * shape);
+    float distance = abs(sand_position.x - short_geometry.x);
+    // A few compact outlying grains break the hard boundary without a haze.
+    float halo = pitch * join * 0.9;
+    if (distance > edge - pitch * join * (0.12 + 0.45 * shade)) {
+        if (distance > edge + halo || shade < 0.88 || nearest > 0.20) discard;
+    }
     // Small isolated inter-grain pores; never reuse the old transparent lanes.
     if (nearest > mix(1.1, 0.52, join)) discard;
     if (cell_hash(chosen + vec2(29.0, 41.0)) > short_limits.z) discard;
@@ -85,8 +137,8 @@ void main(void) {
     float diameter = max(2.0, 2.0 * sand_geometry.y);
     vec2 uv = vec2(0.5 + (sand_position.x - sand_geometry.x) / diameter,
                   (sand_position.y - sand_geometry.z) / diameter);
-    float detail = (shade - 0.5) * 0.52
-                 - 0.10 * (1.0 - smoothstep(0.0, 0.16, second - nearest));
+    float tone = tone_sum / max(0.0001, tone_weight);
+    float detail = (tone - 0.5) * 0.80;
     float strength = max(0.0, short_contrast / 0.35);
     vec3 rgb = grain_tone_color(detail * min(1.5, strength), lighting(uv));
     // RGB continuity at the mouth, not an alpha gradient or rectangular mask.
@@ -172,7 +224,7 @@ def install(widget_class):
         # Exact surface columns, including a small overlap; no flat bottom cap.
         vertices, indices = [], []
         for i in range(17):
-            x = self._cx + half * (i / 8.0 - 1.0)
+            x = self._cx + 1.24 * half * (i / 8.0 - 1.0)
             ground = self._mound_top_at(x)
             bottom = ground - 0.6 * pitch if touching else max(ground, front)
             bottom = min(top, bottom)
@@ -190,11 +242,16 @@ def install(widget_class):
         context["short_contact"] = float(touching)
         # The timer stops at duration, but this pause-aware clock continues until
         # in-flight grains settle. Do not freeze their texture at timer zero.
-        phase = flow_phase(self._mound_flow_clock)
+        v0, gravity, rate = motion_parameters(half, pitch,
+            outlet - (self._lower_y_c - self._R_inner), self._particle_motion_scale)
+        phase = flow_phase(self._mound_flow_clock, rate)
+        context["short_motion"] = (v0, gravity, rate, (self._mound_flow_clock * 3.0) % 256.0)
+        context["short_shape_gain"] = min(1.0, max(0.0, (outlet-surface) / (4.0*half)))
         context["short_limits"] = (top, front, min(1.0, n / 24.0), phase)
         self._short_flow_state = {"active": True, "particles": n, "top": top,
                                   "front": front, "pitch": pitch, "touching": touching,
-                                  "phase": phase}
+                                  "phase": phase, "v0": v0, "gravity": gravity,
+                                  "birth_rate": rate}
 
     widget_class._build_dynamic_canvas = build
     widget_class._draw_stream = draw

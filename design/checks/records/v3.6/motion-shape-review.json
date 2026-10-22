@@ -1,0 +1,45 @@
+{
+  "scope": "pc-stream-motion-shape",
+  "appearance": "passed",
+  "reviewer": "root; independent reviews: speed_shape_review, motion_design_review",
+  "release_version": "3.6",
+  "baseline_commit": "3b0f2cb41441f0d94b729a08145b02c4ef0a12ca",
+  "reviewed_goals": {
+    "speed": true,
+    "shape": true,
+    "continuity": true,
+    "states": true
+  },
+  "archive_sha256": "ca18bc6a2d44a05b9850ee845b4670f7d05bb3aa459aec281faffb1b787e2d33",
+  "build_spec_sha256_lf": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+  "validation_sources": {
+    "src/tools/check_motion_shape_release.py": "dc576d6ed315f4fbf8f7d796a5ff19768badc86d39a1b5924bcc185a3dd058bb",
+    "src/tools/test_motion_shape_release.py": "56f0f8220ea0e706a30ff7bbb254ad12ae6d5356e9d9e753cbbb24a521e6f882",
+    "src/tools/check_stream_motion_shape.py": "6c89410c2c2a4d461ab28c0b19902e7a4a6ed5d93dd63446ad71787a3a1535d6",
+    "src/tools/test_stream_motion_shape.py": "9020bc927be274084381b32b019de42ab8ad5736b85a872ab4c3dd5fdcdd71f7",
+    "src/tools/capture_stream_motion.py": "c347bccc6fc096afb1b79f2b48fd686b8b3e9ad0136f5408fe4e3c7be035f710",
+    "src/tools/verify_short_grain_runtime.py": "4a322ae627dd39478c8ba1a4e14f9557c93b843849bba8c140e8f613713ccc85",
+    "src/tools/check_short_grain_release.py": "893065cacf8e5654ff9c9eda847cb0ea3fd714c6b0bb30f5e1dd7eb051244fc4",
+    "src/tools/record_short_grain.py": "66617c689af1cfee5774d58178cf202fab5d6a0f78fd8d37f5774bcf10a592a2",
+    "src/tools/check_material_release.py": "631a199105dc08f96f063f412643b3b6182464298672cf8c9dd4356ef881e8f9",
+    "src/tools/check_stream_wrap.py": "0bd190820f568f242dc3f26b57094dc6c7dd18c9cf8842fd19badf55e582cb93"
+  },
+  "reviewed_files": {
+    "before-after.png": "2be17f29bb21660a4ad3266bc44b9fa8447f18a0f717b7930bc1f2e237250505",
+    "full-cycle.mp4": "29d7f19eb28863f5bebd86737b5d66896581876df732da2942b92780957747a6",
+    "motion-30fps.mp4": "493c076ba562e657b0ff4b6b3bd503dbc98bf3a3513719c09b75f9d0c8bf4d34",
+    "shape-sequence.png": "9eba6797191ed5b6191fa2f5f5c65c546d367d31c4d095325391235199874fd0",
+    "cycle-review.png": "89b86a5dc6ede9a78db4b482f8408a6374cd315b2f8d55b80c5f503d9bd72448",
+    "colors-review.png": "6f10a290f7a9d5e5d7223f75f6d463f8497ef92bc0da516be817691ca234929e"
+  },
+  "notes": [
+    "PC speed and shape only, no Android device/audio/FPS acceptance.",
+    "3.5 remains a failed counterexample for both speed and rectangle; low-reliability matches are retained as additional failures.",
+    "Five real GL four-second sequences, verified at default and 30/30 and 60/60 sampling.",
+    "No reduction in the physical particle count or sand ledger; apparent body width is checked against the same-size baseline.",
+    "Fine-grain nearest-centre colour switching was rejected; final colour blending is continuous in screen space.",
+    "Some distant similar patterns can still produce wrong optical correspondences; passing does not mean every tracked pair is correct.",
+    "Captured source and final version are both 3.6.",
+    "Motion sequences save a lossless stream crop with translated measured geometry; complete stage frames and full-cycle video remain included. The crop was verified pixel-identical to the full-frame captures retained locally."
+  ]
+}

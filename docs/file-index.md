@@ -213,6 +213,14 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 
 ## 快速查找
 
+- `src/tools/capture_stream_motion.py`：隐藏 PC 真实画布连续帧，记录逐帧堆面、尺寸、逻辑时间与源码身份。
+- `src/tools/check_stream_motion_shape.py`：独立像素位移、宏观轮廓及呼吸检查；不使用着色器速度参数作为通过依据。
+- `src/tools/test_stream_motion_shape.py`：速度方向、多采样、静态竖纹误匹配、矩形毛边等正反例。
+- `src/tools/check_stream_wrap.py`：颗粒和轮廓相位循环边界的真实连续帧检查。
+- `src/tools/check_motion_shape_release.py` / `src/tools/test_motion_shape_release.py`：3.6速度与形状分项发布检查及失败证据、源码身份的正反例。
+- `design/checks/notes/stream-motion-shape-plan.html`：本轮速度与形状计划及验收边界。
+- `design/checks/records/v3.6/`：速度/形状原始帧、旧版反例和本轮完整过程录像。
+
 - `src/app/short_grain_stream.py`：默认短颗粒流场绘制，读取实际前缘与尾部；无沙量或计时写入。
 - `src/tools/verify_short_grain_runtime.py`：隔离设置、原生隐藏 PC 画布的阶段与配色采集，记录实际绘制路径。
 - `src/tools/record_short_grain.py`：按墙钟取真实画布帧、保留可变帧间隔，拒绝未刷新画布的录像。

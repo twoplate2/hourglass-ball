@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>3.6 沙流速度与形状分项检查</title>
+<style>body{font:16px/1.75 system-ui,sans-serif;max-width:1100px;margin:30px auto;padding:0 20px;color:#252525;background:#faf8f3}img{max-width:100%;height:auto}video{width:min(100%,540px);max-height:85vh}td,th{border:1px solid #ccc;padding:9px;text-align:left}table{border-collapse:collapse}</style>
+<h1>3.6：下落速度与非平行轮廓</h1>
+<p>按<a href="../../notes/stream-motion-shape-plan.html">计划</a>分别检查速度和形状。3.5仍保留为两项失败的反例，旧验收记录未重写。</p>
+<table><tr><th>检查</th><th>3.5</th><th>3.6</th></tr>
+<tr><td>同尺寸实图下行速度</td><td>约20～22像素/秒，上下接近</td><td>上段约108～110，下段约152～153像素/秒；保持短粒形状</td></tr>
+<tr><td>去掉单粒毛边后的轮廓变化</td><td>约2.3%，近等宽直条</td><td>约19%，局部变化随沙下移；平均可见宽度仍接近旧版</td></tr>
+<tr><td>粗细档位</td><td>粗细会影响纹理移动速度</td><td>最细与最粗速度接近；细粒重叠的颜色跳变已修正</td></tr></table>
+<p>上表条件：540×924画布、50秒计时、8～12秒阶段。速度来自实际PNG位移，不取着色器设定值。
+五组连续实图覆盖默认、细、粗、中段与1080×1848，每组重算默认、30/30及60/60采样。
+少数相似图案仍可能导致错误追踪，不把它解释为每帧都准确。</p>
+<img src="before-after.png" alt="3.5直条与3.6局部轮廓变化对照">
+<h2>正常速度小样</h2><p>以下是60步/秒逻辑推进得到的真实画布帧，以30帧/秒播放；没有生成中间沙粒或插值补帧，不是实时性能测试。</p>
+<video controls muted playsinline preload="metadata" src="motion-30fps.mp4"></video>
+<img src="shape-sequence.png" alt="同一局8至12秒的完整画布轮廓变化">
+<h2>完整过程与相邻检查</h2><p>墙钟60秒实录：50秒计时，约12秒暂停、15秒恢复，保留落定；没有音频和按钮画面。</p>
+<video controls muted playsinline preload="metadata" src="full-cycle.mp4"></video>
+<img src="cycle-review.png" alt="开始、暂停、恢复和收尾实录帧"><img src="colors-review.png" alt="六配色和粗细两端实图">
+<p>双分辨率110张阶段图的主沙粒、沙量与玻璃几何一致；预定沙柱与连接范围之外的画面保持。
+计时归零后在途动画继续，暂停画面冻结，绘制失败可回退。
+另以37帧分别检查约33.94秒的出生相位边界和120秒计时中85.33秒的轮廓相位边界，未出现变化尖峰。</p>
+<p>发布证据中连续序列保存原像素沙流裁切及坐标平移后的实测几何，已与完整帧逐像素核对；完整阶段图和全过程录像同时保留。
+范围仅PC外观与相邻状态，不包含Android设备、音频或实时帧率验收。</p>
+<p><a href="motion-shape-review.json">具名审阅与摘要</a> · <a href="evidence.tar.xz">原始图像、状态及源码证据</a></p></html>

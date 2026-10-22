@@ -44,7 +44,15 @@
 所有测试输出写 `_temp/`。当前只在真正隐藏的 PC 窗口和独立设置目录运行、验证；
 不连接或操作 MuMu、ADB 或真机。设备脚本仅作历史保留，不按旧授权自动执行。
 
-## 3.5 短颗粒外观检查
+## 速度与形状外观检查
+
+当前用 `capture_stream_motion.py` 采集实际隐藏画布连续帧，`check_stream_motion_shape.py`
+独立读取PNG位移和轮廓；`--sample-hz`为抽样起点频率，`--pair-hz`为配对时间间隔的倒数，
+默认10/20，正式同时检查30/30与60/60。这是图像运动检查，不是实时帧率结果。
+`check_motion_shape_release.py`绑定当前3.6证据，并要求3.5反例同时失败慢速与矩形两项。
+`check_stream_wrap.py`检查实际粒子循环和轮廓循环边界；完整过程仍由 `record_short_grain.py`录制。
+
+## 历史3.5短颗粒外观检查
 
 当前发布入口是 `check_short_grain_release.py`。原 `check_material_release.py` 保留核对
 3.4 的颜色修改历史，不适用于本次短颗粒几何和飞溅变化。
