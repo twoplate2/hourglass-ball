@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
 import short_grain_stream as stream
+import neck_geometry as geometry
 
 
 class ApertureTests(unittest.TestCase):
@@ -24,6 +25,17 @@ class ApertureTests(unittest.TestCase):
         # leaves a visible shoulder when the dense neck hands over to grains.
         pitch=stream.stream_pitch(210,3,30)
         self.assertAlmostEqual(stream.source_half_width(30,pitch)+stream.sprite_radius(pitch,2),30)
+
+    def test_long_period_footprint_fits_scaled_neck(self):
+        for width,height in ((400,800),(400,875),(1080,1848),(1904,2890)):
+            radius,wall=geometry.body_metrics(width,height)
+            for period in (36000,360000):
+                half=geometry.inner_width(period,2*(radius-wall))*.5
+                for coarse in (1,3,6):
+                    pitch=stream.stream_pitch(radius-wall,coarse,half)
+                    support=stream.sprite_radius(pitch,2)
+                    self.assertLessEqual(support,half)
+                    self.assertAlmostEqual(stream.source_half_width(half,pitch)+support,half)
 
     def test_wider_aperture_does_not_enlarge_grains(self):
         self.assertEqual(stream.stream_pitch(210,3,20),stream.stream_pitch(210,3,40))

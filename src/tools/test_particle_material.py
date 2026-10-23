@@ -8,6 +8,7 @@ import numpy as np
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
 from short_grain_stream import particle_vertices,sprite_radius
+import short_grain_stream as renderer
 
 
 def unpack_appearance(codes,pitch):
@@ -47,6 +48,52 @@ class ParticleMaterialTests(unittest.TestCase):
                 material_pixels=v[:,:,2:4]*radius[:,None,None]*np.asarray([1,1.45])
                 actual_pixels=v[:,:,:2]-np.asarray([[20,90],[80,150]])[:,None,:]
                 np.testing.assert_allclose(material_pixels,actual_pixels,atol=2e-5,rtol=0)
+
+
+class BirthMaterialPayloadTests(unittest.TestCase):
+    def payload(self, times, scales, sources, jump_y=1.0):
+        self.assertTrue(hasattr(renderer,'birth_material_payload'),
+                        '出口材质必须冻结实际出生参数，不能继续采当前世界纹理')
+        return renderer.birth_material_payload(times,scales,sources,jump_y)
+
+    def test_birth_clock_scroll_and_startup_blend_have_distinct_time_bases(self):
+        times=np.asarray([0.,.075,.15,.225,.3,8.,16.,16.125])
+        scales=np.asarray([1.,2.,7.,.5,3.,2.,1.,4.])
+        sources=np.arange(len(times),dtype=float)*2.5-8.
+        result=self.payload(times,scales,sources)
+        expected=np.column_stack((sources,(times*scales)%16.,
+            (times*.125)%1.,(times*.0625)%1.,
+            [0.,.15625,.5,.84375,1.,1.,1.,1.]))
+        self.assertEqual(result.shape,(len(times),5))
+        self.assertTrue(np.isfinite(result).all())
+        np.testing.assert_allclose(result,expected,rtol=0,atol=2e-6)
+
+    def test_phase_wraps_keep_large_birth_times_out_of_gpu_payload(self):
+        times=np.asarray([7.999,8.,8.001,15.999,16.,16.001,1_000_000.125])
+        scales=np.asarray([1.,1.,1.,2.,2.,2.,7.125])
+        result=self.payload(times,scales,np.zeros(len(times)),jump_y=1.6)
+        np.testing.assert_allclose(result[:,1],(times*scales)%16.,rtol=0,atol=2e-6)
+        np.testing.assert_allclose(result[:,2],(times*.125)%1.,rtol=0,atol=2e-6)
+        np.testing.assert_allclose(result[:,3],(times*.1)%1.,rtol=0,atol=2e-6)
+        self.assertTrue(((result[:,1]>=0)&(result[:,1]<16)).all())
+        self.assertTrue(((result[:,2:4]>=0)&(result[:,2:4]<1)).all())
+
+    def test_frozen_birth_payload_survives_motion_pause_and_compaction(self):
+        times=np.asarray([.05,1.25,16.125]);scales=np.asarray([1.,2.,3.])
+        sources=np.asarray([-7.,2.,9.])
+        first=self.payload(times,scales,sources)
+        # Current elapsed/position intentionally have no role in this API.
+        # A renderer still passing current clock is caught separately by the
+        # actual upload contract in test_particle_continuity.
+        for _current_elapsed in (16.2,17.9,50.):
+            np.testing.assert_array_equal(self.payload(times,scales,sources),first)
+        keep=np.asarray([2,0])
+        np.testing.assert_array_equal(self.payload(times[keep],scales[keep],sources[keep]),first[keep])
+        np.testing.assert_array_equal(times,[.05,1.25,16.125])
+
+    def test_empty_births_have_no_phantom_material(self):
+        result=self.payload(np.asarray([]),np.asarray([]),np.asarray([]))
+        self.assertEqual(result.shape,(0,5))
 
 
 if __name__=='__main__':unittest.main()

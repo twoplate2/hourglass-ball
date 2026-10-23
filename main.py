@@ -29,7 +29,7 @@ import json
 # 沙流粒子的并行数组字段。numpy 缺失时整条向量化路径关闭,
 # 自动退回 update_particles 里的原标量循环 —— 不给沙漏制造风险。
 _P_FIELDS = ("px", "py", "pvy", "pxo", "pwp", "pwa", "psz", "ptl", "pli", "pdt",
-             "pmass")
+             "pmass", "pbt", "pbm")
 
 # 飞溅的并行数组字段 —— 与 `_P_FIELDS` 同一套做法(数组是真值, dict 只在取证时物化)。
 # `shas` 是「这颗有没有 `_still`」的 **float 0/1 标志**(不是 bool 数组: 沿用 `pli` 的先例,
@@ -6066,6 +6066,7 @@ class HourglassWidget(Widget):
         pli = self.pli
         pdt = self.pdt
         pmass = self.pmass
+        pbt, pbm = self.pbt, self.pbm
         particles = []
         append = particles.append
         for i in range(pn):
@@ -6075,6 +6076,7 @@ class HourglassWidget(Widget):
                 "wobble_amp": float(pwa[i]), "size": int(psz[i]),
                 "trail_time": float(ptl[i]), "is_light": bool(pli[i]),
                 "_sand_mass": float(pmass[i]),
+                "_birth_time": float(pbt[i]), "_birth_scale": float(pbm[i]),
             }
             if new_from is not None and i >= new_from:
                 d["_step_dt"] = float(pdt[i])
@@ -6099,6 +6101,7 @@ class HourglassWidget(Widget):
         ptl = self.ptl
         pli = self.pli
         pmass = self.pmass
+        pbt, pbm = self.pbt, self.pbm
         for k in range(n):
             d = particles[k]
             px[k] = d.get("x", 0.0)
@@ -6111,6 +6114,9 @@ class HourglassWidget(Widget):
             ptl[k] = d.get("trail_time", 0.08)
             pli[k] = 1.0 if d.get("is_light", False) else 0.0
             pmass[k] = d.get("_sand_mass", 0.0)
+            # Legacy injected particles acquire a stable material birth once.
+            pbt[k] = d.get("_birth_time", getattr(self,"elapsed",0.0))
+            pbm[k] = d.get("_birth_scale", getattr(self,"_particle_motion_scale",1.0))
         self.pn = n
 
     def _replay_hits(self, hit_idx, hit_dt, mound_top, motion_scale, now):
@@ -6562,6 +6568,8 @@ class HourglassWidget(Widget):
                 birth = emit_end - max(0.0, self.particle_acc) / rate
                 birth = max(emit_start, min(emit_end, birth))
                 self.pdt[i] = max(0.0, self.elapsed - birth)
+                self.pbt[i] = birth
+                self.pbm[i] = motion_scale
                 if final_emission and spawn_index == spawn_count - 1:
                     self.pvy[i] = -35.0 * motion_scale
                 if self._sand_resized:

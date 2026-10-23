@@ -4,6 +4,7 @@
 在实际 update_particles 前后核对主粒子；不据此声称逐像素或性能验收。
 """
 import math
+import ast
 import os
 from pathlib import Path
 import sys
@@ -24,11 +25,22 @@ def assert_particle_meshes(widget):
     if len(counts) != len(meshes) or sum(counts) != widget.pn:
         raise AssertionError("实际粒子与 Mesh 活跃粒子数不一致")
     centres = []
+    identities = []
+    birth_payloads = []
+    expected_format=[(b'vPosition',2,'float'),(b'vTexCoords0',2,'float'),
+                     (b'vTone',1,'float'),(b'vSurface',1,'float'),
+                     (b'vBirth',4,'float'),(b'vBirthBlend',1,'float')]
     for mesh, count in zip(meshes, counts):
+        fmt=getattr(mesh,'fmt',None)
+        if fmt is not None:
+            normalized_fmt=[(name.encode() if isinstance(name,str) else name,size,kind)
+                            for name,size,kind in fmt]
+            if normalized_fmt!=expected_format:
+                raise AssertionError('实际Mesh出生材质属性布局不符')
         vertices = np.asarray(mesh.vertices, dtype=np.float32)
-        if vertices.size % 24 or not 0 <= count <= vertices.size // 24:
+        if vertices.size % 44 or not 0 <= count <= vertices.size // 44:
             raise AssertionError("每个粒子必须保留一个完整四边形")
-        active = vertices.reshape(-1, 4, 6)[:count]
+        active = vertices.reshape(-1, 4, 11)[:count]
         if not np.isfinite(active).all():
             raise AssertionError("在途粒子的顶点存在非有限值")
         indices = np.asarray(mesh.indices, dtype=np.int64)[:count * 6]
@@ -44,10 +56,31 @@ def assert_particle_meshes(widget):
             if any(not np.all(np.any(normalized == corner, axis=1)) for corner in range(4)):
                 raise AssertionError("粒子四边形没有完整绘制")
             centres.append(active[:, :, :2].mean(axis=1))
+            identities.append(active[:,:,4])
+            birth_payloads.append(active[:,:,6:11])
     actual = np.concatenate(centres) if centres else np.empty((0, 2))
     expected = np.column_stack((widget.px[:widget.pn], widget.py[:widget.pn]))
     if actual.shape != expected.shape or not np.allclose(actual, expected, rtol=0, atol=2e-4):
         raise AssertionError("实际 Mesh 没有逐颗跟随真实粒子坐标")
+    if widget.pn:
+        codes=(((np.asarray(widget.pwp[:widget.pn])/math.tau)%1.)*.5
+               +(np.asarray(widget.psz[:widget.pn])>1))
+        if not np.allclose(np.concatenate(identities),codes[:,None],rtol=0,atol=2e-7):
+            raise AssertionError('实际Mesh粒子seed或粒径身份不符')
+        # Independently calculate the upload contract; do not compare the
+        # payload helper with itself or trust a renderer-reported count.
+        times=np.asarray(widget.pbt[:widget.pn],dtype=float)
+        scales=np.asarray(widget.pbm[:widget.pn],dtype=float)
+        x=widget._cx+np.asarray(widget.pxo[:widget.pn],dtype=float)
+        blend=np.clip(times/.3,0.,1.);blend=blend*blend*(3.-2.*blend)
+        jump_y=float(widget._short_flow_context['sand_jump_y'])
+        try:pin=float(widget._short_flow_context['sand_mix_pin'])
+        except (KeyError,TypeError):pin=-1.
+        if pin>=0.:blend[:]=pin
+        payload=np.column_stack((x,(times*scales)%16.,(times*.125)%1.,
+                                 (times*.0625*jump_y)%1.,blend)).astype(np.float32)
+        if not np.allclose(np.concatenate(birth_payloads),payload[:,None,:],rtol=0,atol=2e-5):
+            raise AssertionError('实际Mesh出生材质参数未随同一粒子保留')
     return len(actual)
 
 
@@ -55,6 +88,7 @@ def snapshot(widget):
     """pwp/ptl 出生后不变；落地压紧数组时，下标不再是同一粒子。"""
     rows = {}
     appearance={}
+    birth_material={}
     for i in range(widget.pn):
         key = (float(widget.pwp[i]), float(widget.ptl[i]))
         if key in rows:
@@ -62,6 +96,7 @@ def snapshot(widget):
         rows[key] = (float(widget.px[i]), float(widget.py[i]),
                      float(widget.pvy[i]))
         appearance[key]=(float(widget.pxo[i]),float(widget.pwa[i]),int(widget.psz[i]))
+        birth_material[key]=(float(widget.pbt[i]),float(widget.pbm[i]))
     cx, cy, x0, scale, n1 = widget._mound_contact_curve()
     return {
         "particles": rows,
@@ -72,6 +107,7 @@ def snapshot(widget):
         "tube_height": float(widget._tube_h),
         "aperture_half":float(widget._taper['t_in']),
         "appearance":appearance,
+        "birth_material":birth_material,
         "motion":dict(cx=widget._cx,cut=2*widget._neck_y-widget._taper['y_bot'],
             top=widget._lower_sand_top,center=widget._lower_y_c,radius=widget._R_inner,
             half=widget._taper['t_in'],pitch=renderer.stream_pitch(widget._R_inner,
@@ -110,6 +146,9 @@ class ContinuityTrace:
         for key, (x, y, vy) in previous.items():
             predicted = y + vy * dt + 0.5 * gravity * dt * dt
             if key in current:
+                if 'birth_material' in before:
+                    if after.get('birth_material',{}).get(key)!=before['birth_material'][key]:
+                        raise AssertionError('同一粒子的出生材质身份突变')
                 if abs(current[key][0]-x)>1.0+dt*(abs(vy)+abs(gravity*dt)):
                     raise AssertionError("同一粒子的横向位置突变")
                 if 'motion' in before:
@@ -193,6 +232,18 @@ class ContinuityTraceTests(unittest.TestCase):
         trace.observe(before, after, .01)
         self.assertEqual((trace.contacts, trace.survivor_steps), (1, 1))
 
+    def test_birth_material_identity_survives_compaction_and_pause(self):
+        a,b=(.11,.021),(.22,.022)
+        before=_state([(a,(0,.1,-20)),(b,(1,50,-20))])
+        before['birth_material']={a:(.05,1.),b:(1.25,2.)}
+        after=_state([(b,(1,49.7775,-24.5))])
+        after['birth_material']={b:(1.25,2.)}
+        ContinuityTrace().observe(before,after,.01)
+        ContinuityTrace().observe(after,after,0)
+        changed=dict(after,birth_material={b:(1.26,2.)})
+        with self.assertRaisesRegex(AssertionError,'出生材质身份'):
+            ContinuityTrace().observe(after,changed,0)
+
     def test_airborne_removal_fails(self):
         before = _state([((.1, .02), (0, 50, -20))])
         with self.assertRaisesRegex(AssertionError, "尚未触及"):
@@ -275,6 +326,101 @@ class ParticleVertexTests(unittest.TestCase):
         np.testing.assert_array_equal(self.pack(*args), self.pack(*args))
 
 
+class ParticleMeshUploadTests(unittest.TestCase):
+    def fixture(self):
+        w=types.SimpleNamespace(pn=2,_cx=20.,px=np.asarray([1.,2.]),
+            py=np.asarray([90.,60.]),pwp=np.asarray([.2,.4]),psz=np.asarray([1,2]),
+            pxo=np.asarray([-3.,4.]),pbt=np.asarray([.05,1.25]),pbm=np.asarray([1.,2.]),
+            _short_flow_context={'sand_jump_y':1.6})
+        # Build an independent reference payload, not the production helper.
+        b=np.clip(w.pbt/.3,0,1);b=b*b*(3-2*b)
+        payload=np.column_stack((w._cx+w.pxo,(w.pbt*w.pbm)%16,
+            (w.pbt*.125)%1,(w.pbt*.1)%1,b))
+        v=np.zeros((2,4,11),dtype=np.float32)
+        v[:,:,:5]=renderer.particle_vertices(w.px,w.py,w.pwp,w.psz,1.7)
+        v[:,:,6:]=payload[:,None,:]
+        fmt=[(b'vPosition',2,'float'),(b'vTexCoords0',2,'float'),
+             (b'vTone',1,'float'),(b'vSurface',1,'float'),
+             (b'vBirth',4,'float'),(b'vBirthBlend',1,'float')]
+        mesh=types.SimpleNamespace(vertices=v.ravel(),fmt=fmt,
+            indices=[0,1,2,2,3,0,4,5,6,6,7,4])
+        w._particle_meshes=[mesh];w._particle_counts=[2]
+        return w,v
+
+    def test_exact_eleven_float_upload_matches_actual_identity_and_birth(self):
+        w,_=self.fixture()
+        self.assertEqual(assert_particle_meshes(w),2)
+
+    def test_current_clock_replacing_frozen_birth_is_rejected(self):
+        w,v=self.fixture();v[:,:,7]=7.5
+        with self.assertRaisesRegex(AssertionError,'出生材质参数'):
+            assert_particle_meshes(w)
+
+    def test_diagnostic_mix_pin_is_checked_instead_of_birth_blend(self):
+        for pin in (0.,.25,1.):
+            with self.subTest(pin=pin):
+                w,v=self.fixture();w._short_flow_context['sand_mix_pin']=pin
+                v[:,:,10]=pin
+                self.assertEqual(assert_particle_meshes(w),2)
+                v[0,:,10]=pin+.125
+                with self.assertRaisesRegex(AssertionError,'出生材质参数'):
+                    assert_particle_meshes(w)
+
+    def test_seed_swap_is_rejected_even_when_positions_are_correct(self):
+        w,v=self.fixture();v[:,:,4]=v[::-1,:,4].copy()
+        with self.assertRaisesRegex(AssertionError,'seed或粒径身份'):
+            assert_particle_meshes(w)
+
+    def test_carrier_layout_and_position_checks_cannot_be_bypassed(self):
+        w,v=self.fixture();w._particle_meshes[0].fmt[-2]=(b'vBirth',3,'float')
+        with self.assertRaisesRegex(AssertionError,'属性布局'):
+            assert_particle_meshes(w)
+        w,v=self.fixture();v[0,:,0]+=10
+        with self.assertRaisesRegex(AssertionError,'真实粒子坐标'):
+            assert_particle_meshes(w)
+        w,v=self.fixture();w._particle_meshes[0].vertices=v[:,:,:6].ravel()
+        with self.assertRaisesRegex(AssertionError,'完整四边形'):
+            assert_particle_meshes(w)
+
+
+class BirthStorageTests(unittest.TestCase):
+    def storage(self,numpy_backend):
+        root=Path(__file__).resolve().parents[2]
+        tree=ast.parse((root/'main.py').read_text(encoding='utf-8'))
+        fields=next(ast.literal_eval(n.value) for n in tree.body
+            if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='_P_FIELDS' for t in n.targets))
+        self.assertTrue({'pbt','pbm'}.issubset(fields),'出生材质必须随真实粒子存储和回收')
+        source=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='HourglassWidget')
+        methods={'_newbuf','_p_alloc','_p_grow','_p_to_dicts','_p_from_dicts'}
+        cls=ast.ClassDef(name='Storage',bases=[],keywords=[],decorator_list=[],body=[n for n in source.body
+            if isinstance(n,ast.FunctionDef) and n.name in methods])
+        namespace={'_np':np if numpy_backend else None,'_P_FIELDS':fields}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[cls],type_ignores=[])),
+                     'main.py:actual-particle-storage','exec'),namespace)
+        w=namespace['Storage']();w.elapsed=99.;w._particle_motion_scale=9.;w.pn=2
+        w._p_alloc(2)
+        for name,values in {'pwp':[.2,.4],'ptl':[.02,.03],'pbt':[.05,1.25],
+                            'pbm':[1.,2.],'psz':[1,2]}.items():getattr(w,name)[:]=values
+        return w
+
+    def test_birth_time_and_scale_survive_actual_growth_and_dict_compaction(self):
+        for numpy_backend in (True,False):
+            with self.subTest(numpy_backend=numpy_backend):
+                w=self.storage(numpy_backend);w._p_grow(5)
+                np.testing.assert_array_equal(w.pbt[:2],[.05,1.25])
+                np.testing.assert_array_equal(w.pbm[:2],[1.,2.])
+                saved=w._p_to_dicts();w._p_from_dicts(saved[1:])
+                self.assertEqual(w.pn,1)
+                self.assertEqual((w.pwp[0],w.ptl[0],w.pbt[0],w.pbm[0]),(.4,.03,1.25,2.))
+                # Existing injected dictionaries are initialized once, then
+                # the next scalar fallback must preserve those birth fields.
+                w._p_from_dicts([dict(x=0,y=100,vy=-50)])
+                captured=(float(w.pbt[0]),float(w.pbm[0]))
+                saved=w._p_to_dicts();w.elapsed=120.;w._particle_motion_scale=4.
+                w._p_from_dicts(saved)
+                self.assertEqual((float(w.pbt[0]),float(w.pbm[0])),captured)
+
+
 class MoundSurfaceTests(unittest.TestCase):
     @staticmethod
     def quad(x0, y0, x1, y1, floor=0):
@@ -307,6 +453,14 @@ class MoundSurfaceTests(unittest.TestCase):
 
 
 class ParticleFallbackTests(unittest.TestCase):
+    def test_list_storage_actual_draw_empty_single_and_chunk_retirement(self):
+        for counts in ((0,),(1,),(8193,1,0)):
+            with self.subTest(counts=counts):
+                self.check_line_fallback(False,success=True,draw_counts=counts)
+
+    def test_birth_attribute_arrays_are_restored_after_other_contexts(self):
+        self.check_line_fallback(False,success=True)
+
     def test_mesh_creation_failure_restores_attached_line_renderer(self):
         """首个 Mesh 失败晚于 shader 成功，不能留下脱离画布的 Line 池。"""
         self.check_line_fallback(True)
@@ -314,7 +468,7 @@ class ParticleFallbackTests(unittest.TestCase):
     def test_missing_material_restores_attached_line_renderer(self):
         self.check_line_fallback(False)
 
-    def check_line_fallback(self,mesh_failure):
+    def check_line_fallback(self,mesh_failure,success=False,draw_counts=None):
         class Canvas:
             def __init__(self):
                 self.children = []
@@ -327,7 +481,10 @@ class ParticleFallbackTests(unittest.TestCase):
 
         class Context(dict):
             def __init__(self, *args, **kwargs):
-                super().__init__()
+                super().__init__(sand_jump_y=1.,sand_mix_pin=-1.)
+
+            def update_flow(self,*args):
+                pass
 
             def __enter__(self):
                 return self
@@ -339,9 +496,23 @@ class ParticleFallbackTests(unittest.TestCase):
             def __init__(self):
                 self._cx = self._R_inner = self._upper_sand_bot = 1.0
                 self._taper = {"in_pts": [(0.0, 1.0)]}
-                self._sand_material = types.SimpleNamespace(texture=object()) if mesh_failure else None
+                self._sand_material = types.SimpleNamespace(texture=object()) if mesh_failure or success else None
                 self.canvas = Canvas()
                 self.reserved = False
+                if draw_counts is not None:
+                    n=draw_counts[0]
+                    self._cx=200.;self._R_inner=170.;self._upper_sand_bot=400.
+                    self._taper={'in_pts':[(0.,430.)],'t_in':5.,'y_bot':420.}
+                    self._mound_carve=types.SimpleNamespace(_v=[])
+                    self._lower_sand_bot=0.;self._neck_y=400.
+                    self._sand_flow_contexts=[object()]
+                    self.elapsed=360000.125;self._particle_motion_scale=1.;self.pn=n
+                    self.sand_base=(.7,.5,.2);self.sand_dark=(.4,.2,.1);self.sand_light=(.9,.7,.4)
+                    self.px=(np.arange(n,dtype=float)%5+198.).tolist()
+                    self.py=(np.arange(n,dtype=float)%180+100.).tolist()
+                    self.pwp=(np.arange(n,dtype=float)*.1).tolist();self.psz=[1]*n
+                    self.pbt=(np.arange(n,dtype=float)*.001+359999.).tolist()
+                    self.pbm=[1.]*n;self.pxo=(np.arange(n,dtype=float)%3-1.).tolist()
 
             def _build_dynamic_canvas(self):
                 self.groups = [object(), object()]
@@ -362,7 +533,8 @@ class ParticleFallbackTests(unittest.TestCase):
 
         graphics = types.ModuleType("kivy.graphics")
         graphics.Color = lambda *args: None
-        graphics.Callback = lambda *args, **kwargs: None
+        callbacks=[]
+        graphics.Callback = lambda function,**kwargs:callbacks.append(function)
         graphics.Mesh = fail_mesh if mesh_failure else lambda *args,**kwargs:types.SimpleNamespace(**kwargs)
         opengl = types.ModuleType("kivy.graphics.opengl")
         opengl.GL_CURRENT_PROGRAM = 0x8B8D
@@ -370,18 +542,42 @@ class ParticleFallbackTests(unittest.TestCase):
         opengl.glGetAttribLocation = lambda program, name: {
             b"vPosition": 0, b"vTexCoords0": 1,
             b"vTone": 2, b"vSurface": 3,
+            b"vBirth":4,b"vBirthBlend":5,
         }.get(name, -1)
-        opengl.glEnableVertexAttribArray = lambda location: None
+        enabled=[]
+        opengl.glEnableVertexAttribArray = enabled.append
         material = types.ModuleType("sand_flow_material")
         material.GRAIN_FRAGMENT_HEADER = ""
         material.SandFlowContext = Context
         with patch.dict(sys.modules, {"kivy.graphics": graphics,
                                       "kivy.graphics.opengl": opengl,
                                       "sand_flow_material": material}), \
-                patch.dict(os.environ, {"HG_FLOW_FORCE_FAIL": ""}):
+                patch.dict(os.environ, {"HG_FLOW_FORCE_FAIL": ""}), \
+                patch.multiple(sys.modules[Widget.__module__],create=True,
+                    SAND_MATERIAL_COARSE=3.,SAND_GRAIN_LEVEL_DEFAULT='test',
+                    _grain_level=lambda _: (0.,3.),OUTLET_OVERLAP=2.,NECK_FREE_GEOM=False):
             renderer.install(Widget)
             widget = Widget()
             widget._build_dynamic_canvas()
+            if success:
+                self.assertEqual(widget.flow_renderer,'particle_sprite_pool')
+                self.assertEqual(widget._particle_buffers[0].shape[1:],(4,11))
+                self.assertTrue(callbacks,'实际Mesh必须恢复出生材质属性')
+                for _other_context in range(2):
+                    enabled.clear();callbacks[0](None)
+                    self.assertEqual(enabled,[0,1,2,3,4,5],
+                                     '其他绘制层禁用数组后，出生材质属性也必须重新启用')
+                if draw_counts is not None:
+                    for count in draw_counts:
+                        widget.pn=count
+                        widget._draw_stream()
+                        self.assertEqual(assert_particle_meshes(widget),count)
+                        self.assertEqual(sum(widget._particle_counts),count)
+                        for mesh,active in zip(widget._particle_meshes,widget._particle_counts):
+                            uploaded=np.asarray(mesh.vertices).reshape(-1,4,11)
+                            self.assertTrue(np.all(uploaded[active:,:,:2]==-10000),
+                                            '缩池后旧粒子的真实顶点必须清除')
+                return
             self.assertEqual(len(mesh_attempts),1 if mesh_failure else 0,
                              "回退必须来自实际Mesh分配失败，不能被更早的测试替身错误冒充")
             self.assertEqual(widget.flow_renderer, "line_pool")

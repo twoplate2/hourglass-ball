@@ -255,9 +255,9 @@ vec3 grain_tone_color(float detail, float illumination) {
     float tone = clamp(illumination + detail, -1.0, 1.0);
     return mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
 }
-vec3 neck_flow_rgb(vec2 position) {
-    // Continue the actual upstream material into the outlet. Both renderers
-    // evaluate this at the same position/time, including the startup blend.
+vec3 neck_flow_rgb_at(vec2 position, float clock, vec2 scroll, float mix_amount) {
+    // Explicit sampling state also lets a real grain carry its birth patch.
+    // Never resample a falling grain from a slower current-world colour field.
     float diameter = max(2.0, 2.0 * sand_geometry.y);
     vec2 uv = vec2(.5 + (position.x-sand_geometry.x)/diameter,
                    (position.y-sand_geometry.z)/diameter);
@@ -268,24 +268,29 @@ vec3 neck_flow_rgb(vec2 position) {
                          -(4.0+46.0*sink)*sand_flow_vy)/diameter;
     bool frozen = sand_adv_cont > 0.0 && sand_up_scroll == 0.0;
     bool scrolling = sand_adv_cont > 0.0 && sand_up_scroll > 0.0;
-    float t = (frozen ? 0.0 : sand_clock)+.2*sin(mouth.x*3.1+mouth.y*5.2);
+    float t = (frozen ? 0.0 : clock)+.2*sin(mouth.x*3.1+mouth.y*5.2);
     float a=fract(t), b=fract(t+.5);
     float wa=1.0-abs(1.0-2.0*a), wb=1.0-wa;
     vec2 jump=vec2(.125,.0625*sand_jump_y);
     vec2 sa=uv-velocity*a, sb=uv-velocity*b;
-    if (scrolling) { sa=uv+jump*sand_time; sb=sa; }
+    if (scrolling) { sa=uv+scroll; sb=sa; }
     float ga=grain(sa+floor(t)*jump*(scrolling ? 0.0 : 1.0));
     float gb=grain(sb+floor(t+.5)*jump+vec2(.5));
     float detail=scrolling ? ga : (ga*wa+gb*wb)*inversesqrt(wa*wa+wb*wb);
     vec2 luv=sand_wrap_light > 0.0 ? vec2(uv.x,fract(uv.y)) : uv;
     vec3 flowing=grain_tone_color(detail,lighting(luv));
+    if (mix_amount >= 1.0) return flowing;
     vec2 neck_uv=vec2(uv.x,sand_neck_anchor-uv.y);
     float band=sand_seam_band*diameter;
     float blend=band > 0.0 ? smoothstep(-band,band,position.y-sand_geometry.z)
                            : step(sand_geometry.z,position.y);
     vec3 original=mix(texture2D(texture0,fract(neck_uv)).rgb,
                       texture2D(texture0,uv).rgb,blend);
-    return mix(original,flowing,sand_mix);
+    return mix(original,flowing,mix_amount);
+}
+vec3 neck_flow_rgb(vec2 position) {
+    return neck_flow_rgb_at(position,sand_clock,
+        vec2(.125,.0625*sand_jump_y)*sand_time,sand_mix);
 }
 // 程序化平滑噪声(聚团场) —— 见 `sand_clump_gap` 那段。
 // ⚠️ 哈希**不用 `sin`**(Dave Hoskins 那个无 sin 版本): 移动 GPU 上 `sin` 常是 mediump,

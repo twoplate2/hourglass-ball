@@ -90,6 +90,24 @@ def stream_limits(ys, outlet, surface, pitch, touching):
     return (top, bottom) if top > bottom else None
 
 
+def birth_material_payload(birth_time, birth_scale, source_x, jump_y=1.0):
+    """Immutable sampling state; no current time or falling position is used.
+
+    Bound shader clocks/offsets before float32 upload, including 100-hour runs.
+    Birth motion scale is stored separately so resizing cannot retime a grain.
+    """
+    import numpy as np
+    times, scales, xs = np.broadcast_arrays(birth_time, birth_scale, source_x)
+    out = np.empty((times.size, 5), dtype=np.float32)
+    out[:,0] = xs.ravel()
+    out[:,1] = np.remainder(times * scales, 16.0).ravel()
+    out[:,2] = np.remainder(times * .125, 1.0).ravel()
+    out[:,3] = np.remainder(times * (.0625 * jump_y), 1.0).ravel()
+    blend = np.clip(times / .3, 0.0, 1.0)
+    out[:,4] = (blend * blend * (3.0 - 2.0 * blend)).ravel()
+    return out
+
+
 def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45):
     """One persistent short sprite per real particle; never changes its centre."""
     import numpy as np
@@ -205,6 +223,10 @@ VERTEX_SHADER = """
 $HEADER$
 attribute float vTone;
 attribute float vSurface;
+attribute vec4 vBirth;
+attribute float vBirthBlend;
+varying vec4 grain_birth;
+varying float grain_birth_blend;
 uniform vec4 short_geometry;
 varying float grain_radius;
 varying vec2 sand_position;
@@ -219,6 +241,8 @@ void main(void) {
     grain_tone=(2.0*(vTone-large)-.5)*.60;
     grain_radius=1.6*max(.8,short_geometry.w)*(1.0+.15*large);
     grain_surface = vSurface;
+    grain_birth = vBirth;
+    grain_birth_blend = vBirthBlend;
     frag_color = color * vec4(1.0,1.0,1.0,opacity);
     gl_Position = projection_mat * modelview_mat * vec4(vPosition,0.0,1.0);
 }
@@ -234,6 +258,8 @@ varying float grain_radius;
 varying vec2 grain_local;
 varying float grain_tone;
 varying float grain_surface;
+varying vec4 grain_birth;
+varying float grain_birth_blend;
 float micro_hash(vec2 p) {
     return clump_hash(p);
 }
@@ -262,10 +288,16 @@ void main(void) {
     vec3 sample_rgb=texture2D(texture0,uv).rgb;
     vec3 rgb=clamp(sand_base+(sample_rgb-sand_base)*1.6,0.0,1.0);
     float depth=max(0.0,short_geometry.y-sand_position.y);
-    float join_length=max(short_join_overlap+.001,1.5*short_geometry.z);
-    if (short_join_enabled > .5 && depth < join_length) {
+    // Carry a small upstream texture patch with this real grain for its life.
+    // Both colour details now use local coordinates and move with one particle.
+    float join_length=short_join_overlap+max(4.0,3.0*short_geometry.z);
+    if (short_join_enabled > .5) {
+        vec2 source=vec2(grain_birth.x,short_geometry.y)
+            +grain_local*grain_radius*vec2(1.0,short_aspect);
+        vec3 inherited=neck_flow_rgb_at(source,grain_birth.y,grain_birth.zw,
+                                       grain_birth_blend);
         float released=smoothstep(short_join_overlap,join_length,depth);
-        rgb=mix(neck_flow_rgb(sand_position),rgb,released);
+        rgb=mix(inherited,rgb,.65*released);
     }
     // Only feather the quad border. A circular parent mask would make the
     // entire cluster read as a large pebble even when its interior is fine.
@@ -322,13 +354,13 @@ def install(widget_class):
     def restore_attributes(_):
         program = glGetIntegerv(GL_CURRENT_PROGRAM)[0]
         # Query the currently linked program; context loss may reuse a GL id.
-        for name in (b"vPosition",b"vTexCoords0",b"vTone",b"vSurface"):
+        for name in (b"vPosition",b"vTexCoords0",b"vTone",b"vSurface",b"vBirth",b"vBirthBlend"):
             location=glGetAttribLocation(program,name)
             if location >= 0:glEnableVertexAttribArray(location)
 
     def ensure(self, index):
         while len(self._particle_meshes) <= index:
-            data = np.zeros((chunk,4,6),dtype=np.float32)
+            data = np.zeros((chunk,4,11),dtype=np.float32)
             data[:,:,:2] = -10000
             with self._short_flow_context:
                 Color(1,1,1,1)
@@ -336,7 +368,8 @@ def install(widget_class):
                 mesh = Mesh(vertices=data.ravel(),indices=indices,mode="triangles",
                     texture=self._sand_material.texture if self._sand_material else None,
                     fmt=[(b"vPosition",2,"float"),(b"vTexCoords0",2,"float"),
-                         (b"vTone",1,"float"),(b"vSurface",1,"float")])
+                         (b"vTone",1,"float"),(b"vSurface",1,"float"),
+                         (b"vBirth",4,"float"),(b"vBirthBlend",1,"float")])
             self._particle_meshes.append(mesh)
             self._particle_buffers.append(data)
             self._particle_counts.append(0)
@@ -352,6 +385,10 @@ def install(widget_class):
                                self._taper['t_in'])
         aspect=sprite_aspect(pitch,reference)
         vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch,aspect)
+        births=birth_material_payload(self.pbt[:n],self.pbm[:n],
+            self._cx+np.asarray(self.pxo[:n]),context["sand_jump_y"])
+        pin=context["sand_mix_pin"]
+        if pin >= 0.0:births[:,4]=pin
         surfaces=mound_surface_at(vertices[:,:,0], self._mound_carve._v,
                                   self._lower_sand_bot)
         for i in range((n+chunk-1)//chunk):ensure(self,i)
@@ -363,6 +400,7 @@ def install(widget_class):
             if count:
                 data[:count,:,:5]=vertices[i*chunk:i*chunk+count]
                 data[:count,:,5]=surfaces[i*chunk:i*chunk+count]
+                data[:count,:,6:]=births[i*chunk:i*chunk+count,None,:]
             if count<previous:data[count:previous,:,:2]=-10000
             mesh.texture=self._sand_material.texture if self._sand_material else None
             mesh.vertices=data.ravel()
