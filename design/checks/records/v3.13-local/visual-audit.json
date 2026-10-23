@@ -1,0 +1,1047 @@
+{
+  "schema": 1,
+  "kind": "visual",
+  "version": "3.13",
+  "status": "passed",
+  "completed": true,
+  "source_sha256": "e6648a9563a0aab52c7f623ddfc66742071e43ee6116ad74e35b296398b575f6",
+  "source_files": {
+    "main.py": "23123aac1e6c97bf820764dcadb6efb8a7963d355e503d3f9e69851e38d9bab7",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "a5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb",
+    "src/app/app_version.py": "608e247f861084083c7fca21f500416e8cbb6abaf8092beb2b5c6d6696b3b00b",
+    "src/app/flow_batch_experiment.py": "2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07",
+    "src/app/flow_gpu_experiment.py": "2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24",
+    "src/app/flow_numpy.py": "88fec30a71c651a231e67d6dffa266b034690565cd8a4626c5b93a787878a802",
+    "src/app/flow_splash_experiment.py": "19b22d9df6008619b3837601687a03941e44047762ad9ea169f2575c62e47364",
+    "src/app/flow_texture_experiment.py": "2cce41e1e45b82afd2e377f2d483dd20d03c64bc4bc184f232bfd392791fec4c",
+    "src/app/frame_benchmark.py": "4bc67f99f87550e7723f2aa678237a1aee9d58d0f44302c3c18060fe35586b66",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "d52ba0e9be7f2dd0ad44b75e61f5b0148899d0bbd7a6f4aa976bdb74aab4caed",
+    "src/app/marker_batch_experiment.py": "6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "d89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "5f674d5391ab388bcdee8cdc534fad5865c59416f0d5eb77dbedfe7ab3db2aee",
+    "src/app/short_grain_stream.py": "2f2a4416d874644c88dfff817f6de4e6e15f28eee1d482803976cb82df63fa83",
+    "src/app/splash_motion.py": "7a505adc1f364b814ed9804a34690a2189eea0609f6a3997acc2d7541c771841",
+    "src/app/stream_rendering.py": "dfa4e8fd35b2621d99767d731e4edc66eb3a5d7028138a7784b59c7ef470c503"
+  },
+  "open_blockers": [],
+  "reviewer": "/root/neck_visual_critic independent adversarial visual review",
+  "normal_size_reviewed": true,
+  "dynamic_reviewed": true,
+  "scope": "限定PC本次出口快速缩窄、整柱至落点局部掐腰及材质衔接改动与相邻状态：540×924正常尺寸关键画面、六配色粗细端档、默认1/5/50秒与最细黑沙50秒的列明连续窗口。不是整体写实程度、全部时刻或完整应用验收。",
+  "review": {
+    "NS01": "passed",
+    "NS03": "passed",
+    "N03": "passed",
+    "UN01": "passed",
+    "S03": "passed",
+    "S04": "passed",
+    "S05": "passed",
+    "SL01": "passed",
+    "states": "passed"
+  },
+  "findings": [
+    {
+      "id": "outlet-fast-constriction",
+      "finding": "颈口下方原明显硬肩/快速掐窄在正常尺寸画面及所审连续窗口中不再突出，未以扩宽越玻璃掩盖，也未把材质硬线下移到过渡末端。",
+      "severity": "P1",
+      "status": "closed",
+      "resolution": "closed_for_this_scope"
+    },
+    {
+      "id": "default-lower-waist",
+      "finding": "重查默认50秒8至9秒全部61帧下段，原8.483/8.500秒同级深咬口未复现；仍保留浅随机毛边和孔隙。",
+      "severity": "P1",
+      "status": "closed",
+      "resolution": "closed_for_this_scope"
+    },
+    {
+      "id": "fine-grain-lower-waist",
+      "finding": "旧release正式审核曾因最细黑沙8.000/8.0667/8.8167明显局部咬口失败。当前新源码相应帧、全部61帧下段与真实录像列明窗口中，该同级主体骤细后恢复不再明显；最细金色正常尺寸也没有原来的稀疏细腰。旧失败证据保持在原release目录。",
+      "severity": "P1",
+      "status": "closed",
+      "resolution": "closed_after_failed_candidate"
+    }
+  ],
+  "retained_issues": [
+    {
+      "finding": "首次释放前缘仍较平，短周期首次接触后的涨堆仍快；当前未修改该堆形时序。",
+      "id": "retained-1",
+      "severity": "P2",
+      "status": "open",
+      "origin": "existing"
+    },
+    {
+      "finding": "近满与排空时仍有小平台/平顶尾砂，细黑沙可见很薄的接触明暗边；未在本次复查中观察到加重。",
+      "id": "retained-2",
+      "severity": "P3",
+      "status": "open",
+      "origin": "existing"
+    }
+  ],
+  "normal_size_files_actually_viewed": [
+    "matrix/c0-g1-f000.png",
+    "matrix/c0-g6-f000.png",
+    "matrix/c1-g6-f000.png",
+    "matrix/c2-g1-f000.png",
+    "matrix/c3-g6-f000.png",
+    "matrix/c4-g1-f000.png",
+    "matrix/p1-t0.5-f000.png",
+    "matrix/p5-t0.5-f000.png",
+    "matrix/p5-t4.9-f000.png",
+    "matrix/p50-t49.9-f000.png",
+    "motion-p50/overview.png",
+    "motion-fine-black/overview.png"
+  ],
+  "palette_endpoint_view": "visual-windows/colour-necks.png，六配色×1/6档原像素出口裁剪；正常尺寸另看各配色代表整图。",
+  "fixed_motion_review": "motion-p5、motion-p50、motion-fine-black各61帧下段原像素顺序图，全部61帧已查看；原反例另结合整根原帧/正常尺寸复核。",
+  "video_windows_actually_viewed": {
+    "p1": [
+      {
+        "label": "release",
+        "first_decode_index": 12,
+        "frame_count": 12,
+        "times": [
+          0.20378333333333334,
+          0.22081666666666666,
+          0.2376,
+          0.25438333333333335,
+          0.2714666666666667,
+          0.2885333333333333,
+          0.3055333333333333,
+          0.3225,
+          0.3396,
+          0.35636666666666666,
+          0.3731333333333333,
+          0.38993333333333335
+        ],
+        "sheet": "p1-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 22,
+        "frame_count": 12,
+        "times": [
+          0.3731333333333333,
+          0.38993333333333335,
+          0.40703333333333336,
+          0.42418333333333336,
+          0.4411833333333333,
+          0.4583,
+          0.4797166666666667,
+          0.4985833333333333,
+          0.5173,
+          0.5346333333333333,
+          0.5514,
+          0.5685666666666667
+        ],
+        "sheet": "p1-contact.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 51,
+        "frame_count": 12,
+        "times": [
+          0.8941833333333333,
+          0.91095,
+          0.9277,
+          0.9445333333333333,
+          0.9613166666666667,
+          0.97805,
+          0.9949166666666667,
+          1.01175,
+          1.0337666666666667,
+          1.05085,
+          1.0678833333333333,
+          1.0848
+        ],
+        "sheet": "p1-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 80,
+        "frame_count": 12,
+        "times": [
+          1.3909,
+          1.4080166666666667,
+          1.4251833333333332,
+          1.44235,
+          1.4591333333333334,
+          1.4763,
+          1.4956,
+          1.5126666666666666,
+          1.5297833333333333,
+          1.5466,
+          1.56365,
+          1.5805666666666667
+        ],
+        "sheet": "p1-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 90,
+        "frame_count": 12,
+        "times": [
+          1.56365,
+          1.5805666666666667,
+          1.5973333333333333,
+          1.6141666666666667,
+          1.6310166666666666,
+          1.6479333333333333,
+          1.6647166666666666,
+          1.68185,
+          1.6986833333333333,
+          1.7154833333333332,
+          1.7326833333333334,
+          1.7495833333333333
+        ],
+        "sheet": "p1-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 107,
+        "frame_count": 12,
+        "times": [
+          1.8517166666666667,
+          1.8685333333333334,
+          1.8856166666666667,
+          1.9027833333333333,
+          1.9198,
+          1.9367333333333334,
+          1.9535833333333332,
+          1.9706166666666667,
+          1.98765,
+          2.0044666666666666,
+          2.026666666666667,
+          2.04355
+        ],
+        "sheet": "p1-settle.png"
+      }
+    ],
+    "p5": [
+      {
+        "label": "release",
+        "first_decode_index": 16,
+        "frame_count": 12,
+        "times": [
+          0.2784333333333333,
+          0.29545,
+          0.3123166666666667,
+          0.32943333333333336,
+          0.34658333333333335,
+          0.3635,
+          0.38025,
+          0.3970666666666667,
+          0.4140333333333333,
+          0.431,
+          0.44783333333333336,
+          0.4650166666666667
+        ],
+        "sheet": "p5-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 84,
+        "frame_count": 12,
+        "times": [
+          1.4364166666666667,
+          1.4532833333333333,
+          1.4700666666666666,
+          1.4868833333333333,
+          1.50395,
+          1.52085,
+          1.5379333333333334,
+          1.5550333333333333,
+          1.5717666666666668,
+          1.5887333333333333,
+          1.60575,
+          1.6225333333333334
+        ],
+        "sheet": "p5-contact.png"
+      },
+      {
+        "label": "contact-after",
+        "first_decode_index": 96,
+        "frame_count": 12,
+        "times": [
+          1.6393,
+          1.6562833333333333,
+          1.67305,
+          1.6898333333333333,
+          1.7144833333333334,
+          1.7312166666666666,
+          1.7484333333333333,
+          1.7654833333333333,
+          1.7823166666666668,
+          1.7992,
+          1.8163833333333332,
+          1.8331833333333334
+        ],
+        "sheet": "p5-contact-after.png"
+      },
+      {
+        "label": "middle",
+        "first_decode_index": 146,
+        "frame_count": 12,
+        "times": [
+          2.506266666666667,
+          2.5230166666666665,
+          2.539816666666667,
+          2.5569333333333333,
+          2.5736833333333333,
+          2.5908333333333333,
+          2.6076333333333332,
+          2.624633333333333,
+          2.64185,
+          2.6588,
+          2.6757166666666667,
+          2.692466666666667
+        ],
+        "sheet": "p5-middle.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 271,
+        "frame_count": 12,
+        "times": [
+          4.644516666666667,
+          4.661383333333333,
+          4.678233333333333,
+          4.695133333333334,
+          4.71205,
+          4.728816666666667,
+          4.74605,
+          4.7632,
+          4.780283333333333,
+          4.79745,
+          4.8143666666666665,
+          4.831183333333334
+        ],
+        "sheet": "p5-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 299,
+        "frame_count": 12,
+        "times": [
+          5.129183333333334,
+          5.146016666666666,
+          5.162966666666667,
+          5.1798,
+          5.196616666666666,
+          5.2134,
+          5.2302,
+          5.2472,
+          5.263916666666667,
+          5.280883333333334,
+          5.2979666666666665,
+          5.314733333333334
+        ],
+        "sheet": "p5-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 313,
+        "frame_count": 12,
+        "times": [
+          5.365583333333333,
+          5.382383333333333,
+          5.399566666666667,
+          5.4164,
+          5.43315,
+          5.450183333333333,
+          5.468333333333334,
+          5.485266666666667,
+          5.50215,
+          5.518966666666667,
+          5.5358833333333335,
+          5.552716666666667
+        ],
+        "sheet": "p5-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 327,
+        "frame_count": 12,
+        "times": [
+          5.60355,
+          5.6203,
+          5.6371166666666666,
+          5.653866666666667,
+          5.671083333333334,
+          5.688016666666667,
+          5.7052,
+          5.7222333333333335,
+          5.73905,
+          5.7561,
+          5.773016666666667,
+          5.789866666666667
+        ],
+        "sheet": "p5-settle.png"
+      }
+    ],
+    "p50": [
+      {
+        "label": "release",
+        "first_decode_index": 17,
+        "frame_count": 12,
+        "times": [
+          0.2865,
+          0.30325,
+          0.3201,
+          0.33691666666666664,
+          0.354,
+          0.37078333333333335,
+          0.38758333333333334,
+          0.40476666666666666,
+          0.42173333333333335,
+          0.4385833333333333,
+          0.45545,
+          0.47226666666666667
+        ],
+        "sheet": "p50-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 86,
+        "frame_count": 12,
+        "times": [
+          1.4535666666666667,
+          1.4703166666666667,
+          1.48715,
+          1.5041166666666668,
+          1.5210666666666666,
+          1.5377833333333333,
+          1.5567,
+          1.5737833333333333,
+          1.5909166666666668,
+          1.6079166666666667,
+          1.62495,
+          1.64175
+        ],
+        "sheet": "p50-contact.png"
+      },
+      {
+        "label": "middle",
+        "first_decode_index": 1434,
+        "frame_count": 12,
+        "times": [
+          25.00775,
+          25.07335,
+          25.091583333333332,
+          25.10855,
+          25.125283333333332,
+          25.144833333333334,
+          25.161816666666667,
+          25.17865,
+          25.195716666666666,
+          25.212966666666667,
+          25.229833333333332,
+          25.246616666666668
+        ],
+        "sheet": "p50-middle.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 2629,
+        "frame_count": 12,
+        "times": [
+          46.933233333333334,
+          46.95036666666667,
+          46.96736666666666,
+          46.98428333333333,
+          47.00208333333333,
+          47.09798333333333,
+          47.115,
+          47.13198333333333,
+          47.148916666666665,
+          47.16571666666667,
+          47.1828,
+          47.1999
+        ],
+        "sheet": "p50-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 2738,
+        "frame_count": 12,
+        "times": [
+          48.9322,
+          48.94923333333333,
+          48.966033333333336,
+          48.982866666666666,
+          48.999633333333335,
+          49.01683333333333,
+          49.1107,
+          49.144533333333335,
+          49.16311666666667,
+          49.179966666666665,
+          49.19675,
+          49.21418333333333
+        ],
+        "sheet": "p50-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 2891,
+        "frame_count": 12,
+        "times": [
+          51.807,
+          51.8241,
+          51.84086666666666,
+          51.85796666666667,
+          51.87481666666667,
+          51.891666666666666,
+          51.908883333333335,
+          51.9257,
+          51.942433333333334,
+          51.95945,
+          51.97646666666667,
+          51.99348333333333
+        ],
+        "sheet": "p50-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 2904,
+        "frame_count": 12,
+        "times": [
+          52.11335,
+          52.132583333333336,
+          52.149683333333336,
+          52.166383333333336,
+          52.18315,
+          52.200066666666665,
+          52.21726666666667,
+          52.23428333333333,
+          52.251416666666664,
+          52.268233333333335,
+          52.28516666666667,
+          52.3022
+        ],
+        "sheet": "p50-settle.png"
+      }
+    ],
+    "fine-black": [
+      {
+        "label": "release",
+        "first_decode_index": 16,
+        "frame_count": 12,
+        "times": [
+          0.2704,
+          0.28731666666666666,
+          0.3040833333333333,
+          0.3209166666666667,
+          0.33808333333333335,
+          0.3551,
+          0.372,
+          0.38903333333333334,
+          0.4059333333333333,
+          0.42306666666666665,
+          0.43998333333333334,
+          0.45716666666666667
+        ],
+        "sheet": "fine-black-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 85,
+        "frame_count": 12,
+        "times": [
+          1.4435166666666666,
+          1.4604833333333334,
+          1.4791833333333333,
+          1.4961,
+          1.5130166666666667,
+          1.5298,
+          1.5466166666666668,
+          1.56345,
+          1.5803333333333334,
+          1.5970833333333334,
+          1.6141333333333334,
+          1.6310166666666666
+        ],
+        "sheet": "fine-black-contact.png"
+      },
+      {
+        "label": "contact-after",
+        "first_decode_index": 96,
+        "frame_count": 12,
+        "times": [
+          1.6310166666666666,
+          1.6478333333333333,
+          1.6646666666666667,
+          1.6817166666666667,
+          1.6985166666666667,
+          1.7153666666666667,
+          1.7324333333333333,
+          1.74925,
+          1.76625,
+          1.7833166666666667,
+          1.80005,
+          1.81685
+        ],
+        "sheet": "fine-black-contact-after.png"
+      },
+      {
+        "label": "early",
+        "first_decode_index": 466,
+        "frame_count": 12,
+        "times": [
+          8.009133333333333,
+          8.047383333333334,
+          8.064366666666666,
+          8.0814,
+          8.098566666666667,
+          8.11535,
+          8.132466666666666,
+          8.149516666666667,
+          8.1665,
+          8.1832,
+          8.2003,
+          8.217083333333333
+        ],
+        "sheet": "fine-black-early.png"
+      },
+      {
+        "label": "middle",
+        "first_decode_index": 1430,
+        "frame_count": 12,
+        "times": [
+          25.008516666666665,
+          25.071583333333333,
+          25.090616666666666,
+          25.107483333333334,
+          25.124383333333334,
+          25.141266666666667,
+          25.158083333333334,
+          25.174933333333332,
+          25.192083333333333,
+          25.209316666666666,
+          25.22608333333333,
+          25.242866666666668
+        ],
+        "sheet": "fine-black-middle.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 2627,
+        "frame_count": 12,
+        "times": [
+          46.938183333333335,
+          46.95531666666667,
+          46.9721,
+          46.9893,
+          47.00646666666667,
+          47.10815,
+          47.12505,
+          47.14208333333333,
+          47.159083333333335,
+          47.17621666666667,
+          47.19303333333333,
+          47.20993333333333
+        ],
+        "sheet": "fine-black-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 2735,
+        "frame_count": 12,
+        "times": [
+          48.93431666666667,
+          48.95115,
+          48.96825,
+          48.98538333333333,
+          49.00213333333333,
+          49.09393333333333,
+          49.13048333333333,
+          49.14906666666667,
+          49.1662,
+          49.1829,
+          49.20048333333333,
+          49.217416666666665
+        ],
+        "sheet": "fine-black-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 2887,
+        "frame_count": 12,
+        "times": [
+          51.807716666666664,
+          51.82475,
+          51.84155,
+          51.85843333333333,
+          51.8755,
+          51.89266666666666,
+          51.90971666666667,
+          51.92668333333334,
+          51.94343333333333,
+          51.9606,
+          51.97741666666667,
+          51.99415
+        ],
+        "sheet": "fine-black-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 2900,
+        "frame_count": 12,
+        "times": [
+          52.113483333333335,
+          52.13276666666667,
+          52.14973333333333,
+          52.166716666666666,
+          52.183683333333335,
+          52.200583333333334,
+          52.21735,
+          52.23453333333333,
+          52.251583333333336,
+          52.26865,
+          52.28543333333333,
+          52.3023
+        ],
+        "sheet": "fine-black-settle.png"
+      }
+    ]
+  },
+  "actual_view_method": "正常尺寸原图、原像素裁剪和真实录像解码后的12连续帧窗口，按时间顺序逐格审阅；无插帧、无补画。没有完整原速播放，不将有限窗口夸大为全过程逐帧无误。",
+  "unchecked": [
+    "未完整原速播放任一整段录像，只审列明有限连续窗口；不能证明所有时刻都无问题。",
+    "未独立逐粒像素追踪，不能宣称每粒终生无突现/消失。",
+    "六配色的完整动态阶段没有逐一遍历；本次全阶段动态抽查为默认金沙及最细黑沙。",
+    "未检查Android、音频、性能、屏幕FPS或整个应用功能。"
+  ],
+  "evidence": [
+    {
+      "path": "matrix/c0-g1-f000.png",
+      "sha256": "b950ec02f775aacb2b2232d38a1cfe31dd49cf20aa69fa6d07ba629884c7505a"
+    },
+    {
+      "path": "matrix/c0-g6-f000.png",
+      "sha256": "3add6cb96638bd15068f560145f1fc73cf330dad5563f067fdb297232fbc6787"
+    },
+    {
+      "path": "matrix/c1-g6-f000.png",
+      "sha256": "3fd54c86e3cba7f64f44d555d06643cc7a678f78933388127f4a3f6624541681"
+    },
+    {
+      "path": "matrix/c2-g1-f000.png",
+      "sha256": "0f511f8ac741e77f38e37cc76ce2c1169441fb13c8d2ffc289e736fb12a7960a"
+    },
+    {
+      "path": "matrix/c3-g6-f000.png",
+      "sha256": "7ba9a237b554559b6b1ca264e87ac5f271eabf6a0a140154ccddcaf37378eea6"
+    },
+    {
+      "path": "matrix/c4-g1-f000.png",
+      "sha256": "df5e213a78c327acc556ab01f8f538d8b986e97891637c0fe8b85a269076922b"
+    },
+    {
+      "path": "matrix/p1-t0.5-f000.png",
+      "sha256": "2c11861e36608e886e5979902e28f0bae0d8264982bd42f88aa0b54cae5d749d"
+    },
+    {
+      "path": "matrix/p5-t0.5-f000.png",
+      "sha256": "02118d4c7206fbd227fa39c35502b818cab689bd4f99cc009c06f6fcc23b2e4e"
+    },
+    {
+      "path": "matrix/p5-t4.9-f000.png",
+      "sha256": "84f5ef2fae01dbbbb6405c839626601a575271be7d368d00f8c457abe69ca091"
+    },
+    {
+      "path": "matrix/p50-t49.9-f000.png",
+      "sha256": "0f84af4ebfb270a87d29ab9cdd453410f6366e1a2b327faa0e52e69846cf1fe4"
+    },
+    {
+      "path": "motion-p50/overview.png",
+      "sha256": "acf12d767bc7213d8f8cfd55f69429ef409b531afc9490c6a229ff3f2b3c4650"
+    },
+    {
+      "path": "motion-fine-black/overview.png",
+      "sha256": "2dbf1e8e8e60deed823539b86c629d5ab8c88df6426060d03df0665b3b7b5fdb"
+    },
+    {
+      "path": "matrix/result.json",
+      "sha256": "49940045e5ff5e464ad943f32aaff934bef36b1e8530a255d091a85bdfb176a3"
+    },
+    {
+      "path": "visual-windows/colour-necks.png",
+      "sha256": "32e2fd4b93d0bff946051c5c8eafc03711da9edacb325abf1803608fd1df0556"
+    },
+    {
+      "path": "video-p1/audit.mp4",
+      "sha256": "06ea494c67f2e6e106562ff44a40a44d5981db297611f0b1643b8fd33a2366cd"
+    },
+    {
+      "path": "video-p1/audit.json",
+      "sha256": "3ba6bbb17c43cde601adc59e724d8ecb574ea3c2adf040668f33487bf5cc6da7"
+    },
+    {
+      "path": "video-p1/result.json",
+      "sha256": "ff5350c7e128207f1db2b26eecdfc216703cd798d2dbc7184112017d1a4eee70"
+    },
+    {
+      "path": "visual-windows/p1-windows.json",
+      "sha256": "8b3b38005b5f4d411abe5631686aed0ad4fa52755f58fada3a1903449c7693c6"
+    },
+    {
+      "path": "visual-windows/p1-release.png",
+      "sha256": "48baf98f5dc6e21e396ea78e6836b82314975650a887f6ce4c61ffce6022bd1b"
+    },
+    {
+      "path": "visual-windows/p1-contact.png",
+      "sha256": "4cb090d45d73a11f96b6ca8a58f573537d7f5640ce8d500b47f4cfc6aff43332"
+    },
+    {
+      "path": "visual-windows/p1-pause.png",
+      "sha256": "24db965d1f034ea510c75dcb818bec7de5d0da4b5aaf5f6e8781cf219dcfcaf6"
+    },
+    {
+      "path": "visual-windows/p1-resume.png",
+      "sha256": "a9e215f9604617e653f53268ffff68d82d11ac9a96370ba155bad2c97f02cdba"
+    },
+    {
+      "path": "visual-windows/p1-drain.png",
+      "sha256": "34f67469d0d294c6e97dc3bfe474e8eaba3aacf5dbc5ad1395b3a3c1fb700206"
+    },
+    {
+      "path": "visual-windows/p1-settle.png",
+      "sha256": "80473a1ebb357e9739c7e86c87ad629dd9861424be4397f9c46258c5ac2d3f30"
+    },
+    {
+      "path": "video-p5/audit.mp4",
+      "sha256": "d5d60d2eb8aa2255338b877bfd32afb3ab16348914ce37d50aef13b1ce6e81ca"
+    },
+    {
+      "path": "video-p5/audit.json",
+      "sha256": "ae41c5ccbd016fce7ff9ba7c982aca01ab09f022381bca4ed8d0fa1c6059dcff"
+    },
+    {
+      "path": "video-p5/result.json",
+      "sha256": "1dfb2784b988e476f0351ccb8a400398014376abfa5e6efd7aabf09fed09fab2"
+    },
+    {
+      "path": "visual-windows/p5-windows.json",
+      "sha256": "28c818b65b9cee1ebbfdbb951531e7d0f46c222284ae5f5b194849725f52cde3"
+    },
+    {
+      "path": "visual-windows/p5-release.png",
+      "sha256": "843596ac263cc905eaf683aa8bd6ed8bf8a2677cef930860c4b607e17dc2a8f9"
+    },
+    {
+      "path": "visual-windows/p5-contact.png",
+      "sha256": "e6112c5669b2f3ad9db33afcbad8c9ee08f3702245ed4c4d7d22714e62741112"
+    },
+    {
+      "path": "visual-windows/p5-contact-after.png",
+      "sha256": "71a870c89b8356f462c51009f438c3e896f2910f8209457c67e8b189069aa837"
+    },
+    {
+      "path": "visual-windows/p5-middle.png",
+      "sha256": "97596fe618a2f1b8f875a089e28fc072e63f7851b8196a315c69e04a471aabe4"
+    },
+    {
+      "path": "visual-windows/p5-pause.png",
+      "sha256": "39cadb84caa257b8a5cade647c2a732d5c1bde7c648ef6105e9f89188903d079"
+    },
+    {
+      "path": "visual-windows/p5-resume.png",
+      "sha256": "cc0f7b148e81745825f0b967c68e6c51fa7ccc77e2eacbbc9863b1866251fdc3"
+    },
+    {
+      "path": "visual-windows/p5-drain.png",
+      "sha256": "5c9217e7846de042f3f84154f32f9908bccd9b32e7203dbcb7293efcfb3a037b"
+    },
+    {
+      "path": "visual-windows/p5-settle.png",
+      "sha256": "c0c929cc16d27b4e24919eb81a4b31811925f8b2d8321ddbea5a8376059f3ed3"
+    },
+    {
+      "path": "video-p50/audit.mp4",
+      "sha256": "04f86cac5d3cd2ca30bb1153daac0db016355879ed2744a5f47aebf456c8e32a"
+    },
+    {
+      "path": "video-p50/audit.json",
+      "sha256": "0858e5f580cb8c58705f738fefc409e322f5a8472798e6b89478478dded06ed9"
+    },
+    {
+      "path": "video-p50/result.json",
+      "sha256": "344a1a34d3952cb2b3c5eaf58a5f2725cccf6983d167b033e0d304291c96d1b2"
+    },
+    {
+      "path": "visual-windows/p50-windows.json",
+      "sha256": "643603b33e5a0a3eda53331d45ec20a019d976a104d3938532065f1d77f465ed"
+    },
+    {
+      "path": "visual-windows/p50-release.png",
+      "sha256": "89d54ed01bbcc69630bd1323b8bc3237de6e39cda7f0c29ce275f4a54db02521"
+    },
+    {
+      "path": "visual-windows/p50-contact.png",
+      "sha256": "98fa9f2d9f1c21de7186915d534ce61993661419c26a8203087c6e65cda8557a"
+    },
+    {
+      "path": "visual-windows/p50-middle.png",
+      "sha256": "d7cc54d24206b6c47bf9f8b6f9213bc91bf527468793e3bc236739255eb100ac"
+    },
+    {
+      "path": "visual-windows/p50-pause.png",
+      "sha256": "c9e283c1cf9287222652c158857d680e365e10f12f16135ed5638ba8f760b378"
+    },
+    {
+      "path": "visual-windows/p50-resume.png",
+      "sha256": "3222f8f5b5b68aa2f336d665278e450c7d34f15aed414ce8e4c108dad02ffa4a"
+    },
+    {
+      "path": "visual-windows/p50-drain.png",
+      "sha256": "4c3d1e4a871b5eb1b2561ce0552e6834c522b33e1d035f514a243a9ececfa184"
+    },
+    {
+      "path": "visual-windows/p50-settle.png",
+      "sha256": "4d02cfacc8a03264cdb11ad3b5703fc6bb5f06fb1ba5231c5446e7967710905e"
+    },
+    {
+      "path": "video-fine-black/audit.mp4",
+      "sha256": "b30b9477471fd1ff87e7ccac4a69bca6090c5921921b719ab76800395443a08f"
+    },
+    {
+      "path": "video-fine-black/audit.json",
+      "sha256": "840a2759a1f213969025ca99125fcf19db26e5631d73e48838ab2b4a18cae4c7"
+    },
+    {
+      "path": "video-fine-black/result.json",
+      "sha256": "6317c41b7cb277a9d428154aa214c94afb4c800d4048c725c06e97febc5de89d"
+    },
+    {
+      "path": "visual-windows/fine-black-windows.json",
+      "sha256": "78733481de7d8c11231fb1b30259d8ee8c91e91fe5db1463eef258d49a079484"
+    },
+    {
+      "path": "visual-windows/fine-black-release.png",
+      "sha256": "b6dc0559adda31e35accfe4f255c057e83de368113f5b42b426e919e04eb91e2"
+    },
+    {
+      "path": "visual-windows/fine-black-contact.png",
+      "sha256": "ae0d1587cbae9fde5b0a9e6ad69cb6705ed1aaab2bb9c8492dae47b9794029ec"
+    },
+    {
+      "path": "visual-windows/fine-black-contact-after.png",
+      "sha256": "5d6d16ce2d6da8555aebcd42b09781136dff4d3f87f5a64a34308aa017b0ccef"
+    },
+    {
+      "path": "visual-windows/fine-black-early.png",
+      "sha256": "352c402b9a4bdca0a44ad3672e3f33e8dc9a3809a5ce774208b50aae99b15c09"
+    },
+    {
+      "path": "visual-windows/fine-black-middle.png",
+      "sha256": "5e6b65327c836f191364abaad98e9f293d4e598fbc43e4c4b3f5e3646bbf9c5f"
+    },
+    {
+      "path": "visual-windows/fine-black-pause.png",
+      "sha256": "87ad1c4f276e15582e49e1e411bb6327b23ee89bbf8c896e955e1bf373457b82"
+    },
+    {
+      "path": "visual-windows/fine-black-resume.png",
+      "sha256": "6b7eb428140c08c53b4951903d52a30f37f5f887642b3b797cbe1ce74ec1dcd7"
+    },
+    {
+      "path": "visual-windows/fine-black-drain.png",
+      "sha256": "dc53840097b999d19503985702065f6e1a44d31ce803908f792b2e0cd67d58a4"
+    },
+    {
+      "path": "visual-windows/fine-black-settle.png",
+      "sha256": "7b6f945c6b11275e916e4bd186d89c40b98a78974e1f120069a3a264fb9e042f"
+    },
+    {
+      "path": "motion-p5/motion.json",
+      "sha256": "1c4d94ffe205dca3699287bd6be0c621d0ed95cb52ca133485b9da2bcce5c3c4"
+    },
+    {
+      "path": "visual-windows/p5-lower-all61.png",
+      "sha256": "8028175d0a63970ae8b80719f12bc3a53945ddce11fbca8aaa8408577247331d"
+    },
+    {
+      "path": "motion-p50/motion.json",
+      "sha256": "6796634d3e350bc889bd0cb127ffbe23e8ba104ccd4cd5454a8effc98d8e6526"
+    },
+    {
+      "path": "visual-windows/p50-lower-all61.png",
+      "sha256": "b594bbbabeb4428d3da1218fc6077a82337105713bf204053cb748e499b8cbcf"
+    },
+    {
+      "path": "motion-fine-black/motion.json",
+      "sha256": "8d5d1b6ba263fe3d77286438d1939539df0eee9f00cd2c78e9fac9d35c9e8ec2"
+    },
+    {
+      "path": "visual-windows/fine-black-lower-all61.png",
+      "sha256": "839b91ae5bb9d91de4afccd8a41601094075ebff558b1be5352630e2fb8ff20b"
+    },
+    {
+      "path": "motion-fine-black/0000.png",
+      "sha256": "02e733d5c432e1492a2a83f553eb7b63b568e1c50e33bb2f63694182fe70031e"
+    },
+    {
+      "path": "motion-fine-black/0000-stream.png",
+      "sha256": "1cb792f05f8322d88c8cf5f9b2ee25db8b670e8503fbd43069a76e37346e711b"
+    },
+    {
+      "path": "motion-fine-black/0004.png",
+      "sha256": "5efd8045a5b3ac717d3d3d17e0a75e47fc975df05a7f23bc3b0ca0805d8f2d76"
+    },
+    {
+      "path": "motion-fine-black/0004-stream.png",
+      "sha256": "8f5a06d214783c93d9e38d1d3996ed3d9af8c0f91ff128ed6aa29533c8659f6b"
+    },
+    {
+      "path": "motion-fine-black/0049.png",
+      "sha256": "0bd29f8b4ce1f9c4f7b28b854a8a8bf39c4ab4aab8bf8e6dfc5043e644b6ca36"
+    },
+    {
+      "path": "motion-fine-black/0049-stream.png",
+      "sha256": "5f7662bab6647e98d660aa8bc39d98307a01476dffd0cc9f8e4d323261623583"
+    },
+    {
+      "path": "motion-p50/0029.png",
+      "sha256": "882622c5487d5a8b6bb0ef086d20da3ef2808c7e9cc3d22f96b1f730befa84a5"
+    },
+    {
+      "path": "motion-p50/0030.png",
+      "sha256": "01484d8498ef6a2f8f652b8083f4c600a778226c46ab0727c8a15987f5cdef22"
+    },
+    {
+      "path": "motion-p50/0029-stream.png",
+      "sha256": "f9c18ef4ab7ba91a76fcb1915eb31dc2916e5a630105c90466aed59631267cc4"
+    },
+    {
+      "path": "motion-p50/0030-stream.png",
+      "sha256": "ae71b51dbef3774646eaa227594c5b9bab0e342664f42fd48199f9cc89eb02b9"
+    }
+  ],
+  "conclusion": "新冻结源码的本次局部外观与关联状态通过独立对抗性复审，当前无未关闭P1。旧固定支持候选的failed记录保留，未以放宽判据或重存基线覆盖。",
+  "verified_checks": [
+    {
+      "id": "grain-material-and-density",
+      "finding": "金色细/默认/粗及六配色出口对照未见新长丝、贯穿横向空层、整齐栅格或附加静止实心罩。细档更紧密，但仍可辨细纹、孔隙与浅粒边，没有整片材质突然切换。柱体整体仍偏直/密实，不据此宣称全面写实。",
+      "verification": "no_new_blocker_observed"
+    },
+    {
+      "id": "contact-retirement-and-states",
+      "finding": "1/5/50秒默认与最细黑沙50秒首放、首次接触、近满、暂停恢复及排空窗口中，未见增长支持引起的上半粒整片瞬退或新增接堆硬掐腰；不能据有限窗口证明每粒全部寿命连续。",
+      "verification": "no_new_blocker_observed_in_reviewed_windows"
+    },
+    {
+      "id": "splash",
+      "finding": "所审初落地和中段落点仍保留飞溅散布，未见新亮圈或整片散粒跳色；不以此宣称逐像素复刻3.3。",
+      "verification": "no_new_blocker_observed"
+    }
+  ],
+  "appearance_limitations": [
+    {
+      "finding": "整体柱形仍较直，细档较密实。通过仅限当前明确两处突兀收口及关联衔接，不表示全部自然程度都已达到最终目标。"
+    }
+  ]
+}

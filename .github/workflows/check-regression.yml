@@ -38,6 +38,9 @@ jobs:
           python -B src/tools/test_pixel_flow_review.py
           python -B src/tools/test_stream_review_metrics.py
           python -B src/tools/test_flow_release.py
+          python -B src/tools/test_outlet_release.py
+          python -B src/tools/test_neck_stream_seam.py
+          python -B src/tools/test_stream_width.py
           python -B src/tools/test_particle_continuity.py
           python -B src/tools/test_particle_material.py
           python -B src/tools/test_flare_occlusion.py

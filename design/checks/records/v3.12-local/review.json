@@ -1,0 +1,133 @@
+{
+  "version": "3.12",
+  "status": "reopened",
+  "release_status": "not_submitted",
+  "source_sha256": "31f0b4794ce28c8bd28c861b31304b9f1e026d6dfbf7acde948256343babb2f6",
+  "source_manifest": {
+    "main.py": "c4ee723db19191698107842cb2b777c65a0b66732d7d94286d5e58df989aebcd",
+    "buildozer.spec": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "d82f91c8c11c8a84c6d2449aabd0d6d1a8e6a77c1c2518bf6a5cb7c73607ffdd",
+    "src/app/app_version.py": "28e1145e675f8218dd8dcff416307ccf8a29d07ae9697f956dbf7e30dbfa62bd",
+    "src/app/flow_batch_experiment.py": "9f7dc0d48900f0b3125d41463b615fbec334a555827bf44a9dfe960f27fa57b4",
+    "src/app/flow_gpu_experiment.py": "ffe94c0bcf80276f287bbe7c58f7b941267b6ff39f4f30dfdb0871a4c7154305",
+    "src/app/flow_numpy.py": "aa90bb57c1e6d6e40799820ea75a2c9d35bd3d3c807ab0a075aa39eb0b3fa302",
+    "src/app/flow_splash_experiment.py": "655c8826035e23fb17df8b4d1d65a73ee8d2d1a5a5c8593089a69d6dc9314b71",
+    "src/app/flow_texture_experiment.py": "4dad0e264fc82fb3bd3093f95b811bcf34098c4e86e2aaed912a6b4cf59077f6",
+    "src/app/frame_benchmark.py": "ddb279fc1eb6e7cf3654dd807d0f81afcf553b94f78320aec95eeaba50515e4b",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "a4b593f371c5ece9841dc0504a24c0895bae2bbc2f3bada2b5c1feef7eccd1c3",
+    "src/app/marker_batch_experiment.py": "b804b8e76f757a60ebb20b0e400bb2874de7305eb81a5f9b491d2d5a8be54b78",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "418bae83aa405db8c7b034f2424902420b055db12ad3932f4d9a50ae3ad5e2bb",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "5f674d5391ab388bcdee8cdc534fad5865c59416f0d5eb77dbedfe7ab3db2aee",
+    "src/app/short_grain_stream.py": "edcff2ceed40c0d327fdb48d113ec6ac5dec02a02bca4be5b4671380c62523cd",
+    "src/app/splash_motion.py": "486e59d455423342f40e62eca24039f4b8296ce3e5de9e070b9a6c8c507ad9c1",
+    "src/app/stream_rendering.py": "d3dd6a00012369fa15c21bb01180fa2359427f0b863996459df2ef0839e5809a"
+  },
+  "baseline_commit": "139040bebf540da9a0905e001c0ef4d23fa1fb89",
+  "scope": "PC颈部至沙柱出口局部材质过渡及相邻状态",
+  "review": {
+    "case": "NS03",
+    "status": "reopened",
+    "source_review": "source-adversarial-review.json",
+    "visual_review": "independent-visual-review.json"
+  },
+  "checks": {
+    "pure_tests": 70,
+    "shader_ablation_assertions": 33,
+    "shader_ablation_frames": 6,
+    "matrix_frames": 53,
+    "continuous_gl_frames": 61,
+    "paired_physics_cases": 6
+  },
+  "known_remaining": [
+    "开局前缘偏平",
+    "短周期涨堆偏快",
+    "出口轮廓较快收窄",
+    "柱内局部空洞",
+    "近满小平台"
+  ],
+  "limits": [
+    "独立动态审核为有限连续窗口，未完整原速播放。",
+    "未验证Android、音频或性能；未做完整应用回归。",
+    "诊断用冻结/滚动与旧自由几何实验没有逐档GL复测。"
+  ],
+  "fixed_review_findings": [
+    "静态颈部回退时禁用过渡，并用无guard负例复查。",
+    "范围比较工具的纵坐标错误已修正，原失败保留。"
+  ],
+  "artifacts": {
+    "after.png": {
+      "sha256": "388c8aaf68b22ecc632265f91162399c3bcc023d54250a5e529b376ce2b1b70a",
+      "bytes": 230067
+    },
+    "before.png": {
+      "sha256": "322f22aa2bb20dfb82dc97da627ff2dcf3bb949b69bec86205abb0c75a7b1ee8",
+      "bytes": 230374
+    },
+    "comparison.png": {
+      "sha256": "26ba3cf03e6f9af0fb8816059cba5a6a2c1c42b674de3844aaa993956bec41d4",
+      "bytes": 15609
+    },
+    "current-measurement.json": {
+      "sha256": "8c459b44c2615b284c1d2bba0e750d218e2236208127457f72fe1fdaa76d2362",
+      "bytes": 46632
+    },
+    "fifty-seconds.mp4": {
+      "sha256": "3c2f57e93217c499c1e5ece957a8ec279d66f98892eec70445fc5f071370671b",
+      "bytes": 11294733
+    },
+    "five-seconds.mp4": {
+      "sha256": "caa677016795ae84993153b785ca42037926f32d969dd297c82122e82d000590",
+      "bytes": 1187392
+    },
+    "independent-visual-review.json": {
+      "sha256": "0e848a0af1d4324ab08372b43c58ee9dce38b3f0b15301ab95798c61dd81c41c",
+      "bytes": 16102
+    },
+    "review.html": {
+      "sha256": "f0b60120f5c5e7cdec87bc979cd1ebdb7dc2a32eafaf9fb1a095b709783ebf5c",
+      "bytes": 3940
+    },
+    "source-adversarial-review.json": {
+      "sha256": "2620ac38df9d37bed97a8d06cdb01c4d8a9dfb053849f8e9f71c4e519ecfd7d4",
+      "bytes": 6256
+    },
+    "source-scope.json": {
+      "sha256": "36d0788847709415e0ddc3f67cf14e5314efc4d4902f1d0a33e6d3c784758662",
+      "bytes": 3161
+    },
+    "state-scope-comparison.json": {
+      "sha256": "092d718f65f3b96cbb305d729bdc43116fd2b3c56146ee51cd9772ceab3bb64b",
+      "bytes": 1496
+    },
+    "state-scope-initial-failure.json": {
+      "sha256": "f490869fb506f6845b8957b9e119419679429807ad4c7628c7ef959856870a6c",
+      "bytes": 318
+    },
+    "test-summary.json": {
+      "sha256": "04996298499c553cdc05971437e87d8168a858a0340d5b5db7e2839479e4789e",
+      "bytes": 1063
+    },
+    "archive-manifest.json": {
+      "sha256": "4659a3fcb3cebc3828eb55df8cd776bcda275fec2f9e2d82dc7e69d55fa0f02f",
+      "bytes": 37356
+    },
+    "baseline-measurement.json": {
+      "sha256": "73abaed2433e3fac8875048b73d36bb469d87e3edc5e020fd3ea4f954685ce8d",
+      "bytes": 46693
+    }
+  },
+  "archive": {
+    "archive": "evidence.tar.xz",
+    "sha256": "66b7a48b0a0f2913dc49db4fde8bfa1c5bcdf3eca1c15c499a82a846566d38dd",
+    "bytes": 35970752,
+    "member_count": 221,
+    "verified_all_members": true
+  },
+  "followup": "width-followup.html",
+  "reopened_reason": "出口在很短距离内明显变细，应作为本次过渡的阻挡问题。原局部通过把既有快速收窄留在范围外，验收范围不当。",
+  "publication_status": "unpublished_local_draft"
+}

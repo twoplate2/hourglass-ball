@@ -1,0 +1,28 @@
+{
+  "version": "3.12",
+  "status": "failed",
+  "severity": "P1",
+  "cases": [
+    "NS01",
+    "NS03"
+  ],
+  "source_sha256": "31f0b4794ce28c8bd28c861b31304b9f1e026d6dfbf7acde948256343babb2f6",
+  "finding": "出口在很短距离内明显变细，应作为本次过渡的阻挡问题。原局部通过把既有快速收窄留在范围外，验收范围不当。",
+  "evidence": {
+    "user-feedback.png": "214fd03b2a78b7ae11bccd930edada763c058246e00bb2c0398c2962706629c8",
+    "measurement.json": "b076cc5e58cfe39823225256459ab7e41ba1b599defb5f2f697a316c8ff06b72"
+  },
+  "measurements": "原61帧窗口：颈内约42px；出口下3至8px约36至38px。原生测量只用于解释可见宽度，不等于几何宽度或完整运动验收。",
+  "confirmed_causes": [
+    "source_half_width先扣最大sprite半径及1像素余量。",
+    "主发射分支仍按旧线条尺寸再次LIM_INSET。",
+    "边缘羽化、微孔及已有0.87下限/92px渐缩继续减小可见宽。",
+    "颈侧原2px密实填充退场后，较窄的粒子出生带迅速显露。"
+  ],
+  "scope": "诊断；本轮未修改应用或重新运行GL",
+  "unchecked": [
+    "未实施宽度修复。",
+    "尚未制定并验证新的宽度曲线。",
+    "未复核其他时长、配色和档位的同类程度。"
+  ]
+}

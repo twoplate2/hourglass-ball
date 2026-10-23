@@ -19,9 +19,11 @@ class ApertureTests(unittest.TestCase):
                 radius=stream.sprite_radius(pitch,2)
                 self.assertLessEqual(stream.source_half_width(half,pitch)+radius,half+1e-6)
 
-    def test_wobble_has_reserved_space(self):
+    def test_source_support_reaches_aperture(self):
+        # Collision clamping owns wobble safety. A second fixed margin here
+        # leaves a visible shoulder when the dense neck hands over to grains.
         pitch=stream.stream_pitch(210,3,30)
-        self.assertLessEqual(stream.source_half_width(30,pitch)+stream.sprite_radius(pitch,2)+1,30)
+        self.assertAlmostEqual(stream.source_half_width(30,pitch)+stream.sprite_radius(pitch,2),30)
 
     def test_wider_aperture_does_not_enlarge_grains(self):
         self.assertEqual(stream.stream_pitch(210,3,20),stream.stream_pitch(210,3,40))

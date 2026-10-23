@@ -228,6 +228,8 @@ uniform float sand_up_scroll;
 // 🔴 **2026-10-12(2.90): 上球材质的纵向采样缩放(= 球径/沙体高)** —— 1.244 的 tex_coords 行为:
 //    图案随沙体伸缩(沙面下降时图案跟着往下流, ~25px/s)。1.0 = 不缩放(颈/沙堆用)。
 uniform float sand_up_scale;
+// Only the neck context enables its existing short overlap with real grains.
+uniform vec2 sand_outlet_join; // outlet y, overlap length in canvas pixels
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -252,6 +254,38 @@ float grain(vec2 uv) {
 vec3 grain_tone_color(float detail, float illumination) {
     float tone = clamp(illumination + detail, -1.0, 1.0);
     return mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
+}
+vec3 neck_flow_rgb(vec2 position) {
+    // Continue the actual upstream material into the outlet. Both renderers
+    // evaluate this at the same position/time, including the startup blend.
+    float diameter = max(2.0, 2.0 * sand_geometry.y);
+    vec2 uv = vec2(.5 + (position.x-sand_geometry.x)/diameter,
+                   (position.y-sand_geometry.z)/diameter);
+    vec2 mouth = vec2((position.x-sand_geometry.x)/diameter,
+                     max(0.0,position.y-sand_geometry.w)/diameter);
+    float sink = 1.0/(1.0+20.0*mouth.x*mouth.x+8.0*mouth.y*mouth.y);
+    vec2 velocity = vec2(-(position.x-sand_geometry.x)*.09*sink,
+                         -(4.0+46.0*sink)*sand_flow_vy)/diameter;
+    bool frozen = sand_adv_cont > 0.0 && sand_up_scroll == 0.0;
+    bool scrolling = sand_adv_cont > 0.0 && sand_up_scroll > 0.0;
+    float t = (frozen ? 0.0 : sand_clock)+.2*sin(mouth.x*3.1+mouth.y*5.2);
+    float a=fract(t), b=fract(t+.5);
+    float wa=1.0-abs(1.0-2.0*a), wb=1.0-wa;
+    vec2 jump=vec2(.125,.0625*sand_jump_y);
+    vec2 sa=uv-velocity*a, sb=uv-velocity*b;
+    if (scrolling) { sa=uv+jump*sand_time; sb=sa; }
+    float ga=grain(sa+floor(t)*jump*(scrolling ? 0.0 : 1.0));
+    float gb=grain(sb+floor(t+.5)*jump+vec2(.5));
+    float detail=scrolling ? ga : (ga*wa+gb*wb)*inversesqrt(wa*wa+wb*wb);
+    vec2 luv=sand_wrap_light > 0.0 ? vec2(uv.x,fract(uv.y)) : uv;
+    vec3 flowing=grain_tone_color(detail,lighting(luv));
+    vec2 neck_uv=vec2(uv.x,sand_neck_anchor-uv.y);
+    float band=sand_seam_band*diameter;
+    float blend=band > 0.0 ? smoothstep(-band,band,position.y-sand_geometry.z)
+                           : step(sand_geometry.z,position.y);
+    vec3 original=mix(texture2D(texture0,fract(neck_uv)).rgb,
+                      texture2D(texture0,uv).rgb,blend);
+    return mix(original,flowing,sand_mix);
 }
 // 程序化平滑噪声(聚团场) —— 见 `sand_clump_gap` 那段。
 // ⚠️ 哈希**不用 `sin`**(Dave Hoskins 那个无 sin 版本): 移动 GPU 上 `sin` 常是 mediump,
@@ -564,6 +598,7 @@ void main(void) {
         float top = sand_tail.x + sand_tail.y * clamp((left - right) * 0.7, -1.0, 1.0);
         coverage = 1.0 - smoothstep(top - 0.5, top + 0.5, sand_position.y);
     }
+    float tail_coverage = coverage;
     if (sand_free.x > 0.0 && sand_position.y < sand_free.x) {
         // 出口以下那股沙**不再被玻璃约束** —— 它现在是"落下来的一把沙"。
         // 用户判词: 「沙柱看起来是个规整的矩形」 —— 两条边死直、平行、通体实心。
@@ -736,6 +771,15 @@ void main(void) {
             coverage *= mix(1.0, solid, clamp(max(rim * fr, wide * fr), 0.0, 1.0));
         }
     }
+    bool outlet_join = sand_outlet_join.x > 0.0 && sand_outlet_join.y > 0.0
+                      && sand_position.y < sand_outlet_join.x;
+    if (outlet_join) {
+        // Retire just the existing overlap, with the upstream colour intact.
+        // The particle alpha stays unchanged: two complementary fades would
+        // expose a transparent trough under normal source-over compositing.
+        coverage = tail_coverage * (1.0-smoothstep(0.0,sand_outlet_join.y,
+                                      sand_outlet_join.x-sand_position.y));
+    }
     if (sand_free.w > 0.0 && sand_position.y < sand_free.w) {
         // 前沿(在途沙的最低点): 不许切成一刀平。1~5px 的零均值锯齿。
         float l2 = grain(vec2(sand_position.x * 0.35, sand_clock * 0.22 + 0.11));
@@ -786,7 +830,9 @@ void main(void) {
         }
         return;
     }
-    gl_FragColor = frag_color * vec4(mix(original.rgb, flowing, sand_mix),
+    vec3 final_rgb = outlet_join ? neck_flow_rgb(sand_position)
+                                : mix(original.rgb, flowing, sand_mix);
+    gl_FragColor = frag_color * vec4(final_rgb,
                                      original.a * coverage);
 }
 """
@@ -948,6 +994,7 @@ class SandFlowContext(RenderContext):
         self["sand_mix"] = 0.0
         self["sand_tail"] = (0.0, 0.0, 1.0)
         self["sand_free"] = (0.0, 0.0, 1.0, 0.0)
+        self["sand_outlet_join"] = (0.0, 0.0)
         _sb = _flag_float("HG_SEAM_BAND", "seamband")
         self["sand_seam_band"] = 0.0 if _sb is None else float(_sb)
         _sa = _flag_float("HG_SEAM_ANCHOR", "seamanchor")

@@ -16,3 +16,14 @@ design/checks/records/v3.10/*.json -text
 design/checks/records/v3.10/*.html text eol=lf
 design/checks/records/v3.11/*.json -text
 design/checks/records/v3.11/*.html text eol=lf
+design/checks/records/v3.12/*.json -text
+design/checks/records/v3.12/*.html text eol=lf
+design/checks/records/v3.13/*.json -text
+design/checks/records/v3.13/*.html text eol=lf
+design/checks/records/v3.11/neck-seam-followup/*.json -text
+design/checks/records/v3.12/width-followup/*.json -text
+design/checks/records/v3.12-local/*.json -text
+design/checks/records/v3.12-local/*.html text eol=lf
+design/checks/records/v3.12-local/width-followup/*.json -text
+design/checks/records/v3.13-local/*.json -text
+design/checks/records/v3.13-local/*.html text eol=lf

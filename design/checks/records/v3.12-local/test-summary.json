@@ -1,0 +1,51 @@
+{
+  "passed": true,
+  "tests": [
+    {
+      "file": "test_neck_stream_seam.py",
+      "count": 7,
+      "status": "passed"
+    },
+    {
+      "file": "test_particle_continuity.py",
+      "count": 20,
+      "status": "passed"
+    },
+    {
+      "file": "test_particle_material.py",
+      "count": 2,
+      "status": "passed"
+    },
+    {
+      "file": "test_stream_aperture.py",
+      "count": 4,
+      "status": "passed"
+    },
+    {
+      "file": "test_splash_colours.py",
+      "count": 10,
+      "status": "passed"
+    },
+    {
+      "file": "test_splash33_impulse.py",
+      "count": 5,
+      "status": "passed"
+    },
+    {
+      "file": "test_short_grain.py",
+      "count": 10,
+      "status": "passed"
+    },
+    {
+      "file": "test_neck_geometry.py",
+      "count": 7,
+      "status": "passed"
+    },
+    {
+      "file": "test_release_version.py",
+      "count": 5,
+      "status": "passed"
+    }
+  ],
+  "scope": "相关纯测试；视觉复审另记，未执行完整应用、音频或性能回归"
+}

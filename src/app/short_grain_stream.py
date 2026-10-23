@@ -21,7 +21,14 @@ def sprite_radius(pitch,size):
 
 
 def source_half_width(half,pitch):
-    return max(0.0,half-sprite_radius(pitch,2)-1.0)
+    return max(0.0,half-sprite_radius(pitch,2))
+
+
+def sprite_aspect(pitch,reference_pitch):
+    # Fine clusters need the same support area, while their individual texture
+    # grains remain fine. Bound exceptional inputs so this cannot become a line.
+    ratio=max(.8,reference_pitch)/max(.8,pitch)
+    return min(2.4,1.45*max(1.0,ratio*ratio))
 
 
 def emission_scale(radius,half):
@@ -55,7 +62,7 @@ def stream_limits(ys, outlet, surface, pitch, touching):
     return (top, bottom) if top > bottom else None
 
 
-def particle_vertices(xs, ys, phases, sizes, pitch):
+def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45):
     """One persistent short sprite per real particle; never changes its centre."""
     import numpy as np
     xs, ys, phases, sizes = [np.asarray(v) for v in (xs, ys, phases, sizes)]
@@ -64,7 +71,7 @@ def particle_vertices(xs, ys, phases, sizes, pitch):
     corners = np.asarray(((-1,-1),(1,-1),(1,1),(-1,1)), dtype=np.float32)
     radius = sprite_radius(pitch,sizes)
     out[:,:,0] = xs[:,None] + radius[:,None] * corners[None,:,0]
-    out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * 1.08
+    out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * aspect
     out[:,:,2:4] = corners[None,:,:]
     # Two disjoint bands preserve the immutable seed AND size in one float.
     # The shader can reconstruct the actual pixel radius without a larger Mesh.
@@ -192,6 +199,9 @@ void main(void) {
 FRAGMENT_BODY = """
 uniform vec4 short_geometry;
 uniform float short_coarse;
+uniform float short_join_overlap;
+uniform float short_join_enabled;
+uniform float short_aspect;
 varying float grain_radius;
 varying vec2 grain_local;
 varying float grain_tone;
@@ -207,7 +217,10 @@ void main(void) {
     // Each cluster has an immutable orientation and irregular local placement.
     // No time noise: its details travel with the same real particle for life.
     float angle=clump_hash(vec2(grain_tone*13.1,grain_tone*31.7))*6.283185;
-    vec2 domain=mat2(cos(angle),-sin(angle),sin(angle),cos(angle))*grain_local;
+    // More overlap between real moving clusters prevents short empty notches.
+    // Compensate the local domain so the fine grains keep their pixel shape.
+    vec2 domain=mat2(cos(angle),-sin(angle),sin(angle),cos(angle))
+                    *(grain_local*vec2(1.0,short_aspect/1.08));
     vec2 cell=floor((domain+1.0)*1.5);
     float seed=micro_hash(cell+grain_tone*31.7);
     vec2 local=fract((domain+1.0)*1.5)-.5;
@@ -217,9 +230,15 @@ void main(void) {
     float coarse=smoothstep(1.8,3.0,short_coarse);
     float micro=1.0-smoothstep(mix(.38,.30,coarse),mix(.51,.41,coarse),micro_r);
     vec2 uv = fract(vec2(grain_tone*17.1,grain_tone*29.7)
-                    + grain_local * grain_radius * vec2(1.0,1.08) / (2.0*sand_geometry.y));
+                    + grain_local * grain_radius * vec2(1.0,short_aspect) / (2.0*sand_geometry.y));
     vec3 sample_rgb=texture2D(texture0,uv).rgb;
     vec3 rgb=clamp(sand_base+(sample_rgb-sand_base)*1.6,0.0,1.0);
+    float depth=max(0.0,short_geometry.y-sand_position.y);
+    float join_length=max(short_join_overlap+.001,1.5*short_geometry.z);
+    if (short_join_enabled > .5 && depth < join_length) {
+        float released=smoothstep(short_join_overlap,join_length,depth);
+        rgb=mix(neck_flow_rgb(sand_position),rgb,released);
+    }
     // Only feather the quad border. A circular parent mask would make the
     // entire cluster read as a large pebble even when its interior is fine.
     float coverage = (1.0-smoothstep(.75,1.0,abs(grain_local.x)))
@@ -255,6 +274,7 @@ def install(widget_class):
             # Prepare the first Mesh before removing the working Line groups.
             # A driver/allocation failure must leave a drawable fallback.
             self._short_flow_context = context
+            context["short_aspect"]=1.45
             ensure(self,0)
             groups = [r[0] for r in self._stream_pools.values()]
             position = self.canvas.children.index(groups[0])
@@ -300,7 +320,10 @@ def install(widget_class):
         module=sys.modules[widget_class.__module__]
         n=self.pn
         pitch=stream_pitch(self._R_inner,module.SAND_MATERIAL_COARSE,self._taper['t_in'])
-        vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch)
+        reference=stream_pitch(self._R_inner,module._grain_level(module.SAND_GRAIN_LEVEL_DEFAULT)[1],
+                               self._taper['t_in'])
+        aspect=sprite_aspect(pitch,reference)
+        vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch,aspect)
         surfaces=mound_surface_at(vertices[:,:,0], self._mound_carve._v,
                                   self._lower_sand_bot)
         for i in range((n+chunk-1)//chunk):ensure(self,i)
@@ -321,6 +344,10 @@ def install(widget_class):
         outlet=2*self._neck_y-self._taper["y_bot"]
         context["short_geometry"]=(self._cx,outlet,self._taper["t_in"],pitch)
         context["short_coarse"]=module.SAND_MATERIAL_COARSE
+        context["short_join_overlap"]=module.OUTLET_OVERLAP
+        context["short_aspect"]=aspect
+        context["short_join_enabled"]=float(bool(self._sand_flow_contexts)
+                                            and not module.NECK_FREE_GEOM)
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl")
 

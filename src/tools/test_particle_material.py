@@ -16,6 +16,21 @@ def unpack_appearance(codes,pitch):
 
 
 class ParticleMaterialTests(unittest.TestCase):
+    def test_fine_cluster_keeps_reference_support_area(self):
+        from short_grain_stream import sprite_aspect
+        reference=1.8517562
+        def area(pitch):
+            v=particle_vertices([0],[0],[.7],[2],pitch,sprite_aspect(pitch,reference))[0,:,:2]
+            a,b=v[1]-v[0],v[3]-v[0]
+            return abs(a[0]*b[1]-a[1]*b[0])
+        self.assertAlmostEqual(area(1.4619128)/area(reference),1,places=6)
+
+    def test_compensation_is_bounded_and_leaves_coarse_fill_alone(self):
+        from short_grain_stream import sprite_aspect
+        self.assertEqual(sprite_aspect(2.5,1.85),1.45)
+        self.assertEqual(sprite_aspect(.1,.2),1.45)
+        self.assertLessEqual(sprite_aspect(.1,100),2.4)
+
     def test_source_seed_and_size_survive_the_vertex_payload(self):
         phases=np.asarray([0,.01,1.2,math.pi,6.2,math.tau]*2)
         sizes=np.asarray([1]*6+[2]*6)
@@ -29,7 +44,7 @@ class ParticleMaterialTests(unittest.TestCase):
             with self.subTest(pitch=pitch):
                 v=particle_vertices([20,80],[90,150],[.4,2.4],[1,2],pitch)
                 _,radius=unpack_appearance(v[:,0,4],pitch)
-                material_pixels=v[:,:,2:4]*radius[:,None,None]*np.asarray([1,1.08])
+                material_pixels=v[:,:,2:4]*radius[:,None,None]*np.asarray([1,1.45])
                 actual_pixels=v[:,:,:2]-np.asarray([[20,90],[80,150]])[:,None,:]
                 np.testing.assert_allclose(material_pixels,actual_pixels,atol=2e-5,rtol=0)
 

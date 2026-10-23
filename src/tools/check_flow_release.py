@@ -398,6 +398,9 @@ def require_tint_paths(folder,version,manifest,digest):
 
 
 def validate(record=None):
+    if current_version()=='3.12':
+        from check_outlet_release import validate as validate_outlet
+        return validate_outlet(record)
     path=Path(record) if record else check_current()
     r=read(path);version=current_version();manifest=runtime_manifest()
     if r.get('version')!=version or r.get('source_sha256')!=source_digest():

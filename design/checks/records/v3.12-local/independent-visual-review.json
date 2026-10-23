@@ -1,0 +1,518 @@
+{
+  "version": "3.12",
+  "reviewer": "/root/neck_visual_critic",
+  "review_type": "independent_adversarial_visual_review",
+  "status": "passed_local_NS03",
+  "case": "NS03",
+  "scope": "本次出口局部材质过渡，以及上沙接颈部、沙柱边缘、初落地、暂停恢复及排空相邻表现；不是整体沙流自然感或完整应用验收。",
+  "source_files": {
+    "main.py": "c4ee723db19191698107842cb2b777c65a0b66732d7d94286d5e58df989aebcd",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "a5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb",
+    "src/app/app_version.py": "1bb8c177edacaa6ad8949dc0b9f8f713b6a909a3ffaa978978f3dfc39203f466",
+    "src/app/flow_batch_experiment.py": "2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07",
+    "src/app/flow_gpu_experiment.py": "2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24",
+    "src/app/flow_numpy.py": "88fec30a71c651a231e67d6dffa266b034690565cd8a4626c5b93a787878a802",
+    "src/app/flow_splash_experiment.py": "19b22d9df6008619b3837601687a03941e44047762ad9ea169f2575c62e47364",
+    "src/app/flow_texture_experiment.py": "2cce41e1e45b82afd2e377f2d483dd20d03c64bc4bc184f232bfd392791fec4c",
+    "src/app/frame_benchmark.py": "4bc67f99f87550e7723f2aa678237a1aee9d58d0f44302c3c18060fe35586b66",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "d52ba0e9be7f2dd0ad44b75e61f5b0148899d0bbd7a6f4aa976bdb74aab4caed",
+    "src/app/marker_batch_experiment.py": "6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "d89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "5f674d5391ab388bcdee8cdc534fad5865c59416f0d5eb77dbedfe7ab3db2aee",
+    "src/app/short_grain_stream.py": "edcff2ceed40c0d327fdb48d113ec6ac5dec02a02bca4be5b4671380c62523cd",
+    "src/app/splash_motion.py": "7a505adc1f364b814ed9804a34690a2189eea0609f6a3997acc2d7541c771841",
+    "src/app/stream_rendering.py": "dfa4e8fd35b2621d99767d731e4edc66eb3a5d7028138a7784b59c7ef470c503"
+  },
+  "evidence": [
+    {
+      "file": "final-normal/motion.json",
+      "sha256": "867ac2243e25b10664d218b08cea839faa82751d681ec1e0eff7c86345c5e4ee"
+    },
+    {
+      "file": "final-matrix/result.json",
+      "sha256": "587893e15b0600f87683e5d8396041c7f15e420ff4013e4ffb1fa55727e9e157"
+    },
+    {
+      "file": "realtime-five/audit.json",
+      "sha256": "5df36a6725fd7dc67b14a854d9e19320241e904a39bf9169295291b4f2167637"
+    },
+    {
+      "file": "realtime-five/audit.mp4",
+      "sha256": "caa677016795ae84993153b785ca42037926f32d969dd297c82122e82d000590"
+    },
+    {
+      "file": "realtime-normal/audit.json",
+      "sha256": "5eb76703e0d2c6cb68c74c56e20d5ef418ead6405f79b7faea3017f04f5c81ee"
+    },
+    {
+      "file": "realtime-normal/audit.mp4",
+      "sha256": "3c2f57e93217c499c1e5ece957a8ec279d66f98892eec70445fc5f071370671b"
+    },
+    {
+      "file": "critic-dynamic/five-windows.json",
+      "sha256": "8fbf026b1598f114f629c360686908758998810e88a6a9827c8c8ccc843dad3f"
+    },
+    {
+      "file": "critic-dynamic/normal-windows.json",
+      "sha256": "2b972611ea5bfba49802e926288e54b89bbff83f77dc5c3ec8bfd68a0775f9af"
+    }
+  ],
+  "normal_size_view": {
+    "dimensions": [
+      540,
+      924
+    ],
+    "files": [
+      "final-matrix/p50-t0.2-f000.png",
+      "final-matrix/p50-t25-f000.png",
+      "final-matrix/p50-t49.9-f000.png",
+      "final-matrix/p5-t0.5-f000.png",
+      "final-matrix/p1-t0.5-f000.png",
+      "final-matrix/paused-f000.png",
+      "final-matrix/c1-g6-f000.png",
+      "final-matrix/c2-g6-f000.png",
+      "final-matrix/c3-g6-f000.png",
+      "final-matrix/c4-g6-f000.png",
+      "final-matrix/c5-g6-f000.png",
+      "critic-dynamic/normal-middle-native.png"
+    ],
+    "colour_crops": "critic-dynamic/final-colour-necks.png",
+    "colour_crop_dimensions": [
+      90,
+      145
+    ],
+    "colour_cases": [
+      "c0-g1-f000",
+      "c0-g6-f000",
+      "c1-g1-f000",
+      "c1-g6-f000",
+      "c2-g1-f000",
+      "c2-g6-f000",
+      "c3-g1-f000",
+      "c3-g6-f000",
+      "c4-g1-f000",
+      "c4-g6-f000",
+      "c5-g1-f000",
+      "c5-g6-f000"
+    ]
+  },
+  "fixed_step_windows": [
+    {
+      "sheet": "normal-window-0.png",
+      "first_index": 0,
+      "count": 12
+    },
+    {
+      "sheet": "normal-window-24.png",
+      "first_index": 24,
+      "count": 12
+    },
+    {
+      "sheet": "normal-window-48.png",
+      "first_index": 48,
+      "count": 12
+    }
+  ],
+  "realtime_video_windows": {
+    "five": [
+      {
+        "label": "start",
+        "first_decode_index": 9,
+        "frame_count": 12,
+        "times": [
+          0.15268333333333334,
+          0.16955,
+          0.18638333333333335,
+          0.20376666666666668,
+          0.22065,
+          0.23763333333333334,
+          0.25466666666666665,
+          0.2715166666666667,
+          0.28823333333333334,
+          0.30498333333333333,
+          0.32216666666666666,
+          0.33913333333333334
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-start-outlet.png",
+        "impact_sheet": "five-start-impact.png"
+      },
+      {
+        "label": "release",
+        "first_decode_index": 16,
+        "frame_count": 12,
+        "times": [
+          0.2715166666666667,
+          0.28823333333333334,
+          0.30498333333333333,
+          0.32216666666666666,
+          0.33913333333333334,
+          0.3561666666666667,
+          0.3729166666666667,
+          0.3897,
+          0.40675,
+          0.42385,
+          0.4406833333333333,
+          0.4577333333333333
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-release-outlet.png",
+        "impact_sheet": "five-release-impact.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 84,
+        "frame_count": 12,
+        "times": [
+          1.4420333333333333,
+          1.4589666666666667,
+          1.4758833333333334,
+          1.4929666666666668,
+          1.51015,
+          1.5271166666666667,
+          1.5454666666666668,
+          1.56225,
+          1.5807333333333333,
+          1.5979166666666667,
+          1.6148833333333332,
+          1.63165
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-contact-outlet.png",
+        "impact_sheet": "five-contact-impact.png"
+      },
+      {
+        "label": "middle",
+        "first_decode_index": 146,
+        "frame_count": 12,
+        "times": [
+          2.5153666666666665,
+          2.532366666666667,
+          2.5501833333333335,
+          2.5670166666666665,
+          2.58395,
+          2.6007333333333333,
+          2.6174166666666667,
+          2.6341666666666668,
+          2.6510833333333332,
+          2.66825,
+          2.6851666666666665,
+          2.701983333333333
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-middle-outlet.png",
+        "impact_sheet": "five-middle-impact.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 270,
+        "frame_count": 12,
+        "times": [
+          4.653433333333333,
+          4.670183333333333,
+          4.687416666666667,
+          4.704233333333334,
+          4.7211,
+          4.73795,
+          4.754816666666667,
+          4.7718,
+          4.788783333333333,
+          4.805866666666667,
+          4.82315,
+          4.8399833333333335
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-pause-outlet.png",
+        "impact_sheet": "five-pause-impact.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 297,
+        "frame_count": 12,
+        "times": [
+          5.1230166666666666,
+          5.139833333333334,
+          5.15655,
+          5.1735,
+          5.190416666666667,
+          5.207283333333334,
+          5.2244166666666665,
+          5.24125,
+          5.2582,
+          5.275016666666667,
+          5.292083333333333,
+          5.308833333333333
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-resume-outlet.png",
+        "impact_sheet": "five-resume-impact.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 311,
+        "frame_count": 12,
+        "times": [
+          5.360166666666666,
+          5.377166666666667,
+          5.394266666666667,
+          5.411816666666667,
+          5.4289,
+          5.447316666666667,
+          5.466316666666667,
+          5.48355,
+          5.50225,
+          5.51925,
+          5.5362,
+          5.5534
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-drain-outlet.png",
+        "impact_sheet": "five-drain-impact.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 325,
+        "frame_count": 12,
+        "times": [
+          5.6045,
+          5.6212,
+          5.638333333333334,
+          5.655166666666666,
+          5.672,
+          5.688766666666667,
+          5.70565,
+          5.722666666666667,
+          5.7397,
+          5.75655,
+          5.773383333333333,
+          5.790133333333333
+        ],
+        "outlet_box": [
+          220,
+          432,
+          320,
+          577
+        ],
+        "outlet_sheet": "five-settle-outlet.png",
+        "impact_sheet": "five-settle-impact.png"
+      }
+    ],
+    "fifty": [
+      {
+        "label": "middle",
+        "first_decode_index": 1427,
+        "frame_count": 12,
+        "times": [
+          25.004833333333334,
+          25.071,
+          25.091116666666668,
+          25.10805,
+          25.124933333333335,
+          25.141966666666665,
+          25.1591,
+          25.175966666666667,
+          25.193183333333334,
+          25.209966666666666,
+          25.227033333333335,
+          25.243866666666666
+        ],
+        "outlet_box": [
+          220,
+          429,
+          320,
+          574
+        ],
+        "sheet": "normal-middle-outlet.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 2618,
+        "frame_count": 12,
+        "times": [
+          46.937266666666666,
+          46.954116666666664,
+          46.971333333333334,
+          46.98876666666666,
+          47.0055,
+          47.103716666666664,
+          47.120466666666665,
+          47.13733333333333,
+          47.15445,
+          47.17131666666667,
+          47.188316666666665,
+          47.205333333333336
+        ],
+        "outlet_box": [
+          220,
+          429,
+          320,
+          574
+        ],
+        "sheet": "normal-pause-outlet.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 2727,
+        "frame_count": 12,
+        "times": [
+          48.94683333333333,
+          48.9637,
+          48.980583333333335,
+          48.997616666666666,
+          49.01476666666667,
+          49.108216666666664,
+          49.14041666666667,
+          49.158233333333335,
+          49.175266666666666,
+          49.192233333333334,
+          49.2093,
+          49.226483333333334
+        ],
+        "outlet_box": [
+          220,
+          429,
+          320,
+          574
+        ],
+        "sheet": "normal-resume-outlet.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 2878,
+        "frame_count": 12,
+        "times": [
+          51.8072,
+          51.82418333333333,
+          51.84118333333333,
+          51.858,
+          51.87506666666667,
+          51.89201666666666,
+          51.90886666666667,
+          51.925866666666664,
+          51.94275,
+          51.959916666666665,
+          51.976933333333335,
+          51.99378333333333
+        ],
+        "outlet_box": [
+          220,
+          429,
+          320,
+          574
+        ],
+        "sheet": "normal-drain-outlet.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 2891,
+        "frame_count": 12,
+        "times": [
+          52.116566666666664,
+          52.13856666666667,
+          52.155566666666665,
+          52.17261666666667,
+          52.18963333333333,
+          52.206516666666666,
+          52.22351666666667,
+          52.240716666666664,
+          52.2578,
+          52.27465,
+          52.29165,
+          52.30875
+        ],
+        "outlet_box": [
+          220,
+          429,
+          320,
+          574
+        ],
+        "sheet": "normal-settle-outlet.png"
+      }
+    ]
+  },
+  "actual_view_method": "原始正常尺寸PNG与原像素裁剪；真实录像解码为连续12帧窗口按时间顺序逐格查看，无插帧、无补画。也看了对应首次落地/排空的接触区域连续裁剪。未进行完整原速播放。",
+  "findings": [
+    {
+      "id": "neck-material-line",
+      "severity": "closed_for_local_scope",
+      "finding": "与3.11原图及before对照，出口固定横向纹理/明暗切换明显减弱。正常尺寸及所审连续窗口中没有稳定可辨的材质拼接横线。"
+    },
+    {
+      "id": "moved-seam-or-mask",
+      "severity": "no_new_blocker_observed",
+      "finding": "未见接缝被简单下移到过渡带末端，未见新暗圈、矩形实心罩或越过玻璃的扩宽。"
+    },
+    {
+      "id": "pause-and-drain",
+      "severity": "no_new_blocker_observed_in_windows",
+      "finding": "5/50秒暂停恢复窗口未见出口材料单独跳样，排空与在途尾砂继续落定；整体淡色暂停遮罩为原UI。"
+    },
+    {
+      "id": "initial-flat-front",
+      "severity": "P2_existing_not_addressed",
+      "finding": "初始注满和首批释放的前缘仍较平，排空尾砂也可暂读成短矩形；本轮未改变颗粒轨迹/几何，不能声称头尾已完全自然。"
+    },
+    {
+      "id": "mound-rise",
+      "severity": "P2_existing_not_addressed",
+      "finding": "5秒首次接触后的沙堆上升仍快；与本次出口材质改动无关，保留既有问题。"
+    },
+    {
+      "id": "width-and-holes",
+      "severity": "P2_existing_not_addressed",
+      "finding": "颈到沙柱仍较快收窄，细档及1秒下段局部空洞仍明显。前后样图均有，不能把接色改善扩大为整条柱形/密度已合格。"
+    },
+    {
+      "id": "near-full-platform",
+      "severity": "P3_existing_static_dynamic",
+      "finding": "近满及排空时接触处细亮边/小平台仍可见；本轮保留。未发现它在出口局部过渡改动后加重。"
+    }
+  ],
+  "open_blockers_for_this_scope": [],
+  "unchecked": [
+    "没有完整原速播放5秒或50秒录像；仅审列明的有限连续窗口，不能证明所有时刻均无问题。",
+    "没有独立逐粒像素身份追踪，不能宣称每一粒沙终生连续。",
+    "未独立检查回退/GLES设备/Android、声音与性能。",
+    "各配色只在固定中段抽查；未遍历每个配色全部动态阶段。"
+  ],
+  "conclusion": "限定本次NS03局部材质过渡通过，未发现新视觉阻挡；保留所列遗留问题。"
+}

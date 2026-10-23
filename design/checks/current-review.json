@@ -1,36 +1,36 @@
 {
   "schema": 1,
-  "version": "3.11",
+  "version": "3.12",
   "status": "approved",
-  "source_sha256": "627e1db34a3818c1398ec99e8d0f61a72600b17ced989192a0e9ee22f8cfd8d0",
-  "record": "design/checks/records/v3.11/review.json",
-  "plan": "design/checks/notes/contact-blend-plan.html",
-  "prior_followup": "design/checks/records/v3.10/contact-seam-followup.html",
+  "record": "design/checks/records/v3.12/review.json",
+  "plan": "design/checks/notes/outlet-width-plan.html",
+  "prior_followup": "design/checks/records/v3.12-local/width-followup.html",
   "blockers": [
     {
-      "id": "contact-bright-rim",
+      "id": "outlet-width-narrowing",
       "status": "closed"
     },
     {
-      "id": "splash33-impulse",
+      "id": "lower-stream-waist",
       "status": "closed"
     },
     {
-      "id": "tint-paths",
+      "id": "fine-lower-waist",
       "status": "closed"
     },
     {
-      "id": "joins-and-states",
+      "id": "material-and-adjacent-joins",
       "status": "closed"
     },
     {
-      "id": "visual-review",
-      "status": "closed"
-    },
-    {
-      "id": "pc-budget",
+      "id": "independent-review",
       "status": "closed"
     }
   ],
-  "scope": "PC恢复3.3飞溅初速度与空中原色、触地融入去亮圈、普通/批量绘制一致及相邻状态；非Android或完整应用验收"
+  "scope": "PC出口宽度、材质过渡、下段掐腰与落点及相关状态；非Android、音频或性能验收",
+  "followup": "design/checks/records/v3.12-local/width-followup.html",
+  "reopened_reason": "出口在很短距离内明显变细，应作为本次过渡的阻挡问题。原局部通过把既有快速收窄留在范围外，验收范围不当。",
+  "local_visual_status": "passed",
+  "release_status": "approved",
+  "source_sha256": "53870fedc528b0ca93303dd249244fe32c69b520f84dbcd37744f5459a496559"
 }

@@ -1,0 +1,80 @@
+{
+  "passed": true,
+  "rows": [
+    {
+      "before": "gold-eight-f000",
+      "after": "p50-t8-f000",
+      "physics_equal": true,
+      "changed_pixels": 977,
+      "bbox": [
+        249,
+        475,
+        290,
+        504
+      ]
+    },
+    {
+      "before": "gold-eight-f001",
+      "after": "resume-f001",
+      "physics_equal": true,
+      "changed_pixels": 967,
+      "bbox": [
+        249,
+        475,
+        290,
+        504
+      ]
+    },
+    {
+      "before": "gold-eight-f002",
+      "after": "resume-f002",
+      "physics_equal": true,
+      "changed_pixels": 984,
+      "bbox": [
+        249,
+        475,
+        290,
+        504
+      ]
+    },
+    {
+      "before": "five-f000",
+      "after": "p5-t2.5-f000",
+      "physics_equal": true,
+      "changed_pixels": 2305,
+      "bbox": [
+        239,
+        477,
+        300,
+        523
+      ]
+    },
+    {
+      "before": "one-f000",
+      "after": "p1-t0.5-f000",
+      "physics_equal": true,
+      "changed_pixels": 2316,
+      "bbox": [
+        239,
+        477,
+        300,
+        523
+      ]
+    },
+    {
+      "before": "tail-f000",
+      "after": "p50-t49-f000",
+      "physics_equal": true,
+      "changed_pixels": 708,
+      "bbox": [
+        249,
+        475,
+        290,
+        494
+      ]
+    }
+  ],
+  "pause_pixels_identical": true,
+  "pause_physics_identical": true,
+  "initial_tool_error": "state-scope-initial-failure.json"
+}

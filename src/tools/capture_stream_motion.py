@@ -64,6 +64,8 @@ def capture(args):
             w.completion_enabled=False
             w._rebuild_height_table()
             w.set_grain_level(str(args.grain));w.set_duration(args.period);w.reset();w._rebuild_height_table()
+            name,base,dark,light=game.SAND_PRESETS[args.color]
+            w.set_sand_color(base,dark,light)
             w.set_sand_grain(.35);w._front_seed=.75
             while w._warm_queue:w._warm_batches_step()
             random.seed(helper.SEED)
@@ -103,7 +105,17 @@ def capture(args):
             fbo["projection_mat"]=Matrix().view_clip(0,args.width,0,args.height,-1,1,0)
             fbo["modelview_mat"]=Matrix()
             with fbo:ClearColor(*game.hex_rgb(game.BG_COLOR),1);ClearBuffers()
+            stream_fbo = None
+            if args.stream_mask:
+                if w._short_flow_context is None:
+                    raise RuntimeError("Stream-only proof requires the actual short context")
+                stream_fbo=Fbo(size=(args.width,args.height),with_stencilbuffer=True)
+                stream_fbo['projection_mat']=Matrix().view_clip(0,args.width,0,args.height,-1,1,0)
+                stream_fbo['modelview_mat']=Matrix()
+                with stream_fbo:ClearColor(*game.hex_rgb(game.GLASS_FILL),1);ClearBuffers()
+                report['stream_only_scope']='Same actual short context and clock on glass background; excludes splash and other layers'
             report.update(version=game.APP_VERSION,renderer=w.flow_renderer,grain=args.grain,period=args.period,
+                          color=args.color,
                           sample_rate=args.fps,expected_frames=round(args.seconds*args.fps)+1)
             crop=(0,0,args.width,args.height)
             if args.crop_stream:
@@ -132,6 +144,13 @@ def capture(args):
                 report["frames"].append(dict(time=t,file=name,geometry=geo,native_hidden=hidden,
                     sha256=hashlib.sha256((args.output/name).read_bytes()).hexdigest(),elapsed=w.elapsed,
                     draw_state=dict(getattr(w,"_short_flow_state",{}))))
+                if stream_fbo is not None:
+                    stream_fbo.add(w._short_flow_context)
+                    try:stream_fbo.draw();stream_raw=bytes(stream_fbo.pixels)
+                    finally:stream_fbo.remove(w._short_flow_context)
+                    stream_image=Image.frombytes('RGBA',(args.width,args.height),stream_raw).transpose(Image.Transpose.FLIP_TOP_BOTTOM).convert('RGB').crop(crop)
+                    stream_name='%04d-stream.png'%i;stream_image.save(args.output/stream_name)
+                    report['frames'][-1].update(stream_file=stream_name,stream_sha256=hashlib.sha256((args.output/stream_name).read_bytes()).hexdigest())
                 if trace:
                     from check_particle_release import require_stream_pixels
                     require_stream_pixels(report["frames"][-1],args.output)
@@ -171,9 +190,11 @@ if __name__=="__main__":
     p.add_argument("--start",type=float,default=8);p.add_argument("--seconds",type=float,default=4)
     p.add_argument("--fps",type=int,default=60);p.add_argument("--grain",type=int,default=3)
     p.add_argument("--period",type=float,default=50)
+    p.add_argument("--color",type=int,choices=range(6),default=0)
     p.add_argument("--wrap",choices=("birth","shape"))
     p.add_argument("--crop-stream",action="store_true",help="Lossless stream ROI in each original FBO frame; save full first frame too")
     p.add_argument("--trace",action="store_true")
+    p.add_argument("--stream-mask",action="store_true",help="Also capture the actual short context alone at every same-state frame")
     p.add_argument("--benchmark",action="store_true")
     args=p.parse_args();args.runtime=args.runtime.resolve();args.output=args.output.resolve()
     capture(args)

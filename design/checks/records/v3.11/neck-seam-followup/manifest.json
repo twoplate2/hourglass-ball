@@ -1,0 +1,82 @@
+{
+  "version": "3.11",
+  "date": "2026-10-23",
+  "review_type": "user_feedback_and_independent_source_diagnosis",
+  "status": "failed",
+  "severity": "P1",
+  "case": "NS03",
+  "issue": "neck-column-material-seam",
+  "source_sha256": "627e1db34a3818c1398ec99e8d0f61a72600b17ced989192a0e9ee22f8cfd8d0",
+  "finding": "颈部出口固定高度存在可见的纹理及疏密切换；用户图和本版原生PC画面均能辨认。原相邻衔接通过结论漏检本项。",
+  "evidence": [
+    {
+      "file": "user-feedback.png",
+      "sha256": "7b30e30eb6284648679b03bcb8ba782cafb9be7c9f1a87db49874107502d9117",
+      "source": "C:\\Users\\liangpan\\AppData\\Local\\Temp\\codex-clipboard-be1c0115-4dec-42eb-abfb-0c7e2d1ed1ed.png"
+    },
+    {
+      "file": "native-overview.png",
+      "sha256": "322f22aa2bb20dfb82dc97da627ff2dcf3bb949b69bec86205abb0c75a7b1ee8",
+      "source": "_temp\\contact-blend-3.11\\release\\final-normal\\overview.png"
+    },
+    {
+      "file": "native-neck.png",
+      "sha256": "f935c8b7f7b7860516485675773d14a01aaa7c9c7947165dc25edd0de6f59919",
+      "source": "_temp\\neck-seam-3.11\\native-neck.png"
+    }
+  ],
+  "native_crop": {
+    "source": "native-overview.png",
+    "box": [
+      205,
+      390,
+      335,
+      570
+    ],
+    "resized": false
+  },
+  "confirmed_code_facts": [
+    {
+      "file": "src/app/short_grain_stream.py",
+      "lines": [
+        219,
+        222
+      ],
+      "fact": "沙柱按粒子随机UV采样，并对偏离沙基色的色差乘1.6。"
+    },
+    {
+      "file": "src/app/sand_flow_material.py",
+      "lines": [
+        340,
+        557
+      ],
+      "fact": "颈部用世界坐标平流纹理及另一套明暗映射。"
+    },
+    {
+      "file": "src/app/short_grain_stream.py",
+      "lines": [
+        205,
+        227
+      ],
+      "fact": "沙柱在出口上方裁掉；下方立刻启用微粒孔隙与边缘羽化，没有按距出口的局部过渡。"
+    },
+    {
+      "file": "main.py",
+      "lines": [
+        4914,
+        4917
+      ],
+      "fact": "2像素出口重叠只处理几何空隙。"
+    }
+  ],
+  "cause_assessment": "两套材质采样和覆盖规则在同一出口高度切换，能够解释视觉分界；本轮未通过消融量化各因素贡献。",
+  "independent_review": "/root/neck_seam_diagnosis；只读源码复核，结论一致。",
+  "unchecked": [
+    "本轮未重新运行动态采集，未判定是否还存在速度断档或颗粒突现。",
+    "未全量复查配色、粗细档位、开局、末段及暂停恢复。",
+    "未实施修复，未做修后外观复审。"
+  ],
+  "proposed_direction": "先匹配出口附近的取色、明暗与颗粒尺度，再在约0.5至1个净口径的局部区间逐渐进入自由沙粒表现；长度为待验证起点，不是已通过参数。保持颈宽、粒子轨迹和3.3飞溅。",
+  "application_changed": false,
+  "historical_evidence_preserved": true
+}

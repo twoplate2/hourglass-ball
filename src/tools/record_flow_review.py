@@ -17,6 +17,8 @@ p=argparse.ArgumentParser()
 p.add_argument('--period',type=float,required=True)
 p.add_argument('--output',type=Path,required=True)
 p.add_argument('--pause',action='store_true')
+p.add_argument('--grain',type=int,choices=range(1,7),default=3)
+p.add_argument('--color',type=int,choices=range(6),default=0)
 args=p.parse_args()
 output=args.output.resolve()
 output.parent.mkdir(parents=True,exist_ok=True)
@@ -31,6 +33,9 @@ def record_audit(w, out, advance, _capture, hidden_check):
     from kivy.graphics.transformation import Matrix
     game=sys.modules[w.__class__.__module__]
     helper=sys.modules['pc_material_probe_helpers']
+    w.set_grain_level(str(args.grain))
+    _,base,dark,light=game.SAND_PRESETS[args.color]
+    w.set_sand_color(base,dark,light)
     w.set_duration(args.period)
     w.reset()
     w._rebuild_height_table()
@@ -62,7 +67,7 @@ def record_audit(w, out, advance, _capture, hidden_check):
     stream.codec_context.time_base=tb
     outlet=2*w._neck_y-w._taper['y_bot']
     report=dict(completed=False,scope='real-time hidden PC video audit; not visual or FPS acceptance',
-                period=args.period,pause_enabled=args.pause,version=game.APP_VERSION,dimensions=[width,height],seed=helper.SEED,
+                period=args.period,grain=args.grain,color=args.color,pause_enabled=args.pause,version=game.APP_VERSION,dimensions=[width,height],seed=helper.SEED,
                 geometry=dict(cx=w._cx,radius=w._R_inner,upper_cy=height-w._upper_y_c,
                     lower_cy=height-w._lower_y_c,outlet_y=height-outlet,neck_width=2*w._taper['t_in'],
                     background_rgb=[255*v for v in game.hex_rgb(game.GLASS_FILL)]),

@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>3.12 出口材质过渡</title><link rel="stylesheet" href="../../style.css"><style>.pair{display:flex;flex-wrap:wrap;gap:24px}.pair figure{margin:0}.pair img{max-width:100%;height:auto}video{width:540px;max-width:100%;height:auto}figure img{image-rendering:auto}</style></head><body><main>
+<h1>3.12 颈部与沙柱的材质过渡</h1>
+<p>本地版本 · 本次出口过渡的限定外观复审通过 · 未提交或推送。</p>
+<p>颈内和刚流出的沙共用取色、光照及细纹规则，再在约0.75个净口径内逐渐转为原来的独立粒纹。仅渐退原有2像素重叠，粒子形状、透明度、轨迹、数量、颈宽与3.3飞溅保持。静态材质回退时关闭这项过渡。</p>
+<figure><img src="comparison.png" width="248" height="164" alt="左3.11、右3.12，同刻出口原像素对照"><figcaption>同种子、50秒档第8秒。左3.11，右3.12；原像素局部，无放大。</figcaption></figure>
+<div class="pair"><figure><img src="before.png" width="540" height="924" alt="3.11正常尺寸原图"><figcaption>3.11</figcaption></figure><figure><img src="after.png" width="540" height="924" alt="3.12正常尺寸原图"><figcaption>3.12</figcaption></figure></div>
+<h2>实际运行录像</h2>
+<p>真正隐藏的PC窗口，独立设置目录。5秒和50秒均含暂停、恢复及落定；无声。录像记录真实时间，画面采集负载不用于判断帧率。</p>
+<figure><video controls muted playsinline preload="metadata"><source src="five-seconds.mp4" type="video/mp4"></video><figcaption>5秒，含暂停与收尾，约7秒。</figcaption></figure>
+<figure><video controls muted playsinline preload="metadata"><source src="fifty-seconds.mp4" type="video/mp4"></video><figcaption>50秒，含暂停与收尾，约57秒。</figcaption></figure>
+<h2>复审结论与范围</h2>
+<p>独立审核实际查看正常尺寸关键帧、六配色及粗细档，并检查5秒录像8个、50秒录像5个连续12帧窗口，另看8～9秒3个窗口。未见本次引入的固定横向材质线、接缝下移、暗圈、新实心罩或恢复后整片跳样。未完整原速播放，有限连续窗口也不证明每颗沙粒全程都已追踪。</p>
+<p>70项相关纯测试通过。真实着色器专项有6张同态图、33条断言：共享取色与实际颈内像素一致；关闭颈流时新旧全图一致；删除禁用条件的负例被检出。6组新旧状态完全一致，像素变化限制在出口局部；暂停像素及物理状态保持。另有53帧状态矩阵与61帧连续GL原图。数值检查不替代上述外观复审。</p>
+<p>原有的开局前缘偏平、短周期涨堆偏快、出口较快收窄、柱内局部空洞和近满小平台仍保留。本次只确认出口材质过渡改善，不宣布整体沙流自然，也不代表Android、音频或性能验收。</p>
+<p>独立代码审核找出的“静态回退仍启用动态过渡”问题已修复并用正反对照重查。初次辅助范围脚本混用PNG与Kivy纵坐标的工具失败也保留，修正坐标后沿用原范围重查；没有放宽外观标准。</p>
+<p><a href="review.json">本轮证据清单</a> · <a href="independent-visual-review.json">独立外观复审</a> · <a href="source-adversarial-review.json">独立代码复审</a> · <a href="../../notes/neck-stream-seam-plan.html">实施计划</a> · <a href="../v3.11/neck-seam-followup.html">保留的3.11失败证据</a></p>
+</main></body></html>

@@ -1,0 +1,95 @@
+{
+  "reviewer": "/root/neck_seam_diagnosis",
+  "review_completed": true,
+  "source_review_passed": true,
+  "visual_acceptance": null,
+  "release_acceptance": null,
+  "scope": "独立只读代码与既有专项报告复审；本代理未运行 GL、未修改应用源码，不代替正常尺寸动态视觉验收。",
+  "baseline_commit": "139040bebf540da9a0905e001c0ef4d23fa1fb89",
+  "reviewed_source_sha256": "31f0b4794ce28c8bd28c861b31304b9f1e026d6dfbf7acde948256343babb2f6",
+  "reviewed_files": {
+    "main.py": "c4ee723db19191698107842cb2b777c65a0b66732d7d94286d5e58df989aebcd",
+    "src/app/sand_flow_material.py": "5f674d5391ab388bcdee8cdc534fad5865c59416f0d5eb77dbedfe7ab3db2aee",
+    "src/app/short_grain_stream.py": "edcff2ceed40c0d327fdb48d113ec6ac5dec02a02bca4be5b4671380c62523cd"
+  },
+  "supporting_report": {
+    "path": "_temp/neck-seam-3.12/shader-proof/neck-stream-join.json",
+    "sha256": "c0dcd7b2d46483e02d0a616ebd653b37f75e27c62e74d27432df6a3e0633f82e",
+    "completed": true,
+    "passed": true,
+    "assertions": 33,
+    "failed_assertions": 0,
+    "same_state_frames": 6,
+    "tool_path": "src/tools/verify_neck_stream_join.py",
+    "tool_sha256": "bb4e860c7cc0d915ef5b47e207d85fb67bd06266059d4eaf6eaed0c18f62ce4b",
+    "tool_current_hash_matches_report": true,
+    "all_report_source_file_hashes_match_current_files": true,
+    "limits": "50 秒档、8 秒稳态、540×924、同一物理状态下的着色器消融；不是逐帧运动或视觉美观结论。"
+  },
+  "findings": [
+    {
+      "id": "static-neck-fallback-join",
+      "severity": "P2",
+      "status": "closed",
+      "original_problem": "无颈部流材质时，短粒渲染器仍可能存在，旧小样会继续使用动态颈色过渡。",
+      "source_evidence": [
+        "src/app/short_grain_stream.py:333–334：short_join_enabled 要求真实 _sand_flow_contexts 存在，且关闭 NECK_FREE_GEOM。",
+        "src/app/short_grain_stream.py:228：着色器显式检查 short_join_enabled，而非仅把 overlap 设为零。"
+      ],
+      "report_evidence": [
+        "no_flow_has_short_but_no_neck_context：通过。",
+        "no_flow_join_disabled：通过。",
+        "inactive_current_equals_original_pixels：全图 changed_pixels=0。",
+        "missing_guard_negative_is_detected_locally：移除 guard 的负例检出 968 个变化像素，范围均在出口局部。"
+      ]
+    },
+    {
+      "id": "legacy-free-geometry-scope",
+      "severity": "P2",
+      "status": "closed_by_source_guard",
+      "original_problem": "颈侧 join 判定涵盖出口以下全部深度；若启用旧自由段几何，可能将整段旧材质清为透明。",
+      "source_evidence": [
+        "main.py:8572–8575：NECK_FREE_GEOM 开启时，颈侧 sand_outlet_join 明确写为关闭。",
+        "src/app/short_grain_stream.py:333–334：同一实验状态也关闭粒子侧 join。"
+      ],
+      "limits": "未运行 NECK_FREE_GEOM=1 的 GL 图像验证；源码 guard 明确消除了本次新增路径。"
+    }
+  ],
+  "checked": [
+    {
+      "item": "颈内取色与启动逻辑",
+      "result": "默认实际颈 context 的 sand_up_scale 固定为1；helper 与非 free 原式的 UV、sink、velocity、jitter、双相位、palette 映射、wrap light、sand_mix 和静态原纹理混合未见实质逻辑差异。专项在稳态颈内 ROI 检出逐像素0差。冻结和滚动诊断分支已读源码，未有对应实际图像证据。"
+    },
+    {
+      "item": "时间同步",
+      "result": "颈与短粒各自用同一 elapsed 和 motion scale 更新 SandFlowContext，不从本帧尚未更新的颈 context 复制上一帧时钟；专项报告两者 sand_time=8、sand_clock=8、sand_mix=1。"
+    },
+    {
+      "item": "尾端与前沿",
+      "result": "sand_flow_material.py:601 在自由段修改前保存 tail_coverage；:780 的重叠退场继续乘该尾端覆盖率；:783–788 的在途前沿遮挡仍在 join 后执行。未见补出排空沙量、取消尾帽或移除前沿判断。"
+    },
+    {
+      "item": "粒子连续性及范围",
+      "result": "短粒新增代码只在出口下约0.75净口径内混合 RGB，粒子顶点、数量、位置、寿命、速度、现有微粒与边缘 alpha 公式未改。专项6个同态帧的物理状态哈希相同；当前与旧粒子着色器变化968像素，出口局部外为0。"
+    },
+    {
+      "item": "叠加与其他材质",
+      "result": "只渐退颈侧原2像素重叠，不同时淡入粒子 alpha，避免普通 source-over 互补双淡化造成透明凹槽；其他 context 的 sand_outlet_join 默认(0,0)。未改变沙堆、飞溅和上球的绘制代码。纯色及零浓淡的实际观感仍须视觉复审。"
+    },
+    {
+      "item": "着色器兼容与证据身份",
+      "result": "新增代码未见超出既有 GLSL ES100 用法的语法。所读专项报告中的实际 PC context 均编译成功，报告工具和所有 runtime 文件哈希均与当前文件一致；这不能证明所有 GLES 或 Android 驱动兼容。"
+    }
+  ],
+  "open_blocking_source_findings": [],
+  "not_checked_by_this_reviewer": [
+    "正常尺寸完整动态过程是否还有横线、亮套、透明腰、纹理换层或变速错觉；静态消融不能证明这些通过。",
+    "5秒与50秒开场、供沙末端、颈部排空及暂停/继续的逐帧视觉。",
+    "最粗和最细颈宽、粗细颗粒、黑沙及沙纹浓淡为零的视觉组合。",
+    "0～0.3秒 sand_mix 启动混合及 frozen/scrolling 诊断支的实际 GL 同态对比。",
+    "无粒子时原2像素重叠退场的开场画面；源码不生成新沙粒，但不能仅据源码认定观感。",
+    "NECK_FREE_GEOM=1 实际 GL 回退画面。",
+    "帧率、1% low、音频、Android、MuMu、ADB及真机；本轮不以源码或PC着色器专项宣称这些验收通过。"
+  ],
+  "conclusion": "先前明确的静态回退 guard 问题已修复，并被实际同态图与删除 guard 负例覆盖；旧自由段实验影响由双侧 guard 关闭。当前应用 diff 未发现新的阻断级源码问题。仍须由独立正常尺寸动态视觉审核决定本次颈柱衔接是否真正改善，不能依据本报告单独宣布整体完成或发布通过。"
+}

@@ -1,0 +1,1026 @@
+{
+  "schema": 1,
+  "kind": "visual",
+  "version": "3.12",
+  "status": "passed",
+  "completed": true,
+  "source_sha256": "53870fedc528b0ca93303dd249244fe32c69b520f84dbcd37744f5459a496559",
+  "source_files": {
+    "main.py": "23123aac1e6c97bf820764dcadb6efb8a7963d355e503d3f9e69851e38d9bab7",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "a5d2fef4cea6ff8bdddc1b6267ac23274959f9bb43d67ee3d79a2120509297eb",
+    "src/app/app_version.py": "1bb8c177edacaa6ad8949dc0b9f8f713b6a909a3ffaa978978f3dfc39203f466",
+    "src/app/flow_batch_experiment.py": "2dbc1360e3d9b5d43d952ea66066d0969fddaf79d9c586b2106e03f201809d07",
+    "src/app/flow_gpu_experiment.py": "2bc762ba76e734fdf1f510ab910b092c25dcb3d95a691fc6915a9726d83adc24",
+    "src/app/flow_numpy.py": "88fec30a71c651a231e67d6dffa266b034690565cd8a4626c5b93a787878a802",
+    "src/app/flow_splash_experiment.py": "19b22d9df6008619b3837601687a03941e44047762ad9ea169f2575c62e47364",
+    "src/app/flow_texture_experiment.py": "2cce41e1e45b82afd2e377f2d483dd20d03c64bc4bc184f232bfd392791fec4c",
+    "src/app/frame_benchmark.py": "4bc67f99f87550e7723f2aa678237a1aee9d58d0f44302c3c18060fe35586b66",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "d52ba0e9be7f2dd0ad44b75e61f5b0148899d0bbd7a6f4aa976bdb74aab4caed",
+    "src/app/marker_batch_experiment.py": "6e1501a9c54bb02f19eae9d2afd647bd71a6865c6c412375e30c0f7876f5f55a",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "d89afb207721278f85fdb041cd737abdf928ffe9777f20b948ff1a76469af2c3",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "5f674d5391ab388bcdee8cdc534fad5865c59416f0d5eb77dbedfe7ab3db2aee",
+    "src/app/short_grain_stream.py": "2f2a4416d874644c88dfff817f6de4e6e15f28eee1d482803976cb82df63fa83",
+    "src/app/splash_motion.py": "7a505adc1f364b814ed9804a34690a2189eea0609f6a3997acc2d7541c771841",
+    "src/app/stream_rendering.py": "dfa4e8fd35b2621d99767d731e4edc66eb3a5d7028138a7784b59c7ef470c503"
+  },
+  "reviewer": "/root/neck_visual_critic independent adversarial visual review of new official 3.12 captures",
+  "open_blockers": [],
+  "normal_size_reviewed": true,
+  "dynamic_reviewed": true,
+  "scope": "限定PC本次颈口至沙柱快速缩窄、整根到落点局部掐腰与材质衔接以及相邻状态。实际看新3.12正常540×924关键原图、六配色1/6档出口、三组61帧下段及默认1/5/50秒和最细黑沙50秒的32个12连续帧窗口。非所有时刻的整体写实或完整应用验收。",
+  "review": {
+    "NS01": "passed",
+    "NS03": "passed",
+    "N03": "passed",
+    "UN01": "passed",
+    "S03": "passed",
+    "S04": "passed",
+    "S05": "passed",
+    "SL01": "passed",
+    "states": "passed"
+  },
+  "findings": [
+    {
+      "id": "outlet-fast-constriction",
+      "severity": "P1",
+      "status": "closed",
+      "resolution": "颈口下方原快速缩窄/硬肩在当前正常尺寸及连续窗口中不再突出；未发现用扩宽越玻璃、移动材质分界线或新增罩块掩盖。"
+    },
+    {
+      "id": "default-lower-waist",
+      "severity": "P1",
+      "status": "closed",
+      "resolution": "默认50秒8至9秒全部61帧下段及录像窗口中，原8.483/8.500秒同级深咬口未复现，浅随机粒边保留。"
+    },
+    {
+      "id": "fine-grain-lower-waist",
+      "severity": "P1",
+      "status": "closed",
+      "resolution": "最细黑沙旧失败候选8.000/8.0667/8.8167的同级主体骤细在当前对应原帧、全部61帧下段和真实录像窗口中不再明显；最细金沙正常尺寸也没有原来明显的稀疏细腰。旧失败记录保留。"
+    }
+  ],
+  "verified_checks": [
+    {
+      "id": "material-and-grains",
+      "result": "passed_within_scope",
+      "finding": "金色细/默认/粗正常图与六配色端档出口未见新长丝、贯穿横向空层、整齐栅格或附加静止实心罩。细档更紧密，但细纹、孔隙及浅毛边仍在。"
+    },
+    {
+      "id": "contact-retirement-and-states",
+      "result": "passed_in_reviewed_windows",
+      "finding": "默认1/5/50秒及最细黑沙50秒首放、首次接触、近满、暂停恢复和排空窗口未见图元支持增长导致的上半粒整片瞬退或新接堆硬掐腰；不能证明每粒全部寿命连续。"
+    },
+    {
+      "id": "splash",
+      "result": "passed_in_reviewed_windows",
+      "finding": "首次落地与中段仍保留飞溅，未见新增亮圈或散粒整片跳色；不据此宣称整套画面逐像素复刻3.3。"
+    },
+    {
+      "id": "version-source-and-pixels",
+      "result": "verified_auxiliary_only",
+      "finding": "3.12新捕获与上一本地3.13草稿对比，运行源码仅APP_VERSION变化，matrix53及三组61帧原像素最大RGB差0。全部3.12视频是新录制和新解码，未改旧视频版本元数据；该比对只作辅助。"
+    }
+  ],
+  "retained_issues": [
+    {
+      "id": "flat-front-fast-rise",
+      "severity": "P2",
+      "status": "open",
+      "origin": "existing",
+      "finding": "首次释放前缘仍较平，短周期首次接触后的涨堆仍快，本轮未改变堆形时序。"
+    },
+    {
+      "id": "near-full-platform",
+      "severity": "P3",
+      "status": "open",
+      "origin": "existing",
+      "finding": "近满与排空仍有小平台/平顶尾砂，细黑可见很薄接触明暗边，未观察到本轮加重。"
+    }
+  ],
+  "appearance_limitations": [
+    "整体沙柱仍偏直、细档偏密实；本次通过不表示全面写实程度达到最终目标。"
+  ],
+  "normal_size_files_actually_viewed": [
+    "matrix/c0-g1-f000.png",
+    "matrix/c0-g6-f000.png",
+    "motion-p50/overview.png",
+    "motion-fine-black/overview.png",
+    "matrix/p1-t0.5-f000.png",
+    "matrix/p5-t4.9-f000.png",
+    "matrix/p50-t49.9-f000.png"
+  ],
+  "palette_endpoint_view": "visual-windows/colour-necks.png：六配色×1/6档的新3.12原像素出口裁剪。",
+  "fixed_motion_review": "新motion-p5、motion-p50、motion-fine-black三组各全部61帧下段原像素顺序图已查看，关键旧反例结合整图与同态原帧复核。",
+  "video_windows_actually_viewed": {
+    "p1": [
+      {
+        "label": "release",
+        "first_decode_index": 12,
+        "frame_count": 12,
+        "times": [
+          0.2065,
+          0.22353333333333333,
+          0.24071666666666666,
+          0.2578666666666667,
+          0.27471666666666666,
+          0.29183333333333333,
+          0.3085833333333333,
+          0.3254166666666667,
+          0.34221666666666667,
+          0.35936666666666667,
+          0.37656666666666666,
+          0.39363333333333334
+        ],
+        "sheet": "p1-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 22,
+        "frame_count": 12,
+        "times": [
+          0.37656666666666666,
+          0.39363333333333334,
+          0.41051666666666664,
+          0.4273666666666667,
+          0.4442,
+          0.46108333333333335,
+          0.48273333333333335,
+          0.5035333333333334,
+          0.5221333333333333,
+          0.5394833333333333,
+          0.5574333333333333,
+          0.5793666666666667
+        ],
+        "sheet": "p1-contact.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 52,
+        "frame_count": 12,
+        "times": [
+          0.9102,
+          0.9286,
+          0.9457833333333333,
+          0.9628666666666666,
+          0.9797833333333333,
+          0.9969333333333333,
+          1.0140666666666667,
+          1.0342666666666667,
+          1.0513666666666666,
+          1.0683833333333332,
+          1.0852833333333334,
+          1.1023333333333334
+        ],
+        "sheet": "p1-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 80,
+        "frame_count": 12,
+        "times": [
+          1.3951333333333333,
+          1.4122833333333333,
+          1.4292333333333334,
+          1.44615,
+          1.4630166666666666,
+          1.4809,
+          1.49855,
+          1.51555,
+          1.5327,
+          1.5499166666666666,
+          1.5671666666666666,
+          1.5840333333333334
+        ],
+        "sheet": "p1-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 90,
+        "frame_count": 12,
+        "times": [
+          1.5671666666666666,
+          1.5840333333333334,
+          1.6011666666666666,
+          1.61825,
+          1.6353,
+          1.65225,
+          1.6691666666666667,
+          1.6863833333333333,
+          1.7031333333333334,
+          1.7202333333333333,
+          1.73715,
+          1.7540166666666666
+        ],
+        "sheet": "p1-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 107,
+        "frame_count": 12,
+        "times": [
+          1.8556833333333334,
+          1.8726,
+          1.8895833333333334,
+          1.9067,
+          1.9234833333333334,
+          1.9405333333333334,
+          1.95755,
+          1.9744166666666667,
+          1.9914166666666666,
+          2.00825,
+          2.032983333333333,
+          2.0498666666666665
+        ],
+        "sheet": "p1-settle.png"
+      }
+    ],
+    "p5": [
+      {
+        "label": "release",
+        "first_decode_index": 17,
+        "frame_count": 12,
+        "times": [
+          0.2885666666666667,
+          0.3055333333333333,
+          0.3222833333333333,
+          0.33913333333333334,
+          0.3560333333333333,
+          0.3732,
+          0.39013333333333333,
+          0.40731666666666666,
+          0.42456666666666665,
+          0.4416,
+          0.45855,
+          0.4755333333333333
+        ],
+        "sheet": "p5-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 85,
+        "frame_count": 12,
+        "times": [
+          1.4464833333333333,
+          1.4633833333333333,
+          1.4801333333333333,
+          1.4969833333333333,
+          1.5141,
+          1.5308666666666666,
+          1.5477666666666667,
+          1.5655333333333334,
+          1.5827166666666668,
+          1.5999333333333334,
+          1.617,
+          1.6337833333333334
+        ],
+        "sheet": "p5-contact.png"
+      },
+      {
+        "label": "contact-after",
+        "first_decode_index": 97,
+        "frame_count": 12,
+        "times": [
+          1.65065,
+          1.6675,
+          1.6847166666666666,
+          1.7089833333333333,
+          1.7259833333333334,
+          1.7428833333333333,
+          1.7601,
+          1.7772833333333333,
+          1.7941333333333334,
+          1.8111833333333334,
+          1.8279833333333333,
+          1.84505
+        ],
+        "sheet": "p5-contact-after.png"
+      },
+      {
+        "label": "middle",
+        "first_decode_index": 147,
+        "frame_count": 12,
+        "times": [
+          2.519216666666667,
+          2.5363166666666666,
+          2.553183333333333,
+          2.5700333333333334,
+          2.5872,
+          2.6043666666666665,
+          2.6213166666666665,
+          2.63805,
+          2.6548333333333334,
+          2.6718,
+          2.6885166666666667,
+          2.705616666666667
+        ],
+        "sheet": "p5-middle.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 271,
+        "frame_count": 12,
+        "times": [
+          4.65235,
+          4.6691,
+          4.686266666666667,
+          4.7031833333333335,
+          4.719983333333333,
+          4.736933333333333,
+          4.753733333333333,
+          4.770733333333333,
+          4.787883333333333,
+          4.8048,
+          4.821616666666666,
+          4.8384
+        ],
+        "sheet": "p5-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 299,
+        "frame_count": 12,
+        "times": [
+          5.136216666666667,
+          5.153116666666667,
+          5.169983333333334,
+          5.187166666666666,
+          5.204033333333333,
+          5.220766666666667,
+          5.2376,
+          5.254583333333334,
+          5.271483333333333,
+          5.28845,
+          5.3052,
+          5.322333333333333
+        ],
+        "sheet": "p5-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 313,
+        "frame_count": 12,
+        "times": [
+          5.372733333333334,
+          5.389466666666666,
+          5.406633333333334,
+          5.42375,
+          5.440566666666666,
+          5.45805,
+          5.477816666666667,
+          5.4946,
+          5.511416666666666,
+          5.528266666666667,
+          5.545266666666667,
+          5.562133333333334
+        ],
+        "sheet": "p5-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 327,
+        "frame_count": 12,
+        "times": [
+          5.612833333333334,
+          5.629666666666667,
+          5.646483333333333,
+          5.663216666666667,
+          5.68015,
+          5.696933333333333,
+          5.71385,
+          5.730716666666667,
+          5.747466666666667,
+          5.7646,
+          5.781533333333333,
+          5.798383333333334
+        ],
+        "sheet": "p5-settle.png"
+      }
+    ],
+    "p50": [
+      {
+        "label": "release",
+        "first_decode_index": 17,
+        "frame_count": 12,
+        "times": [
+          0.2923,
+          0.3095,
+          0.3263666666666667,
+          0.34323333333333333,
+          0.36001666666666665,
+          0.37701666666666667,
+          0.39416666666666667,
+          0.4112,
+          0.4283666666666667,
+          0.44538333333333335,
+          0.46236666666666665,
+          0.4792
+        ],
+        "sheet": "p50-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 86,
+        "frame_count": 12,
+        "times": [
+          1.46925,
+          1.4861666666666666,
+          1.5033333333333334,
+          1.5202666666666667,
+          1.5374333333333334,
+          1.5543666666666667,
+          1.5712333333333333,
+          1.5881166666666666,
+          1.6049333333333333,
+          1.6220166666666667,
+          1.6388166666666666,
+          1.6558666666666666
+        ],
+        "sheet": "p50-contact.png"
+      },
+      {
+        "label": "middle",
+        "first_decode_index": 1430,
+        "frame_count": 12,
+        "times": [
+          25.009866666666667,
+          25.076533333333334,
+          25.09685,
+          25.11355,
+          25.13025,
+          25.1475,
+          25.16433333333333,
+          25.181116666666668,
+          25.19805,
+          25.214816666666668,
+          25.231983333333332,
+          25.248866666666668
+        ],
+        "sheet": "p50-middle.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 2619,
+        "frame_count": 12,
+        "times": [
+          46.93463333333333,
+          46.95175,
+          46.969883333333335,
+          46.9869,
+          47.0037,
+          47.10615,
+          47.12331666666667,
+          47.140233333333335,
+          47.15711666666667,
+          47.174216666666666,
+          47.19095,
+          47.20811666666667
+        ],
+        "sheet": "p50-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 2728,
+        "frame_count": 12,
+        "times": [
+          48.948483333333336,
+          48.9652,
+          48.9823,
+          48.9991,
+          49.016,
+          49.115516666666664,
+          49.14893333333333,
+          49.167516666666664,
+          49.18431666666667,
+          49.20183333333333,
+          49.21901666666667,
+          49.23583333333333
+        ],
+        "sheet": "p50-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 2879,
+        "frame_count": 12,
+        "times": [
+          51.8209,
+          51.83793333333333,
+          51.85475,
+          51.87155,
+          51.88871666666667,
+          51.9057,
+          51.92268333333333,
+          51.93955,
+          51.956516666666666,
+          51.97338333333333,
+          51.99016666666667,
+          52.007133333333336
+        ],
+        "sheet": "p50-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 2892,
+        "frame_count": 12,
+        "times": [
+          52.133583333333334,
+          52.15051666666667,
+          52.1676,
+          52.18468333333333,
+          52.20166666666667,
+          52.21873333333333,
+          52.2356,
+          52.252583333333334,
+          52.269466666666666,
+          52.28633333333333,
+          52.3031,
+          52.319966666666666
+        ],
+        "sheet": "p50-settle.png"
+      }
+    ],
+    "fine-black": [
+      {
+        "label": "release",
+        "first_decode_index": 16,
+        "frame_count": 12,
+        "times": [
+          0.27098333333333335,
+          0.28785,
+          0.30505,
+          0.3221333333333333,
+          0.33916666666666667,
+          0.3563,
+          0.3733166666666667,
+          0.3904166666666667,
+          0.40723333333333334,
+          0.42425,
+          0.44126666666666664,
+          0.4581
+        ],
+        "sheet": "fine-black-release.png"
+      },
+      {
+        "label": "contact",
+        "first_decode_index": 85,
+        "frame_count": 12,
+        "times": [
+          1.4515833333333332,
+          1.4684,
+          1.4879833333333334,
+          1.505,
+          1.5219333333333334,
+          1.5402166666666666,
+          1.5570666666666666,
+          1.5740333333333334,
+          1.5909,
+          1.60805,
+          1.6251333333333333,
+          1.64195
+        ],
+        "sheet": "fine-black-contact.png"
+      },
+      {
+        "label": "contact-after",
+        "first_decode_index": 96,
+        "frame_count": 12,
+        "times": [
+          1.64195,
+          1.6586666666666667,
+          1.6758166666666667,
+          1.6925666666666668,
+          1.7093,
+          1.7261666666666666,
+          1.7435333333333334,
+          1.7602666666666666,
+          1.7771166666666667,
+          1.7941166666666666,
+          1.8114833333333333,
+          1.8286666666666667
+        ],
+        "sheet": "fine-black-contact-after.png"
+      },
+      {
+        "label": "early",
+        "first_decode_index": 466,
+        "frame_count": 12,
+        "times": [
+          8.0449,
+          8.065216666666666,
+          8.082166666666666,
+          8.099066666666667,
+          8.1159,
+          8.132983333333334,
+          8.1499,
+          8.167033333333332,
+          8.183916666666667,
+          8.201066666666666,
+          8.21785,
+          8.234566666666666
+        ],
+        "sheet": "fine-black-early.png"
+      },
+      {
+        "label": "middle",
+        "first_decode_index": 1431,
+        "frame_count": 12,
+        "times": [
+          25.072983333333333,
+          25.092383333333334,
+          25.10925,
+          25.126116666666668,
+          25.14335,
+          25.160333333333334,
+          25.17725,
+          25.194133333333333,
+          25.211566666666666,
+          25.228416666666668,
+          25.2454,
+          25.262166666666666
+        ],
+        "sheet": "fine-black-middle.png"
+      },
+      {
+        "label": "pause",
+        "first_decode_index": 2624,
+        "frame_count": 12,
+        "times": [
+          46.94165,
+          46.95865,
+          46.9755,
+          46.99256666666667,
+          47.00935,
+          47.10921666666667,
+          47.1261,
+          47.14301666666667,
+          47.16005,
+          47.1768,
+          47.193533333333335,
+          47.21038333333333
+        ],
+        "sheet": "fine-black-pause.png"
+      },
+      {
+        "label": "resume",
+        "first_decode_index": 2733,
+        "frame_count": 12,
+        "times": [
+          48.949416666666664,
+          48.96633333333333,
+          48.9834,
+          49.00031666666667,
+          49.10015,
+          49.132266666666666,
+          49.14901666666667,
+          49.16603333333333,
+          49.183083333333336,
+          49.200066666666665,
+          49.21723333333333,
+          49.2343
+        ],
+        "sheet": "fine-black-resume.png"
+      },
+      {
+        "label": "drain",
+        "first_decode_index": 2884,
+        "frame_count": 12,
+        "times": [
+          51.82038333333333,
+          51.8372,
+          51.85431666666667,
+          51.87113333333333,
+          51.88795,
+          51.90468333333333,
+          51.92155,
+          51.93828333333333,
+          51.955083333333334,
+          51.972233333333335,
+          51.98898333333333,
+          52.005966666666666
+        ],
+        "sheet": "fine-black-drain.png"
+      },
+      {
+        "label": "settle",
+        "first_decode_index": 2897,
+        "frame_count": 12,
+        "times": [
+          52.12805,
+          52.1452,
+          52.162366666666664,
+          52.1794,
+          52.19616666666667,
+          52.21333333333333,
+          52.23023333333333,
+          52.247,
+          52.26396666666667,
+          52.2811,
+          52.298116666666665,
+          52.31505
+        ],
+        "sheet": "fine-black-settle.png"
+      }
+    ]
+  },
+  "actual_view_method": "实际查看新3.12原图、原像素裁剪及新录像解码后的32个12连续帧窗口，顺序逐格审阅，无插帧/补画；没有完整原速播放。旧3.13记录/原视频保持原标签和原字节，未转标复用。",
+  "unchecked": [
+    "未完整原速播放任一整段录像，只审列明有限连续窗口，不能证明所有时刻都无问题。",
+    "未独立逐粒像素追踪，不能宣称每粒终生连续。",
+    "六配色完整动态阶段未逐一遍历；完整阶段动态抽查为默认金沙及最细黑沙。",
+    "未检查Android、音频、性能、屏幕FPS或完整应用功能。"
+  ],
+  "evidence": [
+    {
+      "path": "matrix/c0-g1-f000.png",
+      "sha256": "b950ec02f775aacb2b2232d38a1cfe31dd49cf20aa69fa6d07ba629884c7505a"
+    },
+    {
+      "path": "matrix/c0-g6-f000.png",
+      "sha256": "3add6cb96638bd15068f560145f1fc73cf330dad5563f067fdb297232fbc6787"
+    },
+    {
+      "path": "motion-p50/overview.png",
+      "sha256": "acf12d767bc7213d8f8cfd55f69429ef409b531afc9490c6a229ff3f2b3c4650"
+    },
+    {
+      "path": "motion-fine-black/overview.png",
+      "sha256": "2dbf1e8e8e60deed823539b86c629d5ab8c88df6426060d03df0665b3b7b5fdb"
+    },
+    {
+      "path": "matrix/p1-t0.5-f000.png",
+      "sha256": "2c11861e36608e886e5979902e28f0bae0d8264982bd42f88aa0b54cae5d749d"
+    },
+    {
+      "path": "matrix/p5-t4.9-f000.png",
+      "sha256": "84f5ef2fae01dbbbb6405c839626601a575271be7d368d00f8c457abe69ca091"
+    },
+    {
+      "path": "matrix/p50-t49.9-f000.png",
+      "sha256": "0f84af4ebfb270a87d29ab9cdd453410f6366e1a2b327faa0e52e69846cf1fe4"
+    },
+    {
+      "path": "matrix/result.json",
+      "sha256": "e1f5d98247a1195799d38269df0f2524f83607e407a5b944364f98fe52aeb6c0"
+    },
+    {
+      "path": "visual-windows/colour-necks.png",
+      "sha256": "32e2fd4b93d0bff946051c5c8eafc03711da9edacb325abf1803608fd1df0556"
+    },
+    {
+      "path": "visual-windows/version-only-pixel-proof.json",
+      "sha256": "cbed55c7b2759dd5da18ad82c18c641fe62485841b175d59ca9171ae7c668522"
+    },
+    {
+      "path": "video-p1/audit.mp4",
+      "sha256": "4470d53fe6f6064c0bec1349d1729753ac3707c40e360994c293c5ef94fb59da"
+    },
+    {
+      "path": "video-p1/audit.json",
+      "sha256": "2346e79d3c4abcb58560ff34a2c9e886cd7891e9f67ea460c6ea2dda245b66d1"
+    },
+    {
+      "path": "video-p1/result.json",
+      "sha256": "562a8b822db5cd29eea682800fad6f52b25540ce232d86513c06503a3ea890de"
+    },
+    {
+      "path": "visual-windows/p1-windows.json",
+      "sha256": "6f87165739eed85025c5c3adfccf76ad325d4cb422584fc0b3076b684d040485"
+    },
+    {
+      "path": "visual-windows/p1-release.png",
+      "sha256": "e57979fd5591dd2beadf9c15da2a6e967dc39c024c63f5c5a19cde382027736c"
+    },
+    {
+      "path": "visual-windows/p1-contact.png",
+      "sha256": "3a3b8b8430a4c382dafeb44a66b6ea7243c02db564dc12822a834d24d7b70692"
+    },
+    {
+      "path": "visual-windows/p1-pause.png",
+      "sha256": "3114bc208cf1c0725afbc16db4db828c3097ed004650418309b7faff1e327c0f"
+    },
+    {
+      "path": "visual-windows/p1-resume.png",
+      "sha256": "7bb75f3c0ba5b15dfee3513c8ab3be740ae19064d42c00c2a8b1d298f67c58b9"
+    },
+    {
+      "path": "visual-windows/p1-drain.png",
+      "sha256": "7fbd69ea1941b2896efbbc181ce20ee9ed9e918177da283e88c8c395c56b1bf4"
+    },
+    {
+      "path": "visual-windows/p1-settle.png",
+      "sha256": "245873f222301e30d8ecdd89f3ec1f02bed4c81210552c74753cd18689734050"
+    },
+    {
+      "path": "video-p5/audit.mp4",
+      "sha256": "8db0f11a4d625b6cc774f0f27b0c99c681659be583f7cfd15cc2a9ae9e25e3fe"
+    },
+    {
+      "path": "video-p5/audit.json",
+      "sha256": "b98849a48ea058f278a69039c588d614fa2a537837165e4243fbd7aeedc5b179"
+    },
+    {
+      "path": "video-p5/result.json",
+      "sha256": "6a57d9101ec3138075f5182b405233f60852f063d2ad39f05f9082b11d917462"
+    },
+    {
+      "path": "visual-windows/p5-windows.json",
+      "sha256": "580d37d7d89b04a90f82890e502956c2c4c331acf75608424bb904b70ce138ee"
+    },
+    {
+      "path": "visual-windows/p5-release.png",
+      "sha256": "0b3f158d0ce7d55d032bc64491f014ec4c96d00524c46651b5f12293199b47c1"
+    },
+    {
+      "path": "visual-windows/p5-contact.png",
+      "sha256": "5cf0febfb0e438a4dcda57ed51ad71252d12c52a49156a6bbb4cf60f7d1accda"
+    },
+    {
+      "path": "visual-windows/p5-contact-after.png",
+      "sha256": "21764392738ceaed3b86d958b23a2420357752ee4b3c27e4b13f100d6e7a613a"
+    },
+    {
+      "path": "visual-windows/p5-middle.png",
+      "sha256": "b3eb8c04e89fd4e62ae587fb479e2eb0abdb524ce14c9bfc284b7395f165e2ac"
+    },
+    {
+      "path": "visual-windows/p5-pause.png",
+      "sha256": "2cd7ceeba13778e51ed91f0407aa677c2913dd97b17c4ac58946332b266ac445"
+    },
+    {
+      "path": "visual-windows/p5-resume.png",
+      "sha256": "5047caa3073e1dc3521a530ac63aed5611fa268241bfb3a8353e84fc54c7df45"
+    },
+    {
+      "path": "visual-windows/p5-drain.png",
+      "sha256": "28bd11b588a1cfd56f407fb69b1b7ce6be8e1a25b2c707e6cbb74118a43bcc03"
+    },
+    {
+      "path": "visual-windows/p5-settle.png",
+      "sha256": "18020b74b7f53aa46d85feaa71a8bff69be16264bd479539f0a7a8cb0ee04f68"
+    },
+    {
+      "path": "video-p50/audit.mp4",
+      "sha256": "2ad30b2976eba17975d028cb446c661e5027d2d1fe4fa5919335c6051d26ae79"
+    },
+    {
+      "path": "video-p50/audit.json",
+      "sha256": "ad0eccc63a5df4c6fccb30a4b5bf96329bb007c76b52437832621a8896358132"
+    },
+    {
+      "path": "video-p50/result.json",
+      "sha256": "a8854df61519d9034073ca9dd12559f6aec2122754de32fcb9c78ad7441bf8b0"
+    },
+    {
+      "path": "visual-windows/p50-windows.json",
+      "sha256": "2618688fb3cc403ce64b7704011c5132f2f8d94297b6f4c7b84610eed5ce4b1e"
+    },
+    {
+      "path": "visual-windows/p50-release.png",
+      "sha256": "705bd170f98be52e6d9a7759bf5cccb6cba6f77493ab70c90b8510e2be67617e"
+    },
+    {
+      "path": "visual-windows/p50-contact.png",
+      "sha256": "74666a05f789c8cbea8e10eacaff058d976905c84e757f17a06e46e9218cc330"
+    },
+    {
+      "path": "visual-windows/p50-middle.png",
+      "sha256": "8e7f131f057dd5a0912e654e86d40d30fc9b9616527928f5551c7dc234bb0e15"
+    },
+    {
+      "path": "visual-windows/p50-pause.png",
+      "sha256": "72c1c2623c09cfd94e45863369a6bd32f7837c5791e185c147aef5f8cf268a7e"
+    },
+    {
+      "path": "visual-windows/p50-resume.png",
+      "sha256": "d7bbd3c6d08ce6394a46b808172a2b895027f7d46b1f623d1c55eeee6ec17e0e"
+    },
+    {
+      "path": "visual-windows/p50-drain.png",
+      "sha256": "cf66d5c658df9547896cde9468ab3fd88d20144a86a81d3deff5b8cc360ed8b2"
+    },
+    {
+      "path": "visual-windows/p50-settle.png",
+      "sha256": "fd22c8ac734974028c26a9a8307b13221719da69517a2ffb98ece67856152739"
+    },
+    {
+      "path": "video-fine-black/audit.mp4",
+      "sha256": "4adb416c64994f1497add21aef17872a18462c239d36afec853bc32c442d22e5"
+    },
+    {
+      "path": "video-fine-black/audit.json",
+      "sha256": "a7bacab3a9a09952f643f663bb3309a944c0fc439ad95f2a65bf29fa80dcc53e"
+    },
+    {
+      "path": "video-fine-black/result.json",
+      "sha256": "b56a13d775eab85e4c91fdba7f1856288496e8431b079ae7943a5e5405f6bc27"
+    },
+    {
+      "path": "visual-windows/fine-black-windows.json",
+      "sha256": "3a33a839b9f8dbe43b01da01b84325462385f15af4a3766d1f6a78d063560537"
+    },
+    {
+      "path": "visual-windows/fine-black-release.png",
+      "sha256": "749c4e7c109fc8f026fd6bd8b4bf11be2327d4f7f09d5a506fb2a1ebf11fb245"
+    },
+    {
+      "path": "visual-windows/fine-black-contact.png",
+      "sha256": "4187795d8cb63134a7ce35b6c7ade6862dd9294edf3cfb02b53db64d1ebffd4a"
+    },
+    {
+      "path": "visual-windows/fine-black-contact-after.png",
+      "sha256": "eafbc18d34055acb30aae65902b766713165287f21bfbb3a41ee82e1d1ffd2f7"
+    },
+    {
+      "path": "visual-windows/fine-black-early.png",
+      "sha256": "0748523991a6c4485565daa3ad3bd2bd66f08352e983c80b46239dbe8357afc2"
+    },
+    {
+      "path": "visual-windows/fine-black-middle.png",
+      "sha256": "77f18b08b38d74f2dad627f9d5a2a6305f9e6507478e0805cb9931c272c11ea4"
+    },
+    {
+      "path": "visual-windows/fine-black-pause.png",
+      "sha256": "f0d3087d4eeb1b744ab1d68e70bd015deb7c6dd9da777068823125d985f91b87"
+    },
+    {
+      "path": "visual-windows/fine-black-resume.png",
+      "sha256": "cf5d933b54ac23c95f6be6a206d324ed0dc0dffcf8322a18154a5dc3e0de1ac7"
+    },
+    {
+      "path": "visual-windows/fine-black-drain.png",
+      "sha256": "89264f46206ec540d8513d62564e53050db048c5cfe2eef9a374ac3f480cf9cb"
+    },
+    {
+      "path": "visual-windows/fine-black-settle.png",
+      "sha256": "c63a91bfbd647da767eec3263421551e5b8cdb70c6f2d14b653faa6feb750463"
+    },
+    {
+      "path": "motion-p5/motion.json",
+      "sha256": "ee21a0a7d7dd5659fbf67881c0bdf235733fa861069d1c043f5b86c1d25c832b"
+    },
+    {
+      "path": "visual-windows/p5-lower-all61.png",
+      "sha256": "8028175d0a63970ae8b80719f12bc3a53945ddce11fbca8aaa8408577247331d"
+    },
+    {
+      "path": "motion-p50/motion.json",
+      "sha256": "45390ca5b58ebbf709a5e6be9f7cf9a14e195b553d9701070754325ef474bc46"
+    },
+    {
+      "path": "visual-windows/p50-lower-all61.png",
+      "sha256": "b594bbbabeb4428d3da1218fc6077a82337105713bf204053cb748e499b8cbcf"
+    },
+    {
+      "path": "motion-fine-black/motion.json",
+      "sha256": "5b151aeb02155669e62b5f799e6aaa8ebc0c2f0011a2eb965811b4b4b3db52e8"
+    },
+    {
+      "path": "visual-windows/fine-black-lower-all61.png",
+      "sha256": "839b91ae5bb9d91de4afccd8a41601094075ebff558b1be5352630e2fb8ff20b"
+    },
+    {
+      "path": "motion-fine-black/0000.png",
+      "sha256": "02e733d5c432e1492a2a83f553eb7b63b568e1c50e33bb2f63694182fe70031e"
+    },
+    {
+      "path": "motion-fine-black/0000-stream.png",
+      "sha256": "1cb792f05f8322d88c8cf5f9b2ee25db8b670e8503fbd43069a76e37346e711b"
+    },
+    {
+      "path": "motion-fine-black/0004.png",
+      "sha256": "5efd8045a5b3ac717d3d3d17e0a75e47fc975df05a7f23bc3b0ca0805d8f2d76"
+    },
+    {
+      "path": "motion-fine-black/0004-stream.png",
+      "sha256": "8f5a06d214783c93d9e38d1d3996ed3d9af8c0f91ff128ed6aa29533c8659f6b"
+    },
+    {
+      "path": "motion-fine-black/0049.png",
+      "sha256": "0bd29f8b4ce1f9c4f7b28b854a8a8bf39c4ab4aab8bf8e6dfc5043e644b6ca36"
+    },
+    {
+      "path": "motion-fine-black/0049-stream.png",
+      "sha256": "5f7662bab6647e98d660aa8bc39d98307a01476dffd0cc9f8e4d323261623583"
+    },
+    {
+      "path": "motion-p50/0029.png",
+      "sha256": "882622c5487d5a8b6bb0ef086d20da3ef2808c7e9cc3d22f96b1f730befa84a5"
+    },
+    {
+      "path": "motion-p50/0030.png",
+      "sha256": "01484d8498ef6a2f8f652b8083f4c600a778226c46ab0727c8a15987f5cdef22"
+    },
+    {
+      "path": "motion-p50/0029-stream.png",
+      "sha256": "f9c18ef4ab7ba91a76fcb1915eb31dc2916e5a630105c90466aed59631267cc4"
+    },
+    {
+      "path": "motion-p50/0030-stream.png",
+      "sha256": "ae71b51dbef3774646eaa227594c5b9bab0e342664f42fd48199f9cc89eb02b9"
+    }
+  ],
+  "conclusion": "当前冻结源码的官方3.12新证据在本次局部外观及关联状态范围通过独立对抗性审核，无未关闭P1；旧失败证据和3.13本地草稿原记录保留，未降低原严重度或放宽判据。"
+}

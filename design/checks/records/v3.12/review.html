@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>3.12 出口宽度与下段收口</title><link rel="stylesheet" href="../../style.css"><style>img,video{max-width:100%;height:auto}.pair{display:flex;flex-wrap:wrap;gap:24px}.pair figure{margin:0}video{width:540px}</style></head><body><main>
+<h1>3.12 出口宽度与下段收口</h1>
+<p id="decision">正式3.12独立外观复审通过；新证据已封存，发布门禁核对正确版本与原始数据。</p>
+<p>本轮一起处理出口骤窄、材质分界和下段局部掐腰。出口去除重复内缩并保留防穿壁约束；下段让实际下落颗粒的绘制覆盖更连续，细档补回缩小图元后损失的覆盖面积，内部细粒保持原来的像素形状。</p>
+<p>颈宽、玻璃、沙量、计时、发射数量、实际纵向运动和3.3飞溅模型保持。横向出生位置修正会影响落点和后续飞溅，因此不声称新旧所有物理数组逐位相同。</p>
+<div class="pair"><figure><img src="neck-comparison.png" alt="旧本地小样与正式3.12出口原像素对照"><figcaption>同为50秒档第8秒：左为旧本地小样，右为正式3.12。</figcaption></figure><figure><img src="lower-comparison.png" alt="旧本地小样与正式3.12下段及落点原像素对照"><figcaption>同一时刻：下段与落点。</figcaption></figure></div>
+<div class="pair"><figure><img src="before.png" width="540" height="924" alt="旧本地小样正常尺寸"><figcaption>旧本地小样</figcaption></figure><figure><img src="after.png" width="540" height="924" alt="3.12正常尺寸"><figcaption>3.12</figcaption></figure></div>
+<h2>真实运行过程</h2>
+<p>隐藏PC窗口与独立设置采集，均含暂停、恢复和落定，无声。视频采集负载不用于判断帧率。</p>
+<figure><video controls muted playsinline preload="metadata" src="five-seconds.mp4"></video><figcaption>5秒，完整过程。</figcaption></figure>
+<figure><video controls muted playsinline preload="metadata" src="fifty-seconds.mp4"></video><figcaption>50秒，完整过程。</figcaption></figure>
+<figure><video controls muted playsinline preload="metadata" src="fine-black.mp4"></video><figcaption>最细档黑沙50秒，完整过程；这一档曾在正式复审中失败，修正后重录。</figcaption></figure>
+<details><summary>1秒短周期过程</summary><video controls muted playsinline preload="metadata" src="one-second.mp4"></video></details>
+<h2>量宽与复审范围</h2>
+<p>同条件连续61帧，出口下0.1～0.25个口径处的主体宽：50秒由37/42像素改善为39/42像素，5秒由58/62改善为60/62。固定92%中位门槛保持；旧50秒明确失败，旧5秒本来达到门槛，作为不退化对照。数值不能代替外观判断。</p>
+<p>正式证据覆盖1/5/50秒、六配色粗细端档、开局、首次落地、暂停恢复、近满和排空；单独的同态沙柱图像排除飞溅对量宽的影响。独立复审必须同时看正常尺寸与连续窗口，不能以帧数、非空或粒子身份代替自然观感。</p>
+<p>仅加宽、8分区出生及固定覆盖的小样都保留了拒绝证据，未混作通过。细档新增面积补偿后重新冻结并重录，旧源码批准不复用。误编号3.13草稿未推送，记录完整保留；正式3.12重新采集，新旧对应阶段PNG完全相同，原视频未改标为新版本。</p>
+<p>本轮仅PC外观与相邻状态，不代表Android、音频或性能验收。原有短周期快速涨堆、开局前缘偏平等表现仍需另行评估；本轮不能解释为全应用无问题。</p>
+<p><a href="review.json">证据清单与当前结论</a> · <a href="visual-audit.json">独立外观复审</a> · <a href="source-audit.json">独立代码复审</a> · <a href="../../notes/outlet-width-plan.html">计划及小样修订</a> · <a href="../v3.12-local/width-followup.html">保留的3.12失败反馈</a></p>
+</main></body></html>

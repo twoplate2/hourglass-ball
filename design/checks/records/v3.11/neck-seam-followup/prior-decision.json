@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "version": "3.11",
+  "status": "approved",
+  "source_sha256": "627e1db34a3818c1398ec99e8d0f61a72600b17ced989192a0e9ee22f8cfd8d0",
+  "record": "design/checks/records/v3.11/review.json",
+  "plan": "design/checks/notes/contact-blend-plan.html",
+  "prior_followup": "design/checks/records/v3.10/contact-seam-followup.html",
+  "blockers": [
+    {
+      "id": "contact-bright-rim",
+      "status": "closed"
+    },
+    {
+      "id": "splash33-impulse",
+      "status": "closed"
+    },
+    {
+      "id": "tint-paths",
+      "status": "closed"
+    },
+    {
+      "id": "joins-and-states",
+      "status": "closed"
+    },
+    {
+      "id": "visual-review",
+      "status": "closed"
+    },
+    {
+      "id": "pc-budget",
+      "status": "closed"
+    }
+  ],
+  "scope": "PC恢复3.3飞溅初速度与空中原色、触地融入去亮圈、普通/批量绘制一致及相邻状态；非Android或完整应用验收"
+}

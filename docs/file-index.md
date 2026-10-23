@@ -1,5 +1,17 @@
 # 文件用途索引
 
+当前正式候选为3.12；[本轮复审入口](../design/checks/records/v3.12/review.html)。此前本地3.12小样和误编号3.13均未发布，原记录分别保留在v3.12-local和v3.13-local。本轮范围仅PC外观与相关状态，不包含性能、音频或Android验收；后文3.11工作量描述保留作历史背景。
+
+本轮出口衔接与宽度专项工具：
+
+- [measure_neck_stream_seam.py](../src/tools/measure_neck_stream_seam.py)：出口两侧颜色与纹理诊断，不判视觉通过。
+- [test_neck_stream_seam.py](../src/tools/test_neck_stream_seam.py)：材质阶跃、坐标换算及既有失败证据测试。
+- [verify_neck_stream_join.py](../src/tools/verify_neck_stream_join.py)：隐藏PC同态材质过渡消融、共享取色和静态回退检查。
+- [measure_stream_width.py](../src/tools/measure_stream_width.py)：原生连续帧近场主体宽度及下段局部掐腰诊断，独立沙柱通道排除飞溅。
+- [test_stream_width.py](../src/tools/test_stream_width.py)：硬肩、平滑收束、孤粒、截断和图像篡改反例。
+- [check_outlet_release.py](../src/tools/check_outlet_release.py)：3.12限定外观发布证据、源码范围、真实图像与独立审核身份门禁。
+- [test_outlet_release.py](../src/tools/test_outlet_release.py)：3.12证据、宽度、取色消融及源码范围的发布反例。
+
 当前维护的源码和工具逐项列在这里。新增、移动、删除文件时同步更新；
 `test_repository_layout.py` 会检查源码是否漏登记、链接是否失效。
 说明来自代码职责，不等于这里的所有工具都已在本轮实测。

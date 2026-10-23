@@ -25,6 +25,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         python -B src/tools/test_pixel_flow_review.py || exit 1
         python -B src/tools/test_stream_review_metrics.py || exit 1
         python -B src/tools/test_flow_release.py || exit 1
+        python -B src/tools/test_outlet_release.py || exit 1
+        python -B src/tools/test_neck_stream_seam.py || exit 1
+        python -B src/tools/test_stream_width.py || exit 1
         python -B src/tools/test_particle_continuity.py || exit 1
         python -B src/tools/test_particle_material.py || exit 1
         python -B src/tools/test_flare_occlusion.py || exit 1

@@ -1,0 +1,165 @@
+{
+  "schema": 1,
+  "kind": "source",
+  "version": "3.12",
+  "source_sha256": "53870fedc528b0ca93303dd249244fe32c69b520f84dbcd37744f5459a496559",
+  "status": "passed",
+  "completed": true,
+  "open_blockers": [],
+  "approved_node_ast": {
+    "main.py:HourglassWidget.redraw": "8a276b587258f7af3e6bfddcac914e25071e0e5d180282731d8db5ada721a02d",
+    "main.py:HourglassWidget.update_particles": "5d4c727812f81ec8a213f039d32910e29dd621c0c49532072464a1416f181ce6",
+    "src/app/sand_flow_material.py:GRAIN_FRAGMENT_HEADER": "60d23f0a260fe9577c42e11a3fa6dcf2c501a5f6f8fb8ec2b3eaefdbd3d5b939",
+    "src/app/sand_flow_material.py:FRAGMENT_SHADER": "332a6867ce85d954e54a68ce48845ddb7539eca495fc9dc03ae5d701225a92c0",
+    "src/app/sand_flow_material.py:SandFlowContext.__init__": "0716b830fb3eee83d5792308be418f5451d8a84385a4f29f601772f773d9eef9",
+    "src/app/short_grain_stream.py:source_half_width": "6a8e5c9e62da637c49ed859289217607d927ca2853accfd5dc0329274412efe5",
+    "src/app/short_grain_stream.py:particle_vertices": "365eae6356cd8d40e71c0c01a5b760b832c057a226b71c2db52145134922eaba",
+    "src/app/short_grain_stream.py:FRAGMENT_BODY": "52237bab4e66b8e95261cdb242d38754ac3492998e009ba01d0f279686f176a5",
+    "src/app/short_grain_stream.py:install.draw": "a027dfd48d3eda5986ae93fa916aab26cf8f0fd9361a2a61f8cde5b8aac79b40",
+    "src/app/short_grain_stream.py:install.build": "0f1e9868df7169ddd2e86f90c796ed096b4bccc90ac4707639332a5109c16726",
+    "src/app/short_grain_stream.py:sprite_aspect": "ccb149e27ac8bfcb958589441d79a2476155ab4c5699a36e150513d6e858b6fd"
+  },
+  "reviewer": "/root/neck_seam_diagnosis 独立源码对抗性审核",
+  "scope": "独立只读审核正式3.12源码及版本纠正，核对53870身份下重跑的85项纯测试日志。与保留的误编号3.13冻结稿相比，仅APP_VERSION字面量3.13改3.12，其他20个raw文件和11个节点pins不变；保护范围仍相对已发布3.11。未运行GL，不代替正式新身份的正常尺寸动态视觉、性能或设备验收。",
+  "evidence": [
+    {
+      "path": "measured-source/main.py",
+      "sha256": "23123aac1e6c97bf820764dcadb6efb8a7963d355e503d3f9e69851e38d9bab7"
+    },
+    {
+      "path": "measured-source/src/app/short_grain_stream.py",
+      "sha256": "2f2a4416d874644c88dfff817f6de4e6e15f28eee1d482803976cb82df63fa83"
+    },
+    {
+      "path": "measured-source/src/app/sand_flow_material.py",
+      "sha256": "5f674d5391ab388bcdee8cdc534fad5865c59416f0d5eb77dbedfe7ab3db2aee"
+    },
+    {
+      "path": "measured-source/src/app/app_version.py",
+      "sha256": "1bb8c177edacaa6ad8949dc0b9f8f713b6a909a3ffaa978978f3dfc39203f466"
+    },
+    {
+      "path": "pure-tests.json",
+      "sha256": "6e73edda06208e9311fcaac7fb665f66513de755b512e7329af2cce81f379786"
+    },
+    {
+      "path": "tests/test_particle_continuity.py.log",
+      "sha256": "68aca6f0d2e3b8e589d5e16ffd4570aca6c2087df4ed6449dff2f3ceb9c92d8c"
+    },
+    {
+      "path": "tests/test_particle_material.py.log",
+      "sha256": "35bba77e8d6dc989ba88b32c417dcc4fce299665512770fa676a2da9bcbd02bd"
+    }
+  ],
+  "source_checks": [
+    {
+      "name": "freeze_and_scope",
+      "status": "passed",
+      "detail": "正式3.12的source digest为53870fedc528b0ca93303dd249244fe32c69b520f84dbcd37744f5459a496559；当前21文件raw与measured-source完全一致。相对已审核e664草稿只改变APP_VERSION字面量；流动11节点摘要逐项相同且与当前门禁常量一致，其余保护结论保持。"
+    },
+    {
+      "name": "strict_version_correction",
+      "status": "passed",
+      "detail": "remote已发布3.11时，严格最后一段+1要求正式版本3.12。未修改check_release_version.py或test_release_version.py。误编号v3.13和原v3.12记录分别保留为v3.13-local/v3.12-local，旧视频和报告未换标签冒充本次取证。新source身份与新的release-v312分别记录。"
+    },
+    {
+      "name": "birth_width_rng_and_clamp",
+      "status": "passed",
+      "detail": "source_half_width移除额外1px；原x_clip仍负责ink、size短路和原随机抽样，sprite分支才将出生x映射到新安全带，并不再叠加旧线条LIM_INSET。动态实际半径clamp保留。更宽x会改变接触时间和落点，不将存活pn、沙堆或飞溅数组与旧版逐位相等作为本次承诺。"
+    },
+    {
+      "name": "adaptive_support_boundary",
+      "status": "passed",
+      "detail": "sprite_aspect按max(.8,pitch)与同一R/neck下默认档实际coarse=1.8的参考粒距计算面积补偿，限制1.45至2.4。默认及更粗档返回精确1.45；正常细档约2.326444。particle_vertices默认参数兼容原调用，CPU顶点和fragment共用同次计算的aspect，build初始值为1.45。"
+    },
+    {
+      "name": "micrograin_pixel_coordinates",
+      "status": "passed",
+      "detail": "GPU微粒域为Rot(local.x,local.y*aspect/1.08)。结合实际顶点dy=local.y*r*aspect，物理像素域仍为Rot(dx/r,dy/(1.08r))，没有将细微粒拉成长条。UV的y偏移使用相同aspect，匹配实际像素。增加的是支持区域与真实粒子间重叠，不增加真实粒子、宏观形变包络、逐帧随机删粒或静态补罩。"
+    },
+    {
+      "name": "identity_pause_surface_and_join",
+      "status": "passed",
+      "detail": "每颗存活粒子仍有一个以真实坐标为中心、固定phase/size载荷的quad。堆面采样仅依赖不变的x角点，纵向支持不改变裁切平面；出口上方discard和实际堆面下方discard保留。颈部helper保留启动混合和实际非free取色，两侧独立按当前elapsed更新；无真实neck context或开启旧free几何时关闭新join，尾帽和后续前沿裁切保持。"
+    },
+    {
+      "name": "default_same_state_pixels",
+      "status": "prior_draft_diagnostic_only",
+      "detail": "保留的e664误编号草稿曾独立重比默认61帧：3帧各1像素单通道差1级，几何和物理哈希一致；此为旧源码身份的诊断，不能当正式3.12的新录验证，也不能称全图0差。正式新身份的视觉由另一个审核处理。"
+    },
+    {
+      "name": "formal_v312_pure_test_evidence",
+      "status": "passed",
+      "detail": "正式APP_VERSION3.12及source digest53870身份下重新运行的10项纯测试日志全部核对：每项SHA、返回码、实际Ran数量和最终OK相符，共85项。continuity 20项正式日志确有synthetic Mesh allocation failure，mock未提前错误。未将旧e664日志改标签用作本次证据。"
+    }
+  ],
+  "findings": [
+    {
+      "id": "duplicate_birth_clearance",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "sprite出生路径取消额外1px与旧线宽的重复内缩，保留动态实际半径clamp；原随机和粒径判定仍用旧clip。"
+    },
+    {
+      "id": "static_neck_dynamic_join",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "short_join_enabled要求真实颈流context，旧free几何也关闭双侧join，避免模拟不存在的材质或误清旧整段几何。"
+    },
+    {
+      "id": "experimental_lane_regularization",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "8lane helper与状态计数器均撤回；完整AST恢复证明__init__及_reset_run_state等其余方法未改变。"
+    },
+    {
+      "id": "mesh_failure_mock_false_coverage",
+      "severity": "P2",
+      "status": "closed",
+      "evidence": "mesh_attempts反例先检出旧mock的0!=1，修为Context(dict)；正式3.12 source53870下重新运行的20项日志核实触发synthetic Mesh allocation failure，SHA已绑定。"
+    }
+  ],
+  "unchecked": [
+    "本代理没有独立播放正常尺寸动态；出口肩部、下段局部掐腰、fine黑沙深咬口是否改善，以及是否出现长线、实心杆或静止套层，均由独立visual审核决定。宽度、身份与本源码结论不能代替它。",
+    "自适应fine支持上限接近2.326r，比固定1.45r增加约60%；出生前缘和中心触地回收时仍露在堆面上方的图元更长。fine头尾、首次接触、末1%、排空、暂停恢复和落定的可见消退须由visual独立检查。",
+    "面积补偿使细粒支持面积接近默认，并不保证每条屏幕行覆盖均匀；近满、粗细档及各配色可能发生覆盖饱和、短空带或频闪，不能仅凭纯测试放行。",
+    "几何与默认aspect相同不等于GPU字节完全相同；实测默认61帧仍有总3像素单通道1级差，原0差预期不得重新解释为通过。",
+    "极小假设孔径小于最小sprite半径时，仅夹中心不能令整个sprite装入孔；old_clip为0而new_clip为正时保留旧抽样会使映射中心仍为0。这些极小布局需实际支持尺寸验证，源审不声称任意窗口都通过。",
+    "未运行新的GL编译、GLES驱动、实时帧率、1% low、音频、Android、MuMu、ADB或真机检查；读取既有PC记录也不据此宣称这些通过。"
+  ],
+  "prior_draft_default_observation": {
+    "source_sha256": "e6648a9563a0aab52c7f623ddfc66742071e43ee6116ad74e35b296398b575f6",
+    "new_version_evidence": false,
+    "frames": 61,
+    "changed_frame_count": 3,
+    "changed_pixels_total": 3,
+    "max_rgb_delta": 1,
+    "physical_hash_equal": true,
+    "geometry_equal": true
+  },
+  "version_correction": {
+    "from_unpublished_draft": "3.13",
+    "to_official_version": "3.12",
+    "prior_source_sha256": "e6648a9563a0aab52c7f623ddfc66742071e43ee6116ad74e35b296398b575f6",
+    "only_changed_runtime_file": "src/app/app_version.py",
+    "only_changed_node": "APP_VERSION",
+    "flow_code_changed": false,
+    "release_version_rule_changed": false,
+    "preserved_local_records": [
+      "design/checks/records/v3.13-local",
+      "design/checks/records/v3.12-local"
+    ]
+  },
+  "formal_pure_test_counts": {
+    "test_neck_stream_seam.py": 7,
+    "test_particle_continuity.py": 20,
+    "test_particle_material.py": 4,
+    "test_stream_aperture.py": 4,
+    "test_splash_colours.py": 10,
+    "test_splash33_impulse.py": 5,
+    "test_short_grain.py": 10,
+    "test_neck_geometry.py": 7,
+    "test_release_version.py": 5,
+    "test_stream_width.py": 13
+  }
+}

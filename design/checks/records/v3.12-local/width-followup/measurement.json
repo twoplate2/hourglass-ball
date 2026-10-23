@@ -1,0 +1,116 @@
+{
+  "mouth_net_width_px": 41.27994821109637,
+  "rows": [
+    {
+      "depth_px": -10,
+      "depth_in_mouth_width": -0.2422483659345271,
+      "widths_px": {
+        "0.25": 42,
+        "0.5": 42,
+        "0.75": 42
+      },
+      "equivalent_warm_coverage_px": 42.0
+    },
+    {
+      "depth_px": -5,
+      "depth_in_mouth_width": -0.12112418296726354,
+      "widths_px": {
+        "0.25": 42,
+        "0.5": 42,
+        "0.75": 42
+      },
+      "equivalent_warm_coverage_px": 42.0
+    },
+    {
+      "depth_px": 0,
+      "depth_in_mouth_width": 0.0,
+      "widths_px": {
+        "0.25": 42,
+        "0.5": 42,
+        "0.75": 38
+      },
+      "equivalent_warm_coverage_px": 40.39
+    },
+    {
+      "depth_px": 2,
+      "depth_in_mouth_width": 0.04844967318690542,
+      "widths_px": {
+        "0.25": 38,
+        "0.5": 38,
+        "0.75": 36
+      },
+      "equivalent_warm_coverage_px": 37.08
+    },
+    {
+      "depth_px": 4,
+      "depth_in_mouth_width": 0.09689934637381084,
+      "widths_px": {
+        "0.25": 38,
+        "0.5": 37,
+        "0.75": 36
+      },
+      "equivalent_warm_coverage_px": 36.88
+    },
+    {
+      "depth_px": 8,
+      "depth_in_mouth_width": 0.19379869274762168,
+      "widths_px": {
+        "0.25": 38,
+        "0.5": 36,
+        "0.75": 36
+      },
+      "equivalent_warm_coverage_px": 36.52
+    },
+    {
+      "depth_px": 12,
+      "depth_in_mouth_width": 0.2906980391214325,
+      "widths_px": {
+        "0.25": 38,
+        "0.5": 36,
+        "0.75": 36
+      },
+      "equivalent_warm_coverage_px": 36.2
+    },
+    {
+      "depth_px": 20,
+      "depth_in_mouth_width": 0.4844967318690542,
+      "widths_px": {
+        "0.25": 36,
+        "0.5": 36,
+        "0.75": 34
+      },
+      "equivalent_warm_coverage_px": 35.54
+    },
+    {
+      "depth_px": 30,
+      "depth_in_mouth_width": 0.7267450978035813,
+      "widths_px": {
+        "0.25": 36,
+        "0.5": 35,
+        "0.75": 34
+      },
+      "equivalent_warm_coverage_px": 34.78
+    },
+    {
+      "depth_px": 40,
+      "depth_in_mouth_width": 0.9689934637381084,
+      "widths_px": {
+        "0.25": 36,
+        "0.5": 35,
+        "0.75": 34
+      },
+      "equivalent_warm_coverage_px": 34.32
+    },
+    {
+      "depth_px": 60,
+      "depth_in_mouth_width": 1.4534901956071626,
+      "widths_px": {
+        "0.25": 34,
+        "0.5": 34,
+        "0.75": 32
+      },
+      "equivalent_warm_coverage_px": 33.03
+    }
+  ],
+  "source_motion": "_temp\\neck-seam-3.12\\final-normal\\motion.json"
+}

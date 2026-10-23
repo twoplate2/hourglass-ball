@@ -325,9 +325,9 @@ class ParticleFallbackTests(unittest.TestCase):
             def insert(self, index, item):
                 self.children.insert(index, item)
 
-        class Context:
+        class Context(dict):
             def __init__(self, *args, **kwargs):
-                pass
+                super().__init__()
 
             def __enter__(self):
                 return self
@@ -355,7 +355,9 @@ class ParticleFallbackTests(unittest.TestCase):
             def _reserve_stream_lines(self):
                 self.reserved = True
 
+        mesh_attempts=[]
         def fail_mesh(*args, **kwargs):
+            mesh_attempts.append(True)
             raise RuntimeError("synthetic Mesh allocation failure")
 
         graphics = types.ModuleType("kivy.graphics")
@@ -380,6 +382,8 @@ class ParticleFallbackTests(unittest.TestCase):
             renderer.install(Widget)
             widget = Widget()
             widget._build_dynamic_canvas()
+            self.assertEqual(len(mesh_attempts),1 if mesh_failure else 0,
+                             "回退必须来自实际Mesh分配失败，不能被更早的测试替身错误冒充")
             self.assertEqual(widget.flow_renderer, "line_pool")
             self.assertTrue(widget.reserved)
             self.assertIsNone(widget._short_flow_context,

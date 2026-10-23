@@ -1,0 +1,7 @@
+{
+  "status": "tool_coordinate_error",
+  "failure": "AssertionError in initial ad hoc scope comparison",
+  "cause": "Used bottom-origin Kivy outlet_y against top-origin PNG rows",
+  "application_failure": false,
+  "corrected_by": "Use frame height minus outlet_y; retain the same allowed 0.75-mouth-width band"
+}

@@ -6476,7 +6476,11 @@ class HourglassWidget(Widget):
                 _band = min(_band, FLOW_TAIL_GAP_NARROW
                             + (1.0 - FLOW_TAIL_GAP_NARROW) * _tail_gap)
             _tail = min(_tail, _tail_gap)
-            x_clip = max(0.0,source_half_width(self._taper['t_in'],sprite_pitch)*_band)
+            source_clip = source_half_width(self._taper['t_in'],sprite_pitch)*_band
+            # Keep the previous size/ink decisions and random consumption;
+            # only the sprite's final horizontal birth position is remapped.
+            x_clip = max(0.0,(source_half_width(self._taper['t_in'],sprite_pitch)-1.0)*_band)
+            sprite_birth = getattr(self, "_short_flow_context", None) is not None
             # 🔴 **2026-10-13: 叠一条"覆盖率闸"** —— 见 `_stream_ink_cover_q`。
             #    与末端净空那条(`_stream_ink_q`, 2.86)取**更薄**的一条:
             #    前者管"小窗口过饱和", 后者管"快流完时挤成一块板"。
@@ -6511,7 +6515,9 @@ class HourglassWidget(Widget):
                 #    阈值乘 `_ink_q`(1⇒0.85 = 逐位旧行为; 0⇒恒 1px)。**同一次抽取, 只换阈值**
                 #    ⇒ 随机数流一字不动(本项目的硬规矩)。
                 size = (2 if random.random() < 0.85 * _ink_q else 1) if x_clip >= 3.0 else 1
-                if LIM_INSET and size > 1:
+                if sprite_birth:
+                    x_off *= source_clip / x_clip if x_clip > 0.0 else 0.0
+                elif LIM_INSET and size > 1:
                     # 🔴 **2026-10-12(2.87): 线自己的半个宽度也不许探出瓶颈** —— 见 `LIM_INSET`。
                     #    等比缩(不是夹), 免得粒子在边缘堆成一条密线。
                     x_off *= max(0.0, x_clip - size * 0.5) / x_clip
@@ -8569,6 +8575,10 @@ class HourglassWidget(Widget):
                                     tail_front if i == 1 else (0.0, 0.0, 1.0),
                                     free_front if i == 1 else (0.0, 0.0, 1.0, 0.0))
                 context["sand_free_ramp"] = free_ramp if i == 1 else 0.0
+                context["sand_outlet_join"] = ((outlet, OUTLET_OVERLAP)
+                    if i == 1 and not NECK_FREE_GEOM
+                    and getattr(self, "_short_flow_context", None) is not None
+                    else (0.0, 0.0))
                 # 🔴 **2026-10-12(2.90): 上球材质"随沙体伸缩"** —— 1.244 的 tex_coords 行为。
                 #    用户判词:「我tmd都说了 要做成 v1.244 那样 …… 现在上面的沙子**完全不变化了**」。
                 #    实测复核: 1.244 的上球**帧间差 1.45**(在动!), 而 2.89 冻钟之后只有 **0.002**
