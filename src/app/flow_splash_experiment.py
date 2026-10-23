@@ -119,6 +119,46 @@ void main(void) {
 }
 """
 
+# Only the splash layer uses a second byte texture. Neck and marker batches
+# keep their original four-texel bounds layout and original vertex shader.
+TINT_VERTEX_SHADER = VERTEX_SHADER.replace(
+    "uniform sampler2D bounds;",
+    "uniform sampler2D bounds;\nuniform sampler2D tints;\nuniform float tint_step;"
+).replace(
+    "frag_color = color * vec4(1.0, 1.0, 1.0, opacity);",
+    "float slot = floor(vTexCoords0.x / (texel_step * 4.0));\n"
+    "    vec4 tint = texture2D(tints, vec2((slot + 0.5) * tint_step, 0.5));\n"
+    "    frag_color = color * tint * vec4(1.0, 1.0, 1.0, opacity);"
+)
+
+
+def _tint_bytes(colours, count):
+    """Validate the shared RGBA8 payload before touching any drawing buffers."""
+    if count < 0 or len(colours) < count:
+        raise ValueError("incomplete splash tint payload")
+    if _np is not None and hasattr(colours, "dtype"):
+        if (colours.ndim != 2 or colours.shape[1] != 4
+                or colours.dtype != _np.dtype("uint8")):
+            raise ValueError("splash tints must be RGBA8 rows")
+        return colours[:count].tobytes()
+    rows = colours[:count]
+    if any(len(row) != 4 for row in rows):
+        raise ValueError("splash tints must be RGBA8 rows")
+    return bytes(channel for row in rows for channel in row)
+
+
+def _tint_context():
+    context = RenderContext(use_parent_projection=True, use_parent_modelview=True)
+    context.shader.vs = TINT_VERTEX_SHADER
+    context.shader.fs = FRAGMENT_SHADER
+    if not context.shader.success:
+        raise RuntimeError("coloured splash batch shader failed to compile")
+    context[TEXEL_STEP_UNIFORM] = TEXEL_STEP
+    context["bounds"] = 1
+    context["tints"] = 2
+    context["tint_step"] = 1.0 / CHUNK
+    return context
+
 # 角点选择子 **放在 texcoord 的 `.y`**(0..3 = 左下/右下/右上/左上), 位置属性恒为 (0,0)。
 # 与沙流渲染器用 `vTexCoords0.y` 当 `end` 标记完全同构 —— 那是已经跑通的约定。
 _SELECTORS = (0.0, 1.0, 2.0, 3.0)
@@ -401,6 +441,52 @@ class SplashBatch:
                 texture, data, upload * TEXELS_PER_SPLASH)
 
 
+class ColoredSplashBatch(SplashBatch):
+    """Static bounds meshes plus one RGBA8 texel per existing splash."""
+
+    __slots__ = ("tint_parts",)
+
+    def __init__(self, group):
+        super().__init__(group)
+        self.tint_parts = []
+
+    def _ensure_part(self, chunk):
+        part = super()._ensure_part(chunk)
+        while chunk >= len(self.tint_parts):
+            texture = Texture.create(size=(CHUNK, 1), colorfmt="rgba")
+            texture.mag_filter = texture.min_filter = "nearest"
+            data = bytearray([255]) * (CHUNK * 4)
+
+            def reload_tints(target, _data=data):
+                target.blit_buffer(_data, colorfmt="rgba", bufferfmt="ubyte")
+            texture.add_reload_observer(reload_tints)
+            binding = BindTexture(index=2)
+            binding.texture = texture
+            # Both bindings must execute before the corresponding static mesh.
+            slot = len(self.tint_parts)
+            mesh = self.parts[slot][0]
+            # The shared selector order is BL, BR, TL, TR. Only this coloured
+            # path corrects the old bow-tie triangulation to two full halves.
+            self.parts[slot][2] = array("H", (
+                index + i * len(_SELECTORS) for i in range(CHUNK)
+                for index in (0, 1, 3, 0, 3, 2)))
+            self.group.remove(mesh)
+            self.group.add(binding)
+            self.group.add(mesh)
+            self.tint_parts.append([texture, data, binding])
+        return part
+
+    def update_tinted_arrays(self, count, xs, ys, hws, hhs, colours):
+        rgba = _tint_bytes(colours, count)
+        super().update_arrays(count, xs, ys, hws, hhs)
+        for chunk in range(-(-count // CHUNK) if count else 0):
+            start = chunk * CHUNK
+            n = min(CHUNK, count - start)
+            texture, data, _binding = self.tint_parts[chunk]
+            data[:n * 4] = rgba[start * 4:(start + n) * 4]
+            flow_batch_experiment.blit_texture(texture, data, n)
+
+
 def available():
     """能力探测 —— **必须建在画布之前**, 因为 shader 失败发生在画布构建时, 外面包不住。"""
     try:
@@ -417,32 +503,43 @@ def available():
 
 def install(widget_class):
     """把飞溅层换成批处理。**读改 `_splash_group` 里的内容, 不动 canvas 顺序。**"""
+    from kivy.graphics.opengl import GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS
+    if glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS)[0] < 2:
+        raise RuntimeError("coloured splash batch needs two vertex texture samplers")
+    # Check the actual shader before replacing the widget builder. A failure
+    # here enters the caller's existing ordinary Rectangle installation path.
+    _tint_context()
     build = widget_class._build_dynamic_canvas
 
     def build_splash_batches(self):
         build(self)
         group = self._splash_group
-        # 组里此时只有一条 Color(见 `_build_dynamic_canvas`), 保留它。
-        color = self._splash_color
-        context = RenderContext(use_parent_projection=True, use_parent_modelview=True)
-        context.shader.vs = VERTEX_SHADER
-        context.shader.fs = FRAGMENT_SHADER
-        if not context.shader.success:
-            raise RuntimeError("splash batch shader failed to compile")
-        context[TEXEL_STEP_UNIFORM] = TEXEL_STEP
-        context["bounds"] = 1
+        self._splash_batch = None
+        self._splash_context = None
+        try:
+            # Prepare a detached replacement. Shader/texture failures leave the
+            # original group and colour intact for ordinary coloured Rectangles.
+            context = _tint_context()
+            prepared = InstructionGroup()
+            color = Color(*self.sand_light)
+            prepared.add(color)
+            batch = ColoredSplashBatch(prepared)
+            batch.warm()
+            context.add(prepared)
+        except Exception as exc:
+            print("coloured splash batch unavailable, using Rectangles:", exc)
+            return
         position = self.canvas.children.index(group)
         self.canvas.remove(group)
-        group.clear()
-        group.add(color)
-        context.add(group)
         self.canvas.insert(position, context)
+        self._splash_group = prepared
+        self._splash_color = color
         self._splash_context = context
-        self._splash_batch = SplashBatch(group)
+        self._splash_batch = batch
         self._splash_rects = []
 
     def sync_splashes(self):
-        self._splash_batch.update(self.splashes)
+        self._draw_splashes()
 
     widget_class._build_dynamic_canvas = build_splash_batches
     widget_class._sync_splashes = sync_splashes

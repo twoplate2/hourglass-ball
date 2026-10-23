@@ -1,0 +1,84 @@
+{
+  "status": "confirmed_issue",
+  "source_sha256": "bd0692147bd8d18636153c4390b87dedb00a607d313b11bef784340ec5a6f41f",
+  "finding": "surface splash grains form a bright contact rim",
+  "evidence": [
+    {
+      "file": "p1-high-fixed/baseline.png",
+      "sha256": "78aae911df61a587f9c0cd272f84e53a2688555be1d354a3676ad7096823c60b"
+    },
+    {
+      "file": "p1-high-fixed/no-band.png",
+      "sha256": "bf3c3a64500c45e6739bec3e1a1d29fce369366d2f97b62e86f86e41194f3104"
+    },
+    {
+      "file": "p1-high-fixed/no-surface-flow.png",
+      "sha256": "faa8da78eeee344957af5cbc4247296421d00e45e113ac5a10069f4e60eb7f2b"
+    },
+    {
+      "file": "p1-high-fixed/no-contact-grains.png",
+      "sha256": "da2e008c8c46ed9d079d57051608f8cba4f9b9100638dddc554670bc79bade0e"
+    },
+    {
+      "file": "p1-high-fixed/no-flares.png",
+      "sha256": "78aae911df61a587f9c0cd272f84e53a2688555be1d354a3676ad7096823c60b"
+    },
+    {
+      "file": "p1-high-fixed/no-splashes.png",
+      "sha256": "b855e4700665e1eff78568d592793c479e8ab6ce453a52ed888be7d8751a913b"
+    },
+    {
+      "file": "p5-fixed/baseline.png",
+      "sha256": "c2579e61d5ee33f4ca838752ddbdfb1695c9cebdf98c68cb744e0bdbd2d4e35d"
+    },
+    {
+      "file": "p5-fixed/no-band.png",
+      "sha256": "5a3b693bc1e192a85262c22ced38af532a1b20d7a151bd79a8e03a8e8d17e0d9"
+    },
+    {
+      "file": "p5-fixed/no-surface-flow.png",
+      "sha256": "e8978282c7433131d8a7b21aaa13f8a4def78d5867a9c94a4f6ee5c10562e54e"
+    },
+    {
+      "file": "p5-fixed/no-contact-grains.png",
+      "sha256": "0e51b265c2743ca6758e0f8bb1c42828b31e00f28c758dd868eeb5d310066972"
+    },
+    {
+      "file": "p5-fixed/no-flares.png",
+      "sha256": "efea0bd82c5af74573f64f7922985583854b994e76f82ac2f39fb5392d1ddb74"
+    },
+    {
+      "file": "p5-fixed/no-splashes.png",
+      "sha256": "784b3ae0f64e3887316e0da34ec588ccbaf39bd7d8cf6c7507511a565773bcec"
+    },
+    {
+      "file": "p50-high/baseline.png",
+      "sha256": "99840671ef81fb8e2e4c27b473f0a535723a6852a05f9ef232ff374e684a3660"
+    },
+    {
+      "file": "p50-high/no-band.png",
+      "sha256": "e2c7c2e68a12e644fcd97a4e071c6cde63f4f3f2628886ec693cca851787297e"
+    },
+    {
+      "file": "p50-high/no-surface-flow.png",
+      "sha256": "2e71329cf082f9ddd789d733a7204de8136d0dcf6a9aabc2af6486e48a72aab9"
+    },
+    {
+      "file": "p50-high/no-contact-grains.png",
+      "sha256": "58d0effd2bd275016c1f5f10b2a5a41acdafd1781b2c8e353b7218b435a53f73"
+    },
+    {
+      "file": "p50-high/no-flares.png",
+      "sha256": "aa3fee0a185266108f054288cf55a640383440992fbddf027abda0860622c96e"
+    },
+    {
+      "file": "p50-high/no-splashes.png",
+      "sha256": "7bc5d757b56cdaac0e3778a60de1fc6ed3a5028412ef9ae0ccac1b6fb80df0c0"
+    }
+  ],
+  "limitations": [
+    "Frozen-state single-layer suppression only; hiding all splashes is diagnostic, not the proposed fix.",
+    "No motion or implementation acceptance in this followup.",
+    "Early requested p5 and p1-high runs were invalid period setups and are excluded; corrected short-period runs assert duration and actual contact."
+  ]
+}

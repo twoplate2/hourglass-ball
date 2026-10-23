@@ -226,7 +226,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 - `design/checks/notes/stream-motion-shape-plan.html`：颗粒连续性与性能优先的最新约束、轮子选型备忘及投入限制；保留此前计划背景。
 - `design/checks/records/v3.6/`：速度/形状原始帧、旧版反例和本轮完整过程录像。
 
-- `src/app/short_grain_stream.py`：每颗真实存活粒子对应一个持续短粒图元；微粒方向/偏移出生后固定，按实际尺寸采样材质，复用Mesh缓冲；无沙量或计时写入。
+- `src/app/short_grain_stream.py`：每颗真实存活粒子对应持续短粒图元；另提供共享触地散粒颜色，空中保留浅色、触近/触地转堆色，固定弱色差由不可变属性决定，普通/batch共用RGBA8；无沙量或计时写入。
 - `src/tools/verify_short_grain_runtime.py`：隔离设置、原生隐藏 PC 画布的阶段与配色采集，记录实际绘制路径。
 - `src/tools/record_short_grain.py`：按墙钟取真实画布帧、保留可变帧间隔，拒绝未刷新画布的录像。
 - `src/tools/check_short_grain_visual.py`：检查柱内长缝、稀疏带和真实堆顶接触，不以单根线跨过某行视为密实。
@@ -262,7 +262,7 @@ rg --files src
 
 - `src/app/neck_geometry.py`：按球内径定义净通道，1～5秒为15%，10小时及以上为3%，中间按对数时长参数作幂插值。
 - `src/tools/release_decision.py`：当前审核决定及版本/源码身份；撤回和待验阻止发布，`--committed`核对决定及证据已纳入待推送HEAD。
-- `src/tools/check_flow_release.py`：当前3.10发布入口，核对原图、连续帧、5秒/50秒实录、独立审核及PC工作量；对照3.9/27a8279，主程序保持，物理比较只豁免飞溅子数组、数量和统计，主沙粒、沙量、几何、双随机状态和其他效果仍须一致。记录存在不等于整体视觉通过。
+- `src/tools/check_flow_release.py`：当前3.11发布入口，核对原图、连续帧、5秒/50秒实录、独立审核及PC工作量；对照3.10/c869e24，以精确源码边界保护主沙柱、质量、几何和计时，另与3.3/ff3b721核对完整飞溅发射。记录存在不等于当前外观通过。
 - `src/tools/stream_review_metrics.py`：出口台阶、空层、实心杆及整体摆动反例量具。
 - `src/tools/record_flow_review.py`：真正隐藏PC实时录像及暂停和末段记录。
 - `src/tools/test_neck_geometry.py`：口径端点和尺寸/时长映射。
@@ -270,7 +270,11 @@ rg --files src
 - `src/tools/test_receiving_surface.py`：低净空局部接收层与跨封顶连续性。
 - `src/tools/test_release_decision.py`：当前决定及提交身份的发布反例，拒绝撤回、待验和未提交/未跟踪的批准证据。
 - `src/tools/test_stream_review_metrics.py`：各类错误画面的独立反例。
-- `src/tools/test_flow_release.py`：25项发布反例，包含当前主程序保护、飞溅改动边界、双随机状态及其他效果保护、实际像素暂停和近满接收；保留历史AST反例。
+- `src/tools/test_flow_release.py`：发布反例，包含当前精确源码边界、双随机状态及其他效果保护、实际像素暂停和近满接收；保留历史AST反例。
+- `src/tools/test_splash_colours.py`：10项颜色反例，检查空中原色、触近/触地调色、固定粒子色差、浓淡端点、标量/向量与物理数组保持。
+- `src/tools/test_splash_tint_batch.py`：13项tint batch反例，检查RGBA8打包、矩形完整覆盖、纹理绑定、分块/缩减/空帧清理和无颜色时的原绘制路径。
+- `src/tools/test_splash33_impulse.py`：5项真实3.3发射对照，检查方法/参数AST、固定随机发射、完整初速、封顶和低净空；旧0.55/0.35作为负例。
+- `src/tools/verify_splash_tint_paths.py`：实际普通Rectangle/tint batch路径对照；结果只覆盖真实执行的配置，不能代替完整动态审阅。
 - `src/tools/test_landing_spread.py`：8项接触行为反例，核对实际坡面、埋藏不复活、暂停、标量/向量一致、原抛物线、后退表面及有限接触/停稳寿命。
 - `src/tools/test_particle_material.py`：2项材料采样检查，核对固定种子/尺寸载荷及纹理像素偏移与实际图元几何一致。
 - `src/tools/test_flare_occlusion.py`：5项实际闪光保留表达式检查，覆盖已埋闪光、接触、上缘、过期和坡面显露角。
@@ -282,7 +286,8 @@ rg --files src
 - `src/tools/pixel_flow_review.py` / `src/tools/test_pixel_flow_review.py`：真实GL像素的局部亚像素下行位移及冻结/倒流反例，不等于逐像素身份或屏幕FPS。
 - `src/tools/verify_receiving_pixels.py`：在隐藏PC固定近满几何及其他时钟，单独改变接收层相位并关闭该层作负对照，核对表面纹理实际像素变化；不以整个接收区的哈希变化代替局部运动证明。
 
-3.8工程结果保留，整体质感续审未达；3.9包含细粒材质、闪光和飞溅遮挡修正。3.10的微粒明暗候选被独立拒绝，正式渲染器保持3.9，只调整接触后贴坡与埋藏停稳。
+3.8工程结果保留，整体质感续审未达；3.9包含细粒材质、闪光和飞溅遮挡修正。3.10的微粒明暗候选被独立拒绝，其贴坡与埋藏安全修复继续保留；交接亮圈则由用户反馈重新打开。
+3.11按用户要求恢复真实3.3完整飞溅力度，空中原色和原发射量/粒径保持，仅对触近/触地散粒转堆色以消除亮圈；不回退主沙柱、颈宽、质量或计时，也不声称整套画面复刻3.3。
 连续性20项包含材质缺失与Mesh失败分别回退的反例。历史飞溅黄金指纹用于存储等价，本次显式接触变化另用新反例和实际画面验收，不重存旧指纹。
 5秒首次涨堆偏快仍为既有P2，不能据本轮结果声称全应用无问题。
-本轮保留100%容量；范围为隐藏PC外观与相邻状态、用户已要求的PC单帧工作量，不包含Android、音频、真实屏幕FPS或完整应用验收。最终以当前审核决定及records/v3.10正式证据为准。
+本轮保留100%容量；范围为隐藏PC外观与相邻状态、用户已要求的PC单帧工作量，不包含Android、音频、真实屏幕FPS或完整应用验收。最终以当前审核决定及records/v3.11正式证据为准。

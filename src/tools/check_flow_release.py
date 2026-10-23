@@ -22,10 +22,20 @@ from stream_review_metrics import inspect_motion,inspect_frame
 from pixel_flow_review import inspect as inspect_pixel_motion
 
 
-BASELINE_VERSION='3.9'
-BASELINE_COMMIT='27a8279fbbc003c6fd99a0f312c0d24ac3004b11'
-MATERIAL_FILES={'src/app/short_grain_stream.py','src/app/app_version.py',
-                'src/app/splash_motion.py'}
+BASELINE_VERSION='3.10'
+BASELINE_COMMIT='c869e24ea54732cddaed22b1ead18989b288e33b'
+MATERIAL_FILES={'src/app/app_version.py'}
+# Exact syntax boundaries, set only after independent review of the new delta.
+# These hashes protect scope; they are not appearance or motion acceptance.
+APPROVED_NODE_AST={
+    "main._draw_splashes": "59327e35d57357894130b860fd1cb0ae5a7207c6bb03cdd61519d6d7a43aa1bf",
+    "stream.splash_colours": "3d423c8091d4da3e88d258733a1224434305a75c6d2ab3e974f8874ab5014fdf",
+    "batch.TINT_VERTEX_SHADER": "44c541bd603855a304fdfa1a030d8853ae136c9a78632d4fd2948f46390fd692",
+    "batch._tint_bytes": "af91ad6f6bf2546599905b13015b75ef9cb8444413378d23ee3974ae0e2bc09e",
+    "batch._tint_context": "977a8094b6135a11cb355613c9d8474bdf9bbac8605423cfb50e722b03e72710",
+    "batch.ColoredSplashBatch": "eb7ddc78d26b7e32f596e404a4011292f468d305ced965edb4b32ea4b4addc28",
+    "batch.install": "ad668cbaa3dd85389877a9535f0df425667d149fc67a83162ab499838ab75d31"
+}
 TRACES={'final-normal':(50,3,241),'final-short':(5,3,61),
         'final-fine':(50,1,31),'final-coarse':(50,6,31),
         'final-long':(36000,3,61),'final-tail':(50,3,37)}
@@ -43,6 +53,10 @@ TOOLS+=['src/tools/test_flare_occlusion.py']
 TOOLS+=['src/tools/test_splash_occlusion.py']
 TOOLS+=['src/tools/check_short_grain_release.py']
 TOOLS+=['src/tools/test_landing_spread.py']
+TOOLS+=['src/tools/test_splash_tint_batch.py']
+TOOLS+=['src/tools/test_splash_colours.py']
+TOOLS+=['src/tools/test_splash33_impulse.py']
+TOOLS+=['src/tools/verify_splash_tint_paths.py']
 
 
 def read(path):return json.loads(Path(path).read_text(encoding='utf-8'))
@@ -109,10 +123,98 @@ def _restore_splash_extraction(current,baseline):
     cls.body.remove(helpers[0])
 
 
-def require_material_scope(manifest,baseline,main_sources=None):
+def _ast_sha(node):
+    return hashlib.sha256(ast.dump(node).encode('utf-8')).hexdigest()
+
+
+def _unique_method(tree,name):
+    classes=[n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='HourglassWidget']
+    methods=[n for c in classes for n in c.body if isinstance(n,ast.FunctionDef) and n.name==name]
+    if len(classes)!=1 or len(methods)!=1:
+        raise ValueError('Changed protected main: expected one unique '+name)
+    return classes[0],methods[0]
+
+
+def _require_pinned(node,key):
+    if _ast_sha(node)!=APPROVED_NODE_AST.get(key):
+        raise ValueError('Changed protected reviewed node: '+key)
+
+
+def require_splash_main_scope(candidate,baseline,require_tint=False):
+    current,old=ast.parse(candidate),ast.parse(baseline)
+    cls,emitter=_unique_method(current,'_eject_splash')
+    _,original=_unique_method(old,'_eject_splash')
+    expected=copy.deepcopy(original)
+    assignments=[n for n in ast.walk(expected) if isinstance(n,ast.Assign)
+                 and len(n.targets)==1 and isinstance(n.targets[0],ast.Tuple)
+                 and [getattr(t,'id',None) for t in n.targets[0].elts]==['vx','vy']]
+    if len(assignments)!=1 or not isinstance(assignments[0].value,ast.Tuple):
+        raise ValueError('Baseline splash launch assignment is not unique')
+    values=assignments[0].value.elts
+    if len(values)!=2:raise ValueError('Baseline splash launch components changed')
+    for i,factor in enumerate((.55,.35)):
+        value=values[i]
+        if (not isinstance(value,ast.BinOp) or not isinstance(value.op,ast.Mult)
+                or not isinstance(value.right,ast.Constant) or value.right.value!=factor):
+            raise ValueError('Baseline splash launch factors changed')
+        values[i]=value.left
+    if ast.dump(emitter)!=ast.dump(expected):
+        raise ValueError('Changed protected main outside the exact 3.3 splash launch restoration')
+    cls.body[cls.body.index(emitter)]=copy.deepcopy(original)
+    _,draw=_unique_method(current,'_draw_splashes')
+    _,old_draw=_unique_method(old,'_draw_splashes')
+    if require_tint or ast.dump(draw)!=ast.dump(old_draw):
+        _require_pinned(draw,'main._draw_splashes')
+        cls.body[cls.body.index(draw)]=copy.deepcopy(old_draw)
+    if ast.dump(current)!=ast.dump(old):
+        raise ValueError('Changed protected main outside declared splash drawing and launch')
+
+
+def _new_top_node(tree,name,kind):
+    if kind is ast.Assign:
+        rows=[n for n in tree.body if isinstance(n,ast.Assign) and len(n.targets)==1
+              and isinstance(n.targets[0],ast.Name) and n.targets[0].id==name]
+    else:rows=[n for n in tree.body if isinstance(n,kind) and n.name==name]
+    if len(rows)!=1:raise ValueError('Expected one unique new splash node: '+name)
+    return rows[0]
+
+
+def require_splash_colours_scope(candidate,baseline):
+    current,old=ast.parse(candidate),ast.parse(baseline)
+    node=_new_top_node(current,'splash_colours',ast.FunctionDef)
+    _require_pinned(node,'stream.splash_colours')
+    current.body.remove(node)
+    if ast.dump(current)!=ast.dump(old):
+        raise ValueError('Changed protected stream outside splash colour helper')
+
+
+def require_coloured_batch_scope(candidate,baseline):
+    current,old=ast.parse(candidate),ast.parse(baseline)
+    for name,kind in [('TINT_VERTEX_SHADER',ast.Assign),('_tint_bytes',ast.FunctionDef),
+                      ('_tint_context',ast.FunctionDef),('ColoredSplashBatch',ast.ClassDef)]:
+        node=_new_top_node(current,name,kind)
+        _require_pinned(node,'batch.'+name)
+        current.body.remove(node)
+    install=_new_top_node(current,'install',ast.FunctionDef)
+    old_install=_new_top_node(old,'install',ast.FunctionDef)
+    _require_pinned(install,'batch.install')
+    current.body[current.body.index(install)]=copy.deepcopy(old_install)
+    if ast.dump(current)!=ast.dump(old):
+        raise ValueError('Changed protected batch outside coloured splash addition')
+
+
+def require_material_scope(manifest,baseline,main_sources=None,source_pairs=None):
     if set(manifest)!=set(baseline):raise ValueError('Appearance runtime inventory changed')
+    source_pairs=dict(source_pairs or {})
+    if main_sources is not None:source_pairs['main.py']=main_sources
+    validators={'main.py':require_splash_main_scope,
+                'src/app/short_grain_stream.py':require_splash_colours_scope,
+                'src/app/flow_splash_experiment.py':require_coloured_batch_scope}
     for name,digest in manifest.items():
         if name not in MATERIAL_FILES and digest!=baseline[name]:
+            if name in validators and name in source_pairs:
+                validators[name](*source_pairs[name])
+                continue
             raise ValueError('Appearance iteration changed protected runtime: '+name)
 
 
@@ -194,6 +296,107 @@ def manifest_matches(report,manifest):
     return files
 
 
+def require_tint_path_proof(capture,proof,path,digest):
+    expected='ColoredSplashBatch' if path=='batch' else 'coloured_rectangles'
+    frames=capture['frames']
+    if (proof.get('completed') is not True or proof.get('all_draws_verified') is not True
+            or proof.get('requested_path')!=path or proof.get('actual_path')!=expected
+            or proof.get('observed_paths')!=[expected]
+            or proof.get('force_build_failure') is not (path=='rect')
+            or proof.get('install_was_batch') is not True):
+        raise ValueError('Actual splash tint path was not verified: '+path)
+    if (proof.get('source_sha256')!=digest
+            or proof.get('source_files')!=capture['source_files']
+            or proof.get('source_files_end')!=capture['source_files_end']):
+        raise ValueError('Splash tint path source differs from capture: '+path)
+    if (proof.get('frame_count')!=len(frames)
+            or proof.get('frame_names')!=[f['name'] for f in frames]
+            or proof.get('frame_sha256')!={f['file']:f['sha256'] for f in frames}):
+        raise ValueError('Splash tint path proof does not describe the captured frames')
+    keys=('draw_calls','nonempty_draw_calls','max_live_splashes','rect_pool_max','context_build_failures')
+    if any(type(proof.get(k)) is not int or proof[k]<0 for k in keys):
+        raise ValueError('Invalid splash tint path drawing counts')
+    maximum=max(f['splashes'] for f in frames)
+    if (not maximum or proof['max_live_splashes']<maximum
+            or proof['draw_calls']<len(frames)
+            or not 0<proof['nonempty_draw_calls']<=proof['draw_calls']):
+        raise ValueError('No actual nonempty splash tint drawing was proven')
+    if path=='rect':
+        if proof['rect_pool_max']<proof['max_live_splashes'] or not proof['context_build_failures']:
+            raise ValueError('Ordinary coloured Rectangle fallback was not exercised')
+    elif proof['rect_pool_max'] or proof['context_build_failures']:
+        raise ValueError('Coloured batch unexpectedly used ordinary fallback')
+    adjacent=proof.get('adjacent_paths',{})
+    for stem in ('neck','flare'):
+        count=adjacent.get(stem+'_batch_draws');classes=adjacent.get(stem+'_classes')
+        if (type(count) is not int or not 0<=count<=proof['draw_calls']
+                or not isinstance(classes,list) or not classes
+                or any(not isinstance(c,str) for c in classes)):
+            raise ValueError('Missing adjacent splash path identity')
+
+
+def require_tint_paths(folder,version,manifest,digest):
+    results=[];proofs=[];manifests=[]
+    for path in ('batch','rect'):
+        arm=folder/('tint-'+path)
+        capture=read(arm/'result.json');proof=read(arm/'splash-path.json')
+        require_capture(capture,8,'particle_sprite_pool')
+        if capture.get('version')!=version or capture.get('dimensions')!=[540,924]:
+            raise ValueError('Wrong splash tint path version or dimensions')
+        manifests.append(manifest_matches(capture,manifest))
+        require_tint_path_proof(capture,proof,path,digest)
+        results.append(capture);proofs.append(proof)
+    a,b=results
+    if (a['normalized_cases']!=b['normalized_cases']
+            or [f['name'] for f in a['frames']]!=[f['name'] for f in b['frames']]
+            or len({f['name'] for f in a['frames']})!=8
+            or a['source_files']!=b['source_files']):
+        raise ValueError('Splash tint paths did not capture the same cases and source')
+    expected={
+        'gold-eight':(50.,8.,'3',.35,0,[0.,1/30,2/30]),
+        'black':(50.,8.,'3',.35,5,[0.]),
+        'five':(5.,2.5,'3',.35,0,[0.]),
+        'tail':(50.,49.,'3',.35,0,[0.]),
+        'flat':(50.,25.,'3',0.,0,[0.]),
+        'coarse':(50.,25.,'6',.35,0,[0.])}
+    if {c['name'] for c in a['normalized_cases']}!=set(expected):
+        raise ValueError('Missing splash tint path cases')
+    for case in a['normalized_cases']:
+        values=tuple(case[k] for k in ('period','elapsed','grain','sand_grain','color','frame_offsets'))
+        if (values!=expected[case['name']] or case.get('rough')!='3'
+                or case.get('state')!='running' or case.get('pause_seconds')!=0.):
+            raise ValueError('Splash tint path cases differ from the reviewed contract')
+    for stem in ('neck','flare'):
+        key=stem+'_classes'
+        if (proofs[0]['adjacent_paths'][key]!=proofs[1]['adjacent_paths'][key]
+                or bool(proofs[0]['adjacent_paths'][stem+'_batch_draws'])
+                !=bool(proofs[1]['adjacent_paths'][stem+'_batch_draws'])):
+            raise ValueError('Adjacent drawing paths changed between splash tint arms')
+    for left,right in zip(a['frames'],b['frames']):
+        states=[]
+        for frame,path in ((left,'batch'),(right,'rect')):
+            state=copy.deepcopy(frame);state.pop('sha256')
+            contexts=state['shaders']['contexts']
+            splash=[c for c in contexts if c['path']=='_splash_context']
+            if ((path=='batch' and (len(splash)!=1 or splash[0].get('success') is not True))
+                    or (path=='rect' and splash)):
+                raise ValueError('Captured splash shader identity disagrees with actual path')
+            state['shaders']['contexts']=[c for c in contexts if c['path']!='_splash_context']
+            states.append(state)
+        if states[0]!=states[1]:
+            raise ValueError('Splash tint paths changed physics, geometry or adjacent drawing: '+left['name'])
+        arrays=[]
+        for frame,path in ((left,'batch'),(right,'rect')):
+            file=folder/('tint-'+path)/frame['file']
+            if sha(file)!=frame['sha256']:raise ValueError('Splash tint path image changed')
+            with Image.open(file) as im:
+                if list(im.size)!=a['dimensions']:raise ValueError('Splash tint image dimensions changed')
+                arrays.append(np.asarray(im.convert('RGB')))
+        if not np.array_equal(*arrays):
+            raise ValueError('Splash tint paths differ in actual RGB pixels: '+left['name'])
+    return dict(frames=8,rgb_changed_pixels=0,nonempty_frames=sum(f['splashes']>0 for f in a['frames'])),manifests
+
+
 def validate(record=None):
     path=Path(record) if record else check_current()
     r=read(path);version=current_version();manifest=runtime_manifest()
@@ -201,8 +404,15 @@ def validate(record=None):
         raise ValueError('Release record does not describe current runtime')
     if r.get('source_manifest')!=manifest:raise ValueError('Runtime manifest changed')
     baseline=baseline_sources()
+    scoped=('main.py','src/app/short_grain_stream.py','src/app/flow_splash_experiment.py')
+    pairs={name:((ROOT/name).read_bytes(),baseline[name]) for name in scoped}
     require_material_scope(manifest,{name:hashlib.sha256(value.replace(b'\r\n',b'\n')).hexdigest()
-                                    for name,value in baseline.items()})
+                                    for name,value in baseline.items()},source_pairs=pairs)
+    # Every release must include the declared launch restoration and colour path,
+    # rather than silently accepting a version-only push against the old image.
+    require_splash_main_scope(*pairs['main.py'],require_tint=True)
+    require_splash_colours_scope(*pairs['src/app/short_grain_stream.py'])
+    require_coloured_batch_scope(*pairs['src/app/flow_splash_experiment.py'])
     goals=('geometry','upper','stream','edges','landing','joins','states','near_full')
     if r.get('status')!='approved' or not all(r.get('review',{}).get(k)=='passed' for k in goals):
         raise ValueError('Missing scoped visual review')
@@ -254,6 +464,8 @@ def validate(record=None):
                     with Image.open(folder/arm/a['file']) as ia,Image.open(folder/arm/b['file']) as ib:
                         if np.array_equal(np.asarray(ia.crop(box)),np.asarray(ib.crop(box))):
                             raise ValueError('Material strength does not affect actual stream pixels')
+        stats['tint_paths'],tint_manifests=require_tint_paths(folder,version,manifest,source_digest())
+        manifests.extend(tint_manifests)
         previous=read(folder/'baseline-matrix-low/result.json')
         require_capture(previous,55,'particle_sprite_pool')
         perf_baseline=read(folder/'perf-before/motion.json')

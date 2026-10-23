@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>3.11 飞溅力度与柱堆融合</title><link rel="stylesheet" href="../../style.css"></head><body><main>
+<h1>3.11：恢复3.3飞溅力度，消除柱堆亮圈</h1>
+<p>本轮依照<a href="../../notes/contact-blend-plan.html">计划及用户追加偏好</a>，恢复3.3的空中飞溅力度，修复<a href="../v3.10/contact-seam-followup.html">3.10交接亮圈</a>。原有沙柱、颈宽、计时及100%沙量保持。当前放行状态见<a href="../../current-review.json">审核决定</a>，具体源身份与数据见<a href="review.json">发布登记</a>。</p>
+<h2>具体变化</h2>
+<p>真实3.3提交ff3b721的发射方法使用完整水平与垂直初速度；后续的0.55、0.35缩减系数已移除。发射数量、粒径、速度随机参数及空中浅金色保持原值。3.3同输入、同随机种子的实际发射对照通过，3.10缩减方法继续作为被拒的负例。现在颈宽和接触模型不同，不能据此声称整幅画面逐像素复刻3.3。</p>
+<figure><img src="comparison.png" width="1080" height="964" alt="3.10与3.11同配置第8秒正常尺寸原图，飞溅范围展开。"><figcaption>同种子、同540×924。<a href="normal-before-native.png">3.10原图</a> · <a href="normal-after-native.png">3.11原图</a>。静态画面不能证明运动速度。</figcaption></figure>
+<p>亮圈的主要来源是贴坡散粒统一使用sand_light，密集重叠后像一圈描边。现在只在下降贴近堆面及触地后，逐渐使用接近沙堆本色的固定颗粒明暗；空中上升和离堆较远的亮粒保持。位置、数量、尺寸和alpha均不由调色删除，不使用逐帧随机筛选。</p>
+<figure><img src="contact-tint.png" width="480" height="240" alt="同一批实际粒子同一时刻：统一亮色出现亮圈，触地调色后亮圈融入堆面。"><figcaption>原像素裁图；此对照只切换颜色，完整物理状态前后摘要相等。没有隐藏飞溅层。<a href="contact-tint.json">同刻诊断原始记录</a>。</figcaption></figure>
+<h2>实际动态</h2>
+<p><a href="5-seconds.mp4">5秒原速实录</a> · <a href="50-seconds.mp4">50秒原速实录</a>，含暂停、恢复、末1%、余砂及落定。来自真正隐藏PC窗口与独立设置目录，无插帧。动态审核只声明实际查看的连续解码窗口及正常尺寸画面，不将图板称为完整原速播放。</p>
+<video controls preload="metadata" src="5-seconds.mp4" style="max-width:360px;width:100%"></video>
+<video controls preload="metadata" src="50-seconds.mp4" style="max-width:360px;width:100%"></video>
+<p><a href="ending-5.png">5秒阶段与落定</a> · <a href="ending-50.png">50秒阶段与落定</a> · <a href="colors.png">六配色和粗细两端</a> · <a href="periods.png">1秒/5秒/50秒/最细颈</a>。</p>
+<h2>两条绘制路径与保护检查</h2>
+<table><thead><tr><th>检查</th><th>证据及限制</th></tr></thead><tbody>
+<tr><td>普通与批量绘制</td><td>两路径共用RGBA8颜色。真实普通Rectangle与彩色batch各8张图，完整物理和几何相同，RGB逐像素零差；普通路径真实触发构建失败回退，非空粒子池与实际实例断言均过。<a href="tint-path-comparison.json">独立比较记录</a>。</td></tr>
+<tr><td>缺角反例</td><td>首轮两路径有200余像素差异、最高通道差189，被拦下。确认是旧矩形三角索引漏角后，只修正彩色子类的私有索引；公共batch、颈部、marker代码保持。修前反例与差异图保留，没有放宽像素容差。</td></tr>
+<tr><td>源码与物理保护</td><td>main只允许3.3发射系数及着色方法变化；还原这些精确AST后全文件同3.10。沙柱原shader和函数、公共batch与相邻路径保持。55张阶段比较只允许飞溅自身数组/统计变化，主粒子、沙量、几何、双随机状态、其他效果和时钟仍保持。</td></tr>
+<tr><td>接缝与状态</td><td>既有低55、高17、回退4、浓淡端点4，以及6组真实主粒子轨迹与局部下行像素检查。另有正常尺寸、1秒接触原像素、黑沙、5/50暂停恢复及收尾独立复审；物理与非空检查不能替代视觉。</td></tr>
+<tr><td>能力及故障回退</td><td>新batch只额外传每粒一RGBA8纹素，静态Mesh不逐帧重传。两采样器能力和实际shader在包装前检查；画布/纹理失败保留普通有色绘制。PC专项验证不代表Android性能或设备验证。</td></tr>
+</tbody></table>
+<p>同配置PC工作量原始样本及预算结果在<a href="review.json">发布登记</a>和证据包中。计时包含更新、绘制及GPU完成等待，排除取图编码；不以一场前后测量声称稳定提速，也不据此声称实屏FPS。</p>
+<h2>复审与未查范围</h2>
+<p><a href="adversarial-review.html">对抗性审核及失败证据</a> · <a href="independent-source-review.json">独立源码审核</a> · <a href="independent-motion-review.json">独立动态审核</a>。5秒首次涨堆偏快的既有P2仍保留。Android、MuMu、音频、真实屏幕刷新、10小时全程及全部配色全程未登记通过。</p>
+<p><a href="../index.html">返回版本记录</a></p></main></body></html>

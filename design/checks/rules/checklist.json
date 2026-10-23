@@ -14,6 +14,9 @@
     {"id": "flare-occlusion-tests", "command": ["src/tools/test_flare_occlusion.py"], "timeout": 60, "unittest_min": 5},
     {"id": "splash-occlusion-tests", "command": ["src/tools/test_splash_occlusion.py"], "timeout": 60, "unittest_min": 4},
     {"id": "landing-spread-tests", "command": ["src/tools/test_landing_spread.py"], "timeout": 60, "unittest_min": 8},
+    {"id": "splash-colour-tests", "command": ["src/tools/test_splash_colours.py"], "timeout": 60, "unittest_min": 10},
+    {"id": "splash-tint-batch-tests", "command": ["src/tools/test_splash_tint_batch.py"], "timeout": 60, "unittest_min": 13},
+    {"id": "splash33-impulse-tests", "command": ["src/tools/test_splash33_impulse.py"], "timeout": 60, "unittest_min": 5},
     {"id": "particle-release-tests", "command": ["src/tools/test_particle_release.py"], "timeout": 60, "unittest_min": 24},
     {"id": "material-release-tests", "command": ["src/tools/test_material_release.py"], "timeout": 60, "unittest_min": 9},
     {"id": "short-grain-release-tests", "command": ["src/tools/test_short_grain_release.py"], "timeout": 60, "unittest_min": 12},
@@ -40,7 +43,7 @@
     {"id": "receiving-surface", "command": ["src/tools/test_receiving_surface.py"], "timeout": 60, "unittest_min": 4},
     {"id": "current-decision", "command": ["src/tools/test_release_decision.py"], "timeout": 60, "unittest_min": 7},
     {"id": "stream-review", "command": ["src/tools/test_stream_review_metrics.py"], "timeout": 60, "unittest_min": 8},
-    {"id": "flow-release", "command": ["src/tools/test_flow_release.py"], "timeout": 60, "unittest_min": 25},
+    {"id": "flow-release", "command": ["src/tools/test_flow_release.py"], "timeout": 60, "unittest_min": 45},
     {"id": "pixel-flow", "command": ["src/tools/test_pixel_flow_review.py"], "timeout": 60, "unittest_min": 4}
   ],
   "rules": [

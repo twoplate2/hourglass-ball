@@ -30,6 +30,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         python -B src/tools/test_flare_occlusion.py || exit 1
         python -B src/tools/test_splash_occlusion.py || exit 1
         python -B src/tools/test_landing_spread.py || exit 1
+        python -B src/tools/test_splash_colours.py || exit 1
+        python -B src/tools/test_splash_tint_batch.py || exit 1
+        python -B src/tools/test_splash33_impulse.py || exit 1
         python -B src/tools/test_particle_release.py || exit 1
         python -B src/tools/test_stream_motion_shape.py || exit 1
         python -B src/tools/test_motion_shape_release.py || exit 1

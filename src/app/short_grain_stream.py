@@ -114,6 +114,58 @@ def visible_splash_sizes(count,xs,ys,hws,hhs,carve_vertices,floor):
     return np.where(visible,hw,0.0),np.where(visible,hh,0.0)
 
 
+def splash_colours(count,xs,ys,vys,rests,stills,seeds,half_heights,
+                   carve_vertices,floor,base,light,grain):
+    """Keep bright airborne grains; merge supported grains into the pile palette.
+
+    Gravity variation is immutable for a grain, including after array compaction.
+    Colours have one shared RGBA8 representation for Rectangle and GPU drawing.
+    No position, count, lifetime, alpha or random state is changed here.
+    """
+    strength=max(0.0,min(1.5,grain/.35))
+    try:
+        import numpy as np
+    except ImportError:
+        from bisect import bisect_right
+        nodes=[]
+        for i in range(0,len(carve_vertices),16):
+            q=carve_vertices[i:i+16]
+            if len(q)==16 and q[4]>q[0]:nodes.extend(((q[0],q[1]),(q[4],q[5])))
+        nodes=sorted(dict(nodes).items());axis=[p[0] for p in nodes]
+        def surface(x):
+            if not nodes:return floor
+            i=bisect_right(axis,x)
+            if i==0:return nodes[0][1]
+            if i==len(nodes):return nodes[-1][1]
+            a,b=nodes[i-1],nodes[i]
+            return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])
+        result=[]
+        for i in range(count):
+            gap=max(0.0,ys[i]-surface(xs[i]))
+            t=max(0.0,min(1.0,gap/(2.0*max(1.0,half_heights[i]))))
+            blend=(1.0 if rests[i]>0.0 or stills[i]>0.0 else
+                   1.0-t*t*(3.0-2.0*t) if vys[i]<=0.0 else 0.0)
+            detail=((seeds[i]*997.0)%1.0-.5)*.04*strength
+            rgb=[max(0.0,min(1.0,base[k]+detail)) for k in range(3)]
+            result.append(tuple(round(max(0.0,min(1.0,light[k]+(rgb[k]-light[k])*blend))*255)
+                                for k in range(3))+(255,))
+        return result
+    if not count:return np.empty((0,4),dtype=np.uint8)
+    x,y,vy,rest,still,seed,hh=[np.asarray(a[:count]) for a in
+        (xs,ys,vys,rests,stills,seeds,half_heights)]
+    surface=(mound_surface_at(x,carve_vertices,floor) if carve_vertices else
+             np.full(count,floor))
+    t=np.clip(np.maximum(0.0,y-surface)/(2.0*np.maximum(1.0,hh)),0.0,1.0)
+    blend=np.where((rest>0.0)|(still>0.0),1.0,np.where(vy<=0.0,1.0-t*t*(3.0-2.0*t),0.0))
+    detail=((seed*997.0)%1.0-.5)*.04*strength
+    ground=np.clip(np.asarray(base)[None,:]+detail[:,None],0.0,1.0)
+    rgb=np.asarray(light)[None,:]+(ground-np.asarray(light)[None,:])*blend[:,None]
+    rgba=np.empty((count,4),dtype=np.uint8)
+    rgba[:,:3]=np.rint(np.clip(rgb,0.0,1.0)*255).astype(np.uint8)
+    rgba[:,3]=255
+    return rgba
+
+
 VERTEX_SHADER = """
 $HEADER$
 attribute float vTone;

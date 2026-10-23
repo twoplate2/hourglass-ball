@@ -17,6 +17,9 @@ python -B src/tools/test_particle_material.py
 python -B src/tools/test_flare_occlusion.py
 python -B src/tools/test_splash_occlusion.py
 python -B src/tools/test_landing_spread.py
+python -B src/tools/test_splash_colours.py
+python -B src/tools/test_splash_tint_batch.py
+python -B src/tools/test_splash33_impulse.py
 python -B src/tools/test_particle_release.py
 python -B src/tools/test_stream_motion_shape.py
 python -B src/tools/test_motion_shape_release.py

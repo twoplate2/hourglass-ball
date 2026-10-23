@@ -1,0 +1,39 @@
+{
+  "completed": true,
+  "method": "same actual particles and frozen clock; uniform original light colours versus contact palette only; complete physical state restored and equal",
+  "source_sha256": "627e1db34a3818c1398ec99e8d0f61a72600b17ced989192a0e9ee22f8cfd8d0",
+  "physics_before_sha256": "a226268a96b669310f02a08172ab7fb6e35e26c238ae9e4022305ad49db10995",
+  "physics_after_sha256": "a226268a96b669310f02a08172ab7fb6e35e26c238ae9e4022305ad49db10995",
+  "physical_state_equal": true,
+  "period": 1.0,
+  "elapsed": 0.5,
+  "center": 540.0,
+  "surface_y": 1518.5943005599675,
+  "half_width": 62.65340526315788,
+  "flow_strength": 0.6835937499992006,
+  "band_alpha": 0.55,
+  "frames": [
+    {
+      "name": "baseline",
+      "file": "baseline.png",
+      "sha256": "fa26c026af6f72c84fbc91f6c883d3613e8614317c7d5e53ad8a612a38d3993a",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    },
+    {
+      "name": "uniform-splashes",
+      "file": "uniform-splashes.png",
+      "sha256": "bcf5d2a58dee649db1f43e33327d46ac977c348f36c9de49dfb20dfabf3497be",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "completed": true,
+  "method": "diagnostic same frozen state; only named rendering layer suppressed; not a new application build",
+  "source_sha256": "bd0692147bd8d18636153c4390b87dedb00a607d313b11bef784340ec5a6f41f",
+  "period": 1.0,
+  "elapsed": 0.5,
+  "center": 540.0,
+  "surface_y": 1518.5943005599675,
+  "half_width": 62.65340526315788,
+  "flow_strength": 0.6835937499992006,
+  "band_alpha": 0.55,
+  "frames": [
+    {
+      "name": "baseline",
+      "file": "baseline.png",
+      "sha256": "78aae911df61a587f9c0cd272f84e53a2688555be1d354a3676ad7096823c60b",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    },
+    {
+      "name": "no-band",
+      "file": "no-band.png",
+      "sha256": "bf3c3a64500c45e6739bec3e1a1d29fce369366d2f97b62e86f86e41194f3104",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    },
+    {
+      "name": "no-surface-flow",
+      "file": "no-surface-flow.png",
+      "sha256": "faa8da78eeee344957af5cbc4247296421d00e45e113ac5a10069f4e60eb7f2b",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    },
+    {
+      "name": "no-contact-grains",
+      "file": "no-contact-grains.png",
+      "sha256": "da2e008c8c46ed9d079d57051608f8cba4f9b9100638dddc554670bc79bade0e",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    },
+    {
+      "name": "no-flares",
+      "file": "no-flares.png",
+      "sha256": "78aae911df61a587f9c0cd272f84e53a2688555be1d354a3676ad7096823c60b",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    },
+    {
+      "name": "no-splashes",
+      "file": "no-splashes.png",
+      "sha256": "b855e4700665e1eff78568d592793c479e8ab6ce453a52ed888be7d8751a913b",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    },
+    {
+      "name": "no-highlights",
+      "file": "no-highlights.png",
+      "sha256": "223a2740f626fa93d7d2e5f164159d3d1cfff9b6e847ae062c438b32ad341b2a",
+      "hidden": {
+        "IsWindow": true,
+        "IsWindowVisible": false,
+        "IsIconic": false,
+        "window_state_config": "hidden"
+      }
+    }
+  ]
+}

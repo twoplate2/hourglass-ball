@@ -1,0 +1,147 @@
+{
+  "reviewer": "independent_tint_path_capture",
+  "status": "passed",
+  "completed": true,
+  "open_blockers": [],
+  "source_sha256": "627e1db34a3818c1398ec99e8d0f61a72600b17ced989192a0e9ee22f8cfd8d0",
+  "scope": "Same-source actual coloured batch and ordinary Rectangle rendering; not visual, performance or device acceptance",
+  "frames": [
+    {
+      "name": "gold-eight-f000",
+      "file": "gold-eight-f000.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "322f22aa2bb20dfb82dc97da627ff2dcf3bb949b69bec86205abb0c75a7b1ee8",
+      "rect_sha256": "322f22aa2bb20dfb82dc97da627ff2dcf3bb949b69bec86205abb0c75a7b1ee8"
+    },
+    {
+      "name": "gold-eight-f001",
+      "file": "gold-eight-f001.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "2423f406deed0a1e13d9d5415f03b7cf329533a94117d3608aa5b90d88cc350f",
+      "rect_sha256": "2423f406deed0a1e13d9d5415f03b7cf329533a94117d3608aa5b90d88cc350f"
+    },
+    {
+      "name": "gold-eight-f002",
+      "file": "gold-eight-f002.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "a53fb04545703d6cd43dfb4d523fd035db6a6e353dcdbf2942aa8558224ac3f3",
+      "rect_sha256": "a53fb04545703d6cd43dfb4d523fd035db6a6e353dcdbf2942aa8558224ac3f3"
+    },
+    {
+      "name": "black-f000",
+      "file": "black-f000.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "321d0cc4b678ccfd13fb2831b9f3143d77680ec418df481ad82037ee3668b87b",
+      "rect_sha256": "321d0cc4b678ccfd13fb2831b9f3143d77680ec418df481ad82037ee3668b87b"
+    },
+    {
+      "name": "five-f000",
+      "file": "five-f000.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "7c83ce554f4ad058181fe4ab51464b810bdebe17b39144eb6a6186857280661d",
+      "rect_sha256": "7c83ce554f4ad058181fe4ab51464b810bdebe17b39144eb6a6186857280661d"
+    },
+    {
+      "name": "tail-f000",
+      "file": "tail-f000.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "27c18d809e60ffe7ca9e75cb52ee2bf5b35f7dd3dbac22f768771ed7609d1e28",
+      "rect_sha256": "27c18d809e60ffe7ca9e75cb52ee2bf5b35f7dd3dbac22f768771ed7609d1e28"
+    },
+    {
+      "name": "flat-f000",
+      "file": "flat-f000.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "36c220c12ca73765b0471c91187d640074c35b328aaf92641feca491fe86309a",
+      "rect_sha256": "36c220c12ca73765b0471c91187d640074c35b328aaf92641feca491fe86309a"
+    },
+    {
+      "name": "coarse-f000",
+      "file": "coarse-f000.png",
+      "changed_pixels": 0,
+      "max_channel_difference": 0,
+      "physics_equal": true,
+      "geometry_equal": true,
+      "batch_sha256": "4e0c9e521c663b7df30d7dd05a7cbb72470acf20562142b7529dc4e4f7abbda8",
+      "rect_sha256": "4e0c9e521c663b7df30d7dd05a7cbb72470acf20562142b7529dc4e4f7abbda8"
+    }
+  ],
+  "frame_count": 8,
+  "all_rgb_identical": true,
+  "all_physics_geometry_equal": true,
+  "adjacent_paths": {
+    "tint-batch": {
+      "neck_batch_draws": 0,
+      "flare_batch_draws": 15,
+      "neck_classes": [
+        "None"
+      ],
+      "flare_classes": [
+        "FlareBatch"
+      ]
+    },
+    "tint-rect": {
+      "neck_batch_draws": 0,
+      "flare_batch_draws": 15,
+      "neck_classes": [
+        "None"
+      ],
+      "flare_classes": [
+        "FlareBatch"
+      ]
+    }
+  },
+  "proof_summaries": {
+    "tint-batch": {
+      "requested_path": "batch",
+      "actual_path": "ColoredSplashBatch",
+      "observed_paths": [
+        "ColoredSplashBatch"
+      ],
+      "all_draws_verified": true,
+      "draw_calls": 15,
+      "nonempty_draw_calls": 8,
+      "max_live_splashes": 1987,
+      "context_build_failures": 0
+    },
+    "tint-rect": {
+      "requested_path": "rect",
+      "actual_path": "coloured_rectangles",
+      "observed_paths": [
+        "coloured_rectangles"
+      ],
+      "all_draws_verified": true,
+      "draw_calls": 15,
+      "nonempty_draw_calls": 8,
+      "max_live_splashes": 1987,
+      "context_build_failures": 9
+    }
+  },
+  "evidence": [
+    "tint-batch/result.json",
+    "tint-rect/result.json",
+    "tint-batch/splash-path.json",
+    "tint-rect/splash-path.json"
+  ]
+}

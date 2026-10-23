@@ -6247,9 +6247,8 @@ class HourglassWidget(Widget):
         reference = self._splash_reference_speed or float(v_impact)
         strength = reference * (0.90 + 0.10 * min(1.0, v_impact / reference))
         speed = strength * gain * self._splash_speed_scale
-        # Keep the emitter and grain sizes; shorten the airborne arc so impacts
-        # settle near the contact patch instead of forming a wide spray cloud.
-        vx, vy = side * math.sin(angle) * speed * 0.55, abs(math.cos(angle)) * speed * 0.35
+        # Restore the full 3.3 airborne splash impulse requested by the user.
+        vx, vy = side * math.sin(angle) * speed, abs(math.cos(angle)) * speed
         scale = self._particle_motion_scale
         gravity = 450.0 * (scale * scale if SPLASH_G_SCALE >= 1.0
                            else scale ** SPLASH_G_SCALE) * gd
@@ -8591,22 +8590,39 @@ class HourglassWidget(Widget):
         self._update_pause_overlay()
 
     def _draw_splashes(self):
-        # The pile has already grown during this tick. Clip only the drawing,
-        # using the actual carve, without deleting or moving physical splashes.
-        from short_grain_stream import visible_splash_sizes
+        # Preserve the physical grains and hide only their buried drawing area.
+        from short_grain_stream import visible_splash_sizes, splash_colours
         hws,hhs=self.srw,self.srh
         if self._sn and self._mound_carve is not None:
             hws,hhs=visible_splash_sizes(self._sn,self.sx,self.sy,self.srw,self.srh,
                                          self._mound_carve._v,self._lower_sand_bot)
+        colours=splash_colours(self._sn,self.sx,self.sy,self.svy,self.srest,self.sstill,
+            self.sgd,self.shh,self._mound_carve._v if self._mound_carve is not None else [],
+            self._lower_sand_bot,self.sand_base,self.sand_light,SAND_MATERIAL_GRAIN)
+        self._splash_color.rgba=(1.0,1.0,1.0,1.0)
         _batch = getattr(self, "_splash_batch", None)
         if _batch is None:
-            # 非批处理路径(桌面默认)也走**数组** —— 原先这里传的是 `self.splashes`,
-            # 而那是个 property, 每帧重建 1403 个 dict(桌面 cProfile 实测占 **18%**)。
-            self._sync_rects_arrays(self._splash_group, self._splash_rects, self._sn,
-                                    self.sx, self.sy, hws, hhs)
+            if getattr(self,"_splash_tint_group",None) is not self._splash_group:
+                self._splash_tint_group=self._splash_group
+                self._splash_tint_colors=[]
+                self._splash_rects=[]
+            for i in range(self._sn):
+                rgba=tuple(float(channel)/255.0 for channel in colours[i])
+                pos=(self.sx[i]-hws[i],self.sy[i]-hhs[i])
+                size=(2.0*hws[i],2.0*hhs[i])
+                if i==len(self._splash_rects):
+                    color=Color(*rgba);rect=Rectangle(pos=pos,size=size)
+                    self._splash_group.add(color);self._splash_group.add(rect)
+                    self._splash_tint_colors.append(color);self._splash_rects.append(rect)
+                else:
+                    color,rect=self._splash_tint_colors[i],self._splash_rects[i]
+                    if tuple(color.rgba)!=rgba:color.rgba=rgba
+                    if rect.pos!=pos:rect.pos=pos
+                    if rect.size!=size:rect.size=size
+            for rect in self._splash_rects[self._sn:]:
+                if rect.size[0] or rect.size[1]:rect.size=(0,0)
         else:
-            # 并行数组直通(每颗省掉 3 次 dict 查找)。
-            _batch.update_arrays(self._sn, self.sx, self.sy, hws, hhs)
+            _batch.update_tinted_arrays(self._sn,self.sx,self.sy,hws,hhs,colours)
 
     def set_settings_preview(self, enabled):
         """仅调整预览遮罩，不推进计时或颗粒状态。"""

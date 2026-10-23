@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "version": "3.11",
+  "reviewer": "seam311_release_guard",
+  "review_type": "independent_source_and_release_contract_review",
+  "status": "passed",
+  "open_blockers": [],
+  "source_sha256": "627e1db34a3818c1398ec99e8d0f61a72600b17ced989192a0e9ee22f8cfd8d0",
+  "source_manifest": {
+    "main.py": "660346b521d1015aad16cacf609092176a97c3146a4efab0a2f22e8291d8c6eb",
+    "buildozer.spec": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "d82f91c8c11c8a84c6d2449aabd0d6d1a8e6a77c1c2518bf6a5cb7c73607ffdd",
+    "src/app/app_version.py": "69735632de2cc9f1825ca10e2028384c9ba6791df51b2dd31ca8149f3c79b9b3",
+    "src/app/flow_batch_experiment.py": "9f7dc0d48900f0b3125d41463b615fbec334a555827bf44a9dfe960f27fa57b4",
+    "src/app/flow_gpu_experiment.py": "ffe94c0bcf80276f287bbe7c58f7b941267b6ff39f4f30dfdb0871a4c7154305",
+    "src/app/flow_numpy.py": "aa90bb57c1e6d6e40799820ea75a2c9d35bd3d3c807ab0a075aa39eb0b3fa302",
+    "src/app/flow_splash_experiment.py": "655c8826035e23fb17df8b4d1d65a73ee8d2d1a5a5c8593089a69d6dc9314b71",
+    "src/app/flow_texture_experiment.py": "4dad0e264fc82fb3bd3093f95b811bcf34098c4e86e2aaed912a6b4cf59077f6",
+    "src/app/frame_benchmark.py": "ddb279fc1eb6e7cf3654dd807d0f81afcf553b94f78320aec95eeaba50515e4b",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "a4b593f371c5ece9841dc0504a24c0895bae2bbc2f3bada2b5c1feef7eccd1c3",
+    "src/app/marker_batch_experiment.py": "b804b8e76f757a60ebb20b0e400bb2874de7305eb81a5f9b491d2d5a8be54b78",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "418bae83aa405db8c7b034f2424902420b055db12ad3932f4d9a50ae3ad5e2bb",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "aa85c3e5904927c77239333fd42eb705db01025a175503ee748dd9b6972ba6ef",
+    "src/app/short_grain_stream.py": "4fe28ff1d286bff640403f4b4c5ad5b22a4856b833a9980a7f642c7071a581cf",
+    "src/app/splash_motion.py": "486e59d455423342f40e62eca24039f4b8296ce3e5de9e070b9a6c8c507ad9c1",
+    "src/app/stream_rendering.py": "d3dd6a00012369fa15c21bb01180fa2359427f0b863996459df2ef0839e5809a"
+  },
+  "baseline_commit": "c869e24ea54732cddaed22b1ead18989b288e33b",
+  "changed_runtime_files": [
+    "main.py",
+    "src/app/app_version.py",
+    "src/app/flow_splash_experiment.py",
+    "src/app/short_grain_stream.py"
+  ],
+  "reviewed_scope": [
+    "main._eject_splash仅还原3.3两个抛射倍率；5项原3.3实际方法/参数/随机反例通过，主体随机和质量未获得豁免。",
+    "main._draw_splashes按明确AST摘要锁定；剥离该明确方法变更与两倍率后，其余main AST精确等于3.10。",
+    "short_grain_stream只新增splash_colours，既有材质shader、coverage、UV和粒子方法AST完全保持。颜色函数只读物理输入，不更改数量/位置/寿命/alpha/RNG。",
+    "flow_splash_experiment只新增四个明确节点及install。剥离和还原后公共SplashBatch、neck、marker与模块其余AST精确等于3.10。",
+    "Colored私有索引修为(0,1,3,0,3,2)，覆盖BL/BR/TL/TR选择子对应的两半完整矩形；公共_INDICES和SplashBatch不变。",
+    "实际2sampler预检、shader预编译和detached新group首块分配在替换之前；失败使用普通彩色Rectangle，同一RGBA8数据。",
+    "发布合同对两组正式8帧要求真正隐藏、same-source/实例证明、完整状态和相邻shader一致、全图RGB0差。1级颜色差也有拒绝反例；未放宽现有空洞/粗实心杆/主流阈值。",
+    "已独立调用正式两路径gate：冻结627e源码的8/8真实图全RGB0差，完整physics/geometry/其余绘制状态同，两个真实实例proof及隐藏状态通过。"
+  ],
+  "approved_ast_nodes": {
+    "main._draw_splashes": "59327e35d57357894130b860fd1cb0ae5a7207c6bb03cdd61519d6d7a43aa1bf",
+    "stream.splash_colours": "3d423c8091d4da3e88d258733a1224434305a75c6d2ab3e974f8874ab5014fdf",
+    "batch.TINT_VERTEX_SHADER": "44c541bd603855a304fdfa1a030d8853ae136c9a78632d4fd2948f46390fd692",
+    "batch._tint_bytes": "af91ad6f6bf2546599905b13015b75ef9cb8444413378d23ee3974ae0e2bc09e",
+    "batch._tint_context": "977a8094b6135a11cb355613c9d8474bdf9bbac8605423cfb50e722b03e72710",
+    "batch.ColoredSplashBatch": "eb7ddc78d26b7e32f596e404a4011292f468d305ced965edb4b32ea4b4addc28",
+    "batch.install": "ad668cbaa3dd85389877a9535f0df425667d149fc67a83162ab499838ab75d31"
+  },
+  "checks": [
+    {
+      "command": "src/tools/test_flow_release.py",
+      "returncode": 0,
+      "tests": 45
+    },
+    {
+      "command": "src/tools/test_splash_colours.py",
+      "returncode": 0,
+      "tests": 10
+    },
+    {
+      "command": "src/tools/test_splash_tint_batch.py",
+      "returncode": 0,
+      "tests": 13
+    },
+    {
+      "command": "src/tools/test_splash33_impulse.py",
+      "returncode": 0,
+      "tests": 5
+    },
+    {
+      "command": "src/tools/test_splash_occlusion.py",
+      "returncode": 0,
+      "tests": 4
+    },
+    {
+      "command": "src/tools/test_particle_continuity.py",
+      "returncode": 0,
+      "tests": 20
+    },
+    {
+      "command": "src/tools/test_landing_spread.py",
+      "returncode": 0,
+      "tests": 8
+    },
+    {
+      "command": "src/tools/test_flare_occlusion.py",
+      "returncode": 0,
+      "tests": 5
+    },
+    {
+      "command": "src/tools/test_particle_material.py",
+      "returncode": 0,
+      "tests": 2
+    }
+  ],
+  "evidence": [
+    "source-tests.txt",
+    "src/tools/check_flow_release.py",
+    "src/tools/test_flow_release.py",
+    "src/tools/test_splash_colours.py",
+    "src/tools/test_splash_tint_batch.py",
+    "src/tools/test_splash33_impulse.py",
+    "src/tools/verify_splash_tint_paths.py",
+    "tint-batch/result.json",
+    "tint-batch/splash-path.json",
+    "tint-rect/result.json",
+    "tint-rect/splash-path.json"
+  ],
+  "test_log_sha256": "740ef6ff8f54e24b4c849173938c4f19504abac5ff0c1e597fba68b07bfe5211",
+  "limitations": [
+    "本审阅没有启动GL/主应用/benchmark/浏览器/Android/音频，不代表视觉、动态或性能通过。",
+    "AST摘要仅锁定独立读取过的源码范围，不是外观质量判据，也不重存旧图像基线。",
+    "已离线核对正式8帧两路径的图像像素与身份，但未视觉审阅其自然度、未运行新GL；像素相等不证明交接亮圈目标已满足。",
+    "5秒首次涨堆偏快仍是既有P2，最终正常尺寸、动态、打包/current-review及提交推送仍由父任务收尾。"
+  ],
+  "tint_path_identity_check": {
+    "frames": 8,
+    "rgb_changed_pixels": 0,
+    "nonempty_frames": 8
+  }
+}
