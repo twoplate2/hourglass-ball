@@ -36,6 +36,34 @@ def emission_scale(radius,half):
     return max(1.0,half/max(1e-6,.07*radius))
 
 
+def coherent_birth(index, lateral_random, speed_random, shift=.5):
+    """Bound short-window gaps while keeping each grain's trajectory persistent.
+
+    A golden-angle sequence has no fixed lanes. Small immutable jitter avoids
+    exact repeats; a narrow speed spread keeps that coverage after free fall.
+    Inputs consume the existing birth RNG draws, never draw or move live grains.
+    """
+    u=(shift+index*.6180339887498949)%1.0
+    u=min(1.0,max(0.0,u+(lateral_random-.5)*.012))
+    x=2.0*u-1.0
+    # Slightly more support at the edges, without widening the aperture or
+    # moving a grain after birth. The monotone map has no fixed side lanes.
+    # The first few dozen grains need an irregular advancing front. Fade their
+    # original speed scatter at birth; never reshape or respawn live grains.
+    onset=max(0.0,1.0-index/96.0)
+    speed_span=.5+24.5*onset*onset
+    return x*(1.3-.3*x*x),47.5+speed_span*(speed_random-.5)
+
+
+def contact_upper_bound(top, curve, cx, half):
+    """Safe cheap contact gate over the stream corridor, including bowl sides."""
+    xs,ys,x0,scale,n1=curve
+    if len(xs)<2:return top
+    lo=max(0,int(math.floor((cx-half-x0)*scale)))
+    hi=min(int(n1),int(math.ceil((cx+half-x0)*scale)))
+    return max(top,max(ys[lo:hi+1]))
+
+
 def flow_phase(elapsed, rate=12.0):
     # Match the birth-id hash period. Only ids wrap; physical ages never do.
     return (max(0.0, elapsed) * rate) % 4096.0
@@ -228,7 +256,7 @@ void main(void) {
     float micro_r=length(local);
     // Coarse grains keep pores without replacing their texture with large dots.
     float coarse=smoothstep(1.8,3.0,short_coarse);
-    float micro=1.0-smoothstep(mix(.38,.30,coarse),mix(.51,.41,coarse),micro_r);
+    float micro=1.0-smoothstep(mix(.42,.36,coarse),mix(.55,.47,coarse),micro_r);
     vec2 uv = fract(vec2(grain_tone*17.1,grain_tone*29.7)
                     + grain_local * grain_radius * vec2(1.0,short_aspect) / (2.0*sand_geometry.y));
     vec3 sample_rgb=texture2D(texture0,uv).rgb;

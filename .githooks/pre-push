@@ -1,51 +1,61 @@
 #!/bin/sh
 set -eu
 cd "$(git rev-parse --show-toplevel)"
+# 外观审核及原始证据保留在本地；公开推送只检查APK应用、构建和单测。
+tests="src/tools/test_release_version.py
+src/tools/test_neck_geometry.py
+src/tools/test_stream_aperture.py
+src/tools/test_receiving_surface.py
+src/tools/test_stream_sampling.py
+src/tools/test_stream_contact_ceiling.py
+src/tools/test_particle_continuity.py
+src/tools/test_particle_material.py
+src/tools/test_flare_occlusion.py
+src/tools/test_splash_occlusion.py
+src/tools/test_landing_spread.py
+src/tools/test_splash_colours.py
+src/tools/test_splash_tint_batch.py
+src/tools/test_splash33_impulse.py
+src/tools/test_short_grain.py
+src/tools/test_grain_style.py
+src/tools/test_ui_polish.py
+src/tools/test_keep_awake.py
+src/tools/test_physics_equiv.py"
 checked=0
 while read -r local_ref local_sha remote_ref remote_sha; do
     case "$local_sha" in
         0000000000000000000000000000000000000000) continue ;;
     esac
     if [ "$local_sha" != "$(git rev-parse HEAD)" ]; then
-        echo "Cannot push an untested ref: checkout it and run full checks first."
+        echo "Cannot push an untested ref: checkout it and run APK checks first."
         exit 1
     fi
     if [ "$checked" = 0 ]; then
-        git diff --quiet HEAD -- main.py buildozer.spec src .githooks .github design/checks/rules || {
+        git diff --quiet HEAD -- main.py buildozer.spec src/app src/build .githooks .github src/tools/check_release_version.py src/tools/android_hook.py $tests || {
             echo "Release sources must match the pushed commit."
             exit 1
         }
-        python -B src/tools/release_decision.py --committed || exit 1
-        python -B src/tools/test_material_release.py || exit 1
-        python -B src/tools/check_flow_release.py || exit 1
-        python -B src/tools/test_neck_geometry.py || exit 1
-        python -B src/tools/test_stream_aperture.py || exit 1
-        python -B src/tools/test_receiving_surface.py || exit 1
-        python -B src/tools/test_release_decision.py || exit 1
-        python -B src/tools/test_pixel_flow_review.py || exit 1
-        python -B src/tools/test_stream_review_metrics.py || exit 1
-        python -B src/tools/test_flow_release.py || exit 1
-        python -B src/tools/test_outlet_release.py || exit 1
-        python -B src/tools/test_neck_stream_seam.py || exit 1
-        python -B src/tools/test_stream_width.py || exit 1
-        python -B src/tools/test_particle_continuity.py || exit 1
-        python -B src/tools/test_particle_material.py || exit 1
-        python -B src/tools/test_flare_occlusion.py || exit 1
-        python -B src/tools/test_splash_occlusion.py || exit 1
-        python -B src/tools/test_landing_spread.py || exit 1
-        python -B src/tools/test_splash_colours.py || exit 1
-        python -B src/tools/test_splash_tint_batch.py || exit 1
-        python -B src/tools/test_splash33_impulse.py || exit 1
-        python -B src/tools/test_particle_release.py || exit 1
-        python -B src/tools/test_stream_motion_shape.py || exit 1
-        python -B src/tools/test_motion_shape_release.py || exit 1
-        python -B src/tools/test_short_grain.py || exit 1
-        python -B src/tools/test_short_grain_release.py || exit 1
-        python -B src/tools/test_grain_style.py || exit 1
-        python -B src/tools/test_ui_polish.py || exit 1
-        python -B src/tools/test_keep_awake.py || exit 1
-        python -B src/tools/verify_keep_awake_runtime.py || exit 1
-        python -B src/tools/run_regression.py --profile core || exit 1
+        python -B - <<'PY'
+import ast
+import io
+from pathlib import Path
+from pyflakes.api import checkPath
+from pyflakes.reporter import Reporter
+files = [Path('main.py'), Path('src/tools/android_hook.py')] + sorted(Path('src/app').glob('*.py')) + sorted(Path('src/build').rglob('*.py'))
+output, errors = io.StringIO(), io.StringIO()
+reporter = Reporter(output, errors)
+for file in files:
+    ast.parse(file.read_text(encoding='utf-8'), filename=str(file))
+    checkPath(str(file), reporter)
+print(output.getvalue(), end='')
+print(errors.getvalue(), end='')
+if errors.getvalue() or 'undefined name' in output.getvalue():
+    raise SystemExit(1)
+print('APK_SOURCE_STATIC_OK', len(files))
+PY
+        for test in $tests; do
+            python -B "$test" || exit 1
+        done
         checked=1
     fi
     case "$remote_ref" in

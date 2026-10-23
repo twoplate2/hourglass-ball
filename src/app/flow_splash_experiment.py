@@ -1043,9 +1043,9 @@ def install_flares(widget_class):
             return draw(self, now)          # 没装上 ⇒ 原路
         flares = self.flares
         n = len(flares)
-        if self._flare_rgb != self.sand_light:
-            self._flare_color.rgb = self.sand_light
-            self._flare_rgb = self.sand_light
+        if self._flare_rgb != self.sand_base:
+            self._flare_color.rgb = self.sand_base
+            self._flare_rgb = self.sand_base
         if n == 0:
             self._flare_batches.update_raw(b"", 0)
             return

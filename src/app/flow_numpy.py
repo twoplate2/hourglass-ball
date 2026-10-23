@@ -100,7 +100,7 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
         #       hy_eff= np.where(y <= mound_top, hy, mound_top)
         #   ⇒ 先把 `hy` 用 `mound_top` 铺满(这正是"够不着"那批该拿到的值),
         #     子集上算完再散写回去。**逐位不变**: 同一个算式、同一批输入, 一个数都没动。
-        near = y <= (mound_top - ki)
+        near = y <= (c.get("contact_ceiling",mound_top) - ki)
         hy = np.full(n, mound_top) if n else y
         m = np.flatnonzero(near)
         if m.size:

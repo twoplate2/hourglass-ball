@@ -20,6 +20,19 @@ def retain(flares,clock,surface):
 
 
 class FlareOcclusionTests(unittest.TestCase):
+    def test_contact_mark_uses_pile_colour_without_changing_shape_or_life(self):
+        tree=ast.parse((ROOT/'main.py').read_text(encoding='utf-8'))
+        cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='HourglassWidget')
+        fn=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='_draw_flares')
+        namespace={}
+        exec(compile(ast.Module(body=[fn],type_ignores=[]),'main.py:flare_colour','exec'),namespace)
+        colour=SimpleNamespace();rect=SimpleNamespace(size=(0,0))
+        widget=SimpleNamespace(flares=[dict(x=10,y=20,end=.08)],
+            _flare_rects=[(colour,rect)],sand_base=(.6,.4,.2),sand_light=(1,.9,.7))
+        namespace['_draw_flares'](widget,.04)
+        self.assertEqual(colour.rgba,(*widget.sand_base,.225))
+        self.assertEqual(rect.size,(3.,1.))
+
     def test_old_live_flare_is_hidden_by_new_sand(self):
         flash=dict(x=2,y=100,end=1.08)
         self.assertEqual(retain([flash],1.01,lambda x:110),[])

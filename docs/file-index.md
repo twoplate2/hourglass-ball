@@ -1,6 +1,6 @@
 # 文件用途索引
 
-当前正式候选为3.12；[本轮复审入口](../design/checks/records/v3.12/review.html)。此前本地3.12小样和误编号3.13均未发布，原记录分别保留在v3.12-local和v3.13-local。本轮范围仅PC外观与相关状态，不包含性能、音频或Android验收；后文3.11工作量描述保留作历史背景。
+APK版本以 src/app/app_version.py 的 APP_VERSION 为准。GitHub仅发布APK相关代码、回归测试与构建配置；外观验收录像、截图和归档留在本地。以下旧版验收页面仅为历史记录，不代表当前版本已在Android、音频或性能方面验收。
 
 本轮出口衔接与宽度专项工具：
 
@@ -9,6 +9,8 @@
 - [verify_neck_stream_join.py](../src/tools/verify_neck_stream_join.py)：隐藏PC同态材质过渡消融、共享取色和静态回退检查。
 - [measure_stream_width.py](../src/tools/measure_stream_width.py)：原生连续帧近场主体宽度及下段局部掐腰诊断，独立沙柱通道排除飞溅。
 - [test_stream_width.py](../src/tools/test_stream_width.py)：硬肩、平滑收束、孤粒、截断和图像篡改反例。
+- [test_stream_sampling.py](../src/tools/test_stream_sampling.py)：APK沙流出生覆盖、每局相位与启动速度平滑过渡的回归检查。
+- [test_stream_contact_ceiling.py](../src/tools/test_stream_contact_ceiling.py)：碗底两侧碰撞粗筛回归，避免粒子被玻璃边界突然夹回。
 - [check_outlet_release.py](../src/tools/check_outlet_release.py)：3.12限定外观发布证据、源码范围、真实图像与独立审核身份门禁。
 - [test_outlet_release.py](../src/tools/test_outlet_release.py)：3.12证据、宽度、取色消融及源码范围的发布反例。
 

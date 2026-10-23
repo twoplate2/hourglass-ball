@@ -45,7 +45,7 @@ jobs:
         # (其余告警如"未使用的变量/import"不挡, 只报告。)
         run: |
           pip install pyflakes
-          python -m pyflakes main.py src/app/*.py src/tools/*.py > /tmp/pf.txt 2>&1 || true
+          python -m pyflakes main.py src/app/*.py src/tools/android_hook.py src/build/recipes/*/*.py > /tmp/pf.txt 2>&1 || true
           if grep -q "undefined name" /tmp/pf.txt; then
             grep "undefined name" /tmp/pf.txt
             echo "::error::存在未定义名字 —— Android 上会启动即死"

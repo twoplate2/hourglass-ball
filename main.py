@@ -3961,6 +3961,8 @@ class HourglassWidget(Widget):
         self._p_dict_cache = None
         self.particles = []
         self.particle_acc = 0.0
+        self._sprite_birth_index = 0
+        self._sprite_birth_shift = None
         self._sand_released = 0.0
         self._sand_landed = 0.0
         self._sand_pending = 0.0
@@ -5168,6 +5170,8 @@ class HourglassWidget(Widget):
         self.pn = 0
         self._p_refresh_view()
         self.particle_acc = 0.0
+        self._sprite_birth_index = 0
+        self._sprite_birth_shift = None
         self._sand_released = self._sand_landed = self._sand_pending = 0.0
         self._sand_active = False
         self._sand_timing = None
@@ -6384,7 +6388,7 @@ class HourglassWidget(Widget):
         ow = self._ow
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
-        from short_grain_stream import stream_pitch,source_half_width,sprite_radius,emission_scale
+        from short_grain_stream import stream_pitch,source_half_width,sprite_radius,emission_scale,coherent_birth,contact_upper_bound
         sprite_pitch=stream_pitch(self._R_inner,SAND_MATERIAL_COARSE,self._taper['t_in'])
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
@@ -6516,7 +6520,17 @@ class HourglassWidget(Widget):
                 #    ⇒ 随机数流一字不动(本项目的硬规矩)。
                 size = (2 if random.random() < 0.85 * _ink_q else 1) if x_clip >= 3.0 else 1
                 if sprite_birth:
-                    x_off *= source_clip / x_clip if x_clip > 0.0 else 0.0
+                    # Keep the original two RNG draws, but avoid independent
+                    # edge gaps and the large speed spread that scrambles a
+                    # well-covered birth window during the fall.
+                    lateral=(x_off/x_clip+1.0)*.5 if x_clip > 0.0 else .5
+                    speed=(-vy0/motion_scale-35.0)/25.0
+                    if self._sprite_birth_shift is None:
+                        self._sprite_birth_shift=phase/math.tau
+                    position,initial_speed=coherent_birth(self._sprite_birth_index,lateral,speed,self._sprite_birth_shift)
+                    self._sprite_birth_index += 1
+                    x_off=position*source_clip
+                    vy0=-initial_speed*motion_scale
                 elif LIM_INSET and size > 1:
                     # 🔴 **2026-10-12(2.87): 线自己的半个宽度也不许探出瓶颈** —— 见 `LIM_INSET`。
                     #    等比缩(不是夹), 免得粒子在边缘堆成一条密线。
@@ -6604,6 +6618,7 @@ class HourglassWidget(Widget):
         sqrt = math.sqrt
         mound_top_plus_1 = mound_top + 1
         _cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1 = self._mound_contact_curve()
+        contact_ceiling=contact_upper_bound(mound_top,(_cx_arr,_cy_arr,_c_x0,_c_scale,_c_n1),cx,tube_lim)
         _use_curve = len(_cx_arr) > 1
         if _pm:
             _pm("phys_curve")               # 接触曲线(129 次 `contact`) + 步长常量
@@ -6614,6 +6629,7 @@ class HourglassWidget(Widget):
             if pn:
                 consts = {
                     "g": g, "g_abs": g_abs, "mound_top": mound_top,
+                    "contact_ceiling":contact_ceiling,
                     "kill_inset": KILL_INSET,
                     "shrink_ramp": FLOW_SHRINK_RAMP,
                     "gen_y": gen_y, "lower_cut": lower_cut,
@@ -6673,7 +6689,7 @@ class HourglassWidget(Widget):
                 # 只有落到堆附近的少量颗粒才去查 H(x)(专家 dingbu.md §7)。
                 # ⚠️ 用**上一帧的 x**(p["x"]): 粒子一帧横向只动 1~2px ⇒ H 的误差 ≤1.2px(亚像素);
                 #    真正的 x 依赖 shrink, 而 shrink 又依赖本判定 ⇒ 不能用本帧的 x(会成环)。
-                hit = y <= (mound_top - KILL_INSET)
+                hit = y <= (contact_ceiling - KILL_INSET)
                 hy = mound_top
                 if hit and _use_curve:
                     z = (p_x_prev - _c_x0) * _c_scale
@@ -8662,7 +8678,7 @@ class HourglassWidget(Widget):
                 self._flare_rects.append((color, rect))
             color, rect = self._flare_rects[i]
             life = max(0.0, f["end"] - now) / 0.08
-            color.rgba = (*self.sand_light, 0.45 * life)
+            color.rgba = (*self.sand_base, 0.45 * life)
             width, height = 2 + life * 2, 0.8 + life * 0.4
             rect.pos = (f["x"] - width / 2, f["y"] - height / 2)
             rect.size = (width, height)

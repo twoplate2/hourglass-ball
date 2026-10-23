@@ -68,7 +68,7 @@ def ref_step(px, py, pvy, pxo, pwp, pwa, psz, pdt, dt, c):
         size = psz[i]
         y += vy * step_dt + 0.5 * g * step_dt * step_dt
         vy += g * step_dt
-        hit = y <= mound_top
+        hit = y <= c.get("contact_ceiling",mound_top)
         hy = mound_top
         if hit and use_curve:
             z = (px[i] - _c_x0) * _c_scale

@@ -1,4 +1,4 @@
-name: Basic Checks
+name: APK Application Checks
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-22.04
-    timeout-minutes: 35
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
@@ -21,26 +21,43 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
-      - name: Install basic check dependencies
+      - name: Install application check dependencies
+        run: python -m pip install numpy pillow pyflakes
+      - name: Check version increment and Chinese commit title
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python src/tools/check_release_version.py --base "$BASE_SHA" --head "$HEAD_SHA" --check-title
+      - name: Check application and APK recipe syntax and undefined names
         run: |
-          python -m pip install numpy pillow pyflakes kivy==2.3.0
-      - name: Check layout, version, syntax and documentation
-        run: python src/tools/run_regression.py --profile core
-      - name: Check reviewed particle source, continuity, PC work budget and power policy
+          python -B - <<'PY'
+          import ast
+          import io
+          from pathlib import Path
+          from pyflakes.api import checkPath
+          from pyflakes.reporter import Reporter
+          files = [Path('main.py'), Path('src/tools/android_hook.py')] + sorted(Path('src/app').glob('*.py')) + sorted(Path('src/build').rglob('*.py'))
+          output, errors = io.StringIO(), io.StringIO()
+          reporter = Reporter(output, errors)
+          for file in files:
+              ast.parse(file.read_text(encoding='utf-8'), filename=str(file))
+              checkPath(str(file), reporter)
+          print(output.getvalue(), end='')
+          print(errors.getvalue(), end='')
+          if errors.getvalue() or 'undefined name' in output.getvalue():
+              raise SystemExit(1)
+          print('APK_SOURCE_STATIC_OK', len(files))
+          PY
+      # Local appearance approval and original recordings are not public build inputs.
+      - name: Check application geometry, particles, splash, timer and power policy
         run: |
-          python -B src/tools/release_decision.py
-          python -B src/tools/test_material_release.py
-          python -B src/tools/check_flow_release.py
+          python -B src/tools/test_release_version.py
           python -B src/tools/test_neck_geometry.py
           python -B src/tools/test_stream_aperture.py
           python -B src/tools/test_receiving_surface.py
-          python -B src/tools/test_release_decision.py
-          python -B src/tools/test_pixel_flow_review.py
-          python -B src/tools/test_stream_review_metrics.py
-          python -B src/tools/test_flow_release.py
-          python -B src/tools/test_outlet_release.py
-          python -B src/tools/test_neck_stream_seam.py
-          python -B src/tools/test_stream_width.py
+          python -B src/tools/test_stream_sampling.py
+          python -B src/tools/test_stream_contact_ceiling.py
           python -B src/tools/test_particle_continuity.py
           python -B src/tools/test_particle_material.py
           python -B src/tools/test_flare_occlusion.py
@@ -49,26 +66,8 @@ jobs:
           python -B src/tools/test_splash_colours.py
           python -B src/tools/test_splash_tint_batch.py
           python -B src/tools/test_splash33_impulse.py
-          python -B src/tools/test_particle_release.py
-          python -B src/tools/test_stream_motion_shape.py
-          python -B src/tools/test_motion_shape_release.py
           python -B src/tools/test_short_grain.py
-          python -B src/tools/test_short_grain_release.py
           python -B src/tools/test_grain_style.py
           python -B src/tools/test_ui_polish.py
           python -B src/tools/test_keep_awake.py
-      - name: Install hidden PC graphics dependencies
-        run: sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dri
-      - name: Check real app power lifecycle in hidden PC window
-        run: xvfb-run -a python -B src/tools/verify_keep_awake_runtime.py
-      - name: Preserve results even on failure
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: pc-regression-results
-          path: |
-            _temp/regression-runs/
-            _temp/regression/
-            _temp/pymunk-3.1/
-          if-no-files-found: error
-          retention-days: 30
+          python -B src/tools/test_physics_equiv.py
