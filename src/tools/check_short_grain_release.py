@@ -1,5 +1,6 @@
 """Release gate for reviewed short-grain geometry, not the old color-only contract."""
 import hashlib
+from copy import deepcopy
 import json
 from pathlib import Path
 import tempfile
@@ -41,7 +42,7 @@ def require_capture(report, count, renderer=None):
         raise ValueError("Incomplete case")
 
 
-def compare_preserved(before_path, after_path):
+def compare_preserved(before_path, after_path, allow_buried_flares=False):
     before = json.loads(before_path.read_text(encoding="utf-8"))
     after = json.loads(after_path.read_text(encoding="utf-8"))
     frames = {f["name"]: f for f in after["frames"]}
@@ -51,6 +52,15 @@ def compare_preserved(before_path, after_path):
         if (a["physics"]["arrays"]["main"] != b["physics"]["arrays"]["main"]
                 or a["transfer"] != b["transfer"] or a["geometry"] != b["geometry"]):
             raise ValueError("Main particles, ledger or glass geometry changed: " + a["name"])
+        if allow_buried_flares:
+            states=[deepcopy(f['physics']) for f in (a,b)]
+            for state in states:
+                state.pop('sha256',None);state['effects'].pop('flares',None)
+            if states[0]!=states[1]:
+                raise ValueError('Physics or random state changed outside flare visibility: '+a['name'])
+            old={tuple(sorted(f.items())) for f in a['physics']['effects']['flares']}
+            if any(tuple(sorted(f.items())) not in old for f in b['physics']['effects']['flares']):
+                raise ValueError('Flare filtering introduced or moved a flash: '+a['name'])
         aa = np.asarray(Image.open(before_path.parent / a["file"]).convert("RGB"))
         bb = np.asarray(Image.open(after_path.parent / b["file"]).convert("RGB"))
         h, w = aa.shape[:2]
@@ -81,6 +91,16 @@ def compare_preserved(before_path, after_path):
                 left, right = max(0,int(np.floor(x0))-1), min(w,int(np.ceil(x1))+1)
                 top, bottom = max(0,int(np.floor(h-y1))-1), min(h,int(np.ceil(h-y0))+1)
                 affected[top:bottom,left:right] = True
+        if allow_buried_flares:
+            clock=a['physics']['scalars']['_mound_flow_clock']
+            for flash in a['physics']['effects']['flares']:
+                life=max(0.0,flash['end']-clock)/.08
+                fw,fh=2+2*life,.8+.4*life
+                left=max(0,int(np.floor(flash['x']-fw/2))-1)
+                right=min(w,int(np.ceil(flash['x']+fw/2))+1)
+                top=max(0,int(np.floor(h-flash['y']-fh/2))-1)
+                bottom=min(h,int(np.ceil(h-flash['y']+fh/2))+1)
+                affected[top:bottom,left:right]=True
         if np.any(np.any(aa != bb, axis=2) & ~affected):
             raise ValueError("Pixels changed outside stream/contact/splash scope: " + a["name"])
         checked += 1

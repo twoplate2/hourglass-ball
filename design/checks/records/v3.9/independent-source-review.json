@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "version": "3.9",
+  "reviewer": "material_release_guard",
+  "review_type": "independent_source_and_release_scope_review",
+  "status": "passed",
+  "open_blockers": [],
+  "source_sha256": "bf8707b160da87afdbb3be0a36d74e3e8675f1060836ee081e90c52b37f45021",
+  "source_manifest": {
+    "main.py": "72af9e4531c2e83d2d4da3503857ea4d79d4fa45c55cae9c9e73fc27f572f6db",
+    "buildozer.spec": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "d82f91c8c11c8a84c6d2449aabd0d6d1a8e6a77c1c2518bf6a5cb7c73607ffdd",
+    "src/app/app_version.py": "5241e481af0fb8bd97a3422441266f66dc30f8f2658e80c2e1465f4763d13b9d",
+    "src/app/flow_batch_experiment.py": "9f7dc0d48900f0b3125d41463b615fbec334a555827bf44a9dfe960f27fa57b4",
+    "src/app/flow_gpu_experiment.py": "ffe94c0bcf80276f287bbe7c58f7b941267b6ff39f4f30dfdb0871a4c7154305",
+    "src/app/flow_numpy.py": "aa90bb57c1e6d6e40799820ea75a2c9d35bd3d3c807ab0a075aa39eb0b3fa302",
+    "src/app/flow_splash_experiment.py": "df2f845de006647e6a472ee6e0bb9ed8efeb75ae755b4066bd148b831416c241",
+    "src/app/flow_texture_experiment.py": "4dad0e264fc82fb3bd3093f95b811bcf34098c4e86e2aaed912a6b4cf59077f6",
+    "src/app/frame_benchmark.py": "ddb279fc1eb6e7cf3654dd807d0f81afcf553b94f78320aec95eeaba50515e4b",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "a4b593f371c5ece9841dc0504a24c0895bae2bbc2f3bada2b5c1feef7eccd1c3",
+    "src/app/marker_batch_experiment.py": "b804b8e76f757a60ebb20b0e400bb2874de7305eb81a5f9b491d2d5a8be54b78",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "418bae83aa405db8c7b034f2424902420b055db12ad3932f4d9a50ae3ad5e2bb",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "aa85c3e5904927c77239333fd42eb705db01025a175503ee748dd9b6972ba6ef",
+    "src/app/short_grain_stream.py": "869c4a351196cc3b521733ec9364bfbc445a4507cb9766714219043de6f8dde5",
+    "src/app/splash_motion.py": "e7188e84217daf3bdb0bde1a686ee1d9bd375fff101af916c9c72c0ae462bef3",
+    "src/app/stream_rendering.py": "d3dd6a00012369fa15c21bb01180fa2359427f0b863996459df2ef0839e5809a"
+  },
+  "baseline_commit": "a7707a8f57acc72fed3f49294a6be2c2eecd7269",
+  "changed_runtime_files": [
+    "main.py",
+    "src/app/app_version.py",
+    "src/app/short_grain_stream.py"
+  ],
+  "reviewed_scope": [
+    "运行源码对照已发布3.8的精确来源；只允许渲染器、版本及受窄守卫保护的main遮挡变化。",
+    "恢复唯一闪光赋值、飞溅抽取/调用并去掉受约束的新方法后，其余main AST保持一致。",
+    "固定外观种子/尺寸载荷及实际图元UV比例；未加入着色器时间噪声。",
+    "闪光及飞溅绘制遮挡，两条绘制路径共用过滤输入，保留显露坡角且不修改飞溅物理数组。",
+    "材质/texture缺失和Mesh分配失败，均在移除Line画布组之前进入回退。"
+  ],
+  "findings": [
+    {
+      "id": "SRC01",
+      "status": "passed",
+      "severity": "none",
+      "finding": "冻结源码通过运行文件及main窄范围守卫；无关运行模块仍受保护。"
+    },
+    {
+      "id": "SRC02",
+      "status": "passed",
+      "severity": "none",
+      "finding": "新增方法仅允许绘制尺寸计算及抽取的原提交片段；物理写入或相邻redraw改动会被拒绝。"
+    },
+    {
+      "id": "SRC03",
+      "status": "passed",
+      "severity": "none",
+      "finding": "回退检查位于新上下文分配及Line组移除之前，两种失败路径已有独立通过用例。"
+    }
+  ],
+  "checks": [
+    {
+      "command": "src/tools/test_flow_release.py",
+      "returncode": 0,
+      "tests": 19
+    },
+    {
+      "command": "src/tools/test_particle_material.py",
+      "returncode": 0,
+      "tests": 2
+    },
+    {
+      "command": "src/tools/test_flare_occlusion.py",
+      "returncode": 0,
+      "tests": 5
+    },
+    {
+      "command": "src/tools/test_splash_occlusion.py",
+      "returncode": 0,
+      "tests": 4
+    },
+    {
+      "command": "src/tools/test_particle_continuity.py",
+      "returncode": 0,
+      "tests": 20
+    }
+  ],
+  "evidence": [
+    "src/tools/check_flow_release.py",
+    "src/tools/test_flow_release.py",
+    "src/tools/test_particle_material.py",
+    "src/tools/test_flare_occlusion.py",
+    "src/tools/test_splash_occlusion.py",
+    "src/tools/test_particle_continuity.py",
+    "source-tests.txt"
+  ],
+  "test_log_sha256": "8e582527b271e15d54d845cecfa9dbfde9348bfca329994f4fd04087450e0a86",
+  "limitations": [
+    "本审阅未运行GL窗口、benchmark、Android/MuMu或音频。",
+    "源码及纯测试不能证明正常尺寸视觉质量、动态可读性、实际着色器编译或屏幕FPS。",
+    "三点堆面测试是小图元遮挡近似，未做逐像素表面裁切。",
+    "父任务报告既有P2：5秒首次落地后沙堆增长偏快。该时序未在本轮改动，本审阅未独立复测。",
+    "正式取证身份、最终打包、current-review批准及实际提交/推送状态仍须由父任务发布检查核对。"
+  ]
+}

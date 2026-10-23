@@ -1,4 +1,6 @@
 """Current scoped PC release evidence; historical green reviews cannot override it."""
+import ast
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -13,13 +15,16 @@ from PIL import Image
 
 from benchmark_particle_renderer import summarize,_meets_budget
 from check_motion_shape_release import safe_extract,require_hidden,sha
-from check_short_grain_release import require_capture
+from check_short_grain_release import require_capture,compare_preserved
 from neck_geometry import inner_width
 from release_decision import ROOT,check_current,current_version,runtime_manifest,source_digest
 from stream_review_metrics import inspect_motion,inspect_frame
 from pixel_flow_review import inspect as inspect_pixel_motion
 
 
+BASELINE_VERSION='3.8'
+BASELINE_COMMIT='a7707a8f57acc72fed3f49294a6be2c2eecd7269'
+MATERIAL_FILES={'src/app/short_grain_stream.py','src/app/app_version.py'}
 TRACES={'final-normal':(50,3,241),'final-short':(5,3,61),
         'final-fine':(50,1,31),'final-coarse':(50,6,31),
         'final-long':(36000,3,61),'final-tail':(50,3,37)}
@@ -32,9 +37,92 @@ TOOLS=['src/tools/check_flow_release.py','src/tools/release_decision.py',
        'src/tools/test_receiving_surface.py','src/tools/test_stream_aperture.py']
 TOOLS+=['src/tools/pixel_flow_review.py','src/tools/test_pixel_flow_review.py']
 TOOLS+=['src/tools/verify_receiving_pixels.py']
+TOOLS+=['src/tools/test_particle_material.py']
+TOOLS+=['src/tools/test_flare_occlusion.py']
+TOOLS+=['src/tools/test_splash_occlusion.py']
+TOOLS+=['src/tools/check_short_grain_release.py']
 
 
 def read(path):return json.loads(Path(path).read_text(encoding='utf-8'))
+
+
+def _flare_assignment(tree):
+    classes=[n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='HourglassWidget']
+    methods=[n for c in classes for n in c.body
+             if isinstance(n,ast.FunctionDef) and n.name=='update_particles']
+    rows=[n for fn in methods for n in ast.walk(fn) if isinstance(n,ast.Assign)
+          and any(isinstance(t,ast.Attribute) and isinstance(t.value,ast.Name)
+                  and t.value.id=='self' and t.attr=='flares' for t in n.targets)]
+    if len(classes)!=1 or len(methods)!=1 or len(rows)!=1 or len(rows[0].targets)!=1:
+        raise ValueError('Expected one unique flare retention assignment')
+    return rows[0]
+
+
+def require_flare_scope(candidate,baseline):
+    current,old=ast.parse(candidate),ast.parse(baseline)
+    allowed,original=_flare_assignment(current),_flare_assignment(old)
+    class RestoreRetention(ast.NodeTransformer):
+        def visit_Assign(self,node):
+            return original if node is allowed else self.generic_visit(node)
+    restored=RestoreRetention().visit(current)
+    _restore_splash_extraction(restored,old)
+    if ast.dump(restored)!=ast.dump(old):
+        raise ValueError('Appearance iteration changed protected main outside declared occlusion changes')
+
+
+def _restore_splash_extraction(current,baseline):
+    cls=next(n for n in current.body if isinstance(n,ast.ClassDef) and n.name=='HourglassWidget')
+    old_cls=next(n for n in baseline.body if isinstance(n,ast.ClassDef) and n.name=='HourglassWidget')
+    helpers=[n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='_draw_splashes']
+    if not helpers:return
+    redraws=[n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='redraw']
+    old_redraws=[n for n in old_cls.body if isinstance(n,ast.FunctionDef) and n.name=='redraw']
+    if len(helpers)!=1 or len(redraws)!=1 or len(old_redraws)!=1 or any(
+            isinstance(n,ast.FunctionDef) and n.name=='_draw_splashes' for n in old_cls.body):
+        raise ValueError('Expected one unique splash drawing extraction')
+    old_redraw,redraw=old_redraws[0],redraws[0]
+    assignment=ast.parse('_batch=getattr(self,"_splash_batch",None)').body[0]
+    starts=[i for i,n in enumerate(old_redraw.body) if ast.dump(n)==ast.dump(assignment)]
+    if len(starts)!=1 or starts[0]+1>=len(old_redraw.body) or not isinstance(old_redraw.body[starts[0]+1],ast.If):
+        raise ValueError('Baseline splash drawing block is not unique')
+    original=old_redraw.body[starts[0]:starts[0]+2]
+    call=ast.parse('self._draw_splashes()').body[0]
+    calls=[i for i,n in enumerate(redraw.body) if ast.dump(n)==ast.dump(call)]
+    if len(calls)!=1:raise ValueError('Expected one unique splash drawing call')
+    expected=ast.parse('''def _draw_splashes(self):
+    from short_grain_stream import visible_splash_sizes
+    hws,hhs=self.srw,self.srh
+    if self._sn and self._mound_carve is not None:
+        hws,hhs=visible_splash_sizes(self._sn,self.sx,self.sy,self.srw,self.srh,self._mound_carve._v,self._lower_sand_bot)
+''').body[0]
+    class DrawingSizes(ast.NodeTransformer):
+        def visit_Attribute(self,node):
+            if isinstance(node.value,ast.Name) and node.value.id=='self' and node.attr in ('srw','srh'):
+                return ast.Name(id='hws' if node.attr=='srw' else 'hhs',ctx=node.ctx)
+            return self.generic_visit(node)
+    expected.body.extend(DrawingSizes().visit(n) for n in copy.deepcopy(original))
+    if ast.dump(helpers[0])!=ast.dump(expected):
+        raise ValueError('New splash drawing helper changes more than visible drawing sizes')
+    redraw.body[calls[0]:calls[0]+1]=copy.deepcopy(original)
+    cls.body.remove(helpers[0])
+
+
+def require_material_scope(manifest,baseline,main_sources=None):
+    if set(manifest)!=set(baseline):raise ValueError('Appearance runtime inventory changed')
+    for name,digest in manifest.items():
+        if name not in MATERIAL_FILES and digest!=baseline[name]:
+            if name=='main.py' and main_sources is not None:
+                require_flare_scope(*main_sources)
+                continue
+            raise ValueError('Appearance iteration changed protected runtime: '+name)
+
+
+def baseline_sources():
+    names=subprocess.check_output(['git','ls-tree','-r','--name-only',BASELINE_COMMIT,
+        '--','src/app'],cwd=ROOT,text=True).splitlines()
+    names=['main.py','buildozer.spec']+[n for n in names if n.endswith('.py') and n.count('/')==2]
+    return {name:subprocess.check_output(['git','show',BASELINE_COMMIT+':'+name],cwd=ROOT)
+            for name in names}
 
 
 def require_receiving_arrays(images):
@@ -97,6 +185,10 @@ def validate(record=None):
     if r.get('version')!=version or r.get('source_sha256')!=source_digest():
         raise ValueError('Release record does not describe current runtime')
     if r.get('source_manifest')!=manifest:raise ValueError('Runtime manifest changed')
+    baseline=baseline_sources()
+    require_material_scope(manifest,{name:hashlib.sha256(value.replace(b'\r\n',b'\n')).hexdigest()
+                                    for name,value in baseline.items()},
+                           main_sources=((ROOT/'main.py').read_bytes(),baseline['main.py']))
     goals=('geometry','upper','stream','edges','landing','joins','states','near_full')
     if r.get('status')!='approved' or not all(r.get('review',{}).get(k)=='passed' for k in goals):
         raise ValueError('Missing scoped visual review')
@@ -117,7 +209,8 @@ def validate(record=None):
         folder=Path(tmp);safe_extract(archive,folder)
         manifests=[]
         for arm,count,renderer in [('final-matrix-low',55,'particle_sprite_pool'),
-                ('final-matrix-high',17,'particle_sprite_pool'),('final-fallback',4,'line_pool')]:
+                ('final-matrix-high',17,'particle_sprite_pool'),('final-fallback',4,'line_pool'),
+                ('material-controls',4,'particle_sprite_pool')]:
             d=read(folder/arm/'result.json');require_capture(d,count,renderer)
             if d['version']!=version:raise ValueError('Wrong captured version')
             manifests.append(manifest_matches(d,manifest))
@@ -131,6 +224,34 @@ def validate(record=None):
                 paused=[f for f in d['frames'] if f['case']=='paused']
                 if len(paused)!=2 or paused[0]['sha256']!=paused[1]['sha256']:
                     raise ValueError('Stage pause does not freeze')
+            if arm=='material-controls':
+                controls={(c['color'],c['sand_grain']):c['name'] for c in d['normalized_cases']}
+                if set(controls)!={(0,0.0),(0,.7),(5,0.0),(5,.7)}:
+                    raise ValueError('Missing material control endpoints')
+                frames={f['case']:f for f in d['frames']}
+                for color in (0,5):
+                    a,b=[frames[controls[color,strength]] for strength in (0.0,.7)]
+                    if a['physics']['arrays']!=b['physics']['arrays'] or a['geometry']!=b['geometry']:
+                        raise ValueError('Material strength changed particle state or geometry')
+                    height=d['dimensions'][1];g=a['geometry'];half=g['_taper']['t_in']
+                    top=height-a['outlet_y'];bottom=height-g['mound_top_y']
+                    box=(int(g['_cx']-.6*half),int(top+.25*(bottom-top)),
+                         int(g['_cx']+.6*half),int(top+.7*(bottom-top)))
+                    with Image.open(folder/arm/a['file']) as ia,Image.open(folder/arm/b['file']) as ib:
+                        if np.array_equal(np.asarray(ia.crop(box)),np.asarray(ib.crop(box))):
+                            raise ValueError('Material strength does not affect actual stream pixels')
+        previous=read(folder/'baseline-matrix-low/result.json')
+        require_capture(previous,55,'particle_sprite_pool')
+        perf_baseline=read(folder/'perf-before/motion.json')
+        if (previous['version']!=BASELINE_VERSION
+                or previous['source_files']!=previous['source_files_end']
+                or previous['source_files']!=perf_baseline['source_files']):
+            raise ValueError('Preservation baseline is not the exact published runtime')
+        for f in previous['frames']:
+            if sha(folder/'baseline-matrix-low'/f['file'])!=f['sha256']:
+                raise ValueError('Preservation baseline pixels changed')
+        stats['preserved_frames']=compare_preserved(folder/'baseline-matrix-low/result.json',
+            folder/'final-matrix-low/result.json',allow_buried_flares=True)
         for arm,(period,grain,count) in TRACES.items():
             d=read(folder/arm/'motion.json');manifests.append(manifest_matches(d,manifest))
             if (not d['completed'] or d['version']!=version or d['period']!=period
@@ -188,12 +309,14 @@ def validate(record=None):
                 if capture['source_files']!=manifests[0] or capture['version']!=version:
                     raise ValueError('Performance candidate differs from reviewed runtime')
             else:
-                if capture['version']!='3.7':raise ValueError('Wrong performance baseline')
+                if capture['version']!=BASELINE_VERSION:raise ValueError('Wrong performance baseline')
+                if set(capture['source_files'])!=set(baseline)-{'buildozer.spec'}:
+                    raise ValueError('Performance baseline source inventory changed')
                 for name,digest in capture['source_files'].items():
                     saved=folder/'baseline-source'/name
-                    expected=subprocess.check_output(['git','show','8011965f13b566c423be673e0c25b3c8cf58a30b:'+name],cwd=ROOT)
+                    expected=baseline[name]
                     if sha(saved)!=digest or saved.read_bytes().replace(b'\r\n',b'\n')!=expected.replace(b'\r\n',b'\n'):
-                        raise ValueError('Baseline is not the published 3.7 runtime')
+                        raise ValueError('Baseline is not the published '+BASELINE_VERSION+' runtime')
             d=read(folder/arm/'timing.json')
             if not d.get('completed') or len(d.get('runs',[]))!=3 or capture.get('benchmark')!=d:
                 raise ValueError('Incomplete performance runs')

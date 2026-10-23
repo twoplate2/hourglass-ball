@@ -225,7 +225,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 - `design/checks/notes/stream-motion-shape-plan.html`：颗粒连续性与性能优先的最新约束、轮子选型备忘及投入限制；保留此前计划背景。
 - `design/checks/records/v3.6/`：速度/形状原始帧、旧版反例和本轮完整过程录像。
 
-- `src/app/short_grain_stream.py`：每颗真实存活粒子对应一个持续的短粒图元，复用 Mesh 缓冲；无沙量或计时写入。
+- `src/app/short_grain_stream.py`：每颗真实存活粒子对应一个持续短粒图元；微粒方向/偏移出生后固定，按实际尺寸采样材质，复用Mesh缓冲；无沙量或计时写入。
 - `src/tools/verify_short_grain_runtime.py`：隔离设置、原生隐藏 PC 画布的阶段与配色采集，记录实际绘制路径。
 - `src/tools/record_short_grain.py`：按墙钟取真实画布帧、保留可变帧间隔，拒绝未刷新画布的录像。
 - `src/tools/check_short_grain_visual.py`：检查柱内长缝、稀疏带和真实堆顶接触，不以单根线跨过某行视为密实。
@@ -261,7 +261,7 @@ rg --files src
 
 - `src/app/neck_geometry.py`：按球内径定义净通道，1～5秒为15%，10小时及以上为3%，中间按对数时长参数作幂插值。
 - `src/tools/release_decision.py`：当前审核决定及版本/源码身份；撤回和待验阻止发布，`--committed`核对决定及证据已纳入待推送HEAD。
-- `src/tools/check_flow_release.py`：当前3.8发布入口，核对图像、状态、原始连续帧、5秒/50秒真实时间录像、独立审核、源码身份及PC单帧工作量；记录存在不等于整体视觉通过。
+- `src/tools/check_flow_release.py`：当前3.9发布入口，核对原图、连续帧、5秒/50秒实录、独立审核及PC工作量；对照3.8/a7707a8，其他运行源码须保持，main仅允许闪光过滤及飞溅绘制精确抽取的窄AST变化。记录存在不等于整体视觉通过。
 - `src/tools/stream_review_metrics.py`：出口台阶、空层、实心杆及整体摆动反例量具。
 - `src/tools/record_flow_review.py`：真正隐藏PC实时录像及暂停和末段记录。
 - `src/tools/test_neck_geometry.py`：口径端点和尺寸/时长映射。
@@ -269,7 +269,10 @@ rg --files src
 - `src/tools/test_receiving_surface.py`：低净空局部接收层与跨封顶连续性。
 - `src/tools/test_release_decision.py`：当前决定及提交身份的发布反例，拒绝撤回、待验和未提交/未跟踪的批准证据。
 - `src/tools/test_stream_review_metrics.py`：各类错误画面的独立反例。
-- `src/tools/test_flow_release.py`：实际像素暂停和近满接收的时间反例。
+- `src/tools/test_flow_release.py`：19项发布反例，包含运行文件范围、唯一闪光赋值AST、实际像素暂停及近满接收检查。
+- `src/tools/test_particle_material.py`：2项材料采样检查，核对固定种子/尺寸载荷及纹理像素偏移与实际图元几何一致。
+- `src/tools/test_flare_occlusion.py`：5项实际闪光保留表达式检查，覆盖已埋闪光、接触、上缘、过期和坡面显露角。
+- `src/tools/test_splash_occlusion.py`：4项实际飞溅绘制检查，覆盖普通/batch遮挡、显露坡角、空帧及无NumPy支路，并核对物理数组不变。
 - `design/checks/current-review.json`：唯一当前审核决定，绑定候选版本、运行源码和阻挡项；历史passed不能覆盖它。
 - `design/checks/rules/revision-cases.json`：本轮低分辨率关联场景。
 - `design/checks/rules/revision-high-cases.json`：本轮高分辨率和极端场景。
@@ -277,4 +280,6 @@ rg --files src
 - `src/tools/pixel_flow_review.py` / `src/tools/test_pixel_flow_review.py`：真实GL像素的局部亚像素下行位移及冻结/倒流反例，不等于逐像素身份或屏幕FPS。
 - `src/tools/verify_receiving_pixels.py`：在隐藏PC固定近满几何及其他时钟，单独改变接收层相位并关闭该层作负对照，核对表面纹理实际像素变化；不以整个接收区的哈希变化代替局部运动证明。
 
-本轮保留100%容量并检查近满局部接收纹理；范围为隐藏PC外观与相邻状态、用户已要求的PC单帧工作量，不包含Android、音频或真实屏幕FPS验收。3.8最终是否放行，以当前审核决定及正式证据为准。
+3.8工程结果保留，整体质感续审未达；3.9包含细粒材质、闪光和飞溅遮挡三处修正。连续性20项包含材质缺失与Mesh失败分别回退的反例。
+5秒首次涨堆偏快仍为既有P2，不能据本轮结果声称全应用无问题。
+本轮保留100%容量；范围为隐藏PC外观与相邻状态、用户已要求的PC单帧工作量，不包含Android、音频或真实屏幕FPS。最终以当前审核决定及records/v3.9正式证据为准。

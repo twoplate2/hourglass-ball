@@ -13,6 +13,9 @@ python -B src/tools/test_pixel_flow_review.py
 python -B src/tools/test_stream_review_metrics.py
 python -B src/tools/test_flow_release.py
 python -B src/tools/test_particle_continuity.py
+python -B src/tools/test_particle_material.py
+python -B src/tools/test_flare_occlusion.py
+python -B src/tools/test_splash_occlusion.py
 python -B src/tools/test_particle_release.py
 python -B src/tools/test_stream_motion_shape.py
 python -B src/tools/test_motion_shape_release.py

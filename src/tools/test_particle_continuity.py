@@ -309,6 +309,12 @@ class MoundSurfaceTests(unittest.TestCase):
 class ParticleFallbackTests(unittest.TestCase):
     def test_mesh_creation_failure_restores_attached_line_renderer(self):
         """首个 Mesh 失败晚于 shader 成功，不能留下脱离画布的 Line 池。"""
+        self.check_line_fallback(True)
+
+    def test_missing_material_restores_attached_line_renderer(self):
+        self.check_line_fallback(False)
+
+    def check_line_fallback(self,mesh_failure):
         class Canvas:
             def __init__(self):
                 self.children = []
@@ -333,7 +339,7 @@ class ParticleFallbackTests(unittest.TestCase):
             def __init__(self):
                 self._cx = self._R_inner = self._upper_sand_bot = 1.0
                 self._taper = {"in_pts": [(0.0, 1.0)]}
-                self._sand_material = None
+                self._sand_material = types.SimpleNamespace(texture=object()) if mesh_failure else None
                 self.canvas = Canvas()
                 self.reserved = False
 
@@ -355,7 +361,7 @@ class ParticleFallbackTests(unittest.TestCase):
         graphics = types.ModuleType("kivy.graphics")
         graphics.Color = lambda *args: None
         graphics.Callback = lambda *args, **kwargs: None
-        graphics.Mesh = fail_mesh
+        graphics.Mesh = fail_mesh if mesh_failure else lambda *args,**kwargs:types.SimpleNamespace(**kwargs)
         opengl = types.ModuleType("kivy.graphics.opengl")
         opengl.GL_CURRENT_PROGRAM = 0x8B8D
         opengl.glGetIntegerv = lambda name: [1]

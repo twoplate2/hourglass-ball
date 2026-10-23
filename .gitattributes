@@ -10,3 +10,5 @@ design/checks/records/v3.1/evidence/report.json -text
 design/checks/current-review.json -text
 design/checks/records/v3.8/*.json -text
 design/checks/records/v3.8/*.html text eol=lf
+design/checks/records/v3.9/*.json -text
+design/checks/records/v3.9/*.html text eol=lf

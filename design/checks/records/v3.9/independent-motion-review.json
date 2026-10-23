@@ -1,0 +1,413 @@
+{
+  "reviewer": "independent-final-grain-motion-review",
+  "status": "passed",
+  "source_sha256": "bf8707b160da87afdbb3be0a36d74e3e8675f1060836ee081e90c52b37f45021",
+  "open_blockers": [],
+  "closed_counterexamples": [
+    {
+      "id": "short-one-receiving-arcs",
+      "finding": "最终bf870新采1秒高分两图的540×924全图与原像素裁剪均无堆内多道颗粒或光滑水波亮弧；仅有当帧堆顶细亮边。首次8674拒绝证据仍保存在blocked-splash-arcs，未修改。"
+    }
+  ],
+  "source_and_png_check": {
+    "source_sha256": "bf8707b160da87afdbb3be0a36d74e3e8675f1060836ee081e90c52b37f45021",
+    "before_source_sha256": "d88eecc02ae74dbe805b10cc710fc51852a303abc0943011a3c7806e5bc5f374",
+    "changed_source_files": [
+      "src/app/short_grain_stream.py"
+    ],
+    "only_delta": "build内新增material或texture为None时抛出异常进入既有回退的两行guard；删去这两行后整文件SHA等于d88。",
+    "restored_short_grain_sha256": "ad422b73e1ce0e7c6b8dbf208b58c0170a1911b17db3fa7f7d04b0bce4073ab7",
+    "normal_material_code_unchanged": true,
+    "png_comparisons": [
+      {
+        "folder": "final-matrix-high",
+        "png_files_including_overview": 17,
+        "different": []
+      },
+      {
+        "folder": "final-matrix-low",
+        "png_files_including_overview": 55,
+        "different": []
+      },
+      {
+        "folder": "final-normal",
+        "png_files_including_overview": 242,
+        "different": []
+      },
+      {
+        "folder": "final-coarse",
+        "png_files_including_overview": 32,
+        "different": []
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/short-one-f000-normal.png",
+      "sha256": "d30b781c3f31beb7e3b73170c8c8af9249a1e9db103e4b6a6fd6a1aaae5aea67"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/short-one-f001-normal.png",
+      "sha256": "141ddf85f48d14dc6d8175c77486a11d1bc64f4bc0cbc3438a0729b0dc183170"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/short-one-f000-detail.png",
+      "sha256": "e18b6de0a21f11ab9390747323444046928379d7be58bb1a7161001278405bb9"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/short-one-f001-detail.png",
+      "sha256": "791f715d9fb1090c231ac43cb68e81d90015655588a89f5b1ba5f2cb5305fcf9"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/middle-normal.png",
+      "sha256": "39f0a12478a927e831487327dfcd037f23a76d10880c92fd5159b08b7e7e5b8e"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/coarse-normal.png",
+      "sha256": "eb022178e9a672307c3a3d755fafc3e06bef591154ee089188201cd3b4e7427b"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p5-steady-native.png",
+      "sha256": "784393403e44ddbb36f2f40ba38708ac108720d1809a8db1c3d15f99f420ea21"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p50-steady-native.png",
+      "sha256": "8a171dd0cd88acf837f03a8a8aa1fb28187841436b760a4b71edbfd9083960e3"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/normal-material-comparison.json",
+      "sha256": "db5b1c8d03cbd1531800223054042de79b8ee7b3eb658ec05132924da3234125"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/decode-windows.json",
+      "sha256": "f55cf1e1d4bffc4a980282aa68b216e168d2467210c069993cf680e40caf281d"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p5-landing.png",
+      "sha256": "10cb929a01abf21dcdadd43494dbfafcde20a46e43cee5b73dc183fed363dfa1"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p5-steady.png",
+      "sha256": "075c579a179250d09061cce724a073e45e8b1841657f912ef1e84417921e5a0d"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p5-pause.png",
+      "sha256": "bfee95f8086ca8bf11da9367fce50b6032477fb409da95eb3533a34452b278c2"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p5-resume.png",
+      "sha256": "f2dfdb8499fe4fd2c7c1f5b391b3174242fac25b0653f7d14d57c615bd45f180"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p5-last-percent.png",
+      "sha256": "15d0ab6b56b9dae575cce0f7c7808ae2acdd249de49a35f915a78208733f1683"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p5-zero-tail.png",
+      "sha256": "ca5666064a26918278e6d9d3dd697fbf1c1ecfe5b1a2cd0bf3a8800d8eeaeaf5"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p50-landing.png",
+      "sha256": "605301b490cc99e8294c977c88201f25bcd8491b66c6ed52cdadb428e9b7c3e9"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p50-steady.png",
+      "sha256": "791e42fed25e99ad4817d52f2d3ccbd4c548e600bf1ad853337c1ee6e7b28aa6"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p50-pause.png",
+      "sha256": "a642fcb49f41a62e351c522b8e9a2a934235aa8e378d05aa6a078e0175688055"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p50-resume.png",
+      "sha256": "3a001fe4a020a6acdab50ab9a75046182904b916e3e7f833aca722c8d3a5a377"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p50-last-percent.png",
+      "sha256": "d343975bca6aa2f259ec48f9b5b8203ba10e9dbc3e5498c0c160fe5e6912f25b"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/motion-review/video-p50-zero-tail.png",
+      "sha256": "0121c263942adb17d2717b019620b096b6baef31b2b4c87ebc8ff8ff97ad471a"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/final-matrix-low/middle-f000.png",
+      "sha256": "e29ce85b92122c75b008ccc6df073853702e103e21f160cb58fdab48b3ff1cd2"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/final-matrix-low/color0-grain6-f000.png",
+      "sha256": "d963bdfb4116b2109028681199aa809ca26c9983a627e85f98a6483c07364c8c"
+    },
+    {
+      "path": "_temp/grain-look-3.9/release/final-normal/normal-path-comparison.json",
+      "sha256": "b74620895e42cfba3b130d5da8c36c57a8ece441bc5151cdd2208af10f1effb9"
+    }
+  ],
+  "scope": {
+    "normal_size": "实际看新正式原生400×800默认/粗档，以及1080×1848默认/粗档缩至540×924全图、新录像540×924默认稳态全图。未见新增明显结节、材质割裂或固定多孔色条。",
+    "video": "新5/50秒默认录像各落地、稳态、暂停、恢复、末1%、零后余砂各12连续解码帧；未见遮挡新剃粒、凹槽、悬空断接或闪断。",
+    "windows": {
+      "video-p5": {
+        "landing": {
+          "indices": [
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97
+          ],
+          "wall_start": 1.4608136000169907,
+          "wall_end": 1.6530319000012241,
+          "elapsed_start": 1.4608136000169907,
+          "elapsed_end": 1.6530319000012241
+        },
+        "steady": {
+          "indices": [
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152,
+            153,
+            154,
+            155,
+            156,
+            157
+          ],
+          "wall_start": 2.4931681000161916,
+          "wall_end": 2.6799106000107713,
+          "elapsed_start": 2.4931681000161916,
+          "elapsed_end": 2.6799106000107713
+        },
+        "pause": {
+          "indices": [
+            271,
+            272,
+            273,
+            274,
+            275,
+            276,
+            277,
+            278,
+            279,
+            280,
+            281,
+            282
+          ],
+          "wall_start": 4.63239290000638,
+          "wall_end": 4.81882770001539,
+          "elapsed_start": 4.63239290000638,
+          "elapsed_end": 4.700055699999211
+        },
+        "resume": {
+          "indices": [
+            300,
+            301,
+            302,
+            303,
+            304,
+            305,
+            306,
+            307,
+            308,
+            309,
+            310,
+            311
+          ],
+          "wall_start": 5.133456400013529,
+          "wall_end": 5.319791300018551,
+          "elapsed_start": 4.700055699999211,
+          "elapsed_end": 4.818702900025528
+        },
+        "last-percent": {
+          "indices": [
+            315,
+            316,
+            317,
+            318,
+            319,
+            320,
+            321,
+            322,
+            323,
+            324,
+            325,
+            326
+          ],
+          "wall_start": 5.387099200015655,
+          "wall_end": 5.57629930000985,
+          "elapsed_start": 4.886010800022632,
+          "elapsed_end": 5.0
+        },
+        "zero-tail": {
+          "indices": [
+            318,
+            319,
+            320,
+            321,
+            322,
+            323,
+            324,
+            325,
+            326,
+            327,
+            328,
+            329
+          ],
+          "wall_start": 5.4380158999993,
+          "wall_end": 5.626971399993636,
+          "elapsed_start": 4.936927500006277,
+          "elapsed_end": 5.0
+        }
+      },
+      "video-p50": {
+        "landing": {
+          "indices": [
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97
+          ],
+          "wall_start": 1.455365100002382,
+          "wall_end": 1.64410889998544,
+          "elapsed_start": 1.455365100002382,
+          "elapsed_end": 1.64410889998544
+        },
+        "steady": {
+          "indices": [
+            1434,
+            1435,
+            1436,
+            1437,
+            1438,
+            1439,
+            1440,
+            1441,
+            1442,
+            1443,
+            1444,
+            1445
+          ],
+          "wall_start": 24.99871269997675,
+          "wall_end": 25.232465899985982,
+          "elapsed_start": 24.99871269997675,
+          "elapsed_end": 25.232465899985982
+        },
+        "pause": {
+          "indices": [
+            2638,
+            2639,
+            2640,
+            2641,
+            2642,
+            2643,
+            2644,
+            2645,
+            2646,
+            2647,
+            2648,
+            2649
+          ],
+          "wall_start": 46.94552759997896,
+          "wall_end": 47.21560100000352,
+          "elapsed_start": 46.94552759997896,
+          "elapsed_end": 47.014049499994144
+        },
+        "resume": {
+          "indices": [
+            2746,
+            2747,
+            2748,
+            2749,
+            2750,
+            2751,
+            2752,
+            2753,
+            2754,
+            2755,
+            2756,
+            2757
+          ],
+          "wall_start": 48.93742040000507,
+          "wall_end": 49.21888359999866,
+          "elapsed_start": 47.014049499994144,
+          "elapsed_end": 47.22775590000674
+        },
+        "last-percent": {
+          "indices": [
+            2875,
+            2876,
+            2877,
+            2878,
+            2879,
+            2880,
+            2881,
+            2882,
+            2883,
+            2884,
+            2885,
+            2886
+          ],
+          "wall_start": 51.432550400000764,
+          "wall_end": 51.618316299980506,
+          "elapsed_start": 49.44142270000884,
+          "elapsed_end": 49.627188599988585
+        },
+        "zero-tail": {
+          "indices": [
+            2904,
+            2905,
+            2906,
+            2907,
+            2908,
+            2909,
+            2910,
+            2911,
+            2912,
+            2913,
+            2914,
+            2915
+          ],
+          "wall_start": 51.9235028999974,
+          "wall_end": 52.208503899979405,
+          "elapsed_start": 49.93237520000548,
+          "elapsed_end": 50.0
+        }
+      }
+    }
+  },
+  "residual_observations": [
+    {
+      "severity": "P2",
+      "finding": "5秒首次涨堆偏快，仍按此前已记录的继承P2保留；本轮不自动升降该判断。新落地窗口先有小堆再快速增高。",
+      "evidence": "video-p5-landing.png"
+    },
+    {
+      "severity": "P3",
+      "finding": "默认束形仍较直、零星透底点与一道当帧堆顶细亮边仍可见，未形成此前多道埋藏水波反例。"
+    }
+  ],
+  "limitations": [
+    "只完成限定源码/PNG对照与实际图像复审。PNG相同仅证明该组画面未变，不代替自然性判断。",
+    "离线解码定位5秒411帧、50秒3179帧；实际仅视觉审阅列明短连续窗口，未完整原速播放MP4。",
+    "未穷尽全部矩阵、配色、周期、物理图或每个表面边缘时刻；最细档此次未新增视觉审阅。",
+    "不包含Android、音频、性能、回退外观或完整应用验收。未启动GL/应用/性能任务。"
+  ]
+}

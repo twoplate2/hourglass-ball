@@ -1,0 +1,29 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>3.9 细沙材质与落点遮挡</title><link rel="stylesheet" href="../../style.css"></head><body><main>
+<h1>3.9：细沙材质与落点遮挡</h1>
+<p>2026-10-23。本轮目标是减少沙柱的大圆团、平板及孔洞印象，让流动沙与上下静止沙体更协调，并修复复审发现的堆内亮弧。正式证据绑定最终3.9源码；放行状态见<a href="../../current-review.json">当前决定</a>，摘要与检查见<a href="review.json">本版记录</a>。</p>
+<h2>实际变化</h2>
+<p>沿用真实粒子的位置、数量和生命周期，在每颗图元内部使用出生后固定的微粒方向及偏移，按实际图元尺寸采样同一沙材质，去掉把细粒包成大圆团的父级圆形遮罩。没有逐帧随机挖洞或整束横摆。颈宽、100%容量及原轨迹保持3.8规则。</p>
+<figure><img src="comparison.png" width="1080" height="964" alt="同一50秒配置第8秒，左3.8、右3.9，两个540×924原生画面。"><figcaption>相同种子与时刻的正常尺寸比较。<a href="normal-before-native.png">3.8原图</a> · <a href="normal-after-native.png">3.9原图</a>。静态图不能证明运动。</figcaption></figure>
+<p>独立复审发现1秒快速涨堆会把仍存活的落点闪光与飞溅颗粒埋入沙堆；旧绘制层仍将它们画在表面之上，形成多层水波亮弧。现在以实际当帧堆面过滤完全埋住的绘制图元，仍露在坡面外的部分保留。飞溅的物理数组、轨迹和数量不变。</p>
+<figure><img src="occlusion.png" width="720" height="400" alt="1秒快速涨堆：3.8两类亮弧、中途仍有颗粒弧、3.9修复后只余当前堆面细亮边。"><figcaption>原像素裁剪，失败阶段原证据保留。仅修闪光的中途版本被审核拒绝，补修飞溅遮挡后重采全部证据。</figcaption></figure>
+<h2>动态证据</h2>
+<p><a href="5-seconds.mp4">5秒原速实录</a> · <a href="50-seconds.mp4">50秒原速实录</a>，均含暂停、恢复、末1%及余砂落定。录像来自真正隐藏的PC窗口和独立设置目录，无插帧。</p>
+<video controls preload="metadata" src="5-seconds.mp4" style="max-width:360px;width:100%"></video>
+<video controls preload="metadata" src="50-seconds.mp4" style="max-width:360px;width:100%"></video>
+<p>动态复审实际解码并检查开局落点、稳态、暂停、恢复、末段及落定的关键连续窗口，并核对原生540×924画面；未声称完整播放所有录像。<a href="independent-motion-review.json">独立动态审核原记录</a>保存具体范围与限制。</p>
+<table><thead><tr><th>项目</th><th>证据与标准</th></tr></thead><tbody>
+<tr><td>材质、孔隙与边缘</td><td>默认、最细、最粗及六配色原图；正常尺寸能辨认细粒，未出现大圆团串、整宽空层或新横向接缝。覆盖率仅作辅助；粗档平均覆盖仍须低于既有实心杆拒绝阈值。</td></tr>
+<tr><td>真实连续性</td><td>6组轨迹检查及实际局部像素位移；微粒形态跟随真实粒子，暂停不重新播种。与3.8同条件55张阶段图逐项核对物理数组、沙量、几何及变化区域外像素。</td></tr>
+<tr><td>上沙、颈部与出口</td><td>400×800的55张、高分1080×1848的17张及回退4张；核对相邻连接，颈宽函数及质量账本保持不变。</td></tr>
+<tr><td>落点、近满与收尾</td><td>5/50秒实录及固定49秒几何的接收层开关负对照；完全埋住的亮弧消失，贴当前表面的细亮边保留。计时归零与最终落定分别检查。</td></tr>
+<tr><td>设置与故障回退</td><td>金沙、黑沙各取沙纹浓淡0与0.7，实际沙柱内部像素有差异而物理数组不变；材质缺失或Mesh创建失败均保留Line回退。</td></tr>
+</tbody></table>
+<p><a href="fine-native.png">最细原图</a> · <a href="coarse-native.png">最粗原图</a> · <a href="colors.png">六配色</a> · <a href="controls.png">浓淡端点</a> · <a href="periods.png">各时长</a> · <a href="stages.png">相邻状态</a> · <a href="ending-5.png">5秒收尾</a> · <a href="ending-50.png">50秒收尾</a></p>
+<h2>PC工作量</h2>
+<p>相同1080×1848、50秒周期、25秒起点、同种子，每版3轮×300帧。基线为已发布3.8提交a7707a8，最终3.9单独测量；包含更新、绘制和GPU完成等待，排除取图与编码。三轮分别满足原预算：平均≤16.67ms、最慢1%平均≤20ms、最慢帧≤50ms。</p>
+<table><thead><tr><th>指标</th><th>3.8</th><th>3.9</th></tr></thead><tbody><tr><td>平均耗时</td><td>4.795ms</td><td>4.732ms</td></tr><tr><td>最慢1%平均耗时</td><td>10.018ms</td><td>7.052ms</td></tr><tr><td>最慢帧</td><td>11.194ms</td><td>7.388ms</td></tr></tbody></table>
+<p>此对照只说明当前PC工作量仍在原预算内，不据此声称稳定提速或实际屏幕FPS。</p>
+<h2>反例、限制与审核</h2>
+<p><a href="adversarial-review.html">失败候选、问题等级和修复复审</a>。所有被拒绝的原图保留，未重存旧基线。整体沙流仍大致竖直，局部有细孔；本轮没有改变发射与堆积模型。5秒首次落地后沙堆上升偏快是保留的既有P2，不能将本轮材质通过解释为整套沙漏已无问题。</p>
+<p>未检查Android、MuMu、音频、真实屏幕刷新、10小时完整过程及全部配色的完整动态过程。当前版本只在PC上验证。</p>
+<p><a href="../index.html">返回版本记录</a></p></main></body></html>

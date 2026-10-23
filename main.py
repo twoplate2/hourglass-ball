@@ -6834,7 +6834,14 @@ class HourglassWidget(Widget):
         if self.running:
             self._spawn_bg_splashes(dt)
 
-        self.flares = [f for f in self.flares if f["end"] > self._mound_flow_clock]
+        # A fast-growing pile can bury a live flash. Both render paths consume
+        # this list; retain only flashes whose actual rectangle still peeks out.
+        self.flares = [f for f in self.flares
+                       if f["end"] > self._mound_flow_clock
+                       and f["y"] + (0.8 + 5.0 * (f["end"] - self._mound_flow_clock)) * 0.5
+                       >= min(self._mound_top_at(f["x"]),
+                              self._mound_top_at(f["x"] - 1.0 - 12.5 * (f["end"] - self._mound_flow_clock)),
+                              self._mound_top_at(f["x"] + 1.0 + 12.5 * (f["end"] - self._mound_flow_clock)))]
 
         new_dusts = []
         for d in self.dusts:
@@ -8577,21 +8584,29 @@ class HourglassWidget(Widget):
                 and self._sand_flow_contexts and self._sand_material is not None):
             # 材质路径下把提亮层也画上 —— 见 `NECK_GRAINS_IN_MATERIAL` 的注释与消融数据。
             self._draw_neck_grains(side)
-        # 飞溅层: 装了批处理渲染器就走批处理, 否则走原来的**逐 `Rectangle`**。
-        # (见文件尾 `_install_splash_renderer` 与 `tools/flow_splash_experiment.py`)
+        self._draw_splashes()
+        self._draw_flares(self._mound_flow_clock)
+        self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
+        self._bore_color.a = 1 if remaining <= 0.001 else 0
+        self._update_pause_overlay()
+
+    def _draw_splashes(self):
+        # The pile has already grown during this tick. Clip only the drawing,
+        # using the actual carve, without deleting or moving physical splashes.
+        from short_grain_stream import visible_splash_sizes
+        hws,hhs=self.srw,self.srh
+        if self._sn and self._mound_carve is not None:
+            hws,hhs=visible_splash_sizes(self._sn,self.sx,self.sy,self.srw,self.srh,
+                                         self._mound_carve._v,self._lower_sand_bot)
         _batch = getattr(self, "_splash_batch", None)
         if _batch is None:
             # 非批处理路径(桌面默认)也走**数组** —— 原先这里传的是 `self.splashes`,
             # 而那是个 property, 每帧重建 1403 个 dict(桌面 cProfile 实测占 **18%**)。
             self._sync_rects_arrays(self._splash_group, self._splash_rects, self._sn,
-                                    self.sx, self.sy, self.srw, self.srh)
+                                    self.sx, self.sy, hws, hhs)
         else:
             # 并行数组直通(每颗省掉 3 次 dict 查找)。
-            _batch.update_arrays(self._sn, self.sx, self.sy, self.srw, self.srh)
-        self._draw_flares(self._mound_flow_clock)
-        self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
-        self._bore_color.a = 1 if remaining <= 0.001 else 0
-        self._update_pause_overlay()
+            _batch.update_arrays(self._sn, self.sx, self.sy, hws, hhs)
 
     def set_settings_preview(self, enabled):
         """仅调整预览遮罩，不推进计时或颗粒状态。"""

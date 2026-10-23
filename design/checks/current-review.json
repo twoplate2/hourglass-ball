@@ -1,14 +1,11 @@
 {
   "schema": 1,
-  "version": "3.8",
+  "version": "3.9",
   "status": "approved",
-  "source_sha256": "c59cc24f3bafb1a25ffc08bf0d15a0b900a076a131f86f217d925f75b7fff5b3",
-  "record": "design/checks/records/v3.8/review.json",
+  "source_sha256": "bf8707b160da87afdbb3be0a36d74e3e8675f1060836ee081e90c52b37f45021",
+  "record": "design/checks/records/v3.9/review.json",
+  "prior_followup": "design/checks/records/v3.8/followup-review.html",
   "blockers": [
-    {
-      "id": "neck",
-      "status": "closed"
-    },
     {
       "id": "fine-stream",
       "status": "closed"
@@ -18,7 +15,7 @@
       "status": "closed"
     },
     {
-      "id": "near-full",
+      "id": "joins",
       "status": "closed"
     },
     {
@@ -29,5 +26,6 @@
       "id": "performance",
       "status": "closed"
     }
-  ]
+  ],
+  "scope": "PC细沙材质及相邻连接、遮挡、暂停收尾与既有PC工作量预算；非完整应用验收"
 }

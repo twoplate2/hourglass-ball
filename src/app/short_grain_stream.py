@@ -66,7 +66,9 @@ def particle_vertices(xs, ys, phases, sizes, pitch):
     out[:,:,0] = xs[:,None] + radius[:,None] * corners[None,:,0]
     out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * 1.08
     out[:,:,2:4] = corners[None,:,:]
-    out[:,:,4] = ((phases / math.tau) % 1.0 - .5)[:,None] * .60
+    # Two disjoint bands preserve the immutable seed AND size in one float.
+    # The shader can reconstruct the actual pixel radius without a larger Mesh.
+    out[:,:,4] = (((phases / math.tau) % 1.0)*.5+(sizes>1))[:,None]
     return out
 
 
@@ -82,10 +84,42 @@ def mound_surface_at(xs, carve_vertices, floor):
     return np.interp(xs, surface[:, 0], surface[:, 1]).astype(np.float32)
 
 
+def visible_splash_sizes(count,xs,ys,hws,hhs,carve_vertices,floor):
+    """Hide fully buried decals using the drawn surface; keep physical arrays intact."""
+    if not count:return hws,hhs
+    try:
+        import numpy as np
+    except ImportError:
+        from bisect import bisect_right
+        points=[]
+        for i in range(0,len(carve_vertices),16):
+            q=carve_vertices[i:i+16]
+            if len(q)==16 and q[4]>q[0]:points.extend(((q[0],q[1]),(q[4],q[5])))
+        nodes=sorted(dict(points).items());axis=[p[0] for p in nodes]
+        def surface(x):
+            if not nodes:return floor
+            i=bisect_right(axis,x)
+            if i==0:return nodes[0][1]
+            if i==len(nodes):return nodes[-1][1]
+            a,b=nodes[i-1],nodes[i]
+            return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])
+        visible=[ys[i]+hhs[i]>=min(surface(xs[i]-hws[i]),surface(xs[i]),surface(xs[i]+hws[i]))
+                 for i in range(count)]
+        return ([hws[i] if visible[i] else 0.0 for i in range(count)],
+                [hhs[i] if visible[i] else 0.0 for i in range(count)])
+    x,y,hw,hh=[np.asarray(a[:count]) for a in (xs,ys,hws,hhs)]
+    samples=np.column_stack((x-hw,x,x+hw))
+    surface=mound_surface_at(samples,carve_vertices,floor).min(axis=1)
+    visible=y+hh>=surface
+    return np.where(visible,hw,0.0),np.where(visible,hh,0.0)
+
+
 VERTEX_SHADER = """
 $HEADER$
 attribute float vTone;
 attribute float vSurface;
+uniform vec4 short_geometry;
+varying float grain_radius;
 varying vec2 sand_position;
 varying vec2 grain_local;
 varying float grain_tone;
@@ -93,7 +127,10 @@ varying float grain_surface;
 void main(void) {
     sand_position = vPosition;
     grain_local = vTexCoords0;
-    grain_tone = vTone;
+    // vTone is now the seed/size payload; keep the historical attribute layout.
+    float large=step(.75,vTone);
+    grain_tone=(2.0*(vTone-large)-.5)*.60;
+    grain_radius=1.6*max(.8,short_geometry.w)*(1.0+.15*large);
     grain_surface = vSurface;
     frag_color = color * vec4(1.0,1.0,1.0,opacity);
     gl_Position = projection_mat * modelview_mat * vec4(vPosition,0.0,1.0);
@@ -102,8 +139,8 @@ void main(void) {
 
 FRAGMENT_BODY = """
 uniform vec4 short_geometry;
-uniform float short_contrast;
 uniform float short_coarse;
+varying float grain_radius;
 varying vec2 grain_local;
 varying float grain_tone;
 varying float grain_surface;
@@ -115,26 +152,26 @@ void main(void) {
     // No moving envelope, random deletion, or global-count opacity is applied.
     if (sand_position.y > short_geometry.y) discard;
     if (sand_position.y < grain_surface) discard;
-    float r2 = dot(grain_local,grain_local);
-    if (r2 >= 1.0) discard;
-    float strength = min(1.5,max(0.0,short_contrast / .35));
-    // Fixed micrograins inside each representative particle. No time noise:
-    // these details travel with the same persistent quad for its entire life.
-    vec2 cell=floor((grain_local+1.0)*1.5);
+    // Each cluster has an immutable orientation and irregular local placement.
+    // No time noise: its details travel with the same real particle for life.
+    float angle=clump_hash(vec2(grain_tone*13.1,grain_tone*31.7))*6.283185;
+    vec2 domain=mat2(cos(angle),-sin(angle),sin(angle),cos(angle))*grain_local;
+    vec2 cell=floor((domain+1.0)*1.5);
     float seed=micro_hash(cell+grain_tone*31.7);
-    vec2 local=fract((grain_local+1.0)*1.5)-.5;
-    local-=vec2(seed-.5,micro_hash(cell+17.0+grain_tone*13.1)-.5)*.14;
+    vec2 local=fract((domain+1.0)*1.5)-.5;
+    local-=vec2(seed-.5,micro_hash(cell+17.0+grain_tone*13.1)-.5)*.34;
     float micro_r=length(local);
-    // A larger representative quad must not fill every inter-grain pore.
-    // Keep every particle and its fixed details; only the coarse grain shape
-    // and contrast differ. No time-dependent holes or thinning are used.
+    // Coarse grains keep pores without replacing their texture with large dots.
     float coarse=smoothstep(1.8,3.0,short_coarse);
-    float micro=1.0-smoothstep(mix(.40,.27,coarse),mix(.52,.37,coarse),micro_r);
-    float detail = (grain_tone*.45+(seed-.5)*.65+.04*(1.0-r2)) * strength*(1.0+.35*coarse);
+    float micro=1.0-smoothstep(mix(.38,.30,coarse),mix(.51,.41,coarse),micro_r);
     vec2 uv = fract(vec2(grain_tone*17.1,grain_tone*29.7)
-                    + grain_local * (1.6*short_geometry.w) / (2.0*sand_geometry.y));
-    vec3 rgb = mix(grain_tone_color(detail,0.0),texture2D(texture0,uv).rgb,.55*sand_mix);
-    float coverage = (1.0-smoothstep(.80,1.0,r2))*micro;
+                    + grain_local * grain_radius * vec2(1.0,1.08) / (2.0*sand_geometry.y));
+    vec3 sample_rgb=texture2D(texture0,uv).rgb;
+    vec3 rgb=clamp(sand_base+(sample_rgb-sand_base)*1.6,0.0,1.0);
+    // Only feather the quad border. A circular parent mask would make the
+    // entire cluster read as a large pebble even when its interior is fine.
+    float coverage = (1.0-smoothstep(.75,1.0,abs(grain_local.x)))
+        *(1.0-smoothstep(.75,1.0,abs(grain_local.y)))*micro;
     gl_FragColor = vec4(rgb,frag_color.a*coverage);
 }
 """
@@ -159,6 +196,8 @@ def install(widget_class):
         try:
             if os.environ.get("HG_FLOW_FORCE_FAIL"):
                 raise RuntimeError("forced particle mesh fallback")
+            if self._sand_material is None or self._sand_material.texture is None:
+                raise RuntimeError("particle material unavailable")
             context = SandFlowContext((self._cx,self._R_inner,self._upper_sand_bot,
                 self._taper["in_pts"][0][1]),VERTEX_SHADER,GRAIN_FRAGMENT_HEADER+FRAGMENT_BODY,tag=6)
             # Prepare the first Mesh before removing the working Line groups.
@@ -229,7 +268,6 @@ def install(widget_class):
             (self.sand_base,self.sand_dark,self.sand_light))
         outlet=2*self._neck_y-self._taper["y_bot"]
         context["short_geometry"]=(self._cx,outlet,self._taper["t_in"],pitch)
-        context["short_contrast"]=module.SAND_MATERIAL_GRAIN
         context["short_coarse"]=module.SAND_MATERIAL_COARSE
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl")
