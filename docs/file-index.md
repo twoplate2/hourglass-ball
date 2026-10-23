@@ -20,7 +20,7 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 | [handoff-current.txt](../handoff-current.txt) | 当前交接入口；正文按 handoff 技能存入系统 `%TEMP%`，不进入 APK |
 | [.gitignore](../.gitignore) | 忽略输出、原始素材和缓存，不控制 APK 打包 |
 | [.gitattributes](../.gitattributes) | Git 行尾等文件属性 |
-| [.githooks/pre-push](../.githooks/pre-push) | 核对 3.0 回退身份、防息屏生命周期、基础检查、已提交源码和版本标题；不要求帧率或完整回归 |
+| [.githooks/pre-push](../.githooks/pre-push) | 核对当前审核、已提交证据和运行源码、关联检查及版本标题；不据此宣称完整应用验收 |
 | [.github/workflows/build-apk.yml](../.github/workflows/build-apk.yml) | GitHub Actions 构建、检查、发布 |
 | [.github/workflows/check-file-index.yml](../.github/workflows/check-file-index.yml) | 每日北京时间 09:00 或手动检查索引和目录布局；推送时复用打包内的基础检查，不重复触发独立任务 |
 | [.github/workflows/check-regression.yml](../.github/workflows/check-regression.yml) | CI 目录、版本、语法和资料基础检查；失败拦截构建，不执行完整应用回归 |
@@ -39,7 +39,8 @@ GitHub 定时任务需要配置推送到默认分支后才生效，实际启动�
 | [requirements-pc.txt](../src/app/requirements-pc.txt) | 当前 PC 运行依赖；回退后不需要 Pymunk |
 | [frame_benchmark.py](../src/app/frame_benchmark.py) | 帧间隔采样、统计、曲线、报告与测试状态恢复 |
 | [flow_numpy.py](../src/app/flow_numpy.py) | 主沙流的向量化物理内核，与标量路径保持等价 |
-| [splash_motion.py](../src/app/splash_motion.py) | 飞溅弹道、沙面阻尼和重新入流剔除 |
+| [splash_motion.py](../src/app/splash_motion.py) | 飞溅弹道、接触后贴坡阻尼、涨堆埋藏停稳和重新入流剔除；复用原粒子身份 |
+| [short_grain_stream.py](../src/app/short_grain_stream.py) | 持续短粒渲染、固定微粒细节和实际沙面遮挡；3.10保留已发布3.9实现 |
 | [sand_flow_material.py](../src/app/sand_flow_material.py) | 沙体、颈部、接触面的 GPU 材质 |
 | [flow_batch_experiment.py](../src/app/flow_batch_experiment.py) | 批处理几何、缓冲区和各渲染器共用实现 |
 | [flow_texture_experiment.py](../src/app/flow_texture_experiment.py) | 端点纹理沙流渲染路径 |
@@ -73,7 +74,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | [check_release_version.py](../src/tools/check_release_version.py) | 检查 `--base` / `--head` 的版本递增与中文标题，兼容旧目录历史 |
 | [test_release_version.py](../src/tools/test_release_version.py) | 无窗口测试版本规则和统一版本来源 |
 | [test_repository_layout.py](../src/tools/test_repository_layout.py) | 检查资源路径、文档链接、文件索引和暂存区隔离 |
-| [_prepush.sh](../src/tools/_prepush.sh) | 兼容 shell 入口，运行回退、防息屏和基础检查；不自动运行全量测试 |
+| [_prepush.sh](../src/tools/_prepush.sh) | 兼容 shell 入口，执行当前沙流证据、关联反例、防息屏和基础检查；不自动运行完整应用回归 |
 | [run_regression.py](../src/tools/run_regression.py) | 关联测试选择、完整执行、完成检查、报告摘要与人工证据核对；PC 限定 |
 | [test_regression_gate.py](../src/tools/test_regression_gate.py) | 正负对照验证漏测、超时、失败、旧报告和坏图片确实会阻挡 |
 | [check_design_pages.py](../src/tools/check_design_pages.py) | 解析所有设计 HTML，检查图片解码、相对链接与页内锚点；浏览器实显仍需另验 |
@@ -125,7 +126,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 | [_side_by_side.py](../src/tools/_side_by_side.py) | 同时刻、同尺寸截图生成并排图，给用户审阅 |
 | [_diff_map.py](../src/tools/_diff_map.py) | 用 ASCII 和差异图定位不同像素的形状 |
 | [_render_golden.py](../src/tools/_render_golden.py) | `--check` 核对渲染指纹；`--save` 改基线需明确依据 |
-| [_splash_golden.py](../src/tools/_splash_golden.py) | 飞溅轨迹指纹对照；不要把重新保存基线当作修复 |
+| [_splash_golden.py](../src/tools/_splash_golden.py) | 历史飞溅存储路径等价指纹；保留原指纹，不重存基线，不据此声称3.10接触模型未变 |
 | [render_golden.fp.json](../src/tools/render_golden.fp.json) | Git 跟踪的渲染参考指纹，不是可再生垃圾 |
 | [splash_golden.fp.json](../src/tools/splash_golden.fp.json) | Git 跟踪的飞溅参考指纹，不是普通输出 |
 | [_accept_check.py](../src/tools/_accept_check.py) | `design/checks/notes/old-criteria.md` 的 A1-A7；标定依赖指定好/坏标签截图 |
@@ -261,7 +262,7 @@ rg --files src
 
 - `src/app/neck_geometry.py`：按球内径定义净通道，1～5秒为15%，10小时及以上为3%，中间按对数时长参数作幂插值。
 - `src/tools/release_decision.py`：当前审核决定及版本/源码身份；撤回和待验阻止发布，`--committed`核对决定及证据已纳入待推送HEAD。
-- `src/tools/check_flow_release.py`：当前3.9发布入口，核对原图、连续帧、5秒/50秒实录、独立审核及PC工作量；对照3.8/a7707a8，其他运行源码须保持，main仅允许闪光过滤及飞溅绘制精确抽取的窄AST变化。记录存在不等于整体视觉通过。
+- `src/tools/check_flow_release.py`：当前3.10发布入口，核对原图、连续帧、5秒/50秒实录、独立审核及PC工作量；对照3.9/27a8279，主程序保持，物理比较只豁免飞溅子数组、数量和统计，主沙粒、沙量、几何、双随机状态和其他效果仍须一致。记录存在不等于整体视觉通过。
 - `src/tools/stream_review_metrics.py`：出口台阶、空层、实心杆及整体摆动反例量具。
 - `src/tools/record_flow_review.py`：真正隐藏PC实时录像及暂停和末段记录。
 - `src/tools/test_neck_geometry.py`：口径端点和尺寸/时长映射。
@@ -269,7 +270,8 @@ rg --files src
 - `src/tools/test_receiving_surface.py`：低净空局部接收层与跨封顶连续性。
 - `src/tools/test_release_decision.py`：当前决定及提交身份的发布反例，拒绝撤回、待验和未提交/未跟踪的批准证据。
 - `src/tools/test_stream_review_metrics.py`：各类错误画面的独立反例。
-- `src/tools/test_flow_release.py`：19项发布反例，包含运行文件范围、唯一闪光赋值AST、实际像素暂停及近满接收检查。
+- `src/tools/test_flow_release.py`：25项发布反例，包含当前主程序保护、飞溅改动边界、双随机状态及其他效果保护、实际像素暂停和近满接收；保留历史AST反例。
+- `src/tools/test_landing_spread.py`：8项接触行为反例，核对实际坡面、埋藏不复活、暂停、标量/向量一致、原抛物线、后退表面及有限接触/停稳寿命。
 - `src/tools/test_particle_material.py`：2项材料采样检查，核对固定种子/尺寸载荷及纹理像素偏移与实际图元几何一致。
 - `src/tools/test_flare_occlusion.py`：5项实际闪光保留表达式检查，覆盖已埋闪光、接触、上缘、过期和坡面显露角。
 - `src/tools/test_splash_occlusion.py`：4项实际飞溅绘制检查，覆盖普通/batch遮挡、显露坡角、空帧及无NumPy支路，并核对物理数组不变。
@@ -280,6 +282,7 @@ rg --files src
 - `src/tools/pixel_flow_review.py` / `src/tools/test_pixel_flow_review.py`：真实GL像素的局部亚像素下行位移及冻结/倒流反例，不等于逐像素身份或屏幕FPS。
 - `src/tools/verify_receiving_pixels.py`：在隐藏PC固定近满几何及其他时钟，单独改变接收层相位并关闭该层作负对照，核对表面纹理实际像素变化；不以整个接收区的哈希变化代替局部运动证明。
 
-3.8工程结果保留，整体质感续审未达；3.9包含细粒材质、闪光和飞溅遮挡三处修正。连续性20项包含材质缺失与Mesh失败分别回退的反例。
+3.8工程结果保留，整体质感续审未达；3.9包含细粒材质、闪光和飞溅遮挡修正。3.10的微粒明暗候选被独立拒绝，正式渲染器保持3.9，只调整接触后贴坡与埋藏停稳。
+连续性20项包含材质缺失与Mesh失败分别回退的反例。历史飞溅黄金指纹用于存储等价，本次显式接触变化另用新反例和实际画面验收，不重存旧指纹。
 5秒首次涨堆偏快仍为既有P2，不能据本轮结果声称全应用无问题。
-本轮保留100%容量；范围为隐藏PC外观与相邻状态、用户已要求的PC单帧工作量，不包含Android、音频或真实屏幕FPS。最终以当前审核决定及records/v3.9正式证据为准。
+本轮保留100%容量；范围为隐藏PC外观与相邻状态、用户已要求的PC单帧工作量，不包含Android、音频、真实屏幕FPS或完整应用验收。最终以当前审核决定及records/v3.10正式证据为准。

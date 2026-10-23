@@ -1,0 +1,440 @@
+{
+  "schema": 1,
+  "version": "3.10",
+  "reviewer": "independent_fine_landing_motion_review",
+  "review_type": "independent_adversarial_dynamic_visual_review",
+  "status": "passed",
+  "open_blockers": [],
+  "source_sha256": "bd0692147bd8d18636153c4390b87dedb00a607d313b11bef784340ec5a6f41f",
+  "conclusion": "在所列PC接触连贯性与相邻状态范围内未发现新增P0/P1阻挡。整体画面与3.9接近，仅应表述为局部触坡连续性修复。",
+  "method": "独立软件解码全部视频帧核对数量与PTS，实际视觉查看每片6个12连续帧窗口、原生540×924完整画面和列明高分原像素裁剪；未完整原速播放视频。",
+  "reviewed_scope": [
+    "默认5秒和50秒落地、稳态、暂停、恢复、最后1%附近和计时归零后余砂。",
+    "两片最终落定540×924原生全图；细档与粗档540×924原生全图。",
+    "1秒高分两阶段正常尺寸与落点原像素；近满两阶段正常尺寸。"
+  ],
+  "findings": [
+    {
+      "id": "stationary-highlight-and-buried-arcs",
+      "severity": "none",
+      "status": "passed",
+      "finding": "所查连续窗口未出现新增静止亮带；1秒两张相邻落点原像素未出现堆内多层亮弧，当前堆面的一道细亮边仍在。"
+    },
+    {
+      "id": "surface-continuity",
+      "severity": "none",
+      "status": "passed",
+      "finding": "所查窗口未见可辨认的贴坡横向传送、大幅抬回、大片提前消失或明显反复离坡小跳。微粒很小，不能据此声称逐粒视觉追踪完备。"
+    },
+    {
+      "id": "pause-resume-settle",
+      "severity": "none",
+      "status": "passed",
+      "finding": "暂停画面保持，恢复未见颗粒样式重置；余砂继续收尾，最后原生全图未留下活动亮带或悬挂沙块。原始暂停图摘要一致，最终主粒子/飞溅归零、landed为1。"
+    },
+    {
+      "id": "material-preserved",
+      "severity": "none",
+      "status": "passed",
+      "finding": "正式short_grain_stream.py归一换行后与3.9提交27a8279完全相同；被拒绝的micro-tone小样未进入正式材质。"
+    }
+  ],
+  "residual_observations": [
+    {
+      "severity": "P2",
+      "id": "inherited-short-initial-pile",
+      "finding": "5秒首次落地后堆面增长较快仍可见，沿用此前保留P2，本轮未修复或改判通过。",
+      "evidence": "motion-review/video-p5-landing.png"
+    },
+    {
+      "severity": "P3",
+      "finding": "整体束形仍大致竖直，少量透底点及当前堆面细亮边可见；本轮变化细微，不支持“整体观感明显升级”的表述。"
+    }
+  ],
+  "material_renderer_normalized_sha256": "869c4a351196cc3b521733ec9364bfbc445a4507cb9766714219043de6f8dde5",
+  "video_checks": {
+    "video-p5": {
+      "decoded_frames": 410,
+      "movie_sha256": "3aa72f7e3ef9164244e13d8ad3aebc7b58a93183571e147065f000b7f9ac4106",
+      "pause_raw_frames": 29,
+      "pause_raw_image_identities": 1,
+      "last_transfer": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.0,
+        "landed": 1.0
+      },
+      "last_particles": 0,
+      "last_splashes": 0,
+      "last_running": false,
+      "visually_reviewed_windows": {
+        "landing": {
+          "indices": [
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97
+          ],
+          "wall_start": 1.4593894999998156,
+          "wall_end": 1.6542656999954488,
+          "elapsed_start": 1.4593894999998156,
+          "elapsed_end": 1.6542656999954488
+        },
+        "steady": {
+          "indices": [
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152,
+            153,
+            154,
+            155,
+            156,
+            157
+          ],
+          "wall_start": 2.4953629999945406,
+          "wall_end": 2.682030899974052,
+          "elapsed_start": 2.4953629999945406,
+          "elapsed_end": 2.682030899974052
+        },
+        "pause": {
+          "indices": [
+            271,
+            272,
+            273,
+            274,
+            275,
+            276,
+            277,
+            278,
+            279,
+            280,
+            281,
+            282
+          ],
+          "wall_start": 4.642265199974645,
+          "wall_end": 4.828153399983421,
+          "elapsed_start": 4.642265199974645,
+          "elapsed_end": 4.709825099998852
+        },
+        "resume": {
+          "indices": [
+            300,
+            301,
+            302,
+            303,
+            304,
+            305,
+            306,
+            307,
+            308,
+            309,
+            310,
+            311
+          ],
+          "wall_start": 5.145408499985933,
+          "wall_end": 5.332822899974417,
+          "elapsed_start": 4.709825099998852,
+          "elapsed_end": 4.828957699995954
+        },
+        "last-percent": {
+          "indices": [
+            315,
+            316,
+            317,
+            318,
+            319,
+            320,
+            321,
+            322,
+            323,
+            324,
+            325,
+            326
+          ],
+          "wall_start": 5.400683399988338,
+          "wall_end": 5.589711799984798,
+          "elapsed_start": 4.896818200009875,
+          "elapsed_end": 5.0
+        },
+        "zero-tail": {
+          "indices": [
+            317,
+            318,
+            319,
+            320,
+            321,
+            322,
+            323,
+            324,
+            325,
+            326,
+            327,
+            328
+          ],
+          "wall_start": 5.434563699993305,
+          "wall_end": 5.6236059999791905,
+          "elapsed_start": 4.930698500014842,
+          "elapsed_end": 5.0
+        }
+      }
+    },
+    "video-p50": {
+      "decoded_frames": 3111,
+      "movie_sha256": "815943423939c15e920562ed10b42f5249352789d6696158ff7a16b611fa360c",
+      "pause_raw_frames": 108,
+      "pause_raw_image_identities": 1,
+      "last_transfer": {
+        "upper": 0.0,
+        "neck": 0.0,
+        "flight": 0.0,
+        "landed": 1.0
+      },
+      "last_particles": 0,
+      "last_splashes": 0,
+      "last_running": false,
+      "visually_reviewed_windows": {
+        "landing": {
+          "indices": [
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92,
+            93,
+            94,
+            95,
+            96,
+            97
+          ],
+          "wall_start": 1.4641524000035133,
+          "wall_end": 1.6510271999868564,
+          "elapsed_start": 1.4641524000035133,
+          "elapsed_end": 1.6510271999868564
+        },
+        "steady": {
+          "indices": [
+            1407,
+            1408,
+            1409,
+            1410,
+            1411,
+            1412,
+            1413,
+            1414,
+            1415,
+            1416,
+            1417,
+            1418
+          ],
+          "wall_start": 25.004513599997154,
+          "wall_end": 25.245125999994343,
+          "elapsed_start": 25.004513599997154,
+          "elapsed_end": 25.245125999994343
+        },
+        "pause": {
+          "indices": [
+            2578,
+            2579,
+            2580,
+            2581,
+            2582,
+            2583,
+            2584,
+            2585,
+            2586,
+            2587,
+            2588,
+            2589
+          ],
+          "wall_start": 46.92371799997636,
+          "wall_end": 47.22146979998797,
+          "elapsed_start": 46.92371799997636,
+          "elapsed_end": 47.00285150000127
+        },
+        "resume": {
+          "indices": [
+            2686,
+            2687,
+            2688,
+            2689,
+            2690,
+            2691,
+            2692,
+            2693,
+            2694,
+            2695,
+            2696,
+            2697
+          ],
+          "wall_start": 48.948739699990256,
+          "wall_end": 49.234975899977144,
+          "elapsed_start": 47.00285150000127,
+          "elapsed_end": 47.22129489999497
+        },
+        "last-percent": {
+          "indices": [
+            2812,
+            2813,
+            2814,
+            2815,
+            2816,
+            2817,
+            2818,
+            2819,
+            2820,
+            2821,
+            2822,
+            2823
+          ],
+          "wall_start": 51.46148679999169,
+          "wall_end": 51.648920599982375,
+          "elapsed_start": 49.44780580000952,
+          "elapsed_end": 49.635239600000205
+        },
+        "zero-tail": {
+          "indices": [
+            2841,
+            2842,
+            2843,
+            2844,
+            2845,
+            2846,
+            2847,
+            2848,
+            2849,
+            2850,
+            2851,
+            2852
+          ],
+          "wall_start": 51.95952539998689,
+          "wall_end": 52.263435100001516,
+          "elapsed_start": 49.94584440000472,
+          "elapsed_end": 50.0
+        }
+      }
+    }
+  },
+  "evidence": [
+    {
+      "path": "motion-review/video-p5-landing.png",
+      "sha256": "ea4149de3ff679044561793c86993ae47e536d2e48c5ebffa3aabd0f86aee931"
+    },
+    {
+      "path": "motion-review/video-p5-steady.png",
+      "sha256": "8df8367949f3e3e12a699dd0b930529e818e67b0fe40d43cc70c94a895dd787c"
+    },
+    {
+      "path": "motion-review/video-p5-pause.png",
+      "sha256": "da9b7d95fe16eefe1afbff8fb8618edb099bc8426f769a9707a464c3aa983b51"
+    },
+    {
+      "path": "motion-review/video-p5-resume.png",
+      "sha256": "b34b8ac48821e0e30ad9ddd622bd5e6de312453cadf44ed3dcc465b85389fda7"
+    },
+    {
+      "path": "motion-review/video-p5-last-percent.png",
+      "sha256": "84ce86e2646494c0e2347b2778074deeb90b7723675870499a2ffe96321f3090"
+    },
+    {
+      "path": "motion-review/video-p5-zero-tail.png",
+      "sha256": "eb99961a3c1ae0f77d61ec000376dd6957eabd41fe22a8218dd70266f10d1323"
+    },
+    {
+      "path": "motion-review/video-p5-steady-native.png",
+      "sha256": "06ca0e32e9f9e7343cc7fc7ea90bc4aa69f8982d3fcad8acf00e08efa0a9b504"
+    },
+    {
+      "path": "motion-review/video-p5-final-settled-native.png",
+      "sha256": "7f9f9cf59ba66db758b4a412c6ac226c1601672024cc55e97219b2f8782ed747"
+    },
+    {
+      "path": "motion-review/video-p50-landing.png",
+      "sha256": "2b3836dfc312efbeb4f33dd1ea1dfb9f44c882d8acc8238f4fa9a9ad5f6477b0"
+    },
+    {
+      "path": "motion-review/video-p50-steady.png",
+      "sha256": "08d78b93e53d5214a6123f98e93370dc2bd4fb68fa2a407bf53d0e299734b880"
+    },
+    {
+      "path": "motion-review/video-p50-pause.png",
+      "sha256": "3f236fb04c830e2deeaacdd521467fcd0c6a6679e6f179454c6966cdad9182a5"
+    },
+    {
+      "path": "motion-review/video-p50-resume.png",
+      "sha256": "f5824587bcf0983393e733bfbbc3b6acf8f4d6d27da803435e28e13184534dcd"
+    },
+    {
+      "path": "motion-review/video-p50-last-percent.png",
+      "sha256": "acea4a6e6140a44b8c9386aa2c38ce68a93bcd501da3c9829d5d7585b404f75d"
+    },
+    {
+      "path": "motion-review/video-p50-zero-tail.png",
+      "sha256": "e726eac91aea45927fc9f95f0ef6e52a841a2f9c45a5971a432f486b0b455c78"
+    },
+    {
+      "path": "motion-review/video-p50-steady-native.png",
+      "sha256": "74faa38baaec86c936351dc25e31b199436c1ca428474e0ab2de25bbdefd286b"
+    },
+    {
+      "path": "motion-review/video-p50-final-settled-native.png",
+      "sha256": "ba5d509fd96c28924cac7aae5fcca6d3e0b702121b835875b4cb6c6c666235d9"
+    },
+    {
+      "path": "motion-review/short-one-f000-normal.png",
+      "sha256": "3c5808a94281bdd44cefa8d18212892afac9aaf6e516d35b9898128a7835d969"
+    },
+    {
+      "path": "motion-review/short-one-f000-contact-native.png",
+      "sha256": "9bb4bda00cc2e32f8cee9e41762ff75a5abaa3ecf9392e5b6409e4d534eea9ec"
+    },
+    {
+      "path": "motion-review/short-one-f001-normal.png",
+      "sha256": "47d3868c1f5e10f2d824f5fa73f120047d76a1a6f975e88424e257fc93852e98"
+    },
+    {
+      "path": "motion-review/short-one-f001-contact-native.png",
+      "sha256": "1f3997de88c690339a95d835d182075032db6388ebaa512e716a699e19c0b771"
+    },
+    {
+      "path": "motion-review/near-full-f000-normal.png",
+      "sha256": "b7087dc9dd2a3761fd7fbba281bb265d201758e8114bcd6ad6dcb917de76a1cc"
+    },
+    {
+      "path": "motion-review/near-full-f001-normal.png",
+      "sha256": "b0931a4fdb17a12063908d80a1d55b04d6dc34de1bad0317f9fac95013fd9e22"
+    },
+    {
+      "path": "final-fine/overview.png",
+      "sha256": "d82cfa64a451b85849e733476a403c5f8501efc00a1d9d93cedc68fa0dfcb321"
+    },
+    {
+      "path": "final-coarse/overview.png",
+      "sha256": "8df60cbd469acad8674ee1aead4a6a676a701cbe14e36d2c1ebca2482a645914"
+    },
+    {
+      "path": "motion-review/decode-windows.json",
+      "sha256": "04d1a2e5672e52abe576eabee863a4382cc5d74fad771f63ea74f03b22f56386"
+    }
+  ],
+  "limitations": [
+    "视觉审阅限于列明连续窗口和实图，没有完整原速播放5秒或50秒视频。",
+    "全部视频帧解码与PTS核对不等于全部视频帧均已视觉审核；front窗口虽导出但未列为本轮实际视觉审阅。",
+    "未穷尽每粒、所有配色或所有周期的动态过程；1秒仅两阶段，粗细档仅静态正常尺寸。",
+    "局部微粒的物理支持/埋藏反例仍须结合独立失败用例与轨迹检查，此视觉复审不能替代它们。",
+    "不包括GL新采集、性能、Android/MuMu、音频或完整应用验收。"
+  ]
+}

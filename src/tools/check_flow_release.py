@@ -22,9 +22,10 @@ from stream_review_metrics import inspect_motion,inspect_frame
 from pixel_flow_review import inspect as inspect_pixel_motion
 
 
-BASELINE_VERSION='3.8'
-BASELINE_COMMIT='a7707a8f57acc72fed3f49294a6be2c2eecd7269'
-MATERIAL_FILES={'src/app/short_grain_stream.py','src/app/app_version.py'}
+BASELINE_VERSION='3.9'
+BASELINE_COMMIT='27a8279fbbc003c6fd99a0f312c0d24ac3004b11'
+MATERIAL_FILES={'src/app/short_grain_stream.py','src/app/app_version.py',
+                'src/app/splash_motion.py'}
 TRACES={'final-normal':(50,3,241),'final-short':(5,3,61),
         'final-fine':(50,1,31),'final-coarse':(50,6,31),
         'final-long':(36000,3,61),'final-tail':(50,3,37)}
@@ -41,6 +42,7 @@ TOOLS+=['src/tools/test_particle_material.py']
 TOOLS+=['src/tools/test_flare_occlusion.py']
 TOOLS+=['src/tools/test_splash_occlusion.py']
 TOOLS+=['src/tools/check_short_grain_release.py']
+TOOLS+=['src/tools/test_landing_spread.py']
 
 
 def read(path):return json.loads(Path(path).read_text(encoding='utf-8'))
@@ -111,10 +113,23 @@ def require_material_scope(manifest,baseline,main_sources=None):
     if set(manifest)!=set(baseline):raise ValueError('Appearance runtime inventory changed')
     for name,digest in manifest.items():
         if name not in MATERIAL_FILES and digest!=baseline[name]:
-            if name=='main.py' and main_sources is not None:
-                require_flare_scope(*main_sources)
-                continue
             raise ValueError('Appearance iteration changed protected runtime: '+name)
+
+
+def require_landing_physics(before,after):
+    """Permit declared splash motion only; keep every other recorded state."""
+    states=[]
+    for frame in (before,after):
+        state=copy.deepcopy(frame['physics'])
+        if type(state['_sn']) is not int or state['_sn']<0 or state['_sn']!=frame['splashes']:
+            raise ValueError('Splash count differs from the recorded live state')
+        state.pop('sha256')
+        state.pop('_sn')
+        state['arrays'].pop('splash')
+        state['effects'].pop('_splash_stats')
+        states.append(state)
+    if states[0]!=states[1]:
+        raise ValueError('Physics or random state changed outside declared landing motion: '+before['name'])
 
 
 def baseline_sources():
@@ -187,8 +202,7 @@ def validate(record=None):
     if r.get('source_manifest')!=manifest:raise ValueError('Runtime manifest changed')
     baseline=baseline_sources()
     require_material_scope(manifest,{name:hashlib.sha256(value.replace(b'\r\n',b'\n')).hexdigest()
-                                    for name,value in baseline.items()},
-                           main_sources=((ROOT/'main.py').read_bytes(),baseline['main.py']))
+                                    for name,value in baseline.items()})
     goals=('geometry','upper','stream','edges','landing','joins','states','near_full')
     if r.get('status')!='approved' or not all(r.get('review',{}).get(k)=='passed' for k in goals):
         raise ValueError('Missing scoped visual review')
@@ -250,8 +264,11 @@ def validate(record=None):
         for f in previous['frames']:
             if sha(folder/'baseline-matrix-low'/f['file'])!=f['sha256']:
                 raise ValueError('Preservation baseline pixels changed')
+        current={f['name']:f for f in read(folder/'final-matrix-low/result.json')['frames']}
+        for f in previous['frames']:
+            require_landing_physics(f,current[f['name']])
         stats['preserved_frames']=compare_preserved(folder/'baseline-matrix-low/result.json',
-            folder/'final-matrix-low/result.json',allow_buried_flares=True)
+            folder/'final-matrix-low/result.json')
         for arm,(period,grain,count) in TRACES.items():
             d=read(folder/arm/'motion.json');manifests.append(manifest_matches(d,manifest))
             if (not d['completed'] or d['version']!=version or d['period']!=period

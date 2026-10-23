@@ -1,0 +1,702 @@
+{
+  "version": "3.10",
+  "status": "approved",
+  "source_sha256": "bd0692147bd8d18636153c4390b87dedb00a607d313b11bef784340ec5a6f41f",
+  "source_manifest": {
+    "main.py": "72af9e4531c2e83d2d4da3503857ea4d79d4fa45c55cae9c9e73fc27f572f6db",
+    "buildozer.spec": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "d82f91c8c11c8a84c6d2449aabd0d6d1a8e6a77c1c2518bf6a5cb7c73607ffdd",
+    "src/app/app_version.py": "bde0d958f6ccc913bdd5b611dec18bf8eb0873932dfb9d7ebe74e11b0b027eec",
+    "src/app/flow_batch_experiment.py": "9f7dc0d48900f0b3125d41463b615fbec334a555827bf44a9dfe960f27fa57b4",
+    "src/app/flow_gpu_experiment.py": "ffe94c0bcf80276f287bbe7c58f7b941267b6ff39f4f30dfdb0871a4c7154305",
+    "src/app/flow_numpy.py": "aa90bb57c1e6d6e40799820ea75a2c9d35bd3d3c807ab0a075aa39eb0b3fa302",
+    "src/app/flow_splash_experiment.py": "df2f845de006647e6a472ee6e0bb9ed8efeb75ae755b4066bd148b831416c241",
+    "src/app/flow_texture_experiment.py": "4dad0e264fc82fb3bd3093f95b811bcf34098c4e86e2aaed912a6b4cf59077f6",
+    "src/app/frame_benchmark.py": "ddb279fc1eb6e7cf3654dd807d0f81afcf553b94f78320aec95eeaba50515e4b",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "a4b593f371c5ece9841dc0504a24c0895bae2bbc2f3bada2b5c1feef7eccd1c3",
+    "src/app/marker_batch_experiment.py": "b804b8e76f757a60ebb20b0e400bb2874de7305eb81a5f9b491d2d5a8be54b78",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "418bae83aa405db8c7b034f2424902420b055db12ad3932f4d9a50ae3ad5e2bb",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "aa85c3e5904927c77239333fd42eb705db01025a175503ee748dd9b6972ba6ef",
+    "src/app/short_grain_stream.py": "869c4a351196cc3b521733ec9364bfbc445a4507cb9766714219043de6f8dde5",
+    "src/app/splash_motion.py": "486e59d455423342f40e62eca24039f4b8296ce3e5de9e070b9a6c8c507ad9c1",
+    "src/app/stream_rendering.py": "d3dd6a00012369fa15c21bb01180fa2359427f0b863996459df2ef0839e5809a"
+  },
+  "review": {
+    "geometry": "passed",
+    "upper": "passed",
+    "stream": "passed",
+    "edges": "passed",
+    "landing": "passed",
+    "joins": "passed",
+    "states": "passed",
+    "near_full": "passed"
+  },
+  "scope": "PC落点触坡后局部连贯性、埋藏及暂停收尾；保留3.9材质，非整体外观升级或完整应用验收",
+  "adversarial_reviews": [
+    {
+      "schema": 1,
+      "version": "3.10",
+      "reviewer": "release_310_guard",
+      "review_type": "independent_source_and_release_scope_review",
+      "status": "passed",
+      "open_blockers": [],
+      "source_sha256": "bd0692147bd8d18636153c4390b87dedb00a607d313b11bef784340ec5a6f41f",
+      "source_manifest": {
+        "main.py": "72af9e4531c2e83d2d4da3503857ea4d79d4fa45c55cae9c9e73fc27f572f6db",
+        "buildozer.spec": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+        "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+        "src/app/_tail_selfcheck.py": "d82f91c8c11c8a84c6d2449aabd0d6d1a8e6a77c1c2518bf6a5cb7c73607ffdd",
+        "src/app/app_version.py": "bde0d958f6ccc913bdd5b611dec18bf8eb0873932dfb9d7ebe74e11b0b027eec",
+        "src/app/flow_batch_experiment.py": "9f7dc0d48900f0b3125d41463b615fbec334a555827bf44a9dfe960f27fa57b4",
+        "src/app/flow_gpu_experiment.py": "ffe94c0bcf80276f287bbe7c58f7b941267b6ff39f4f30dfdb0871a4c7154305",
+        "src/app/flow_numpy.py": "aa90bb57c1e6d6e40799820ea75a2c9d35bd3d3c807ab0a075aa39eb0b3fa302",
+        "src/app/flow_splash_experiment.py": "df2f845de006647e6a472ee6e0bb9ed8efeb75ae755b4066bd148b831416c241",
+        "src/app/flow_texture_experiment.py": "4dad0e264fc82fb3bd3093f95b811bcf34098c4e86e2aaed912a6b4cf59077f6",
+        "src/app/frame_benchmark.py": "ddb279fc1eb6e7cf3654dd807d0f81afcf553b94f78320aec95eeaba50515e4b",
+        "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+        "src/app/keep_awake.py": "a4b593f371c5ece9841dc0504a24c0895bae2bbc2f3bada2b5c1feef7eccd1c3",
+        "src/app/marker_batch_experiment.py": "b804b8e76f757a60ebb20b0e400bb2874de7305eb81a5f9b491d2d5a8be54b78",
+        "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+        "src/app/prof_android.py": "418bae83aa405db8c7b034f2424902420b055db12ad3932f4d9a50ae3ad5e2bb",
+        "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+        "src/app/sand_flow_material.py": "aa85c3e5904927c77239333fd42eb705db01025a175503ee748dd9b6972ba6ef",
+        "src/app/short_grain_stream.py": "869c4a351196cc3b521733ec9364bfbc445a4507cb9766714219043de6f8dde5",
+        "src/app/splash_motion.py": "486e59d455423342f40e62eca24039f4b8296ce3e5de9e070b9a6c8c507ad9c1",
+        "src/app/stream_rendering.py": "d3dd6a00012369fa15c21bb01180fa2359427f0b863996459df2ef0839e5809a"
+      },
+      "baseline_commit": "27a8279fbbc003c6fd99a0f312c0d24ac3004b11",
+      "changed_runtime_files": [
+        "src/app/app_version.py",
+        "src/app/splash_motion.py"
+      ],
+      "reviewed_scope": [
+        "运行源码对照已发布3.9；只有版本和splash_motion.py变化，main与短粒渲染器逐规范化字节相同。",
+        "删除唯一_surface_step函数及_vector/_scalar的精确唯一插入点后，剩余整个模块AST与3.9精确一致。",
+        "新接触helper不写主粒子、质量或计时时钟，不加入随机抽样；接触身份来自已有srest，原发射/抛物线/重新入流分支仍保留。",
+        "接触后贴坡、明显埋藏时原地停稳、真实表面后退时交回抛物线；沿用现有接触与停稳寿命。",
+        "生产main完整保护；落点物理预比较只排除飞溅子数组/数量/统计/总摘要，其余含双RNG、其他效果、时钟仍须相同，原像素mask与阈值未扩大。",
+        "历史黄金指纹保持原文件，未重存，不将存储等价检查解释成本轮接触模型未变。"
+      ],
+      "findings": [
+        {
+          "id": "SRC01",
+          "status": "passed",
+          "severity": "none",
+          "finding": "运行代码变化与已声明的接触范围相符，拒绝的材质候选没有进入最终渲染器。"
+        },
+        {
+          "id": "SRC02",
+          "status": "passed",
+          "severity": "none",
+          "finding": "现有抛射、出射/密度、主沙量/玻璃路径未改；新helper接管的是已接触且未停稳的飞溅。"
+        },
+        {
+          "id": "SRC03",
+          "status": "passed",
+          "severity": "none",
+          "finding": "25项发布反例拒绝主轨迹、双随机、其他效果、时钟、过大效果矩形及深堆像素变化；8项接触测试包含涨堆抬升失败反例与有限寿命。"
+        }
+      ],
+      "checks": [
+        {
+          "command": "src/tools/test_flow_release.py",
+          "returncode": 0,
+          "tests": 25
+        },
+        {
+          "command": "src/tools/test_landing_spread.py",
+          "returncode": 0,
+          "tests": 8
+        },
+        {
+          "command": "src/tools/test_splash_occlusion.py",
+          "returncode": 0,
+          "tests": 4
+        },
+        {
+          "command": "src/tools/test_flare_occlusion.py",
+          "returncode": 0,
+          "tests": 5
+        },
+        {
+          "command": "src/tools/test_particle_continuity.py",
+          "returncode": 0,
+          "tests": 20
+        },
+        {
+          "command": "src/tools/test_particle_material.py",
+          "returncode": 0,
+          "tests": 2
+        },
+        {
+          "command": "src/tools/test_short_grain_release.py",
+          "returncode": 0,
+          "tests": 12
+        }
+      ],
+      "evidence": [
+        "source-tests.txt",
+        "src/app/splash_motion.py",
+        "src/tools/check_flow_release.py",
+        "src/tools/test_landing_spread.py",
+        "src/tools/test_flow_release.py",
+        "src/tools/test_splash_occlusion.py",
+        "src/tools/test_particle_continuity.py"
+      ],
+      "test_log_sha256": "45c81f7037dad3f8783fc0487d38dabd44036fa4bb738760f97d507eb93daf62",
+      "limitations": [
+        "本审阅未启动GL、主应用、benchmark、浏览器、MuMu、Android或音频；纯测试及AST证明不代替正常尺寸与动态外观判断。",
+        "当前正式取证由父任务执行，本审阅没有将未完成采集、打包、current-review批准或推送身份判为通过。",
+        "接触跟随采用已有高度表及半粒高支持阈值，不是完整颗粒碰撞或逐像素接触求解。",
+        "新增helper处理后的实际铺开行程、可读性、近满/落定与性能仍须正式图像、录像和PC工作量核对。",
+        "5秒首次涨堆偏快仍为既有P2；本轮未改体积到沙堆形状的模型。"
+      ]
+    },
+    {
+      "schema": 1,
+      "version": "3.10",
+      "reviewer": "independent_fine_landing_motion_review",
+      "review_type": "independent_adversarial_dynamic_visual_review",
+      "status": "passed",
+      "open_blockers": [],
+      "source_sha256": "bd0692147bd8d18636153c4390b87dedb00a607d313b11bef784340ec5a6f41f",
+      "conclusion": "在所列PC接触连贯性与相邻状态范围内未发现新增P0/P1阻挡。整体画面与3.9接近，仅应表述为局部触坡连续性修复。",
+      "method": "独立软件解码全部视频帧核对数量与PTS，实际视觉查看每片6个12连续帧窗口、原生540×924完整画面和列明高分原像素裁剪；未完整原速播放视频。",
+      "reviewed_scope": [
+        "默认5秒和50秒落地、稳态、暂停、恢复、最后1%附近和计时归零后余砂。",
+        "两片最终落定540×924原生全图；细档与粗档540×924原生全图。",
+        "1秒高分两阶段正常尺寸与落点原像素；近满两阶段正常尺寸。"
+      ],
+      "findings": [
+        {
+          "id": "stationary-highlight-and-buried-arcs",
+          "severity": "none",
+          "status": "passed",
+          "finding": "所查连续窗口未出现新增静止亮带；1秒两张相邻落点原像素未出现堆内多层亮弧，当前堆面的一道细亮边仍在。"
+        },
+        {
+          "id": "surface-continuity",
+          "severity": "none",
+          "status": "passed",
+          "finding": "所查窗口未见可辨认的贴坡横向传送、大幅抬回、大片提前消失或明显反复离坡小跳。微粒很小，不能据此声称逐粒视觉追踪完备。"
+        },
+        {
+          "id": "pause-resume-settle",
+          "severity": "none",
+          "status": "passed",
+          "finding": "暂停画面保持，恢复未见颗粒样式重置；余砂继续收尾，最后原生全图未留下活动亮带或悬挂沙块。原始暂停图摘要一致，最终主粒子/飞溅归零、landed为1。"
+        },
+        {
+          "id": "material-preserved",
+          "severity": "none",
+          "status": "passed",
+          "finding": "正式short_grain_stream.py归一换行后与3.9提交27a8279完全相同；被拒绝的micro-tone小样未进入正式材质。"
+        }
+      ],
+      "residual_observations": [
+        {
+          "severity": "P2",
+          "id": "inherited-short-initial-pile",
+          "finding": "5秒首次落地后堆面增长较快仍可见，沿用此前保留P2，本轮未修复或改判通过。",
+          "evidence": "motion-review/video-p5-landing.png"
+        },
+        {
+          "severity": "P3",
+          "finding": "整体束形仍大致竖直，少量透底点及当前堆面细亮边可见；本轮变化细微，不支持“整体观感明显升级”的表述。"
+        }
+      ],
+      "material_renderer_normalized_sha256": "869c4a351196cc3b521733ec9364bfbc445a4507cb9766714219043de6f8dde5",
+      "video_checks": {
+        "video-p5": {
+          "decoded_frames": 410,
+          "movie_sha256": "3aa72f7e3ef9164244e13d8ad3aebc7b58a93183571e147065f000b7f9ac4106",
+          "pause_raw_frames": 29,
+          "pause_raw_image_identities": 1,
+          "last_transfer": {
+            "upper": 0.0,
+            "neck": 0.0,
+            "flight": 0.0,
+            "landed": 1.0
+          },
+          "last_particles": 0,
+          "last_splashes": 0,
+          "last_running": false,
+          "visually_reviewed_windows": {
+            "landing": {
+              "indices": [
+                86,
+                87,
+                88,
+                89,
+                90,
+                91,
+                92,
+                93,
+                94,
+                95,
+                96,
+                97
+              ],
+              "wall_start": 1.4593894999998156,
+              "wall_end": 1.6542656999954488,
+              "elapsed_start": 1.4593894999998156,
+              "elapsed_end": 1.6542656999954488
+            },
+            "steady": {
+              "indices": [
+                146,
+                147,
+                148,
+                149,
+                150,
+                151,
+                152,
+                153,
+                154,
+                155,
+                156,
+                157
+              ],
+              "wall_start": 2.4953629999945406,
+              "wall_end": 2.682030899974052,
+              "elapsed_start": 2.4953629999945406,
+              "elapsed_end": 2.682030899974052
+            },
+            "pause": {
+              "indices": [
+                271,
+                272,
+                273,
+                274,
+                275,
+                276,
+                277,
+                278,
+                279,
+                280,
+                281,
+                282
+              ],
+              "wall_start": 4.642265199974645,
+              "wall_end": 4.828153399983421,
+              "elapsed_start": 4.642265199974645,
+              "elapsed_end": 4.709825099998852
+            },
+            "resume": {
+              "indices": [
+                300,
+                301,
+                302,
+                303,
+                304,
+                305,
+                306,
+                307,
+                308,
+                309,
+                310,
+                311
+              ],
+              "wall_start": 5.145408499985933,
+              "wall_end": 5.332822899974417,
+              "elapsed_start": 4.709825099998852,
+              "elapsed_end": 4.828957699995954
+            },
+            "last-percent": {
+              "indices": [
+                315,
+                316,
+                317,
+                318,
+                319,
+                320,
+                321,
+                322,
+                323,
+                324,
+                325,
+                326
+              ],
+              "wall_start": 5.400683399988338,
+              "wall_end": 5.589711799984798,
+              "elapsed_start": 4.896818200009875,
+              "elapsed_end": 5.0
+            },
+            "zero-tail": {
+              "indices": [
+                317,
+                318,
+                319,
+                320,
+                321,
+                322,
+                323,
+                324,
+                325,
+                326,
+                327,
+                328
+              ],
+              "wall_start": 5.434563699993305,
+              "wall_end": 5.6236059999791905,
+              "elapsed_start": 4.930698500014842,
+              "elapsed_end": 5.0
+            }
+          }
+        },
+        "video-p50": {
+          "decoded_frames": 3111,
+          "movie_sha256": "815943423939c15e920562ed10b42f5249352789d6696158ff7a16b611fa360c",
+          "pause_raw_frames": 108,
+          "pause_raw_image_identities": 1,
+          "last_transfer": {
+            "upper": 0.0,
+            "neck": 0.0,
+            "flight": 0.0,
+            "landed": 1.0
+          },
+          "last_particles": 0,
+          "last_splashes": 0,
+          "last_running": false,
+          "visually_reviewed_windows": {
+            "landing": {
+              "indices": [
+                86,
+                87,
+                88,
+                89,
+                90,
+                91,
+                92,
+                93,
+                94,
+                95,
+                96,
+                97
+              ],
+              "wall_start": 1.4641524000035133,
+              "wall_end": 1.6510271999868564,
+              "elapsed_start": 1.4641524000035133,
+              "elapsed_end": 1.6510271999868564
+            },
+            "steady": {
+              "indices": [
+                1407,
+                1408,
+                1409,
+                1410,
+                1411,
+                1412,
+                1413,
+                1414,
+                1415,
+                1416,
+                1417,
+                1418
+              ],
+              "wall_start": 25.004513599997154,
+              "wall_end": 25.245125999994343,
+              "elapsed_start": 25.004513599997154,
+              "elapsed_end": 25.245125999994343
+            },
+            "pause": {
+              "indices": [
+                2578,
+                2579,
+                2580,
+                2581,
+                2582,
+                2583,
+                2584,
+                2585,
+                2586,
+                2587,
+                2588,
+                2589
+              ],
+              "wall_start": 46.92371799997636,
+              "wall_end": 47.22146979998797,
+              "elapsed_start": 46.92371799997636,
+              "elapsed_end": 47.00285150000127
+            },
+            "resume": {
+              "indices": [
+                2686,
+                2687,
+                2688,
+                2689,
+                2690,
+                2691,
+                2692,
+                2693,
+                2694,
+                2695,
+                2696,
+                2697
+              ],
+              "wall_start": 48.948739699990256,
+              "wall_end": 49.234975899977144,
+              "elapsed_start": 47.00285150000127,
+              "elapsed_end": 47.22129489999497
+            },
+            "last-percent": {
+              "indices": [
+                2812,
+                2813,
+                2814,
+                2815,
+                2816,
+                2817,
+                2818,
+                2819,
+                2820,
+                2821,
+                2822,
+                2823
+              ],
+              "wall_start": 51.46148679999169,
+              "wall_end": 51.648920599982375,
+              "elapsed_start": 49.44780580000952,
+              "elapsed_end": 49.635239600000205
+            },
+            "zero-tail": {
+              "indices": [
+                2841,
+                2842,
+                2843,
+                2844,
+                2845,
+                2846,
+                2847,
+                2848,
+                2849,
+                2850,
+                2851,
+                2852
+              ],
+              "wall_start": 51.95952539998689,
+              "wall_end": 52.263435100001516,
+              "elapsed_start": 49.94584440000472,
+              "elapsed_end": 50.0
+            }
+          }
+        }
+      },
+      "evidence": [
+        {
+          "path": "motion-review/video-p5-landing.png",
+          "sha256": "ea4149de3ff679044561793c86993ae47e536d2e48c5ebffa3aabd0f86aee931"
+        },
+        {
+          "path": "motion-review/video-p5-steady.png",
+          "sha256": "8df8367949f3e3e12a699dd0b930529e818e67b0fe40d43cc70c94a895dd787c"
+        },
+        {
+          "path": "motion-review/video-p5-pause.png",
+          "sha256": "da9b7d95fe16eefe1afbff8fb8618edb099bc8426f769a9707a464c3aa983b51"
+        },
+        {
+          "path": "motion-review/video-p5-resume.png",
+          "sha256": "b34b8ac48821e0e30ad9ddd622bd5e6de312453cadf44ed3dcc465b85389fda7"
+        },
+        {
+          "path": "motion-review/video-p5-last-percent.png",
+          "sha256": "84ce86e2646494c0e2347b2778074deeb90b7723675870499a2ffe96321f3090"
+        },
+        {
+          "path": "motion-review/video-p5-zero-tail.png",
+          "sha256": "eb99961a3c1ae0f77d61ec000376dd6957eabd41fe22a8218dd70266f10d1323"
+        },
+        {
+          "path": "motion-review/video-p5-steady-native.png",
+          "sha256": "06ca0e32e9f9e7343cc7fc7ea90bc4aa69f8982d3fcad8acf00e08efa0a9b504"
+        },
+        {
+          "path": "motion-review/video-p5-final-settled-native.png",
+          "sha256": "7f9f9cf59ba66db758b4a412c6ac226c1601672024cc55e97219b2f8782ed747"
+        },
+        {
+          "path": "motion-review/video-p50-landing.png",
+          "sha256": "2b3836dfc312efbeb4f33dd1ea1dfb9f44c882d8acc8238f4fa9a9ad5f6477b0"
+        },
+        {
+          "path": "motion-review/video-p50-steady.png",
+          "sha256": "08d78b93e53d5214a6123f98e93370dc2bd4fb68fa2a407bf53d0e299734b880"
+        },
+        {
+          "path": "motion-review/video-p50-pause.png",
+          "sha256": "3f236fb04c830e2deeaacdd521467fcd0c6a6679e6f179454c6966cdad9182a5"
+        },
+        {
+          "path": "motion-review/video-p50-resume.png",
+          "sha256": "f5824587bcf0983393e733bfbbc3b6acf8f4d6d27da803435e28e13184534dcd"
+        },
+        {
+          "path": "motion-review/video-p50-last-percent.png",
+          "sha256": "acea4a6e6140a44b8c9386aa2c38ce68a93bcd501da3c9829d5d7585b404f75d"
+        },
+        {
+          "path": "motion-review/video-p50-zero-tail.png",
+          "sha256": "e726eac91aea45927fc9f95f0ef6e52a841a2f9c45a5971a432f486b0b455c78"
+        },
+        {
+          "path": "motion-review/video-p50-steady-native.png",
+          "sha256": "74faa38baaec86c936351dc25e31b199436c1ca428474e0ab2de25bbdefd286b"
+        },
+        {
+          "path": "motion-review/video-p50-final-settled-native.png",
+          "sha256": "ba5d509fd96c28924cac7aae5fcca6d3e0b702121b835875b4cb6c6c666235d9"
+        },
+        {
+          "path": "motion-review/short-one-f000-normal.png",
+          "sha256": "3c5808a94281bdd44cefa8d18212892afac9aaf6e516d35b9898128a7835d969"
+        },
+        {
+          "path": "motion-review/short-one-f000-contact-native.png",
+          "sha256": "9bb4bda00cc2e32f8cee9e41762ff75a5abaa3ecf9392e5b6409e4d534eea9ec"
+        },
+        {
+          "path": "motion-review/short-one-f001-normal.png",
+          "sha256": "47d3868c1f5e10f2d824f5fa73f120047d76a1a6f975e88424e257fc93852e98"
+        },
+        {
+          "path": "motion-review/short-one-f001-contact-native.png",
+          "sha256": "1f3997de88c690339a95d835d182075032db6388ebaa512e716a699e19c0b771"
+        },
+        {
+          "path": "motion-review/near-full-f000-normal.png",
+          "sha256": "b7087dc9dd2a3761fd7fbba281bb265d201758e8114bcd6ad6dcb917de76a1cc"
+        },
+        {
+          "path": "motion-review/near-full-f001-normal.png",
+          "sha256": "b0931a4fdb17a12063908d80a1d55b04d6dc34de1bad0317f9fac95013fd9e22"
+        },
+        {
+          "path": "final-fine/overview.png",
+          "sha256": "d82cfa64a451b85849e733476a403c5f8501efc00a1d9d93cedc68fa0dfcb321"
+        },
+        {
+          "path": "final-coarse/overview.png",
+          "sha256": "8df60cbd469acad8674ee1aead4a6a676a701cbe14e36d2c1ebca2482a645914"
+        },
+        {
+          "path": "motion-review/decode-windows.json",
+          "sha256": "04d1a2e5672e52abe576eabee863a4382cc5d74fad771f63ea74f03b22f56386"
+        }
+      ],
+      "limitations": [
+        "视觉审阅限于列明连续窗口和实图，没有完整原速播放5秒或50秒视频。",
+        "全部视频帧解码与PTS核对不等于全部视频帧均已视觉审核；front窗口虽导出但未列为本轮实际视觉审阅。",
+        "未穷尽每粒、所有配色或所有周期的动态过程；1秒仅两阶段，粗细档仅静态正常尺寸。",
+        "局部微粒的物理支持/埋藏反例仍须结合独立失败用例与轨迹检查，此视觉复审不能替代它们。",
+        "不包括GL新采集、性能、Android/MuMu、音频或完整应用验收。"
+      ]
+    }
+  ],
+  "measurements": {
+    "performance": {
+      "perf-before": {
+        "frames": 900,
+        "measured_wall_seconds": 4.2591418,
+        "average_frame_ms": 4.732379777777778,
+        "average_equivalent_fps": 211.3101752094753,
+        "one_percent_low_frame_ms": 7.0520555555555555,
+        "one_percent_low_equivalent_fps": 141.80262649975973,
+        "slowest_one_percent_frames": 9,
+        "p99_frame_ms": 6.7536,
+        "max_frame_ms": 7.3883
+      },
+      "perf-after": {
+        "frames": 900,
+        "measured_wall_seconds": 4.0512326,
+        "average_frame_ms": 4.501369555555556,
+        "average_equivalent_fps": 222.15461042646623,
+        "one_percent_low_frame_ms": 7.108977777777778,
+        "one_percent_low_equivalent_fps": 140.66720016004803,
+        "slowest_one_percent_frames": 9,
+        "p99_frame_ms": 6.5587,
+        "max_frame_ms": 8.5673
+      }
+    },
+    "baseline_version": "3.9"
+  },
+  "residual_findings": [
+    {
+      "severity": "P2",
+      "status": "retained",
+      "id": "inherited-short-initial-pile",
+      "finding": "5秒首次涨堆偏快沿用3.8，未在本轮修复或改判通过。",
+      "evidence": "archive:motion-review/video-p5-landing.png"
+    },
+    {
+      "severity": "P3",
+      "status": "retained",
+      "finding": "束形大致竖直，零星细孔及当前堆面一道细亮边仍可见。"
+    }
+  ],
+  "untested": [
+    "Android/MuMu/真机",
+    "音频",
+    "实际屏幕FPS",
+    "10小时完整过程",
+    "全部配色完整动态过程"
+  ],
+  "validation_sources": {
+    "src/tools/check_flow_release.py": "5391f8b85a9c4b85523d0ca2882ba071e6cb198d14f0a59d1f84e65e265cf14b",
+    "src/tools/release_decision.py": "d4867b6a150fac55a07a8051ec3fc0e9266f077d3629e8fc3504749049f8712f",
+    "src/tools/stream_review_metrics.py": "8356d06274369593cf599faa99338e9838b62d435c70f395d3b30fe9c1e136d2",
+    "src/tools/record_flow_review.py": "9a1e0f3c83298e82dc15fb8a5b2cae596e1b9b164d46e2ef4f488fb635b7a51b",
+    "src/tools/capture_stream_motion.py": "5df632c0e1cf3a933a6a97c30df1254a5602d93867e8b3519677252966223899",
+    "src/tools/verify_short_grain_runtime.py": "b1e98e7df1cf9f6e8690af5f6ae9d36e3d06706e7d474f2bfb7161f29bd7d5ac",
+    "src/tools/test_particle_continuity.py": "7151a77c37f2330faa1e3303182c550ce9b3d198b8cf34db9dae9ad45bd1fa53",
+    "src/tools/benchmark_particle_renderer.py": "66149dde2077cd1e5edda573866818a6538a67446229a3d68deafd8aec12474f",
+    "src/tools/test_stream_review_metrics.py": "05055deeec38b4bb750f3d8b998af4bf188db846ae215e8f8878f8dc77898f82",
+    "src/tools/test_flow_release.py": "9332d2429f23f7dcef7cb1a09b890615b1a87e238c87e4da72c1a18b5da65f82",
+    "src/tools/test_neck_geometry.py": "0675d44f0a96ce38cbb7ffb8cebf4cf922a8cbda23bae44dc74c922b9b5eca03",
+    "src/tools/test_release_decision.py": "6043e1b8f0231d8c28053862a53c51c286eaf5e3ae1d76d18452fe6b8c20a952",
+    "src/tools/test_receiving_surface.py": "912477992b9658bfe6145155c3c829316c13b6826abab393fbb89a6f24b9e0a9",
+    "src/tools/test_stream_aperture.py": "77797672c443921f64f9e4bfb423d02791ce6e18aa181d024694bbc91486fb8f",
+    "src/tools/pixel_flow_review.py": "28344e867a866084679f2aca025af32537251d890f7e068cec4733758d73ad87",
+    "src/tools/test_pixel_flow_review.py": "8eec0e51be275a58c02b745de8b12976451796320377a78886174ac4226f1dce",
+    "src/tools/verify_receiving_pixels.py": "29f42c36423729e2c729121febde081192fa89830b68fe527d962ef354b2290c",
+    "src/tools/test_particle_material.py": "e771e504230996c5eecfc6f671544acd231201599b275a251dcbf453de2ea97b",
+    "src/tools/test_flare_occlusion.py": "61bbc36ae9c582d9b92b49aeabc1f77731dd0d6229417519f0077f8f2dd15998",
+    "src/tools/test_splash_occlusion.py": "bd1a80ba85e96bd034eaa05218fb6abe37325d20c16c4bcc39c8d7796c400f4e",
+    "src/tools/check_short_grain_release.py": "946be3ea8e7ad9c83bf94d670a83c79b9de2b6ddb4b75d3ad9d097df3c71d721",
+    "src/tools/test_landing_spread.py": "7dca792985991abbe81254e7f7e18f3ffc88ae1df45d455311b0da92810a017b"
+  },
+  "artifacts": {
+    "5-seconds.mp4": "3aa72f7e3ef9164244e13d8ad3aebc7b58a93183571e147065f000b7f9ac4106",
+    "50-seconds.mp4": "815943423939c15e920562ed10b42f5249352789d6696158ff7a16b611fa360c",
+    "adversarial-review.html": "2f191f9a2e31200249653270de6e612f34e8997bcbc64478862eccf6a6a8a089",
+    "coarse-native.png": "8df60cbd469acad8674ee1aead4a6a676a701cbe14e36d2c1ebca2482a645914",
+    "colors.png": "d6d94fa458829ee3da5e65a5199afab4e70f64c2d5d41cbcef8c4a7ebe8409fb",
+    "comparison.png": "3e52c5f62ce6437cb4a7d117a50000c8d393e5875874ae52ebcc572f4d117157",
+    "ending-5.png": "f69fcc2938f92fc75142f4d22090cf7697312e32b397c9a59e6f4dffb81a787f",
+    "ending-50.png": "61593b80ec24aec5d41cba9fa81b904e7bd40f1878a5d68d70f4944b74c1d4b6",
+    "final-coarse-sequence.png": "2faea94afeadd8a72e112ef56a04f7e62d5a70b4768646e0ce0deee2dcace565",
+    "final-long-sequence.png": "99da62a19dff3c956d7b7774bd11bef8708609d1aae46c3bb53f3ec0f46bc47e",
+    "final-normal-contact.png": "03b04248a293ff42c89da5754061063a4666ce938133f46c33acd13f43b5b6c6",
+    "final-normal-sequence.png": "34953f1ae1354c0196b483abfc0437dd4b89bf99dd04eafe1ee7e636f4c3f1e6",
+    "final-short-contact.png": "b095cc19ee3277cd2c75ffa2d2aaabd4a1ee57a42f25e74090ea0affcb495a3d",
+    "final-short-sequence.png": "0842fc6392885b0e2aa3c6cb85423511408cf304bff5b5f1baa989a4aba8aef6",
+    "fine-native.png": "d82cfa64a451b85849e733476a403c5f8501efc00a1d9d93cedc68fa0dfcb321",
+    "independent-motion-review.json": "a73cf948e687ecaaeb32cc19fd4fb28187328170e45dafcdcd9e3a7b1e9ac923",
+    "independent-source-review.json": "52eedf481bceb2165d85087b5928f63e37942502f8e3359a2f1e8c6ebf84f0fd",
+    "material-probe-review.json": "44bf17ee8032ee785566407548ec390755b546b14eb0c162bac634d8dbf8737c",
+    "normal-after-native.png": "be2e569381d0e7230d2ac04061668c14bb8c2a23b9073098e73cd3d2c32f3b77",
+    "normal-before-native.png": "f7aa22e1e63ef62f43169a066d19a595a8764567ffd5ad560bb1d79393ee8d53",
+    "periods.png": "fe4c88b98cfec59eaeb00c5acb2996d7110da55f642b1240c7a0526daba8903d",
+    "realtime-5-sequence.png": "d7fde046fe25f820e9ac8dc8cc9891768e18b9e91f9344919399f3e9b466f597",
+    "realtime-50-sequence.png": "b544de4b686f089be546640a2779dad7b69802bb8fdb178a72c673654514c5e1",
+    "rejected-material.png": "469e686d07240da6ffd8b30739fd796ec0e73f1043056467ed6a115805187d00",
+    "review.html": "c844d4818cc00520961c2c696267ad2eb374666f9f10ba17ca9a5152e3caa8a5",
+    "short-one-contact.png": "582c526912de44599adefcbdcf8921e900f9db510e1d903cc5e408fb83a8dae4",
+    "stages.png": "05f019c6ee0ef848e1c9d529b3266ec085b5d13d3a22d16bcdc1e052362f8f16"
+  },
+  "archive_sha256": "69380e3c2e9d362ce1f4b442ba9cb3c82f52cf34fdf08ceb50bde2ff2e3830ff"
+}

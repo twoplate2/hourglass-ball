@@ -1,0 +1,72 @@
+{
+  "reviewer": "fine_material_audit",
+  "status": "rejected",
+  "candidate": "micro-tone",
+  "decision": "不保留本项材质改动；继续使用已验收3.9材质，落点改动另行审核。",
+  "criterion": "正常尺寸必须有清楚的细粒观感收益，单纯像素有差异不足以保留。",
+  "source_renderer_sha256": "739ed96dd694c4b166f6887b95c86460365079a934824144b2c551cced677b74",
+  "evidence": [
+    {
+      "case": "default-eight",
+      "before": "material-before/default-eight-f000.png",
+      "before_sha256": "f7aa22e1e63ef62f43169a066d19a595a8764567ffd5ad560bb1d79393ee8d53",
+      "after": "material-after/default-eight-f000.png",
+      "after_sha256": "f74c80939a5223b20cfb59a99f7186c73b23ab482d315dc027d7a5907522990a",
+      "viewed_at_native_dimensions": [
+        540,
+        924
+      ]
+    },
+    {
+      "case": "fine",
+      "before": "material-before/fine-f000.png",
+      "before_sha256": "03dd0d8e5621824eeb162a76beaab9213a86ca145cc48a50251d6acc21dc84b1",
+      "after": "material-after/fine-f000.png",
+      "after_sha256": "4c70df703c4d6f780346b459cf5a2a8c1eba557012488777fe6a96df6bd90772",
+      "viewed_at_native_dimensions": [
+        540,
+        924
+      ]
+    },
+    {
+      "case": "coarse",
+      "before": "material-before/coarse-f000.png",
+      "before_sha256": "41560fea81f98c936d6cdbff020cc633c562a585f8eb603c3d8a833ccc5044b0",
+      "after": "material-after/coarse-f000.png",
+      "after_sha256": "e7dfa8097a9d665432053112ab0534b1e467f898c9cf0a8a48315873acea604a",
+      "viewed_at_native_dimensions": [
+        540,
+        924
+      ]
+    },
+    {
+      "case": "black",
+      "before": "material-before/black-f000.png",
+      "before_sha256": "862425219554e78889ec4dd284f3c62e29116b86b913940052d1066fdc9223e9",
+      "after": "material-after/black-f000.png",
+      "after_sha256": "a33f8e23edbe38299608d2721dda53e675555598e331701e9ab8f6c2ce79d8d0",
+      "viewed_at_native_dimensions": [
+        540,
+        924
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "severity": "P2",
+      "id": "no-clear-normal-size-benefit",
+      "finding": "四组540×924前后逐张查看，默认、细档和黑沙的差异均非常小；粗档只有轻微减弱明暗，未形成清楚可辨认的细粒收益。",
+      "effect": "保留需增加一项材质强度uniform与维护面，却不能满足本轮明确视觉收益的退出条件。"
+    },
+    {
+      "severity": "P3",
+      "id": "slightly-flatter-coarse",
+      "finding": "粗档较前略均匀，存在向平色柱靠近的倾向；未看到新增大团或闪亮颗粒，但静态图不能证明动态无闪烁。"
+    }
+  ],
+  "limitations": [
+    "仅正常尺寸静态原图与候选源码只读审阅。",
+    "未运行GL、动态录像、性能、Android或回退路径。",
+    "此拒绝仅针对micro-tone小样，不表示已验收3.9原材质失败，也不评价正在开发的落点铺开。"
+  ]
+}

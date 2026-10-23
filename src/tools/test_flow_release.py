@@ -4,7 +4,12 @@ import hashlib
 import unittest
 import numpy as np
 
-from check_flow_release import require_video,require_receiving_arrays,require_material_scope,require_flare_scope
+from check_flow_release import require_video,require_receiving_arrays,require_material_scope,require_flare_scope,require_landing_physics
+from check_short_grain_release import compare_preserved
+from pathlib import Path
+import json
+import tempfile
+from PIL import Image
 
 
 def fixture():
@@ -67,11 +72,13 @@ class VideoControls(unittest.TestCase):
 
 
 class MaterialScopeControls(unittest.TestCase):
-    def test_only_renderer_and_version_may_change(self):
+    def test_only_renderer_landing_and_version_may_change(self):
         baseline={'main.py':'a','buildozer.spec':'b','src/app/flow_numpy.py':'c',
-                  'src/app/short_grain_stream.py':'d','src/app/app_version.py':'e'}
+                  'src/app/short_grain_stream.py':'d','src/app/app_version.py':'e',
+                  'src/app/splash_motion.py':'f'}
         candidate=dict(baseline)
-        candidate.update({'src/app/short_grain_stream.py':'new','src/app/app_version.py':'3.9'})
+        candidate.update({'src/app/short_grain_stream.py':'new','src/app/app_version.py':'3.10',
+                          'src/app/splash_motion.py':'new-landing'})
         require_material_scope(candidate,baseline)
         for name in ('main.py','buildozer.spec','src/app/flow_numpy.py'):
             with self.subTest(name=name):
@@ -102,8 +109,10 @@ class FlareScopeControls(unittest.TestCase):
 
     def test_only_unique_retention_assignment_may_change(self):
         require_flare_scope(self.changed(),self.baseline)
-        require_material_scope({'main.py':'new'},{'main.py':'old'},
-                               main_sources=(self.changed(),self.baseline))
+        # The historical 3.8->3.9 helper no longer exempts the current main.
+        with self.assertRaisesRegex(ValueError,'protected'):
+            require_material_scope({'main.py':'new'},{'main.py':'old'},
+                                   main_sources=(self.changed(),self.baseline))
 
     def test_other_main_nodes_still_fail(self):
         for candidate in (self.changed().replace('marker=1','marker=2'),
@@ -159,5 +168,79 @@ class SplashScopeControls(unittest.TestCase):
             '        self._sn=0\n        hws,hhs=self.srw,self.srh')
         with self.assertRaisesRegex(ValueError,'splash'):
             require_flare_scope(candidate,self.baseline())
+
+
+class LandingPreservationControls(unittest.TestCase):
+    def frame(self):
+        physics=dict(pn=1,_sn=1,ledger={'landed':.5},
+            arrays={'main':{'px':'unchanged'},'splash':{'sx':'old'}},
+            scalars={'_mound_flow_clock':8.,'_splash_density':1.},
+            effects={'flares':[{'x':50,'y':25,'end':8.1}], 'dusts':[],
+                     '_contact_hits':[[8.,50.,100.]],'_splash_stats':{'settled':0}},
+            random_sha256='main-rng',effect_random_sha256='effect-rng',sha256='state')
+        return dict(name='sample',file='frame.png',splashes=1,physics=physics,
+            transfer={'landed':.5},dimensions=[100,100],half_width=5.,outlet_y=70.,
+            effect_rects=[[49.,19.,51.,21.]],
+            geometry={'_cx':50.,'_R_inner':40.,'_lower_y_c':40.,'_lower_sand_bot':0.,
+                      'contact_diameter':10.,'mound_cols':[[10.,20.,True,20.],[90.,20.,True,20.]]})
+
+    def changed(self):
+        frame=self.frame();p=frame['physics']
+        p['_sn']=2;p['arrays']['splash']={'sx':'new'}
+        p['effects']['_splash_stats']={'settled':1};p['sha256']='new-state'
+        frame['splashes']=2;frame['effect_rects']=[[48.,8.,50.,10.],[50.,8.,52.,10.]]
+        return frame
+
+    def compare(self,b,*,pixel=None,landing=False,**flags):
+        if landing:require_landing_physics(self.frame(),b)
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name);a=root/'before';a.mkdir();d=root/'after';d.mkdir()
+            image=Image.new('RGB',(100,100),(210,160,85));image.save(a/'frame.png')
+            if pixel is not None:image.putpixel(pixel,(0,0,0))
+            image.save(d/'frame.png')
+            (a/'result.json').write_text(json.dumps({'frames':[self.frame()]}),encoding='utf-8')
+            (d/'result.json').write_text(json.dumps({'frames':[b]}),encoding='utf-8')
+            return compare_preserved(a/'result.json',d/'result.json',**flags)
+
+    def test_explicit_landing_scope_allows_only_splash_state(self):
+        self.assertEqual(self.compare(self.changed(),landing=True),1)
+        with self.assertRaisesRegex(ValueError,'Physics'):
+            self.compare(self.changed(),allow_buried_flares=True)
+
+    def test_main_mass_and_geometry_remain_protected(self):
+        changes=(lambda f:f['physics']['arrays']['main'].update(px='moved'),
+                 lambda f:f['transfer'].update(landed=.6),
+                 lambda f:f['geometry'].update(_cx=51.))
+        for change in changes:
+            f=self.changed();change(f)
+            with self.assertRaisesRegex(ValueError,'Main particles|Physics'):
+                self.compare(f,landing=True)
+
+    def test_random_other_effects_and_clock_remain_protected(self):
+        changes=(lambda p:p.update(random_sha256='different'),
+                 lambda p:p.update(effect_random_sha256='different'),
+                 lambda p:p['effects']['flares'].clear(),
+                 lambda p:p['effects']['dusts'].append({'x':1}),
+                 lambda p:p['effects']['_contact_hits'].clear(),
+                 lambda p:p['scalars'].update(_mound_flow_clock=9.))
+        for change in changes:
+            f=self.changed();change(f['physics'])
+            with self.assertRaisesRegex(ValueError,'Physics'):
+                self.compare(f,landing=True)
+
+    def test_count_must_match_recorded_splash_count(self):
+        f=self.changed();f['splashes']=1
+        with self.assertRaisesRegex(ValueError,'count'):
+            self.compare(f,landing=True)
+
+    def test_deep_mound_pixels_are_not_exempted_by_landing_scope(self):
+        with self.assertRaisesRegex(ValueError,'Pixels changed outside'):
+            self.compare(self.changed(),pixel=(50,95),landing=True)
+
+    def test_only_actual_small_splash_rectangles_extend_pixel_mask(self):
+        self.assertEqual(self.compare(self.changed(),pixel=(49,91),landing=True),1)
+        f=self.changed();f['effect_rects'][0]=[10.,1.,80.,20.]
+        with self.assertRaisesRegex(ValueError,'Invalid effect rectangle'):
+            self.compare(f,landing=True)
 
 if __name__=='__main__':unittest.main()

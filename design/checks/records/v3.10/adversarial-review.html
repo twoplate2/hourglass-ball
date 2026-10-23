@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>3.10 对抗性审核</title><link rel="stylesheet" href="../../style.css"></head><body><main>
+<h1>3.10：反例与复查</h1>
+<p>审核目标：借鉴候选01的局部表现，用小改动改善触坡后的连贯性。正常尺寸没有明显收益的候选不保留，未查项不登记为通过。最终状态、源身份及两份独立审核见<a href="review.json">发布登记</a>。</p>
+<table><thead><tr><th>发现</th><th>证据和严重程度</th><th>决定</th></tr></thead><tbody>
+<tr><td>微粒明暗小样收益不足</td><td>P2候选不达保留条件。对比增益1.6→1.3并增加固定弱明暗，默认、粗细、黑沙正常尺寸差异很小，粗档略趋平。</td><td>拒绝候选，正式渲染器保持3.9字节一致。失败原图、源码、独立拒绝报告入包。</td></tr>
+<tr><td>接触后反复小跳、累计接触时间失真</td><td>P2明确模型缺陷。旧粒子触坡后下一帧重新作自由落体，代表性测试离面最高3.24px；接触年龄仅命中时累计，部分代表状态额外存活约2.1秒。</td><td>持久接触态沿同一表面运动，按原接触与停稳预算结束。修前失败用例保留，修后8项通过；视觉只称局部修复。</td></tr>
+<tr><td>涨堆让旧粒子重新冒出</td><td>P2明确模型缺陷。纯模型涨堆8px时，旧实现把粒子上抬约7.7px。</td><td>已被明显埋藏的接触粒子原地停稳，使用既有遮挡，不上抬复活。连带复查1秒堆内亮弧及5/50末段。</td></tr>
+<tr><td>5秒首次涨堆偏快</td><td>P2既有保留项。正式录像与旧3.9均可见，主堆积模型本轮未改。</td><td>保持问题登记，不用本轮接触修复宣称已解决。</td></tr>
+<tr><td>正常尺寸整体变化很小</td><td>小样独立审阅明确，不能写成明显观感升级。</td><td>最终范围收敛为触坡支持、局部连贯性与有限停稳；保留原直束和细孔观测。</td></tr>
+</tbody></table>
+<figure><img src="rejected-material.png" width="1080" height="490" alt="原材质与被拒小样在默认和粗档的正常尺寸比例对照。"><figcaption>材质小样被拒绝，不能作为最终版本的改善证据。</figcaption></figure>
+<figure><img src="short-one-contact.png" width="480" height="400" alt="3.9与3.10一秒落点的原像素裁图，检查新增接触逻辑是否重现堆内多道亮弧。"></figure>
+<p><a href="independent-source-review.json">独立源码审核</a> · <a href="independent-motion-review.json">独立动态审核</a> · <a href="material-probe-review.json">材质拒绝结论</a>。动态结论仅覆盖记录列出的原生尺寸画面和实际连续解码窗口，未声称完整播放全部录像。源码审阅不能代替外观判断。</p>
+<p>证据包保留最终原图、连续帧、实录、基线、测量源码、修前失败及被拒候选；开发证据单独标注，未重新标为最终源码。本轮没有重存旧基线或放宽阈值。Android、音频、实际屏幕FPS、完整应用均未判通过。</p>
+<p><a href="review.html">返回实图与录像</a></p></main></body></html>
