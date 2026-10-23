@@ -21,3 +21,14 @@ def contact_surface_profile(offset, diameter, thickness, slope):
     distance = 0.28 * diameter * weight
     dx = direction * distance / math.sqrt(1.0 + slope * slope)
     return depth, dx, slope * dx
+
+
+def receiving_surface_profile(offset,diameter,thickness,slope,clearance):
+    """A confined surface still receives sand, with very small local motion."""
+    depth,dx,dy=contact_surface_profile(offset,diameter,thickness,slope)
+    t=max(0.0,min(1.0,clearance/max(1e-6,.35*diameter)))
+    t=t*t*(3-2*t)
+    depth*=.5+.5*t
+    dx*=.5+.5*t
+    dy*=.5+.5*t
+    return depth,dx,dy

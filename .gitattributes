@@ -6,3 +6,7 @@ design/checks/records/v3.7/*.json -text
 design/checks/records/v2.98/evidence/density-comparison.json -text
 design/checks/records/v3.0/evidence/lower-density.json -text
 design/checks/records/v3.1/evidence/report.json -text
+
+design/checks/current-review.json -text
+design/checks/records/v3.8/*.json -text
+design/checks/records/v3.8/*.html text eol=lf

@@ -4101,22 +4101,14 @@ class HourglassWidget(Widget):
         return self._neck_width_for_duration(self.duration)
 
     def _neck_width_for_duration(self, duration):
-        lo, hi = self._neck_width_limits()
-        dur = max(1.0, duration)
-        if dur <= 5:
-            return hi
-        if dur >= 36000:
-            return lo
-        lo_d, hi_d = math.log(5), math.log(36000)
-        t = (math.log(dur) - lo_d) / (hi_d - lo_d)
-        t = max(0.0, min(1.0, t))
-        return round(lo + (hi - lo) * (1 - t))
+        from neck_geometry import body_metrics,outer_half
+        radius,wall=body_metrics(self.width,self.height,dp(10))
+        return outer_half(duration,2*(radius-wall),wall)
 
     def _neck_width_limits(self):
-        w = self.width
-        lo = max(dp(7), round(w * 7.0 / 380.0))     # 最细: 管内壁仍有空间
-        hi = round(w * 17.0 / 380.0)                 # 最粗: 不压过球的比例
-        return lo, hi
+        from neck_geometry import body_metrics,half_limits
+        radius,wall=body_metrics(self.width,self.height,dp(10))
+        return half_limits(2*(radius-wall),wall)
 
     @property
     def speed_factor(self):
@@ -6168,7 +6160,7 @@ class HourglassWidget(Widget):
             hy = None
             if rand() < 0.25 * self._splash_density:
                 hy = _hit_hy(k, x)
-                append_flare({"x": x, "y": hy, "end": now + 0.08})
+                append_flare({"x": x, "y": hy, "end": self._mound_flow_clock + 0.08})
             selected = rand() < SPLASH_HIT_CHANCE * self._splash_density
             if selected or first_contact:
                 if hy is None:
@@ -6393,6 +6385,8 @@ class HourglassWidget(Widget):
         ow = self._ow
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
+        from short_grain_stream import stream_pitch,source_half_width,sprite_radius,emission_scale
+        sprite_pitch=stream_pitch(self._R_inner,SAND_MATERIAL_COARSE,self._taper['t_in'])
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
         if _pm:
@@ -6429,7 +6423,7 @@ class HourglassWidget(Widget):
             #    正解 = 让**线性密度与周期无关**(文档里用户自己定过"落沙密度该相同"):
             #    生成率跟着 `motion_scale` 一起放大。1s 档 1500 → ~9500/s,
             #    而在途粒子数 rate×飞行时间 = ~1400, 与 5s 的 ~2300 **同量级**, 不是性能爆炸。
-            rate = FLOW_BASE_RATE * self._particle_motion_scale
+            rate = FLOW_BASE_RATE * self._particle_motion_scale * emission_scale(self._R_inner,self._taper['t_in'])
             # 沙柱先接通出口; 在帧内均匀发射,避免每一帧生出一整排同龄沙粒。
             self.particle_acc += emit_dt * rate
             self._sand_pending += max(
@@ -6483,7 +6477,7 @@ class HourglassWidget(Widget):
                 _band = min(_band, FLOW_TAIL_GAP_NARROW
                             + (1.0 - FLOW_TAIL_GAP_NARROW) * _tail_gap)
             _tail = min(_tail, _tail_gap)
-            x_clip = max(1.0, (neck_w - ow) * _band)
+            x_clip = max(0.0,source_half_width(self._taper['t_in'],sprite_pitch)*_band)
             # 🔴 **2026-10-13: 叠一条"覆盖率闸"** —— 见 `_stream_ink_cover_q`。
             #    与末端净空那条(`_stream_ink_q`, 2.86)取**更薄**的一条:
             #    前者管"小窗口过饱和", 后者管"快流完时挤成一块板"。
@@ -6511,7 +6505,7 @@ class HourglassWidget(Widget):
                 if _taper != 1.0:
                     # 逐颗抖动指数(0.7~1.3 倍) ⇒ 收尾不是一条固定曲线, 每次都不一样
                     _p = _taper * (0.7 + 0.6 * amp)
-                    _u = x_off / x_clip
+                    _u = x_off / max(1e-9,x_clip)
                     x_off = x_clip * math.copysign(abs(_u) ** _p, _u)
                 is_light = random.random() < 0.10
                 # 🔴 **2026-10-12(2.86): 末段压线宽** —— 见 `_stream_ink_q`。
@@ -6631,6 +6625,7 @@ class HourglassWidget(Widget):
                     "source_speed_squared": source_speed_squared,
                     "cx": cx, "peak_offset": peak_offset,
                     "curve": (_cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1),
+                    "sprite_pitch":sprite_pitch,
                 }
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
                     self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
@@ -6735,7 +6730,7 @@ class HourglassWidget(Widget):
                     if t > 1.0:
                         t = 1.0
                     lim = tube_lim + (raw_ball - tube_lim) * t
-                half_stroke = size if size > 1 else 0.5
+                half_stroke = sprite_radius(sprite_pitch,size)
                 lim = lim - half_stroke
                 if lim <= 0.0:
                     lim = 0.0
@@ -6755,7 +6750,7 @@ class HourglassWidget(Widget):
                     #    原来放在标量 mound_top 上 —— 审计实测出生点比该颗粒**当地沙面**
                     #    高 p50=7.5px / p90=12.6px / max=15.4px(92% 的命中 >1px)。
                     if rand() < 0.25 * self._splash_density:
-                        append_flare({"x": x, "y": hy, "end": now + 0.08})
+                        append_flare({"x": x, "y": hy, "end": self._mound_flow_clock + 0.08})
                     selected = rand() < SPLASH_HIT_CHANCE * self._splash_density
                     if selected or first_contact:
                         # ★ 唯一的飞溅模型(与 numpy 路径同一个函数, 随机数顺序一致)
@@ -6839,7 +6834,7 @@ class HourglassWidget(Widget):
         if self.running:
             self._spawn_bg_splashes(dt)
 
-        self.flares = [f for f in self.flares if f["end"] > now]
+        self.flares = [f for f in self.flares if f["end"] > self._mound_flow_clock]
 
         new_dusts = []
         for d in self.dusts:
@@ -8593,7 +8588,7 @@ class HourglassWidget(Widget):
         else:
             # 并行数组直通(每颗省掉 3 次 dict 查找)。
             _batch.update_arrays(self._sn, self.sx, self.sy, self.srw, self.srh)
-        self._draw_flares(now)
+        self._draw_flares(self._mound_flow_clock)
         self._sync_rects(self._dust_group, self._dust_rects, self.dusts, dp(1.2))
         self._bore_color.a = 1 if remaining <= 0.001 else 0
         self._update_pause_overlay()

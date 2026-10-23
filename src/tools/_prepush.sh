@@ -2,8 +2,16 @@
 # Scoped particle continuity, PC work budget, evidence and foreground power checks.
 set -eu
 cd "$(dirname "$0")/../.."
+python -B src/tools/release_decision.py
 python -B src/tools/test_material_release.py
-python -B src/tools/check_particle_release.py
+python -B src/tools/check_flow_release.py
+python -B src/tools/test_neck_geometry.py
+python -B src/tools/test_stream_aperture.py
+python -B src/tools/test_receiving_surface.py
+python -B src/tools/test_release_decision.py
+python -B src/tools/test_pixel_flow_review.py
+python -B src/tools/test_stream_review_metrics.py
+python -B src/tools/test_flow_release.py
 python -B src/tools/test_particle_continuity.py
 python -B src/tools/test_particle_release.py
 python -B src/tools/test_stream_motion_shape.py

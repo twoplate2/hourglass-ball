@@ -54,12 +54,14 @@ def assert_particle_meshes(widget):
 def snapshot(widget):
     """pwp/ptl 出生后不变；落地压紧数组时，下标不再是同一粒子。"""
     rows = {}
+    appearance={}
     for i in range(widget.pn):
         key = (float(widget.pwp[i]), float(widget.ptl[i]))
         if key in rows:
             raise AssertionError("同帧粒子身份重复，无法据此追踪")
         rows[key] = (float(widget.px[i]), float(widget.py[i]),
                      float(widget.pvy[i]))
+        appearance[key]=(float(widget.pxo[i]),float(widget.pwa[i]),int(widget.psz[i]))
     cx, cy, x0, scale, n1 = widget._mound_contact_curve()
     return {
         "particles": rows,
@@ -68,6 +70,12 @@ def snapshot(widget):
         "outlet": float(2 * widget._neck_y - widget._taper["y_bot"]),
         "scale": float(widget._particle_motion_scale),
         "tube_height": float(widget._tube_h),
+        "aperture_half":float(widget._taper['t_in']),
+        "appearance":appearance,
+        "motion":dict(cx=widget._cx,cut=2*widget._neck_y-widget._taper['y_bot'],
+            top=widget._lower_sand_top,center=widget._lower_y_c,radius=widget._R_inner,
+            half=widget._taper['t_in'],pitch=renderer.stream_pitch(widget._R_inner,
+                sys.modules[widget.__class__.__module__].SAND_MATERIAL_COARSE,widget._taper['t_in'])),
     }
 
 
@@ -102,6 +110,26 @@ class ContinuityTrace:
         for key, (x, y, vy) in previous.items():
             predicted = y + vy * dt + 0.5 * gravity * dt * dt
             if key in current:
+                if abs(current[key][0]-x)>1.0+dt*(abs(vy)+abs(gravity*dt)):
+                    raise AssertionError("同一粒子的横向位置突变")
+                if 'motion' in before:
+                    m=before['motion'];off,amp,size=before['appearance'][key]
+                    if after['appearance'][key]!=before['appearance'][key]:
+                        raise AssertionError('同一粒子的粒径或运动身份突变')
+                    depth=max(0,m['cut']-predicted)
+                    speed=60*before['scale']
+                    target=max(.87,math.sqrt(speed/math.sqrt(speed*speed+2*abs(gravity)*depth)))
+                    shrink=1 if predicted>m['cut'] else 1+(target-1)*min(1,depth/92)
+                    fallen=max(0,m['cut']-predicted)
+                    raw=off*shrink+math.sin(fallen*.07+key[0])*amp*(1-shrink*.4)
+                    lim=m['half']
+                    if predicted<m['top']:
+                        ball=math.sqrt(max(0,m['radius']**2-(predicted-m['center'])**2))
+                        lim+=(ball-lim)*min(1,(m['top']-predicted)/30)
+                    lim=max(0,lim-renderer.sprite_radius(m['pitch'],size))
+                    expected=m['cx']+max(-lim,min(lim,raw))
+                    if abs(current[key][0]-expected)>tolerance:
+                        raise AssertionError('同一粒子的横向轨迹不连续')
                 if abs(current[key][1] - predicted) > tolerance:
                     raise AssertionError("同一粒子的下落位置不连续")
                 if abs(current[key][2] - (vy + gravity * dt)) > tolerance:
@@ -121,6 +149,13 @@ class ContinuityTrace:
                   - 60.0 * before["scale"] * dt + 0.5 * gravity * dt * dt)
         for key in births:
             y = current[key][1]
+            half=before.get('aperture_half',float('inf'))
+            center=before.get('motion',{}).get('cx',0.0)
+            radius=0.0
+            if 'motion' in before and key in after.get('appearance',{}):
+                radius=renderer.sprite_radius(before['motion']['pitch'],after['appearance'][key][2])
+            if abs(current[key][0]-center)+radius>half+tolerance:
+                raise AssertionError('新粒子的横向出生位置越过出口')
             if not lowest - tolerance <= y <= outlet + tolerance:
                 raise AssertionError("新粒子并非从出口出生")
         self.births += len(births)
@@ -132,6 +167,24 @@ def _state(rows, surface=0.0):
 
 
 class ContinuityTraceTests(unittest.TestCase):
+    def test_birth_footprint_outside_aperture_fails(self):
+        key=(.1,.02);before=_state([]);before.update(aperture_half=10,motion=dict(cx=0,pitch=1))
+        after=_state([(key,(9,99.7,-45))]);after['appearance']={key:(9,.5,2)}
+        with self.assertRaisesRegex(AssertionError,'横向出生'):
+            ContinuityTrace().observe(before,after,.01)
+
+    def test_birth_outside_aperture_fails(self):
+        before=_state([]);before['aperture_half']=10
+        after=_state([((.1,.02),(1000,99.7,-45))])
+        with self.assertRaisesRegex(AssertionError,'横向出生'):
+            ContinuityTrace().observe(before,after,.01)
+
+    def test_horizontal_teleport_fails(self):
+        before=_state([((.1,.02),(0,50,-20))])
+        after=_state([((.1,.02),(1000,49.7775,-24.5))])
+        with self.assertRaisesRegex(AssertionError,"横向"):
+            ContinuityTrace().observe(before,after,.01)
+
     def test_compaction_does_not_change_identity(self):
         a, b = (0.11, 0.021), (0.22, 0.022)
         before = _state([(a, (0, 0.1, -20)), (b, (1, 50, -20))])

@@ -12,6 +12,23 @@ def grain_pitch(radius, coarse):
     return max(0.6, radius / 150.0 * (0.7 + 0.35 * coarse))
 
 
+def stream_pitch(radius,coarse,half):
+    return min(grain_pitch(radius,coarse),max(.8,.22*half))
+
+
+def sprite_radius(pitch,size):
+    return 1.6*max(.8,pitch)*(1.0+.15*(size>1))
+
+
+def source_half_width(half,pitch):
+    return max(0.0,half-sprite_radius(pitch,2)-1.0)
+
+
+def emission_scale(radius,half):
+    # Match the previous wide stream's line density as the aperture grows.
+    return max(1.0,half/max(1e-6,.07*radius))
+
+
 def flow_phase(elapsed, rate=12.0):
     # Match the birth-id hash period. Only ids wrap; physical ages never do.
     return (max(0.0, elapsed) * rate) % 4096.0
@@ -45,7 +62,7 @@ def particle_vertices(xs, ys, phases, sizes, pitch):
     n = len(xs)
     out = np.empty((n, 4, 5), dtype=np.float32)
     corners = np.asarray(((-1,-1),(1,-1),(1,1),(-1,1)), dtype=np.float32)
-    radius = 1.6 * max(.8, pitch) * (1.0 + .15 * (sizes > 1))
+    radius = sprite_radius(pitch,sizes)
     out[:,:,0] = xs[:,None] + radius[:,None] * corners[None,:,0]
     out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * 1.08
     out[:,:,2:4] = corners[None,:,:]
@@ -86,9 +103,13 @@ void main(void) {
 FRAGMENT_BODY = """
 uniform vec4 short_geometry;
 uniform float short_contrast;
+uniform float short_coarse;
 varying vec2 grain_local;
 varying float grain_tone;
 varying float grain_surface;
+float micro_hash(vec2 p) {
+    return clump_hash(p);
+}
 void main(void) {
     // Clip only the aperture, this grain's shape and the actual pile occlusion.
     // No moving envelope, random deletion, or global-count opacity is applied.
@@ -97,11 +118,23 @@ void main(void) {
     float r2 = dot(grain_local,grain_local);
     if (r2 >= 1.0) discard;
     float strength = min(1.5,max(0.0,short_contrast / .35));
-    float detail = (grain_tone + .07*(1.0-r2) - .06*grain_local.x) * strength;
+    // Fixed micrograins inside each representative particle. No time noise:
+    // these details travel with the same persistent quad for its entire life.
+    vec2 cell=floor((grain_local+1.0)*1.5);
+    float seed=micro_hash(cell+grain_tone*31.7);
+    vec2 local=fract((grain_local+1.0)*1.5)-.5;
+    local-=vec2(seed-.5,micro_hash(cell+17.0+grain_tone*13.1)-.5)*.14;
+    float micro_r=length(local);
+    // A larger representative quad must not fill every inter-grain pore.
+    // Keep every particle and its fixed details; only the coarse grain shape
+    // and contrast differ. No time-dependent holes or thinning are used.
+    float coarse=smoothstep(1.8,3.0,short_coarse);
+    float micro=1.0-smoothstep(mix(.40,.27,coarse),mix(.52,.37,coarse),micro_r);
+    float detail = (grain_tone*.45+(seed-.5)*.65+.04*(1.0-r2)) * strength*(1.0+.35*coarse);
     vec2 uv = fract(vec2(grain_tone*17.1,grain_tone*29.7)
                     + grain_local * (1.6*short_geometry.w) / (2.0*sand_geometry.y));
-    vec3 rgb = mix(grain_tone_color(detail,0.0),texture2D(texture0,uv).rgb,sand_mix);
-    float coverage = 1.0-smoothstep(.80,1.0,r2);
+    vec3 rgb = mix(grain_tone_color(detail,0.0),texture2D(texture0,uv).rgb,.55*sand_mix);
+    float coverage = (1.0-smoothstep(.80,1.0,r2))*micro;
     gl_FragColor = vec4(rgb,frag_color.a*coverage);
 }
 """
@@ -147,13 +180,11 @@ def install(widget_class):
     # Other RenderContexts can disable these global GL arrays while Kivy's
     # per-shader format cache still considers them enabled. Restore only the
     # locations actually used here; otherwise all grains vanish after frame 1.
-    attribute_cache = {}
     def restore_attributes(_):
         program = glGetIntegerv(GL_CURRENT_PROGRAM)[0]
-        if program not in attribute_cache:
-            attribute_cache[program] = [glGetAttribLocation(program, name)
-                for name in (b"vPosition",b"vTexCoords0",b"vTone",b"vSurface")]
-        for location in attribute_cache[program]:
+        # Query the currently linked program; context loss may reuse a GL id.
+        for name in (b"vPosition",b"vTexCoords0",b"vTone",b"vSurface"):
+            location=glGetAttribLocation(program,name)
             if location >= 0:glEnableVertexAttribArray(location)
 
     def ensure(self, index):
@@ -177,7 +208,7 @@ def install(widget_class):
         import sys
         module=sys.modules[widget_class.__module__]
         n=self.pn
-        pitch=grain_pitch(self._R_inner,module.SAND_MATERIAL_COARSE)
+        pitch=stream_pitch(self._R_inner,module.SAND_MATERIAL_COARSE,self._taper['t_in'])
         vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch)
         surfaces=mound_surface_at(vertices[:,:,0], self._mound_carve._v,
                                   self._lower_sand_bot)
@@ -199,6 +230,7 @@ def install(widget_class):
         outlet=2*self._neck_y-self._taper["y_bot"]
         context["short_geometry"]=(self._cx,outlet,self._taper["t_in"],pitch)
         context["short_contrast"]=module.SAND_MATERIAL_GRAIN
+        context["short_coarse"]=module.SAND_MATERIAL_COARSE
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl")
 

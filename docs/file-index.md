@@ -215,7 +215,7 @@ Android hook 由打包器调用；shell 工具使用 Git Bash。此目录不装�
 
 - `src/tools/test_particle_continuity.py`：真实粒子的出生、持续轨迹、接触回收及实际 Mesh 顶点检查；含晚期 Mesh 创建失败的回退反例，不启动窗口。
 - `src/tools/benchmark_particle_renderer.py`：固定状态重复测量 PC 更新、绘制及 GPU 完成的工作量，保留逐帧耗时、最慢 1% 和最慢帧；不等于实屏或 Android 帧率。
-- `src/tools/check_particle_release.py`：3.7 持续粒子的源码身份、完整隐藏运行、外观证据和 PC 工作量发布检查。
+- `src/tools/check_particle_release.py`：历史3.7持续粒子的源码、隐藏运行和PC工作量证据检查；该版整体视觉通过已撤回，不是当前放行入口。
 - `src/tools/test_particle_release.py`：持续粒子发布检查的正反例，拒绝缺帧、取消、身份错误和不完整性能证据。
 - `src/tools/capture_stream_motion.py`：隐藏 PC 真实画布连续帧，记录逐帧堆面、尺寸、逻辑时间与源码身份。
 - `src/tools/check_stream_motion_shape.py`：独立像素位移、宏观轮廓及呼吸检查；不使用着色器速度参数作为通过依据。
@@ -246,3 +246,35 @@ rg --files src
 也不能把“文件还保留”说成“测试有效”。
 
 - `design/checks/records/v3.7/`：持续粒子、真实像素可见性、完整录像、同条件 PC 工作耗时和源码证据；[本轮审阅](../design/checks/records/v3.7/review.html)。
+
+- [3.7 对抗性复审](../design/checks/records/v3.7/adversarial-review.html)：记录实心杆与颗粒尺度等漏判，撤回整体外观通过结论，保留原测试证据。
+
+- [沙流视觉修正方案与验收约定](../design/checks/notes/stream-visual-contract.html)：出口宽度、颗粒尺度、密度、轨迹及相邻连接的联合约束，分步小样与对抗性审核；方案阶段。
+
+- [沙漏代码行为：类型、标准与期望](../design/checks/notes/code-behavior-types.html)：按真实代码定义容器/上沙/颈内/自由粒子/飞溅/下堆及阶段，记录1秒/5秒/50秒差异；待确认，不包含优化实施。
+
+- [颈部粗细端点与周期函数候选](../design/checks/notes/neck-width/proposal.html)：最粗15%/最细3%的净宽候选、静态轮廓对照和幂曲线数值；含limits.png与proposal.json，未实施应用修改。
+
+- [沙漏下一轮工作计划](../design/checks/notes/next-iteration-plan.html)：保留原计划及六步退出条件，追加3.8执行结果与正式记录；保留粗档、近满及暂停失败证据和复查范围。
+
+当前沙流实现与检查入口：
+
+- `src/app/neck_geometry.py`：按球内径定义净通道，1～5秒为15%，10小时及以上为3%，中间按对数时长参数作幂插值。
+- `src/tools/release_decision.py`：当前审核决定及版本/源码身份；撤回和待验阻止发布，`--committed`核对决定及证据已纳入待推送HEAD。
+- `src/tools/check_flow_release.py`：当前3.8发布入口，核对图像、状态、原始连续帧、5秒/50秒真实时间录像、独立审核、源码身份及PC单帧工作量；记录存在不等于整体视觉通过。
+- `src/tools/stream_review_metrics.py`：出口台阶、空层、实心杆及整体摆动反例量具。
+- `src/tools/record_flow_review.py`：真正隐藏PC实时录像及暂停和末段记录。
+- `src/tools/test_neck_geometry.py`：口径端点和尺寸/时长映射。
+- `src/tools/test_stream_aperture.py`：实际图元出生边界及发射密度。
+- `src/tools/test_receiving_surface.py`：低净空局部接收层与跨封顶连续性。
+- `src/tools/test_release_decision.py`：当前决定及提交身份的发布反例，拒绝撤回、待验和未提交/未跟踪的批准证据。
+- `src/tools/test_stream_review_metrics.py`：各类错误画面的独立反例。
+- `src/tools/test_flow_release.py`：实际像素暂停和近满接收的时间反例。
+- `design/checks/current-review.json`：唯一当前审核决定，绑定候选版本、运行源码和阻挡项；历史passed不能覆盖它。
+- `design/checks/rules/revision-cases.json`：本轮低分辨率关联场景。
+- `design/checks/rules/revision-high-cases.json`：本轮高分辨率和极端场景。
+
+- `src/tools/pixel_flow_review.py` / `src/tools/test_pixel_flow_review.py`：真实GL像素的局部亚像素下行位移及冻结/倒流反例，不等于逐像素身份或屏幕FPS。
+- `src/tools/verify_receiving_pixels.py`：在隐藏PC固定近满几何及其他时钟，单独改变接收层相位并关闭该层作负对照，核对表面纹理实际像素变化；不以整个接收区的哈希变化代替局部运动证明。
+
+本轮保留100%容量并检查近满局部接收纹理；范围为隐藏PC外观与相邻状态、用户已要求的PC单帧工作量，不包含Android、音频或真实屏幕FPS验收。3.8最终是否放行，以当前审核决定及正式证据为准。

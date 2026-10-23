@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "version": "3.8",
+  "reviewer": "motion_design_review",
+  "review_type": "independent_adversarial_dynamic_review",
+  "status": "passed",
+  "source_sha256": "c59cc24f3bafb1a25ffc08bf0d15a0b900a076a131f86f217d925f75b7fff5b3",
+  "open_blockers": [],
+  "conclusion": "在下述实际动态审核范围内，未发现足以推翻本轮完成结论的确定P0/P1阻挡；这不是全应用、设备或审美无条件担保。",
+  "method": "软件解码原始audit.mp4的全部呈现顺序帧，核对PTS与真实墙钟记录；实际查看有限关键连续帧图板和原生540×924画面，结合相邻像素匹配。未声称完整播放MP4，未启动新GL采集。",
+  "reviewed_scope": [
+    "5秒与50秒默认金沙实录：开局前缘、首次落地、稳态、末1%、近满接触、暂停恢复及余砂排空。",
+    "原生540×924完整画面：video-p5/video-p50各一个稳态画面；阶段总览用于上下文。",
+    "连续帧窗口：p50出生0.256–0.652秒；p5落地1.424–1.718秒；p50末1%墙钟51.439–51.733秒；p5末1%及余砂5.419–5.721秒；p50恢复48.915–49.300秒和余砂51.939–52.315秒。",
+    "final-coarse原始0000/0015/0030帧：粗颗粒仍保留可见孔隙与局部细节，未见恢复成无纹理实色带。",
+    "独立复算receiving-isolation四图：固定几何/其它时钟的接收纹理相位变化93像素，最大通道差6；关闭层负控0变化。"
+  ],
+  "findings": [
+    {
+      "id": "D01",
+      "severity": "none",
+      "status": "passed_in_scope",
+      "finding": "出生前缘逐步向下推进，未提前铺满自由落段；首次落地约1.526/1.533秒。"
+    },
+    {
+      "id": "D02",
+      "severity": "none",
+      "status": "passed_in_scope",
+      "finding": "落地后可靠像素匹配均向下；p5上/下中位约243/408px/s，p50约234/362px/s，未见旧版缓慢整片平移或整束同步扭动。"
+    },
+    {
+      "id": "D03",
+      "severity": "none",
+      "status": "passed_in_scope",
+      "finding": "关键连续帧未见持续空层或脱离堆顶；末1%接触保持，归零后颈部余砂继续排空，落定样本稳定。"
+    },
+    {
+      "id": "D04",
+      "severity": "none",
+      "status": "passed_in_scope",
+      "finding": "暂停期间原GL图各只有一种哈希；恢复接续原进度。"
+    },
+    {
+      "id": "M01",
+      "severity": "P3",
+      "status": "not_application_defect",
+      "finding": "p5墙钟1.2037秒的一次下段负位移匹配落在前缘尚未覆盖的窗口：实际前缘y=739，匹配中心约y=780，不能当作沙粒倒流。出生前缘按自己的连续图与像素边界单独审核。"
+    },
+    {
+      "id": "M02",
+      "severity": "P3",
+      "status": "not_application_defect",
+      "finding": "暂停视频解码帧有不超过5/6色阶的压缩差异，原GL图逐字节不变；未将编码差异误判为应用动画。"
+    }
+  ],
+  "limitations": [
+    "未现场播放整段视频；结论基于真实连续解码帧、正常尺寸画面、实际时间戳和像素时序。",
+    "近满接收纹理变化细微；93像素/6色阶只证明该层未冻结，不单独证明强烈的肉眼动感。",
+    "未重新审核所有颜色、横屏/平板、其它随机种子、音频或Android/MuMu/真机。",
+    "未进行性能评测；采样帧数和轨迹状态未被用来替代视觉效果判断。"
+  ],
+  "summary": {
+    "video-p5": {
+      "decoded_frames": 402,
+      "maximum_pts_error": 8.30001281576509e-06,
+      "events": {
+        "first_particle_time": 0.2589815999963321,
+        "first_landing_time": 1.526409700018121,
+        "last_percent_time": 5.461166299995966,
+        "zero_time": 5.498962400015444,
+        "pause_at": 4.699999999999999,
+        "resume_at": 5.199999999999999
+      },
+      "steady_reliable_pairs": 10,
+      "steady_reverse_pairs": 0,
+      "pause_raw_unique": 1,
+      "pause_decoded_max_channel_delta": 5,
+      "settled_last_half_second_raw_unique": 1
+    },
+    "video-p50": {
+      "decoded_frames": 3160,
+      "maximum_pts_error": 8.333329606813322e-06,
+      "events": {
+        "first_particle_time": 0.2558963000192307,
+        "first_landing_time": 1.533349300007103,
+        "last_percent_time": 51.511948200000916,
+        "zero_time": 52.007467300019925,
+        "pause_at": 47.0,
+        "resume_at": 49.0
+      },
+      "steady_reliable_pairs": 192,
+      "steady_reverse_pairs": 0,
+      "pause_raw_unique": 1,
+      "pause_decoded_max_channel_delta": 6,
+      "settled_last_half_second_raw_unique": 1
+    }
+  },
+  "evidence": {
+    "_temp/revision-3.8/motion-review/decoded-analysis.json": "4556930da9f37df13c0f8461fd13190c3c87733f024329754626bdbd6178b676",
+    "_temp/revision-3.8/motion-review/video-p50-steady-native.png": "1bea70b1fcc1e1f773e953ad3a60a75bd8724b81e3ef24130989f084ce3a2929",
+    "_temp/revision-3.8/motion-review/video-p5-steady-native.png": "f7b395bae8496aa18c522768186337c851be772861a51812783298520a4cdbc8",
+    "_temp/revision-3.8/motion-review/video-p50-overview.png": "2b92fa68bb4b8b4757440900fd7351cda487c4abeaca2dd14b920280945a7601",
+    "_temp/revision-3.8/motion-review/video-p5-overview.png": "52a4c8f4ab29ebc8d8421a14322c73571a11991d1ffedabff2186771795da7a0",
+    "_temp/revision-3.8/motion-review/video-p50-front.png": "342fe947d6cc22fe21787e31bff3afe763e5b7df809cca3730aec7f1b2ab6fea",
+    "_temp/revision-3.8/motion-review/video-p5-landing.png": "aa06f3b6488151b8e1f3142bd4947bdcd63f7d164db7bdd33ddcec1dd9e5128e",
+    "_temp/revision-3.8/motion-review/video-p50-last-percent.png": "4bdb5f856ede70c30af1ee2c85cd8d91e75ec26162bc5b3bfc109cd47881b90b",
+    "_temp/revision-3.8/motion-review/video-p5-zero-tail.png": "d5300bc8dd4c6e0f2e5bfe72114e9aa7fcb14ba0081f50fe9c270a86b5ff0ebd",
+    "_temp/revision-3.8/motion-review/video-p50-zero-tail.png": "091dffa3df38c6d85f61009c4c773f7f71fadb2544de177ff22a707165158ca7",
+    "_temp/revision-3.8/motion-review/video-p50-resume.png": "f512dd3aa51cae8ecf3c89da2cb4d015fc008965d947b73c7c74d037db8f6968",
+    "_temp/revision-3.8/video-p5/audit.mp4": "a1e59a8ca23b3b315dec4e66cbaca2d4b65eca82d04e4204794c8528130575a7",
+    "_temp/revision-3.8/video-p5/audit.json": "382d4a93097372e98155814bc9e6ef8daad1299d78b904abc3f20b8209ec948f",
+    "_temp/revision-3.8/video-p50/audit.mp4": "ee82578bd6b58adcae9fbcc65e6130fdb7399f88758e9e7e34e3a352311c475b",
+    "_temp/revision-3.8/video-p50/audit.json": "26bb66c3e1f255161bd040068248bf45ad113261dcccdba1d1383c53bdd0a74e"
+  }
+}

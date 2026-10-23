@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "version": "3.8",
+  "status": "approved",
+  "source_sha256": "c59cc24f3bafb1a25ffc08bf0d15a0b900a076a131f86f217d925f75b7fff5b3",
+  "record": "design/checks/records/v3.8/review.json",
+  "blockers": [
+    {
+      "id": "neck",
+      "status": "closed"
+    },
+    {
+      "id": "fine-stream",
+      "status": "closed"
+    },
+    {
+      "id": "continuity",
+      "status": "closed"
+    },
+    {
+      "id": "near-full",
+      "status": "closed"
+    },
+    {
+      "id": "visual-review",
+      "status": "closed"
+    },
+    {
+      "id": "performance",
+      "status": "closed"
+    }
+  ]
+}

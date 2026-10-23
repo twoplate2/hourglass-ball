@@ -1,0 +1,100 @@
+[
+  {
+    "name": "initial",
+    "period": 50,
+    "elapsed": 0,
+    "state": "initial",
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "landing",
+    "period": 50,
+    "elapsed": 2.1,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "middle",
+    "period": 50,
+    "elapsed": 25,
+    "frame_offsets": [
+      0,
+      0.03333333333333333
+    ]
+  },
+  {
+    "name": "near-full",
+    "period": 50,
+    "elapsed": 49.5,
+    "frame_offsets": [
+      0,
+      0.03333333333333333
+    ]
+  },
+  {
+    "name": "settled",
+    "period": 50,
+    "elapsed": 56,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "short-five",
+    "period": 5,
+    "elapsed": 2.5,
+    "frame_offsets": [
+      0,
+      0.03333333333333333
+    ]
+  },
+  {
+    "name": "short-one",
+    "period": 1,
+    "elapsed": 0.5,
+    "frame_offsets": [
+      0,
+      0.03333333333333333
+    ]
+  },
+  {
+    "name": "coarse",
+    "period": 50,
+    "elapsed": 25,
+    "grain": "6",
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "fine",
+    "period": 50,
+    "elapsed": 25,
+    "grain": "1",
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "long-initial",
+    "period": 36000,
+    "elapsed": 0,
+    "state": "initial",
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "long-flow",
+    "period": 36000,
+    "elapsed": 3,
+    "frame_offsets": [
+      0
+    ]
+  }
+]

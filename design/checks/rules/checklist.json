@@ -8,8 +8,8 @@
     {"id": "gate", "command": ["src/tools/test_regression_gate.py"], "timeout": 60, "unittest_min": 23},
     {"id": "static", "command": ["src/tools/run_regression.py", "--static-check"], "timeout": 60, "markers": ["STATIC_DONE"]},
     {"id": "design-pages", "command": ["src/tools/check_design_pages.py", "--out", "{run}/design-pages.json"], "timeout": 60, "markers": ["HTML_DONE", "failures=0"]},
-    {"id": "particle-identity", "command": ["src/tools/check_particle_release.py"], "timeout": 420, "markers": ["PARTICLE_RELEASE_OK"]},
-    {"id": "particle-continuity-tests", "command": ["src/tools/test_particle_continuity.py"], "timeout": 60, "unittest_min": 16},
+    {"id": "particle-identity", "command": ["src/tools/check_flow_release.py"], "timeout": 420, "markers": ["FLOW_RELEASE_OK"]},
+    {"id": "particle-continuity-tests", "command": ["src/tools/test_particle_continuity.py"], "timeout": 60, "unittest_min": 19},
     {"id": "particle-release-tests", "command": ["src/tools/test_particle_release.py"], "timeout": 60, "unittest_min": 24},
     {"id": "material-release-tests", "command": ["src/tools/test_material_release.py"], "timeout": 60, "unittest_min": 9},
     {"id": "short-grain-release-tests", "command": ["src/tools/test_short_grain_release.py"], "timeout": 60, "unittest_min": 12},
@@ -30,7 +30,14 @@
     {"id": "grain-levels", "command": ["src/tools/verify_grain_levels.py"], "timeout": 120, "markers": ["GRAIN_LEVELS_DONE pairs=5 failures=0"]},
     {"id": "geometry", "command": ["src/tools/_probe_geom_invariants.py"], "timeout": 120, "markers": ["GEOMETRY_DONE cases=14 failures=0"]},
     {"id": "rendering", "command": ["src/tools/_render_golden.py", "--check", "--label", "{label}"], "timeout": 900, "markers": ["==> 渲染 逐图一致", "RENDER_DONE arms=7"]},
-    {"id": "splash", "command": ["src/tools/_splash_golden.py", "--check"], "timeout": 300, "markers": ["==> 金标准轨迹 逐位一致"]}
+    {"id": "splash", "command": ["src/tools/_splash_golden.py", "--check"], "timeout": 300, "markers": ["==> 金标准轨迹 逐位一致"]},
+    {"id": "neck-geometry", "command": ["src/tools/test_neck_geometry.py"], "timeout": 60, "unittest_min": 7},
+    {"id": "stream-aperture", "command": ["src/tools/test_stream_aperture.py"], "timeout": 60, "unittest_min": 4},
+    {"id": "receiving-surface", "command": ["src/tools/test_receiving_surface.py"], "timeout": 60, "unittest_min": 4},
+    {"id": "current-decision", "command": ["src/tools/test_release_decision.py"], "timeout": 60, "unittest_min": 7},
+    {"id": "stream-review", "command": ["src/tools/test_stream_review_metrics.py"], "timeout": 60, "unittest_min": 8},
+    {"id": "flow-release", "command": ["src/tools/test_flow_release.py"], "timeout": 60, "unittest_min": 10},
+    {"id": "pixel-flow", "command": ["src/tools/test_pixel_flow_review.py"], "timeout": 60, "unittest_min": 4}
   ],
   "rules": [
     {"paths": ["main.py", "src/app/**", "app/**", "app_version.py", "frame_benchmark.py"], "tests": "all", "reason": "运行代码互相影响，不能只测改动处"},

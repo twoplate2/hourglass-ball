@@ -174,7 +174,12 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     t = np.minimum((c["lower_top"] - y) / 30.0, 1.0)
     lim_ball = c["tube_lim"] + (raw_ball - c["tube_lim"]) * t
     lim = np.where(y >= c["lower_top"], c["tube_lim"], lim_ball)
-    lim = lim - np.where(psz[sl] > 1, psz[sl], 0.5)     # half_stroke
+    if 'sprite_pitch' in c:
+        from short_grain_stream import sprite_radius
+        half_stroke=sprite_radius(c['sprite_pitch'],psz[sl])
+    else:
+        half_stroke=np.where(psz[sl]>1,psz[sl],.5)
+    lim = lim - half_stroke
     lim = np.maximum(lim, 0.0)
     x = cx + np.clip(x - cx, -lim, lim)
 

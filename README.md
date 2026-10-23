@@ -1,13 +1,14 @@
 # 跳跳的沙漏
 
-Python + Kivy 沙漏计时应用，已恢复 3.0 的沙流、计时和渲染实现，NumPy 处理材质等数据。PC 用于运行和验证，Android APK 由 GitHub Actions 构建。
+Python + Kivy 沙漏计时应用，NumPy 处理粒子和材质数据。PC 用于运行和验证，Android APK 由 GitHub Actions 构建。
 版本唯一来源是 `src/app/app_version.py`，不在文档中另写版本号。
 
-当前版本包含界面与材质改进：暂停/完成按钮文案、原色设置预览、清晰滑杆，
-沙柱的每个短粒跟随实际粒子连续下落，材质随颗粒移动，不再用整束波浪轮廓裁切；
-颗粒只从出口进入画面，落入沙堆后被遮挡。落点飞溅集中在堆顶附近，表层纹理沿坡铺开。
-沙量、主沙粒运动和玻璃轮廓保持原模型，飞溅装饰的轨迹按上述目标调整。
-当前发布由 `check_particle_release.py` 核对粒子连续性、外观、完整过程、PC 工作耗时与源码身份。
+当前版本已调整颈部比例和沙流表现。保留已有的暂停/完成文案、
+原色设置预览和滑杆改进。颈内净宽以球内直径为基准：1～5秒取15%，10小时及以上取3%，
+中间采用对数时长参数的幂曲线。本轮保留100%总容量，使用连续自由粒子和近满时的局部接收纹理。
+对抗性审核拦下的粗档实心杆、表层运动偏弱及暂停闪光问题已修复并重取证，失败原图和录像继续保留。
+当前发布由 `check_flow_release.py` 核对原始连续帧、5秒/50秒真实时间录像、PC 工作耗时与源码身份；
+`design/checks/current-review.json` 是唯一当前审核决定，历史通过记录不能覆盖撤回或待验状态。
 历史设备取图和源码覆盖记录单独保留，不能代替当前 PC 验收或正式 APK 安装证明。
 
 ## PC 运行
@@ -37,9 +38,11 @@ python src/tools/run_regression.py --profile core
 截图和桌面 Benchmark 输出在 `_temp/benchmark_logs/`。测试配置使用独立临时目录，不改个人设置。
 PC 结果不能直接当成 Android 性能结论；检查范围与发布条件见
 [改完以后怎么检查](design/checks/README.md)、[QA 纪律](design/checks/notes/qa-rules.md)。
-外观改动只回归本次外观及相邻连接；帧率、音频和完整回归由用户另行安排。
-本次发布用 `check_particle_release.py` 重放已审阅的 PC 外观对照并核对全部运行源码。
-性能对照计时包括更新、绘制和 GPU 完成等待，不包含截图编码，不等于实屏或 Android FPS。
+外观改动只回归本次外观及相邻连接；本轮另包含用户已要求的同场 PC 单帧工作量对照。
+本次发布用 `check_flow_release.py` 核对原始证据和运行源码，并要求当前审核决定已批准且严重问题全部关闭。
+性能对照计时包括更新、绘制和 GPU 完成等待，不包含截图编码，不等于真实屏幕或 Android FPS，
+也不构成音频或完整应用验收。接收区整体发生像素变化不能单独证明表层纹理在动；
+`verify_receiving_pixels.py` 固定几何及其他时钟，单独检查接收层相位和关闭该层的负对照。
 历史材质、形状和回退检查保留供对应版本查阅。
 `test_keep_awake.py` 检查 Android UI 线程、窗口标志和时序，`verify_keep_awake_runtime.py`
 检查隐藏 PC 应用生命周期和 Windows 原生请求；这些不是 Android 设备、音频或帧率验收。
@@ -51,6 +54,8 @@ Windows 不进行 Android SDK 构建。
 
 每次 push 前递增 `src/app/app_version.py`，提交标题以新版本号开头，其余使用中文。
 先运行版本检查和 `bash src/tools/_prepush.sh`；失败或未完成的检查不能记为通过。
+推送钩子还执行 `release_decision.py --committed`，要求当前审核决定及其记录目录中的证据
+已纳入待推送的 HEAD，且工作区内容按 Git 的路径清理规则与提交一致；未提交的批准不能放行。
 
 ## 目录
 

@@ -1,0 +1,368 @@
+[
+  {
+    "name": "initial",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 0,
+    "frame_offsets": [
+      0
+    ],
+    "state": "initial"
+  },
+  {
+    "name": "head",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 1.2,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "landing",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 2.1,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "early",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 5,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "middle",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "late",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 45,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "tail",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 49,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "zero",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 50,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "after-zero",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 51,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "settled",
+    "period": 50,
+    "color": 0,
+    "grain": "3",
+    "rough": "3",
+    "elapsed": 56,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color0-grain1",
+    "period": 50,
+    "color": 0,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color0-grain6",
+    "period": 50,
+    "color": 0,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color1-grain1",
+    "period": 50,
+    "color": 1,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color1-grain6",
+    "period": 50,
+    "color": 1,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color2-grain1",
+    "period": 50,
+    "color": 2,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color2-grain6",
+    "period": 50,
+    "color": 2,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color3-grain1",
+    "period": 50,
+    "color": 3,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color3-grain6",
+    "period": 50,
+    "color": 3,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color4-grain1",
+    "period": 50,
+    "color": 4,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color4-grain6",
+    "period": 50,
+    "color": 4,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color5-grain1",
+    "period": 50,
+    "color": 5,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "color5-grain6",
+    "period": 50,
+    "color": 5,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 25,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "landing-grain1",
+    "period": 50,
+    "color": 0,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 2.1,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "late-grain1",
+    "period": 50,
+    "color": 0,
+    "grain": "1",
+    "rough": "3",
+    "elapsed": 45,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "landing-grain6",
+    "period": 50,
+    "color": 0,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 2.1,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "late-grain6",
+    "period": 50,
+    "color": 0,
+    "grain": "6",
+    "rough": "3",
+    "elapsed": 45,
+    "frame_offsets": [
+      0
+    ]
+  },
+  {
+    "name": "clock-wrap",
+    "period": 50,
+    "color": 0,
+    "elapsed": 15.99,
+    "frame_offsets": [
+      0,
+      0.02,
+      0.04
+    ]
+  },
+  {
+    "name": "paused",
+    "period": 50,
+    "color": 0,
+    "elapsed": 25,
+    "pause_seconds": 3,
+    "state": "paused",
+    "frame_offsets": [
+      0,
+      3
+    ]
+  },
+  {
+    "name": "resume",
+    "period": 50,
+    "color": 0,
+    "elapsed": 25,
+    "pause_seconds": 3,
+    "frame_offsets": [
+      0,
+      0.2,
+      2
+    ]
+  },
+  {
+    "name": "short-one",
+    "period": 1,
+    "color": 0,
+    "elapsed": 0.5,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "short-five",
+    "period": 5,
+    "color": 0,
+    "elapsed": 2.5,
+    "frame_offsets": [
+      0,
+      0.03333333333333333,
+      0.06666666666666667
+    ]
+  },
+  {
+    "name": "draining",
+    "period": 50,
+    "elapsed": 50,
+    "frame_offsets": [
+      0,
+      0.02,
+      0.04,
+      0.06,
+      0.08
+    ]
+  }
+]

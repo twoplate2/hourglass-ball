@@ -5,9 +5,10 @@ Only grain detail is advected; the palette and broad lighting stay in world spac
 """
 
 import os
+import math
 
 from kivy.graphics import Color, Mesh, RenderContext
-from grain_style import contact_surface_profile
+from grain_style import receiving_surface_profile
 
 
 VERTEX_SHADER = """
@@ -1219,9 +1220,11 @@ class MoundSurfaceFlowContext(SandFlowContext):
             before = cols[max(0, i - 1)]
             after = cols[min(len(cols) - 1, i + 1)]
             slope = (after[1] - before[1]) / max(1e-6, after[0] - before[0])
-            depth, dx, dy = contact_surface_profile(
-                x - cx, diameter, thick if free else 0.0, slope)
-            coverage = 1.0 if free and depth > 0.0 else 0.0
+            radius=self['sand_geometry'][1]
+            roof=self['sand_geometry'][2]+radius+math.sqrt(max(0.0,radius*radius-(x-cx)**2))
+            depth, dx, dy = receiving_surface_profile(
+                x - cx, diameter, thick, slope, max(0.0,roof-y))
+            coverage = 1.0 if depth > 0.0 else 0.0
             visible = visible or coverage > 0.0
             k = count * 14
             vertices[k:k + 14] = (

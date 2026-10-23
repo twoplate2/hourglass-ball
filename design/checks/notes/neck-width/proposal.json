@@ -1,0 +1,56 @@
+{
+  "scope": "geometry proposal only; no application modification or visual acceptance",
+  "reference": {
+    "width": 400,
+    "height": 800,
+    "body_inner_diameter": 339.36842105263156,
+    "glass_thickness": 6.315789473684211
+  },
+  "endpoints": {
+    "max_inner_ratio": 0.15,
+    "min_inner_ratio": 0.03
+  },
+  "exponent": 0.1812055364640442,
+  "samples": [
+    {
+      "seconds": 1,
+      "inner_ratio": 0.15,
+      "inner_pixels": 50.90526315789473
+    },
+    {
+      "seconds": 5,
+      "inner_ratio": 0.15,
+      "inner_pixels": 50.90526315789473
+    },
+    {
+      "seconds": 10,
+      "inner_ratio": 0.13229485578299008,
+      "inner_pixels": 44.89669632045894
+    },
+    {
+      "seconds": 50,
+      "inner_ratio": 0.098829300748407,
+      "inner_pixels": 33.539543748722544
+    },
+    {
+      "seconds": 300,
+      "inner_ratio": 0.07142996014659098,
+      "inner_pixels": 24.241072790800978
+    },
+    {
+      "seconds": 1800,
+      "inner_ratio": 0.051626786468240975,
+      "inner_pixels": 17.520501007748305
+    },
+    {
+      "seconds": 3600,
+      "inner_ratio": 0.04553305513570108,
+      "inner_pixels": 15.452481027105291
+    },
+    {
+      "seconds": 36000,
+      "inner_ratio": 0.03,
+      "inner_pixels": 10.181052631578947
+    }
+  ]
+}

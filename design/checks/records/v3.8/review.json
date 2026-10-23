@@ -1,0 +1,230 @@
+{
+  "version": "3.8",
+  "status": "approved",
+  "source_sha256": "c59cc24f3bafb1a25ffc08bf0d15a0b900a076a131f86f217d925f75b7fff5b3",
+  "source_manifest": {
+    "main.py": "04778a1bd9cb527261d5cbd96e2924d10d6a881df175a34f3df710332694b3b5",
+    "buildozer.spec": "46c7c5fa760f44095702b053a82d656c283be6463d0caec66a2aaa4af240db4d",
+    "src/app/__init__.py": "00d1fc5051277af93a515ea14de66a75c526efe3228739ce171063fed88623c2",
+    "src/app/_tail_selfcheck.py": "d82f91c8c11c8a84c6d2449aabd0d6d1a8e6a77c1c2518bf6a5cb7c73607ffdd",
+    "src/app/app_version.py": "1cda283a5c853d07f16d4a637e4d9e875ae2395872b16ca270014be8f367ff15",
+    "src/app/flow_batch_experiment.py": "9f7dc0d48900f0b3125d41463b615fbec334a555827bf44a9dfe960f27fa57b4",
+    "src/app/flow_gpu_experiment.py": "ffe94c0bcf80276f287bbe7c58f7b941267b6ff39f4f30dfdb0871a4c7154305",
+    "src/app/flow_numpy.py": "aa90bb57c1e6d6e40799820ea75a2c9d35bd3d3c807ab0a075aa39eb0b3fa302",
+    "src/app/flow_splash_experiment.py": "df2f845de006647e6a472ee6e0bb9ed8efeb75ae755b4066bd148b831416c241",
+    "src/app/flow_texture_experiment.py": "4dad0e264fc82fb3bd3093f95b811bcf34098c4e86e2aaed912a6b4cf59077f6",
+    "src/app/frame_benchmark.py": "ddb279fc1eb6e7cf3654dd807d0f81afcf553b94f78320aec95eeaba50515e4b",
+    "src/app/grain_style.py": "f3daeb64cc8d1291cf1a89df783219fe31e75a6061587a9fd9b40d32de8c46ce",
+    "src/app/keep_awake.py": "a4b593f371c5ece9841dc0504a24c0895bae2bbc2f3bada2b5c1feef7eccd1c3",
+    "src/app/marker_batch_experiment.py": "b804b8e76f757a60ebb20b0e400bb2874de7305eb81a5f9b491d2d5a8be54b78",
+    "src/app/neck_geometry.py": "af9f3daaba201398f358dceacd11fcafefef27cffa506c67bc80dfb1a60dec31",
+    "src/app/prof_android.py": "418bae83aa405db8c7b034f2424902420b055db12ad3932f4d9a50ae3ad5e2bb",
+    "src/app/pymunk_sand.py": "39ddd8036cbe3a1f365cea2c71a3df03476b0b56b5fcf68024b6b2c2e4be82ec",
+    "src/app/sand_flow_material.py": "aa85c3e5904927c77239333fd42eb705db01025a175503ee748dd9b6972ba6ef",
+    "src/app/short_grain_stream.py": "f6c7ea96f070ef79579ef4fba45ca737165f38a0493bd085692c2bb4f9b2a9e6",
+    "src/app/splash_motion.py": "e7188e84217daf3bdb0bde1a686ee1d9bd375fff101af916c9c72c0ae462bef3",
+    "src/app/stream_rendering.py": "d3dd6a00012369fa15c21bb01180fa2359427f0b863996459df2ef0839e5809a"
+  },
+  "review": {
+    "geometry": "passed",
+    "upper": "passed",
+    "stream": "passed",
+    "edges": "passed",
+    "landing": "passed",
+    "joins": "passed",
+    "states": "passed",
+    "near_full": "passed"
+  },
+  "adversarial_reviews": [
+    {
+      "reviewer": "measurement_contract_critic",
+      "status": "passed",
+      "open_blockers": [],
+      "scope": "final frozen source and measurement/release semantics; not full visual playback",
+      "evidence": [
+        "receiving-isolation: four actual pictures independently recomputed 93/max6/negative0",
+        "negative-coarse: original31 rejected; final31 passed",
+        "continuity19,receiving4,pictures8,decision7; release HEAD clean-object guard reviewed"
+      ],
+      "limitations": [
+        "No full MP4 playback or actual commit inspection; packaging and commit gate must still pass"
+      ]
+    },
+    {
+      "schema": 1,
+      "version": "3.8",
+      "reviewer": "motion_design_review",
+      "review_type": "independent_adversarial_dynamic_review",
+      "status": "passed",
+      "source_sha256": "c59cc24f3bafb1a25ffc08bf0d15a0b900a076a131f86f217d925f75b7fff5b3",
+      "open_blockers": [],
+      "conclusion": "在下述实际动态审核范围内，未发现足以推翻本轮完成结论的确定P0/P1阻挡；这不是全应用、设备或审美无条件担保。",
+      "method": "软件解码原始audit.mp4的全部呈现顺序帧，核对PTS与真实墙钟记录；实际查看有限关键连续帧图板和原生540×924画面，结合相邻像素匹配。未声称完整播放MP4，未启动新GL采集。",
+      "reviewed_scope": [
+        "5秒与50秒默认金沙实录：开局前缘、首次落地、稳态、末1%、近满接触、暂停恢复及余砂排空。",
+        "原生540×924完整画面：video-p5/video-p50各一个稳态画面；阶段总览用于上下文。",
+        "连续帧窗口：p50出生0.256–0.652秒；p5落地1.424–1.718秒；p50末1%墙钟51.439–51.733秒；p5末1%及余砂5.419–5.721秒；p50恢复48.915–49.300秒和余砂51.939–52.315秒。",
+        "final-coarse原始0000/0015/0030帧：粗颗粒仍保留可见孔隙与局部细节，未见恢复成无纹理实色带。",
+        "独立复算receiving-isolation四图：固定几何/其它时钟的接收纹理相位变化93像素，最大通道差6；关闭层负控0变化。"
+      ],
+      "findings": [
+        {
+          "id": "D01",
+          "severity": "none",
+          "status": "passed_in_scope",
+          "finding": "出生前缘逐步向下推进，未提前铺满自由落段；首次落地约1.526/1.533秒。"
+        },
+        {
+          "id": "D02",
+          "severity": "none",
+          "status": "passed_in_scope",
+          "finding": "落地后可靠像素匹配均向下；p5上/下中位约243/408px/s，p50约234/362px/s，未见旧版缓慢整片平移或整束同步扭动。"
+        },
+        {
+          "id": "D03",
+          "severity": "none",
+          "status": "passed_in_scope",
+          "finding": "关键连续帧未见持续空层或脱离堆顶；末1%接触保持，归零后颈部余砂继续排空，落定样本稳定。"
+        },
+        {
+          "id": "D04",
+          "severity": "none",
+          "status": "passed_in_scope",
+          "finding": "暂停期间原GL图各只有一种哈希；恢复接续原进度。"
+        },
+        {
+          "id": "M01",
+          "severity": "P3",
+          "status": "not_application_defect",
+          "finding": "p5墙钟1.2037秒的一次下段负位移匹配落在前缘尚未覆盖的窗口：实际前缘y=739，匹配中心约y=780，不能当作沙粒倒流。出生前缘按自己的连续图与像素边界单独审核。"
+        },
+        {
+          "id": "M02",
+          "severity": "P3",
+          "status": "not_application_defect",
+          "finding": "暂停视频解码帧有不超过5/6色阶的压缩差异，原GL图逐字节不变；未将编码差异误判为应用动画。"
+        }
+      ],
+      "limitations": [
+        "未现场播放整段视频；结论基于真实连续解码帧、正常尺寸画面、实际时间戳和像素时序。",
+        "近满接收纹理变化细微；93像素/6色阶只证明该层未冻结，不单独证明强烈的肉眼动感。",
+        "未重新审核所有颜色、横屏/平板、其它随机种子、音频或Android/MuMu/真机。",
+        "未进行性能评测；采样帧数和轨迹状态未被用来替代视觉效果判断。"
+      ],
+      "summary": {
+        "video-p5": {
+          "decoded_frames": 402,
+          "maximum_pts_error": 8.30001281576509e-06,
+          "events": {
+            "first_particle_time": 0.2589815999963321,
+            "first_landing_time": 1.526409700018121,
+            "last_percent_time": 5.461166299995966,
+            "zero_time": 5.498962400015444,
+            "pause_at": 4.699999999999999,
+            "resume_at": 5.199999999999999
+          },
+          "steady_reliable_pairs": 10,
+          "steady_reverse_pairs": 0,
+          "pause_raw_unique": 1,
+          "pause_decoded_max_channel_delta": 5,
+          "settled_last_half_second_raw_unique": 1
+        },
+        "video-p50": {
+          "decoded_frames": 3160,
+          "maximum_pts_error": 8.333329606813322e-06,
+          "events": {
+            "first_particle_time": 0.2558963000192307,
+            "first_landing_time": 1.533349300007103,
+            "last_percent_time": 51.511948200000916,
+            "zero_time": 52.007467300019925,
+            "pause_at": 47.0,
+            "resume_at": 49.0
+          },
+          "steady_reliable_pairs": 192,
+          "steady_reverse_pairs": 0,
+          "pause_raw_unique": 1,
+          "pause_decoded_max_channel_delta": 6,
+          "settled_last_half_second_raw_unique": 1
+        }
+      },
+      "evidence": {
+        "_temp/revision-3.8/motion-review/decoded-analysis.json": "4556930da9f37df13c0f8461fd13190c3c87733f024329754626bdbd6178b676",
+        "_temp/revision-3.8/motion-review/video-p50-steady-native.png": "1bea70b1fcc1e1f773e953ad3a60a75bd8724b81e3ef24130989f084ce3a2929",
+        "_temp/revision-3.8/motion-review/video-p5-steady-native.png": "f7b395bae8496aa18c522768186337c851be772861a51812783298520a4cdbc8",
+        "_temp/revision-3.8/motion-review/video-p50-overview.png": "2b92fa68bb4b8b4757440900fd7351cda487c4abeaca2dd14b920280945a7601",
+        "_temp/revision-3.8/motion-review/video-p5-overview.png": "52a4c8f4ab29ebc8d8421a14322c73571a11991d1ffedabff2186771795da7a0",
+        "_temp/revision-3.8/motion-review/video-p50-front.png": "342fe947d6cc22fe21787e31bff3afe763e5b7df809cca3730aec7f1b2ab6fea",
+        "_temp/revision-3.8/motion-review/video-p5-landing.png": "aa06f3b6488151b8e1f3142bd4947bdcd63f7d164db7bdd33ddcec1dd9e5128e",
+        "_temp/revision-3.8/motion-review/video-p50-last-percent.png": "4bdb5f856ede70c30af1ee2c85cd8d91e75ec26162bc5b3bfc109cd47881b90b",
+        "_temp/revision-3.8/motion-review/video-p5-zero-tail.png": "d5300bc8dd4c6e0f2e5bfe72114e9aa7fcb14ba0081f50fe9c270a86b5ff0ebd",
+        "_temp/revision-3.8/motion-review/video-p50-zero-tail.png": "091dffa3df38c6d85f61009c4c773f7f71fadb2544de177ff22a707165158ca7",
+        "_temp/revision-3.8/motion-review/video-p50-resume.png": "f512dd3aa51cae8ecf3c89da2cb4d015fc008965d947b73c7c74d037db8f6968",
+        "_temp/revision-3.8/video-p5/audit.mp4": "a1e59a8ca23b3b315dec4e66cbaca2d4b65eca82d04e4204794c8528130575a7",
+        "_temp/revision-3.8/video-p5/audit.json": "382d4a93097372e98155814bc9e6ef8daad1299d78b904abc3f20b8209ec948f",
+        "_temp/revision-3.8/video-p50/audit.mp4": "ee82578bd6b58adcae9fbcc65e6130fdb7399f88758e9e7e34e3a352311c475b",
+        "_temp/revision-3.8/video-p50/audit.json": "26bb66c3e1f255161bd040068248bf45ad113261dcccdba1d1383c53bdd0a74e"
+      }
+    },
+    {
+      "reviewer": "continuity_checks",
+      "status": "passed",
+      "open_blockers": [],
+      "scope": "capture and source identity only",
+      "evidence": [
+        "archive:final-normal/collection-audit.json"
+      ],
+      "limitations": [
+        "Not visual or performance acceptance"
+      ]
+    }
+  ],
+  "validation_sources": {
+    "src/tools/check_flow_release.py": "5d9bb5fe70137925cae9e034c86cc5d19c9340379404c9fa362ad1a4a7881c6c",
+    "src/tools/release_decision.py": "d4867b6a150fac55a07a8051ec3fc0e9266f077d3629e8fc3504749049f8712f",
+    "src/tools/stream_review_metrics.py": "8356d06274369593cf599faa99338e9838b62d435c70f395d3b30fe9c1e136d2",
+    "src/tools/record_flow_review.py": "9a1e0f3c83298e82dc15fb8a5b2cae596e1b9b164d46e2ef4f488fb635b7a51b",
+    "src/tools/capture_stream_motion.py": "5df632c0e1cf3a933a6a97c30df1254a5602d93867e8b3519677252966223899",
+    "src/tools/verify_short_grain_runtime.py": "b1e98e7df1cf9f6e8690af5f6ae9d36e3d06706e7d474f2bfb7161f29bd7d5ac",
+    "src/tools/test_particle_continuity.py": "bf2173fc758243425a640728e8dc76b2d8e12026a9f1352164726de4438d0c24",
+    "src/tools/benchmark_particle_renderer.py": "66149dde2077cd1e5edda573866818a6538a67446229a3d68deafd8aec12474f",
+    "src/tools/test_stream_review_metrics.py": "05055deeec38b4bb750f3d8b998af4bf188db846ae215e8f8878f8dc77898f82",
+    "src/tools/test_flow_release.py": "82d7ed4ea13ecd8068b1e1df792d5c4e4654fc8d9928a929716c89e6dad140cf",
+    "src/tools/test_neck_geometry.py": "0675d44f0a96ce38cbb7ffb8cebf4cf922a8cbda23bae44dc74c922b9b5eca03",
+    "src/tools/test_release_decision.py": "6043e1b8f0231d8c28053862a53c51c286eaf5e3ae1d76d18452fe6b8c20a952",
+    "src/tools/test_receiving_surface.py": "912477992b9658bfe6145155c3c829316c13b6826abab393fbb89a6f24b9e0a9",
+    "src/tools/test_stream_aperture.py": "77797672c443921f64f9e4bfb423d02791ce6e18aa181d024694bbc91486fb8f",
+    "src/tools/pixel_flow_review.py": "28344e867a866084679f2aca025af32537251d890f7e068cec4733758d73ad87",
+    "src/tools/test_pixel_flow_review.py": "8eec0e51be275a58c02b745de8b12976451796320377a78886174ac4226f1dce",
+    "src/tools/verify_receiving_pixels.py": "29f42c36423729e2c729121febde081192fa89830b68fe527d962ef354b2290c"
+  },
+  "artifacts": {
+    "5-seconds.mp4": "a1e59a8ca23b3b315dec4e66cbaca2d4b65eca82d04e4204794c8528130575a7",
+    "50-seconds.mp4": "ee82578bd6b58adcae9fbcc65e6130fdb7399f88758e9e7e34e3a352311c475b",
+    "adversarial-review.html": "fabb0f721a89e65fba3cdecf9d595ccc8b77799f589d8e92d390b8fc4bd6f047",
+    "blocked-coarse-sequence.png": "d67699aeefa70df97638a1308eacdbe55f6d5eb688505b6b6f25e05a5e5f6cf8",
+    "blocked-coarse.png": "e94e591677ae70aa26697ae7735941c2c6d346c0b69d456452a5d6b8f15d85bd",
+    "colors.png": "05125339ac96ec33a08f1caae8b5c89c54730994c2d5c960bb30893a0aea06c2",
+    "comparison.png": "a0e9a2449868d3d53d6d4df89d09bafd70e3c0e41f90935d83462236a8375b71",
+    "ending-5.png": "cdaa180cdde2ddb3a33055fade9c1ab5de574472c7b34df474b6ccd356f01127",
+    "ending-50.png": "c0fcfd2a2754cae8d984feb61102922574f93876f17d6ce1d926fd3676d4b375",
+    "final-coarse-sequence.png": "906d6f3c5df932df135bd105c6ed0c2fc0d29f87adc958743a109d5781b654bb",
+    "final-long-sequence.png": "ef6e36a7c6122e029bf8ec53da0a65522713d3c5b84dedafd3bb39c2accfd640",
+    "final-normal-sequence.png": "419951c2e7cb2c04fdab5308e45adde82a713309057ccea5605ed13025b37f60",
+    "final-short-sequence.png": "1307e5e88075a459550b59cc5ffd90bb274c999a5bb15cf2be23f6e9f79abd60",
+    "independent-motion-review.json": "944786624e17d4e1d1dc214f7001b81932bd06c28fd366fb6696d2bd9eb992b0",
+    "periods.png": "210338bc2632b72f68a864223c22cb6e8ebd5444fa53ed85988382b1cdd1f11c",
+    "realtime-5-sequence.png": "f6a7e32be00ac3ba76df6d58460f3175c28b54d25062fe2ceaed23cfff0aafa6",
+    "realtime-50-sequence.png": "c7fe1c9a2f85eff480a9b214c5eccaa882b1e12fc3cd983664a8ea9ca298dbaa",
+    "review.html": "1b75232dc462791c5bb89e4478e079a4efa11c594a09e0d5ad535819e1074cb2",
+    "stages.png": "482abac7e1dd71276143ed117da7d9552058c3389e9c335f6fc62a7aa8904f7a"
+  },
+  "archive_sha256": "27c406473814db46f48f59bb024040d04b0766a353f9ab7b60665a930ec06466",
+  "scope_limitations": [
+    "未现场播放整段视频；结论基于真实连续解码帧、正常尺寸画面、实际时间戳和像素时序。",
+    "近满接收纹理变化细微；93像素/6色阶只证明该层未冻结，不单独证明强烈的肉眼动感。",
+    "未重新审核所有颜色、横屏/平板、其它随机种子、音频或Android/MuMu/真机。",
+    "未进行性能评测；采样帧数和轨迹状态未被用来替代视觉效果判断。",
+    "No Android/audio/actual screen FPS/full ten-hour run",
+    "Color pixel velocity only tested on default gold"
+  ]
+}
