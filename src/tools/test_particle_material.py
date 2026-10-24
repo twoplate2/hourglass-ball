@@ -40,14 +40,33 @@ class ParticleMaterialTests(unittest.TestCase):
         np.testing.assert_allclose(seed,(phases/math.tau)%1,atol=2e-7,rtol=0)
         np.testing.assert_allclose(radius,sprite_radius(1.85,sizes),atol=1e-7,rtol=0)
 
-    def test_texture_pixel_offsets_match_actual_geometry_at_all_sizes(self):
+    def test_thin_support_preserves_grain_pixels_and_particle_centres(self):
+        xs=np.asarray([-1.07,1.07]);ys=np.asarray([90.,150.]);pitch=.8
+        v=particle_vertices(xs,ys,[.4,2.4],[1,2],pitch,aperture_half=2.545263157894736)
+        centres=v[:,:,:2].mean(axis=1)
+        np.testing.assert_allclose(centres,np.column_stack((xs,ys)),atol=2e-5,rtol=0)
+        _,radius=unpack_appearance(v[:,0,4],pitch)
+        local_pixels=v[:,:,2:4]*radius[:,None,None]*np.asarray([1,1.45])
+        np.testing.assert_allclose(local_pixels,v[:,:,:2]-centres[:,None,:],atol=2e-5,rtol=0)
+        # Extra lateral support keeps the original grain-pixel coordinates;
+        # real GL separately checks coverage, aperture clipping and appearance.
+        self.assertTrue((v[:,1,0]-v[:,0,0] > 4.2).all())
+        self.assertTrue((v[:,1,1]-v[:,0,1] == 0).all())
+
+    def test_wide_support_keeps_original_vertices_bit_for_bit(self):
+        for half in (17.,30.):
+            old=particle_vertices([20,80],[90,150],[.4,2.4],[1,2],1.85)
+            new=particle_vertices([20,80],[90,150],[.4,2.4],[1,2],1.85,aperture_half=half)
+            np.testing.assert_array_equal(new,old)
+
+    def test_local_shape_coordinates_measure_actual_sprite_pixels(self):
         for pitch in (.8,1.85,4.0):
             with self.subTest(pitch=pitch):
                 v=particle_vertices([20,80],[90,150],[.4,2.4],[1,2],pitch)
                 _,radius=unpack_appearance(v[:,0,4],pitch)
-                material_pixels=v[:,:,2:4]*radius[:,None,None]*np.asarray([1,1.45])
+                local_pixels=v[:,:,2:4]*radius[:,None,None]*np.asarray([1,1.45])
                 actual_pixels=v[:,:,:2]-np.asarray([[20,90],[80,150]])[:,None,:]
-                np.testing.assert_allclose(material_pixels,actual_pixels,atol=2e-5,rtol=0)
+                np.testing.assert_allclose(local_pixels,actual_pixels,atol=2e-5,rtol=0)
 
 
 class BirthMaterialPayloadTests(unittest.TestCase):

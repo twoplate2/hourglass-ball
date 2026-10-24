@@ -10,6 +10,7 @@ src/tools/test_stream_sampling.py
 src/tools/test_stream_contact_ceiling.py
 src/tools/test_particle_continuity.py
 src/tools/test_particle_material.py
+src/tools/test_granular_material.py
 src/tools/test_flare_occlusion.py
 src/tools/test_splash_occlusion.py
 src/tools/test_landing_spread.py

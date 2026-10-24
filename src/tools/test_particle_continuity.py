@@ -24,12 +24,20 @@ def assert_particle_meshes(widget):
     meshes = widget._particle_meshes
     if len(counts) != len(meshes) or sum(counts) != widget.pn:
         raise AssertionError("实际粒子与 Mesh 活跃粒子数不一致")
+    order=np.asarray(getattr(widget,'_particle_draw_order',np.arange(widget.pn)),dtype=np.intp)
+    if order.shape!=(widget.pn,) or not np.array_equal(np.sort(order),np.arange(widget.pn)):
+        raise AssertionError('绘制排序必须是全部真实粒子的完整排列')
     centres = []
     identities = []
     birth_payloads = []
+    mode=getattr(widget,'_short_material_mode','carrier')
+    if mode not in ('carrier','basic_grains'):
+        raise AssertionError('实际Mesh颗粒材质模式不明确')
+    carrier=mode=='carrier'
+    stride=11 if carrier else 6
     expected_format=[(b'vPosition',2,'float'),(b'vTexCoords0',2,'float'),
-                     (b'vTone',1,'float'),(b'vSurface',1,'float'),
-                     (b'vBirth',4,'float'),(b'vBirthBlend',1,'float')]
+                     (b'vTone',1,'float'),(b'vSurface',1,'float')]
+    if carrier:expected_format.extend(((b'vBirth',4,'float'),(b'vBirthBlend',1,'float')))
     for mesh, count in zip(meshes, counts):
         fmt=getattr(mesh,'fmt',None)
         if fmt is not None:
@@ -38,9 +46,9 @@ def assert_particle_meshes(widget):
             if normalized_fmt!=expected_format:
                 raise AssertionError('实际Mesh出生材质属性布局不符')
         vertices = np.asarray(mesh.vertices, dtype=np.float32)
-        if vertices.size % 44 or not 0 <= count <= vertices.size // 44:
+        if vertices.size % (4*stride) or not 0 <= count <= vertices.size // (4*stride):
             raise AssertionError("每个粒子必须保留一个完整四边形")
-        active = vertices.reshape(-1, 4, 11)[:count]
+        active = vertices.reshape(-1, 4, stride)[:count]
         if not np.isfinite(active).all():
             raise AssertionError("在途粒子的顶点存在非有限值")
         indices = np.asarray(mesh.indices, dtype=np.int64)[:count * 6]
@@ -57,21 +65,22 @@ def assert_particle_meshes(widget):
                 raise AssertionError("粒子四边形没有完整绘制")
             centres.append(active[:, :, :2].mean(axis=1))
             identities.append(active[:,:,4])
-            birth_payloads.append(active[:,:,6:11])
+            if carrier:birth_payloads.append(active[:,:,6:11])
     actual = np.concatenate(centres) if centres else np.empty((0, 2))
-    expected = np.column_stack((widget.px[:widget.pn], widget.py[:widget.pn]))
+    expected = np.column_stack((widget.px[:widget.pn], widget.py[:widget.pn]))[order]
     if actual.shape != expected.shape or not np.allclose(actual, expected, rtol=0, atol=2e-4):
         raise AssertionError("实际 Mesh 没有逐颗跟随真实粒子坐标")
     if widget.pn:
         codes=(((np.asarray(widget.pwp[:widget.pn])/math.tau)%1.)*.5
-               +(np.asarray(widget.psz[:widget.pn])>1))
+               +(np.asarray(widget.psz[:widget.pn])>1))[order]
         if not np.allclose(np.concatenate(identities),codes[:,None],rtol=0,atol=2e-7):
             raise AssertionError('实际Mesh粒子seed或粒径身份不符')
+    if widget.pn and carrier:
         # Independently calculate the upload contract; do not compare the
         # payload helper with itself or trust a renderer-reported count.
-        times=np.asarray(widget.pbt[:widget.pn],dtype=float)
-        scales=np.asarray(widget.pbm[:widget.pn],dtype=float)
-        x=widget._cx+np.asarray(widget.pxo[:widget.pn],dtype=float)
+        times=np.asarray(widget.pbt[:widget.pn],dtype=float)[order]
+        scales=np.asarray(widget.pbm[:widget.pn],dtype=float)[order]
+        x=widget._cx+np.asarray(widget.pxo[:widget.pn],dtype=float)[order]
         blend=np.clip(times/.3,0.,1.);blend=blend*blend*(3.-2.*blend)
         jump_y=float(widget._short_flow_context['sand_jump_y'])
         try:pin=float(widget._short_flow_context['sand_mix_pin'])
@@ -453,6 +462,18 @@ class MoundSurfaceTests(unittest.TestCase):
 
 
 class ParticleFallbackTests(unittest.TestCase):
+    def test_carrier_shader_failure_keeps_basic_grains(self):
+        self.check_line_fallback(False,success=True,draw_counts=(1,0),carrier_failure=True)
+
+    def test_carrier_mesh_failure_keeps_basic_grains(self):
+        self.check_line_fallback(False,success=True,draw_counts=(1,0),carrier_mesh_failure=True)
+
+    def test_explicit_full_failure_still_uses_line_pool(self):
+        self.check_line_fallback(False,force_fail=True)
+
+    def test_forced_carrier_failure_selects_basic_without_birth_arrays(self):
+        self.check_line_fallback(False,success=True,draw_counts=(0,1,0),force_carrier=True)
+
     def test_list_storage_actual_draw_empty_single_and_chunk_retirement(self):
         for counts in ((0,),(1,),(8193,1,0)):
             with self.subTest(counts=counts):
@@ -468,7 +489,8 @@ class ParticleFallbackTests(unittest.TestCase):
     def test_missing_material_restores_attached_line_renderer(self):
         self.check_line_fallback(False)
 
-    def check_line_fallback(self,mesh_failure,success=False,draw_counts=None):
+    def check_line_fallback(self,mesh_failure,success=False,draw_counts=None,carrier_failure=False,
+                            carrier_mesh_failure=False,force_fail=False,force_carrier=False):
         class Canvas:
             def __init__(self):
                 self.children = []
@@ -481,6 +503,8 @@ class ParticleFallbackTests(unittest.TestCase):
 
         class Context(dict):
             def __init__(self, *args, **kwargs):
+                if carrier_failure and 'grain_birth' in args[2]:
+                    raise RuntimeError('synthetic carrier shader compile failure')
                 super().__init__(sand_jump_y=1.,sand_mix_pin=-1.)
 
             def update_flow(self,*args):
@@ -500,7 +524,7 @@ class ParticleFallbackTests(unittest.TestCase):
                 self.canvas = Canvas()
                 self.reserved = False
                 if draw_counts is not None:
-                    n=draw_counts[0]
+                    n=max(draw_counts)
                     self._cx=200.;self._R_inner=170.;self._upper_sand_bot=400.
                     self._taper={'in_pts':[(0.,430.)],'t_in':5.,'y_bot':420.}
                     self._mound_carve=types.SimpleNamespace(_v=[])
@@ -511,6 +535,7 @@ class ParticleFallbackTests(unittest.TestCase):
                     self.px=(np.arange(n,dtype=float)%5+198.).tolist()
                     self.py=(np.arange(n,dtype=float)%180+100.).tolist()
                     self.pwp=(np.arange(n,dtype=float)*.1).tolist();self.psz=[1]*n
+                    self.ptl=(.018+(np.arange(n)%100)*.0001).tolist()
                     self.pbt=(np.arange(n,dtype=float)*.001+359999.).tolist()
                     self.pbm=[1.]*n;self.pxo=(np.arange(n,dtype=float)%3-1.).tolist()
 
@@ -527,15 +552,17 @@ class ParticleFallbackTests(unittest.TestCase):
                 self.reserved = True
 
         mesh_attempts=[]
-        def fail_mesh(*args, **kwargs):
+        def create_mesh(*args, **kwargs):
             mesh_attempts.append(True)
-            raise RuntimeError("synthetic Mesh allocation failure")
+            if mesh_failure or carrier_mesh_failure and len(mesh_attempts)==1:
+                raise RuntimeError("synthetic Mesh allocation failure")
+            return types.SimpleNamespace(**kwargs)
 
         graphics = types.ModuleType("kivy.graphics")
         graphics.Color = lambda *args: None
         callbacks=[]
         graphics.Callback = lambda function,**kwargs:callbacks.append(function)
-        graphics.Mesh = fail_mesh if mesh_failure else lambda *args,**kwargs:types.SimpleNamespace(**kwargs)
+        graphics.Mesh = create_mesh
         opengl = types.ModuleType("kivy.graphics.opengl")
         opengl.GL_CURRENT_PROGRAM = 0x8B8D
         opengl.glGetIntegerv = lambda name: [1]
@@ -552,33 +579,41 @@ class ParticleFallbackTests(unittest.TestCase):
         with patch.dict(sys.modules, {"kivy.graphics": graphics,
                                       "kivy.graphics.opengl": opengl,
                                       "sand_flow_material": material}), \
-                patch.dict(os.environ, {"HG_FLOW_FORCE_FAIL": ""}), \
+                patch.dict(os.environ, {"HG_FLOW_FORCE_FAIL": "1" if force_fail else "",
+                    "HG_FLOW_FORCE_CARRIER_FAIL":"1" if force_carrier else ""}), \
                 patch.multiple(sys.modules[Widget.__module__],create=True,
-                    SAND_MATERIAL_COARSE=3.,SAND_GRAIN_LEVEL_DEFAULT='test',
+                    SAND_MATERIAL_COARSE=3.,SAND_MATERIAL_GRAIN=.35,SAND_GRAIN_LEVEL_DEFAULT='test',
                     _grain_level=lambda _: (0.,3.),OUTLET_OVERLAP=2.,NECK_FREE_GEOM=False):
             renderer.install(Widget)
             widget = Widget()
             widget._build_dynamic_canvas()
             if success:
+                basic=carrier_failure or carrier_mesh_failure or force_carrier
+                stride=6 if basic else 11
                 self.assertEqual(widget.flow_renderer,'particle_sprite_pool')
-                self.assertEqual(widget._particle_buffers[0].shape[1:],(4,11))
+                self.assertEqual(widget._short_material_mode,'basic_grains' if basic else 'carrier')
+                self.assertEqual(widget._particle_buffers[0].shape[1:],(4,stride))
+                if basic:self.assertTrue(widget._short_material_error)
                 self.assertTrue(callbacks,'实际Mesh必须恢复出生材质属性')
                 for _other_context in range(2):
-                    enabled.clear();callbacks[0](None)
-                    self.assertEqual(enabled,[0,1,2,3,4,5],
+                    enabled.clear();callbacks[-1](None)
+                    self.assertEqual(enabled,[0,1,2,3] if basic else [0,1,2,3,4,5],
                                      '其他绘制层禁用数组后，出生材质属性也必须重新启用')
                 if draw_counts is not None:
+                    if basic:del widget.pbt;del widget.pbm
                     for count in draw_counts:
                         widget.pn=count
                         widget._draw_stream()
+                        self.assertTrue(all(isinstance(v,float) for v in widget._short_flow_context['short_texture_size']),
+                                        'vec2纹理尺寸必须上传float，整数向量会走错误的uniform类型')
                         self.assertEqual(assert_particle_meshes(widget),count)
                         self.assertEqual(sum(widget._particle_counts),count)
                         for mesh,active in zip(widget._particle_meshes,widget._particle_counts):
-                            uploaded=np.asarray(mesh.vertices).reshape(-1,4,11)
+                            uploaded=np.asarray(mesh.vertices).reshape(-1,4,stride)
                             self.assertTrue(np.all(uploaded[active:,:,:2]==-10000),
                                             '缩池后旧粒子的真实顶点必须清除')
                 return
-            self.assertEqual(len(mesh_attempts),1 if mesh_failure else 0,
+            self.assertEqual(len(mesh_attempts),2 if mesh_failure else 0,
                              "回退必须来自实际Mesh分配失败，不能被更早的测试替身错误冒充")
             self.assertEqual(widget.flow_renderer, "line_pool")
             self.assertTrue(widget.reserved)

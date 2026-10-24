@@ -60,6 +60,7 @@ jobs:
           python -B src/tools/test_stream_contact_ceiling.py
           python -B src/tools/test_particle_continuity.py
           python -B src/tools/test_particle_material.py
+          python -B src/tools/test_granular_material.py
           python -B src/tools/test_flare_occlusion.py
           python -B src/tools/test_splash_occlusion.py
           python -B src/tools/test_landing_spread.py

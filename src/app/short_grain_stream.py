@@ -108,7 +108,7 @@ def birth_material_payload(birth_time, birth_scale, source_x, jump_y=1.0):
     return out
 
 
-def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45):
+def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_half=None):
     """One persistent short sprite per real particle; never changes its centre."""
     import numpy as np
     xs, ys, phases, sizes = [np.asarray(v) for v in (xs, ys, phases, sizes)]
@@ -116,9 +116,18 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45):
     out = np.empty((n, 4, 5), dtype=np.float32)
     corners = np.asarray(((-1,-1),(1,-1),(1,1),(-1,1)), dtype=np.float32)
     radius = sprite_radius(pitch,sizes)
-    out[:,:,0] = xs[:,None] + radius[:,None] * corners[None,:,0]
+    support = radius
+    if aperture_half is not None:
+        transition = np.clip((aperture_half / radius - 2.0) / 2.0, 0.0, 1.0)
+        narrow = 1.0 - transition * transition * (3.0 - 2.0 * transition)
+        support = radius + narrow * np.maximum(0.0, 2.0 * aperture_half - radius)
+    out[:,:,0] = xs[:,None] + support[:,None] * corners[None,:,0]
     out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * aspect
     out[:,:,2:4] = corners[None,:,:]
+    # Extend only static glyph support; local material remains in actual grain
+    # pixels, and physical source positions/radii and trajectories stay intact.
+    if aperture_half is not None:
+        out[:,:,2] *= (support / radius)[:,None]
     # Two disjoint bands preserve the immutable seed AND size in one float.
     # The shader can reconstruct the actual pixel radius without a larger Mesh.
     out[:,:,4] = (((phases / math.tau) % 1.0)*.5+(sizes>1))[:,None]
@@ -254,6 +263,8 @@ uniform float short_coarse;
 uniform float short_join_overlap;
 uniform float short_join_enabled;
 uniform float short_aspect;
+uniform float short_strength;
+uniform vec2 short_texture_size;
 varying float grain_radius;
 varying vec2 grain_local;
 varying float grain_tone;
@@ -262,6 +273,26 @@ varying vec4 grain_birth;
 varying float grain_birth_blend;
 float micro_hash(vec2 p) {
     return clump_hash(p);
+}
+vec3 micro_material_rgb(vec2 uv,vec2 local) {
+    vec3 colour=texture2D(texture0,uv).rgb;
+    vec3 weights=vec3(.299,.587,.114);
+    float delta=dot(colour-sand_base,weights);
+    float span=dot(delta >= 0.0 ? sand_light-sand_base : sand_base-sand_dark,weights);
+    float x=uv.x*2.0-1.0;
+    float edge=clamp((x*x-.64)/.36,0.0,1.0);
+    edge=edge*edge*(3.0-2.0*edge);
+    float baked=sand_lighting.x*(sand_lighting.y*(uv.y-.5)-.07*x-.16*edge);
+    float pigment=short_strength > 0.0 ? delta/max(span,.001)-baked : 0.0;
+    // Few-pixel streams need stronger fixed grain differences, rather than
+    // lower coverage. The cue belongs to each micro-grain and moves with it.
+    float narrow=1.0-smoothstep(2.0,4.0,short_geometry.z/grain_radius);
+    float contrast=mix(1.4,3.0,narrow);
+    float facet=short_strength*.15*clamp(dot(local,vec2(-.35,.7)),-1.0,1.0);
+    float outlet_uv=(short_geometry.y-sand_geometry.z)/(2.0*sand_geometry.y);
+    float illumination=sand_lighting.x*sand_lighting.y*(fract(outlet_uv)-.5);
+    float tone=clamp(pigment*contrast+facet+illumination,-.9,.9);
+    return mix(sand_base,tone >= 0.0 ? sand_light : sand_dark,abs(tone));
 }
 void main(void) {
     // Clip only the aperture, this grain's shape and the actual pile occlusion.
@@ -275,37 +306,84 @@ void main(void) {
     // Compensate the local domain so the fine grains keep their pixel shape.
     vec2 domain=mat2(cos(angle),-sin(angle),sin(angle),cos(angle))
                     *(grain_local*vec2(1.0,short_aspect/1.08));
-    vec2 cell=floor((domain+1.0)*1.5);
+    // Keep the visible grains above subpixel size in the thinnest aperture.
+    // A lower cell count enlarges grain marks, never the real particle quad.
+    float narrow=1.0-smoothstep(2.0,4.0,short_geometry.z/grain_radius);
+    float cell_scale=mix(1.5,.5,narrow);
+    vec2 cell=floor((domain+1.0)*cell_scale);
     float seed=micro_hash(cell+grain_tone*31.7);
-    vec2 local=fract((domain+1.0)*1.5)-.5;
-    local-=vec2(seed-.5,micro_hash(cell+17.0+grain_tone*13.1)-.5)*.34;
+    vec2 local=fract((domain+1.0)*cell_scale)-.5;
+    float seed_y=micro_hash(cell+17.0+grain_tone*13.1);
+    local-=vec2(seed-.5,seed_y-.5)*.34;
     float micro_r=length(local);
     // Coarse grains keep pores without replacing their texture with large dots.
     float coarse=smoothstep(1.8,3.0,short_coarse);
     float micro=1.0-smoothstep(mix(.42,.36,coarse),mix(.55,.47,coarse),micro_r);
-    vec2 uv = fract(vec2(grain_tone*17.1,grain_tone*29.7)
-                    + grain_local * grain_radius * vec2(1.0,short_aspect) / (2.0*sand_geometry.y));
-    vec3 sample_rgb=texture2D(texture0,uv).rgb;
-    vec3 rgb=clamp(sand_base+(sample_rgb-sand_base)*1.6,0.0,1.0);
+    // One baked pigment per visible grain; sample at a texel centre so linear
+    // filtering cannot average four different grains into a soft parent patch.
+    // The weak local facet supplies the grain's own surface relief.
+    vec2 pigment_uv=vec2(micro_hash(cell+grain_tone*53.1+73.7),
+                         micro_hash(cell+grain_tone*91.3+vec2(37.9,3.1)));
+    vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
+    vec3 rgb=micro_material_rgb(uv,local);
     float depth=max(0.0,short_geometry.y-sand_position.y);
     // Carry a small upstream texture patch with this real grain for its life.
     // Both colour details now use local coordinates and move with one particle.
-    float join_length=short_join_overlap+max(4.0,3.0*short_geometry.z);
-    if (short_join_enabled > .5) {
+    float join_length=short_join_overlap+max(4.0,1.5*short_geometry.z);
+    if (short_join_enabled > .5 && depth < join_length) {
         vec2 source=vec2(grain_birth.x,short_geometry.y)
             +grain_local*grain_radius*vec2(1.0,short_aspect);
         vec3 inherited=neck_flow_rgb_at(source,grain_birth.y,grain_birth.zw,
                                        grain_birth_blend);
         float released=smoothstep(short_join_overlap,join_length,depth);
-        rgb=mix(inherited,rgb,.65*released);
+        // Keep the birth patch only at the hand-off. A permanent soft blend
+        // averages away the moving grains' contrast and reads as a filament.
+        rgb=mix(inherited,rgb,released);
     }
-    // Only feather the quad border. A circular parent mask would make the
-    // entire cluster read as a large pebble even when its interior is fine.
-    float coverage = (1.0-smoothstep(.75,1.0,abs(grain_local.x)))
-        *(1.0-smoothstep(.75,1.0,abs(grain_local.y)))*micro;
+    // Few-pixel streams need lateral glyph overlap as well as vertical
+    // overlap. Only the central part receives extra moving micro-grains;
+    // the original particle silhouette still supplies the entire outer edge.
+    float support=1.0+narrow*max(0.0,2.0*short_geometry.z/grain_radius-1.0);
+    float core=1.0-smoothstep(.90*short_geometry.z,.94*short_geometry.z,
+                              abs(sand_position.x-short_geometry.x));
+    float vertical=1.0-smoothstep(.75,1.0,abs(grain_local.y));
+    float original=(1.0-smoothstep(.75,1.0,abs(grain_local.x)))*vertical*micro;
+    float extra=(1.0-smoothstep(.75,1.0,abs(grain_local.x/support)))*vertical*micro;
+    // Each contribution still has the same fixed local grains and real
+    // particle lifetime. There is no background strip or animated envelope.
+    float coverage=max(original,narrow*core*extra);
     gl_FragColor = vec4(rgb,frag_color.a*coverage);
 }
 """
+
+
+# Compatibility keeps the same moving local grains, without the birth material
+# or its additional vertex attributes. A carrier failure must not become silk.
+BASIC_VERTEX_SHADER = (VERTEX_SHADER
+    .replace('attribute vec4 vBirth;\n','')
+    .replace('attribute float vBirthBlend;\n','')
+    .replace('varying vec4 grain_birth;\n','')
+    .replace('varying float grain_birth_blend;\n','')
+    .replace('    grain_birth = vBirth;\n','')
+    .replace('    grain_birth_blend = vBirthBlend;\n',''))
+BASIC_FRAGMENT_HEADER = """
+$HEADER$
+varying vec2 sand_position;
+uniform vec4 sand_geometry;
+uniform vec3 sand_base;
+uniform vec3 sand_dark;
+uniform vec3 sand_light;
+uniform vec2 sand_lighting;
+float clump_hash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+"""
+BASIC_FRAGMENT_BODY = ((FRAGMENT_BODY[:FRAGMENT_BODY.index('    float depth=')]
+    + FRAGMENT_BODY[FRAGMENT_BODY.index('    // Few-pixel streams need lateral'):])
+    .replace('varying vec4 grain_birth;\n','')
+    .replace('varying float grain_birth_blend;\n',''))
 
 
 def install(widget_class):
@@ -313,6 +391,7 @@ def install(widget_class):
     from kivy.graphics import Color, Mesh, Callback
     from kivy.graphics.opengl import glGetIntegerv, GL_CURRENT_PROGRAM, glGetAttribLocation, glEnableVertexAttribArray
     from sand_flow_material import GRAIN_FRAGMENT_HEADER, SandFlowContext
+    import granular_material as grain_material
     old_build, old_draw = widget_class._build_dynamic_canvas, widget_class._draw_stream
     chunk = 4096
     indices = (np.arange(chunk,dtype=np.uint16)[:,None]*4
@@ -324,18 +403,35 @@ def install(widget_class):
         finally: self._stream_batched = False
         self._short_flow_context = None
         self._particle_meshes, self._particle_buffers, self._particle_counts = [], [], []
+        self._short_material_mode = None
+        self._short_material_error = None
         try:
             if os.environ.get("HG_FLOW_FORCE_FAIL"):
                 raise RuntimeError("forced particle mesh fallback")
             if self._sand_material is None or self._sand_material.texture is None:
                 raise RuntimeError("particle material unavailable")
-            context = SandFlowContext((self._cx,self._R_inner,self._upper_sand_bot,
-                self._taper["in_pts"][0][1]),VERTEX_SHADER,GRAIN_FRAGMENT_HEADER+FRAGMENT_BODY,tag=6)
-            # Prepare the first Mesh before removing the working Line groups.
-            # A driver/allocation failure must leave a drawable fallback.
-            self._short_flow_context = context
-            context["short_aspect"]=1.45
-            ensure(self,0)
+            for mode, vertex, fragment in (
+                    ('carrier',VERTEX_SHADER,GRAIN_FRAGMENT_HEADER+FRAGMENT_BODY),
+                    ('basic_grains',BASIC_VERTEX_SHADER,BASIC_FRAGMENT_HEADER+BASIC_FRAGMENT_BODY)):
+                try:
+                    if mode == 'carrier' and os.environ.get('HG_FLOW_FORCE_CARRIER_FAIL'):
+                        raise RuntimeError('forced carrier material failure')
+                    context = SandFlowContext((self._cx,self._R_inner,self._upper_sand_bot,
+                        self._taper["in_pts"][0][1]),vertex,fragment,tag=6)
+                    self._short_material_mode = mode
+                    self._short_flow_context = context
+                    self._particle_meshes, self._particle_buffers, self._particle_counts = [], [], []
+                    context["short_aspect"]=1.45
+                    # Only retire the working Line pool after a Mesh succeeds.
+                    ensure(self,0)
+                    break
+                except Exception as exc:
+                    self._short_flow_context = None
+                    if mode == 'basic_grains':
+                        raise RuntimeError('%s; basic grains: %s' % (self._short_material_error,exc)) from exc
+                    self._short_material_error = str(exc)
+            if self._short_material_mode == 'basic_grains':
+                print('carrier material unavailable, using basic grains: %s' % self._short_material_error)
             groups = [r[0] for r in self._stream_pools.values()]
             position = self.canvas.children.index(groups[0])
             for group in groups:self.canvas.remove(group)
@@ -344,6 +440,8 @@ def install(widget_class):
         except Exception as exc:
             self._short_flow_context = None
             self._particle_meshes, self._particle_buffers, self._particle_counts = [], [], []
+            self._short_material_mode = None
+            self._short_material_error = str(exc)
             self._reserve_stream_lines()
             self.flow_renderer = "line_pool"
             print("particle mesh unavailable, using Line: %s" % exc)
@@ -351,25 +449,29 @@ def install(widget_class):
     # Other RenderContexts can disable these global GL arrays while Kivy's
     # per-shader format cache still considers them enabled. Restore only the
     # locations actually used here; otherwise all grains vanish after frame 1.
-    def restore_attributes(_):
+    def restore_attributes(_, carrier):
         program = glGetIntegerv(GL_CURRENT_PROGRAM)[0]
         # Query the currently linked program; context loss may reuse a GL id.
-        for name in (b"vPosition",b"vTexCoords0",b"vTone",b"vSurface",b"vBirth",b"vBirthBlend"):
+        names=(b"vPosition",b"vTexCoords0",b"vTone",b"vSurface")
+        if carrier:names+=(b"vBirth",b"vBirthBlend")
+        for name in names:
             location=glGetAttribLocation(program,name)
             if location >= 0:glEnableVertexAttribArray(location)
 
     def ensure(self, index):
         while len(self._particle_meshes) <= index:
-            data = np.zeros((chunk,4,11),dtype=np.float32)
+            carrier = self._short_material_mode == 'carrier'
+            data = np.zeros((chunk,4,11 if carrier else 6),dtype=np.float32)
             data[:,:,:2] = -10000
             with self._short_flow_context:
                 Color(1,1,1,1)
-                Callback(restore_attributes)
+                Callback(lambda instruction,carrier=carrier:restore_attributes(instruction,carrier))
+                fmt=[(b"vPosition",2,"float"),(b"vTexCoords0",2,"float"),
+                     (b"vTone",1,"float"),(b"vSurface",1,"float")]
+                if carrier:fmt.extend(((b"vBirth",4,"float"),(b"vBirthBlend",1,"float")))
                 mesh = Mesh(vertices=data.ravel(),indices=indices,mode="triangles",
                     texture=self._sand_material.texture if self._sand_material else None,
-                    fmt=[(b"vPosition",2,"float"),(b"vTexCoords0",2,"float"),
-                         (b"vTone",1,"float"),(b"vSurface",1,"float"),
-                         (b"vBirth",4,"float"),(b"vBirthBlend",1,"float")])
+                    fmt=fmt)
             self._particle_meshes.append(mesh)
             self._particle_buffers.append(data)
             self._particle_counts.append(0)
@@ -384,11 +486,17 @@ def install(widget_class):
         reference=stream_pitch(self._R_inner,module._grain_level(module.SAND_GRAIN_LEVEL_DEFAULT)[1],
                                self._taper['t_in'])
         aspect=sprite_aspect(pitch,reference)
-        vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch,aspect)
-        births=birth_material_payload(self.pbt[:n],self.pbm[:n],
-            self._cx+np.asarray(self.pxo[:n]),context["sand_jump_y"])
-        pin=context["sand_mix_pin"]
-        if pin >= 0.0:births[:,4]=pin
+        order=grain_material.stable_grain_order(self.pwp[:n],self.ptl[:n])
+        self._particle_draw_order=order
+        vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch,aspect,
+                                   aperture_half=self._taper['t_in'])[order]
+        carrier = self._short_material_mode == 'carrier'
+        if carrier:
+            births=birth_material_payload(self.pbt[:n],self.pbm[:n],
+                self._cx+np.asarray(self.pxo[:n]),context["sand_jump_y"])
+            pin=context["sand_mix_pin"]
+            if pin >= 0.0:births[:,4]=pin
+            births=births[order]
         surfaces=mound_surface_at(vertices[:,:,0], self._mound_carve._v,
                                   self._lower_sand_bot)
         for i in range((n+chunk-1)//chunk):ensure(self,i)
@@ -400,7 +508,7 @@ def install(widget_class):
             if count:
                 data[:count,:,:5]=vertices[i*chunk:i*chunk+count]
                 data[:count,:,5]=surfaces[i*chunk:i*chunk+count]
-                data[:count,:,6:]=births[i*chunk:i*chunk+count,None,:]
+                if carrier:data[:count,:,6:]=births[i*chunk:i*chunk+count,None,:]
             if count<previous:data[count:previous,:,:2]=-10000
             mesh.texture=self._sand_material.texture if self._sand_material else None
             mesh.vertices=data.ravel()
@@ -410,12 +518,16 @@ def install(widget_class):
         outlet=2*self._neck_y-self._taper["y_bot"]
         context["short_geometry"]=(self._cx,outlet,self._taper["t_in"],pitch)
         context["short_coarse"]=module.SAND_MATERIAL_COARSE
+        context["short_strength"]=module.SAND_MATERIAL_GRAIN
+        context["short_texture_size"]=tuple(map(float,getattr(self._sand_material.texture,"size",(512,512))))
         context["short_join_overlap"]=module.OUTLET_OVERLAP
         context["short_aspect"]=aspect
-        context["short_join_enabled"]=float(bool(self._sand_flow_contexts)
+        context["short_join_enabled"]=float(carrier and bool(self._sand_flow_contexts)
                                             and not module.NECK_FREE_GEOM)
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
-            rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl")
+            rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl",
+            material_mode=self._short_material_mode,material_error=self._short_material_error,
+            painter_order="fixed_birth_depth")
 
     widget_class._build_dynamic_canvas=build
     widget_class._draw_stream=draw

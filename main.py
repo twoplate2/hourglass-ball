@@ -2348,40 +2348,9 @@ _SAND_MATERIAL_CACHE = {}
 
 
 def _coarsen_noise(size, coarse, seed):
-    """把逐像素白噪换成**约 coarse 倍粗**的颗粒场, 幅度保持**同样的 RMS**。
-
-    ⚠️ **为什么必须归一 RMS**: 单纯把噪点放大, 会顺带把对比度也改掉 ——
-       那样"颗粒变粗"和"颗粒变强"两个变量就混在一起了, 对照不干净。
-       均匀分布 σ=1/√12 = 0.2886751, 放大后按实测 σ 缩回去。
-    ⚠️ **取数顺序必须与 A/B 工具逐字节一致**(用户是照着那张图挑的):
-       同一个 seed、同样先抽 `(low, low)`、同样 ×255 过一遍 uint8(那是预览管线的一环)。
-    """
-    import numpy as np
-    low = max(2, int(round(size / coarse)))
-    small = np.random.default_rng(seed).random((low, low), dtype=np.float32)
-    try:
-        from PIL import Image as _PILImage
-        up = _PILImage.fromarray((small * 255.0).astype(np.uint8)).resize(
-            (size, size), _PILImage.BILINEAR)
-        out = np.asarray(up, dtype=np.float32) / 255.0
-    except Exception:
-        # PIL 缺失时的 numpy 双线性(坐标映射与 PIL 的 (i+0.5)*src/dst-0.5 一致, 边缘夹取)
-        t = ((np.arange(size, dtype=np.float32) + 0.5) * (low / float(size))) - 0.5
-        i0 = np.clip(np.floor(t).astype(np.int32), 0, low - 1)
-        i1 = np.clip(i0 + 1, 0, low - 1)
-        f = np.clip(t - np.floor(t), 0.0, 1.0).astype(np.float32)
-        fx, fy = f[None, :], f[:, None]
-        out = (small[np.ix_(i0, i0)] * (1 - fx) * (1 - fy)
-               + small[np.ix_(i0, i1)] * fx * (1 - fy)
-               + small[np.ix_(i1, i0)] * (1 - fx) * fy
-               + small[np.ix_(i1, i1)] * fx * fy)
-    sd = float(out.std())
-    if sd > 1e-6:
-        out = 0.5 + (out - float(out.mean())) * (0.2886751 / sd)
-    # ⚠️ **不要在这里 clip 到 [0,1]** —— 归一化会把值推出这个区间(实测 3.5% 的元素),
-    #    而对照图那一版**没有 clip**。加了它, 线上就与用户挑的那张图差最多 7 级
-    #    (2026-10-05 首次验证就是这么被自己抓出来的)。下游 `tone` 本来就会 clip 到 [-1,1]。
-    return out
+    """Shared, deterministic packed grains; strength stays in the palette step."""
+    from granular_material import material_noise
+    return material_noise(size, coarse, seed)
 
 
 def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0,
@@ -2405,10 +2374,7 @@ def _sand_material_rgba(size, base, dark, light, seed=721, grain=0.35, shade=1.0
     w = np.clip((qx * qx - 0.64) / 0.36, 0.0, 1.0)
     edge = w * w * (3.0 - 2.0 * w)
     broad = grad * (axis[:, None] - 0.5) - 0.07 * qx - 0.16 * edge
-    if coarse and coarse > 1:
-        noise = _coarsen_noise(size, coarse, seed)
-    else:
-        noise = np.random.default_rng(seed).random((size, size), dtype=np.float32)
+    noise = _coarsen_noise(size, max(1.0, coarse), seed)
     tone = np.clip(shade * broad + grain * (2.0 * noise - 1.0), -1.0, 1.0)
     pal = [np.asarray(c, dtype=np.float32) for c in (base, dark, light)]
     target = np.where(tone[..., None] >= 0.0, pal[2], pal[1])
