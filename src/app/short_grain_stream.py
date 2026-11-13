@@ -86,19 +86,76 @@ def art_stream_positions(xs, ys, phases, *, center, outlet, half,
     def smooth(a, b, value):
         t = np.clip((value-a)/(b-a), 0.0, 1.0)
         return t*t*(3.0-2.0*t)
-    y, phase = map(np.asarray, (ys, phases))
+    y = np.asarray(ys)
     active = smooth(5.0, 8.0, half/max(.8, pitch))
     active = active*smooth(1.5*half, 8.0*half, outlet-y)
     radial = np.minimum(1.0, np.abs(x-center)/max(1.0, .87*half))
     edge = smooth(.40, .95, radial)
-    seed = np.remainder(phase*17.371, 1.0)
-    pull = strength*active*(.075 + .15*edge*seed)
-    return np.where(active > 0.0, center+(x-center)*(1.0-pull), x)
+    # Preserve a continuous radial distribution instead of independently
+    # pulling random edge carriers inward and opening short empty notches.
+    pull = strength*active*(.075 + .075*edge)
+    result=np.where(active > 0.0, center+(x-center)*(1.0-pull), x)
+    thin=max(0.,min(1.,(10.-half/max(.8,pitch))/3.))
+    if thin<=0.:return result
+    # A monotone redistribution supports the fine stream's rim without adding
+    # particles. It preserves its outer extent and introduces no random lumps.
+    bound=max(pitch,source_half_width(half,pitch))
+    edge_pull=strength*active*(.075+.075*smooth(.40,.95,bound/max(1.,.87*half)))
+    extent=bound*(1.-edge_pull)
+    u=np.clip(np.abs(result-center)/extent,0.,1.)
+    fill=.45*thin*smooth(.25*half,1.5*half,outlet-y)
+    return center+(result-center)*(1.+fill*(1.-u*u))
 
 
 def flow_phase(elapsed, rate=12.0):
     # Match the birth-id hash period. Only ids wrap; physical ages never do.
     return (max(0.0, elapsed) * rate) % 4096.0
+
+
+def steady_profile_mix(half,radius):
+    """Keep the validated fine-outlet field; transition by fixed geometry only."""
+    if radius is None:return 1.
+    t=max(0.,min(1.,(half/max(radius,1e-6)-.100)/.003))
+    return t*t*(3.-2.*t)
+
+
+def cohort_stream_positions(xs, ys, births, scales, *, center, outlet, half, pitch,
+                            radius=None):
+    """A gentle irregular contour carried by neighbouring birth cohorts.
+
+    Each grain retains its coordinates within the same material cohort; no
+    screen-fixed waves, timer phases, independent lump ejection or frame noise.
+    """
+    import numpy as np
+    x,y,birth,scale=np.broadcast_arrays(xs,ys,births,scales)
+    if not x.size or half<=0:return x
+    material=birth*scale*4.0
+    cell=np.floor(material);t=material-cell;t=t*t*(3.-2.*t)
+    def value(index,side):
+        return np.remainder(np.sin(index*12.9898+side)*43758.5453,1.)
+    def signal(side):
+        return 2.*(value(cell,side)*(1.-t)+value(cell+1.,side)*t)-1.
+    release=np.clip((outlet-y-.25*half)/(1.25*half),0.,1.)
+    release=release*release*(3.-2.*release)
+    mix=steady_profile_mix(half,radius)
+    if mix<=0.:
+        # Keep the original fine-outlet work and arithmetic as well as its look.
+        old_amount=min(.14,max(0.,half/max(pitch,.8)-6.)*.04)
+        return center+(x-center)*(1.+old_amount*release*signal(np.where(x<center,17.13,63.71)))
+    left,right=signal(17.13),signal(63.71)
+    # Preserve the shared width fluctuation while damping the difference that
+    # shifts the axis. Both still travel with the same immutable birth cohort.
+    width=(left+right)*.5
+    sway=(right-left)*.5
+    if mix<1.:
+        old_amount=min(.14,max(0.,half/max(pitch,.8)-6.)*.04)
+        old=center+(x-center)*(1.+old_amount*release*np.where(x<center,left,right))
+    amount=min(.085,max(0.,half/max(pitch,.8)-6.)*.04)
+    # An affine width/axis transform keeps interior spacing consistent; scaling
+    # the two halves independently would also distort their local density.
+    steady=(center+(x-center)*(1.+amount*release*width)
+            +.40*half*amount*release*sway)
+    return steady if mix>=1. else old+(steady-old)*mix
 
 
 def motion_parameters(half_width, pitch, max_depth, motion_scale=1.0):
@@ -140,7 +197,8 @@ def birth_material_payload(birth_time, birth_scale, source_x, jump_y=1.0):
     return out
 
 
-def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_half=None):
+def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_half=None,
+                      fringe=False):
     """One persistent short sprite per real particle; never changes its centre."""
     import numpy as np
     xs, ys, phases, sizes = [np.asarray(v) for v in (xs, ys, phases, sizes)]
@@ -153,12 +211,14 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
         transition = np.clip((aperture_half / radius - 2.0) / 2.0, 0.0, 1.0)
         narrow = 1.0 - transition * transition * (3.0 - 2.0 * transition)
         support = radius + narrow * np.maximum(0.0, 2.0 * aperture_half - radius)
+    if fringe:
+        support = np.maximum(support, 2.2*radius)
     out[:,:,0] = xs[:,None] + support[:,None] * corners[None,:,0]
     out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * aspect
     out[:,:,2:4] = corners[None,:,:]
     # Extend only static glyph support; local material remains in actual grain
     # pixels, and physical source positions/radii and trajectories stay intact.
-    if aperture_half is not None:
+    if aperture_half is not None or fringe:
         out[:,:,2] *= (support / radius)[:,None]
     # Two disjoint bands preserve the immutable seed AND size in one float.
     # The shader can reconstruct the actual pixel radius without a larger Mesh.
@@ -379,11 +439,24 @@ void main(void) {
     float core=1.0-smoothstep(.90*short_geometry.z,.94*short_geometry.z,
                               abs(sand_position.x-short_geometry.x));
     float vertical=1.0-smoothstep(.75,1.0,abs(grain_local.y));
-    float original=(1.0-smoothstep(.75,1.0,abs(grain_local.x)))*vertical*micro;
+    // Small overlap between existing micro-grain carriers keeps the coherent
+    // contour from acquiring one-row holes; micro-grain pixel size is unchanged.
+    float original=(1.0-smoothstep(.80,1.15,abs(grain_local.x)))*vertical*micro;
     float extra=(1.0-smoothstep(.75,1.0,abs(grain_local.x/support)))*vertical*micro;
     // Each contribution still has the same fixed local grains and real
     // particle lifetime. There is no background strip or animated envelope.
     float coverage=max(original,narrow*core*extra);
+    // Independent micro-grains soften the outer density, not whole carrier
+    // blocks. Cell identity is fixed for life and moves with the real grain.
+    // Retain the original dense core and share pigment/size with its grains.
+    float rim_depth=max(0.0,short_geometry.y-sand_position.y);
+    float rim_release=smoothstep(.25*short_geometry.z,1.25*short_geometry.z,rim_depth);
+    float rim_side=smoothstep(.45*short_geometry.z,.80*short_geometry.z,
+                             abs(sand_position.x-short_geometry.x));
+    float rim_falloff=1.0-smoothstep(.65,2.15,abs(grain_local.x));
+    float rim_pick=step(seed_y,.24*rim_falloff*rim_falloff);
+    float fringe=rim_pick*micro*vertical*rim_side*rim_release;
+    coverage=max(coverage,fringe);
     gl_FragColor = vec4(rgb,frag_color.a*coverage);
 }
 """
@@ -518,18 +591,28 @@ def install(widget_class):
         reference=stream_pitch(self._R_inner,module._grain_level(module.SAND_GRAIN_LEVEL_DEFAULT)[1],
                                self._taper['t_in'])
         aspect=sprite_aspect(pitch,reference)
+        # Fine streams need more overlap along the flow, not larger grains.
+        # The shader's aspect compensation keeps each micro-grain round.
+        thin=max(0.,min(1.,(10.-self._taper['t_in']/max(.8,pitch))/3.))
+        mix=steady_profile_mix(self._taper['t_in'],self._R_inner)
+        aspect*=1.+.60*thin+.12*mix*(1.-thin)
         order=grain_material.stable_grain_order(self.pwp[:n],self.ptl[:n])
         self._particle_draw_order=order
         original_x=np.asarray(self.px[:n])
         drawn_x=art_stream_positions(original_x,self.py[:n],self.pwp[:n],
             center=self._cx,outlet=2*self._neck_y-self._taper['y_bot'],
             half=self._taper['t_in'],pitch=pitch)
+        cohort=hasattr(self,'pbt') and hasattr(self,'pbm')
+        if cohort:
+            drawn_x=cohort_stream_positions(drawn_x,self.py[:n],self.pbt[:n],self.pbm[:n],
+                center=self._cx,outlet=2*self._neck_y-self._taper['y_bot'],
+                half=self._taper['t_in'],pitch=pitch,radius=self._R_inner)
         from grain_style import drained_stream_y
         drawn_y=drained_stream_y(drawn_x,self.py[:n],center=self._cx,
             outlet=2*self._neck_y-self._taper['y_bot'],half=self._taper['t_in'],pitch=pitch,
             supplied=getattr(self,'_sand_released',0.0))
         vertices=particle_vertices(drawn_x,drawn_y,self.pwp[:n],self.psz[:n],pitch,aspect,
-                                   aperture_half=self._taper['t_in'])[order]
+                                   aperture_half=self._taper['t_in'],fringe=True)[order]
         carrier = self._short_material_mode == 'carrier'
         if carrier:
             births=birth_material_payload(self.pbt[:n],self.pbm[:n],
@@ -567,7 +650,7 @@ def install(widget_class):
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl",
             material_mode=self._short_material_mode,material_error=self._short_material_error,
-            painter_order="fixed_birth_depth",position_style="depth_only_art_v1",
+            painter_order="fixed_birth_depth",position_style="coherent_core_v10" if cohort else "coherent_core_plain_v10",
             tail_style="exposed_grain_cap_v1")
 
     widget_class._build_dynamic_canvas=build

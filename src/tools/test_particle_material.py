@@ -115,4 +115,32 @@ class BirthMaterialPayloadTests(unittest.TestCase):
         self.assertEqual(result.shape,(0,5))
 
 
+class StreamFringeTests(unittest.TestCase):
+    def test_no_whole_carrier_shift_outside_dense_stream(self):
+        from short_grain_stream import art_stream_positions
+        # The rejected 20%-of-carriers trial grows multi-grain bumps here.
+        phase = np.linspace(0, 6.28, 4001)
+        for half, pitch in [(12, 2.5), (19, 1.6), (30, 2)]:
+            x = np.full_like(phase, .78*half)
+            drawn = art_stream_positions(x, np.full_like(phase, -10*half), phase,
+                                          center=0, outlet=0, half=half, pitch=pitch)
+            self.assertTrue(np.all(drawn <= x), 'Whole-carrier rim bumps returned')
+
+
+class FringeSupportTests(unittest.TestCase):
+    def test_expansion_keeps_centres_and_grain_pixel_scale(self):
+        xs=np.array([-13.,0.,13.]); ys=np.array([160.,200.,240.])
+        phases=np.array([.1,2.,6.]); sizes=np.array([1,2,1]);pitch=1.85
+        old=particle_vertices(xs,ys,phases,sizes,pitch,aperture_half=19)
+        new=particle_vertices(xs,ys,phases,sizes,pitch,aperture_half=19,fringe=True)
+        centres=np.column_stack((xs,ys))
+        np.testing.assert_allclose(new[:,:,:2].mean(axis=1),centres,atol=2e-5,rtol=0)
+        np.testing.assert_array_equal(new[:,:,4],old[:,:,4])
+        np.testing.assert_array_equal(new[:,:,1],old[:,:,1])
+        radii=sprite_radius(pitch,sizes)
+        np.testing.assert_allclose(new[:,:,2:4]*radii[:,None,None]*[1,1.45],
+                                   new[:,:,:2]-centres[:,None,:],atol=2e-5,rtol=0)
+        self.assertTrue(np.all(np.ptp(new[:,:,0],axis=1)>np.ptp(old[:,:,0],axis=1)))
+
+
 if __name__=='__main__':unittest.main()

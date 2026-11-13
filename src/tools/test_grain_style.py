@@ -272,5 +272,74 @@ class StreamArtConsistencyTests(unittest.TestCase):
         np.testing.assert_allclose(np.ptp(new[:,:,:2],axis=1),np.ptp(old[:,:,:2],axis=1),atol=4e-5,rtol=0)
 
 
+class StreamProfileTests(unittest.TestCase):
+    def test_outlet_policy_is_scale_invariant_and_has_a_smooth_transition(self):
+        import numpy as np
+        from short_grain_stream import steady_profile_mix
+        halves=np.linspace(8.,11.,301)
+        values=[steady_profile_mix(h,100.) for h in halves]
+        self.assertEqual(values[0],0.)
+        self.assertEqual(values[-1],1.)
+        self.assertTrue(np.all(np.diff(values)>=0.))
+        for h in halves:
+            self.assertAlmostEqual(steady_profile_mix(h,100.),steady_profile_mix(h*3,300.),places=12)
+
+    def test_axis_sway_is_reduced_without_erasing_width_variation(self):
+        import numpy as np
+        birth=np.linspace(0.,20.,4001)
+        x=np.full_like(birth,14.);y=np.full_like(birth,-160.)
+        right=self.shape(x,y,birth);left=self.shape(-x,y,birth)
+        axis=(right+left)*.5
+        width=(right-left)*.5
+        # Independent v5 oracle: both sides used unrelated 14% fluctuations.
+        cell=np.floor(birth*4.);t=birth*4.-cell;t=t*t*(3.-2.*t)
+        def old_noise(side):
+            a=(np.sin(cell*12.9898+side)*43758.5453)%1.
+            b=(np.sin((cell+1.)*12.9898+side)*43758.5453)%1.
+            return 2.*(a*(1.-t)+b*t)-1.
+        old_right=x*(1.+.14*old_noise(63.71))
+        old_left=-x*(1.+.14*old_noise(17.13))
+        self.assertLess(np.std(axis),.35*np.std((old_right+old_left)*.5))
+        self.assertGreater(np.std(width),.60*np.std((old_right-old_left)*.5))
+        self.assertLessEqual(np.max(np.abs(width/14.-1.)),.10+1e-9)
+
+    def test_fine_core_mapping_keeps_order_and_ignores_individual_grain_seed(self):
+        import numpy as np
+        from short_grain_stream import art_stream_positions
+        x=np.linspace(-11.,11.,1001);y=np.full_like(x,-120.)
+        phase=np.linspace(0.,6.28,len(x))
+        args=dict(center=0.,outlet=0.,half=14.8,pitch=1.85)
+        result=art_stream_positions(x,y,phase,**args)
+        np.testing.assert_array_equal(result,art_stream_positions(x,y,phase[::-1],**args))
+        self.assertTrue(np.all(np.diff(result)>0.))
+        self.assertTrue(np.all(np.abs(result)<14.8))
+
+    def shape(self, x, y, births, scales=1.):
+        import short_grain_stream as stream
+        self.assertTrue(hasattr(stream, 'cohort_stream_positions'),
+                        'Static straight carrier envelope has no advected profile')
+        return stream.cohort_stream_positions(x,y,births,scales,
+                                              center=0,outlet=0,half=19,pitch=1.6)
+
+    def test_profile_is_visible_and_coherent_across_neighbouring_grains(self):
+        import numpy as np
+        births=np.linspace(0,20,4001);x=np.full_like(births,14.);y=np.full_like(births,-160.)
+        result=self.shape(x,y,births)
+        self.assertGreater(np.std(result), .35)
+        self.assertLess(np.max(np.abs(np.diff(result))), .30)
+        self.assertLess(np.max(np.abs(result-x)), 2.7)
+
+    def test_outlet_pause_and_speed_scaled_birth_coordinate(self):
+        import numpy as np
+        births=np.linspace(0,20,101);x=np.full_like(births,14.)
+        np.testing.assert_array_equal(self.shape(x,np.zeros_like(x),births),x)
+        first=self.shape(x,np.full_like(x,-160.),births)
+        np.testing.assert_array_equal(self.shape(x,np.full_like(x,-160.),births),first)
+        np.testing.assert_array_equal(self.shape(x,np.full_like(x,-160.),births/2,2.),first)
+        selected=np.arange(100,-1,-3)
+        np.testing.assert_array_equal(self.shape(x[selected],np.full(len(selected),-160.),births[selected]),first[selected])
+
+
+
 if __name__ == "__main__":
     unittest.main()
