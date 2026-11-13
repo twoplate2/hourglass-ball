@@ -137,25 +137,20 @@ def cohort_stream_positions(xs, ys, births, scales, *, center, outlet, half, pit
         return 2.*(value(cell,side)*(1.-t)+value(cell+1.,side)*t)-1.
     release=np.clip((outlet-y-.25*half)/(1.25*half),0.,1.)
     release=release*release*(3.-2.*release)
-    mix=steady_profile_mix(half,radius)
-    if mix<=0.:
-        # Keep the original fine-outlet work and arithmetic as well as its look.
-        old_amount=min(.14,max(0.,half/max(pitch,.8)-6.)*.04)
-        return center+(x-center)*(1.+old_amount*release*signal(np.where(x<center,17.13,63.71)))
     left,right=signal(17.13),signal(63.71)
-    # Preserve the shared width fluctuation while damping the difference that
-    # shifts the axis. Both still travel with the same immutable birth cohort.
+    # Separate bulk inflation from contour motion. Both signals belong to
+    # immutable birth cohorts, so they travel down with the existing grains.
     width=(left+right)*.5
     sway=(right-left)*.5
-    if mix<1.:
-        old_amount=min(.14,max(0.,half/max(pitch,.8)-6.)*.04)
-        old=center+(x-center)*(1.+old_amount*release*np.where(x<center,left,right))
-    amount=min(.085,max(0.,half/max(pitch,.8)-6.)*.04)
-    # An affine width/axis transform keeps interior spacing consistent; scaling
-    # the two halves independently would also distort their local density.
-    steady=(center+(x-center)*(1.+amount*release*width)
-            +.40*half*amount*release*sway)
-    return steady if mix>=1. else old+(steady-old)*mix
+    available=max(0.,half/max(pitch,.8)-6.)*.04
+    # Fine apertures express life through the moving axis and independent rim;
+    # bulk inflation there is easily confused with a one-grain pinch/bulge.
+    width_amount=min(.0125,available)*steady_profile_mix(half,radius)
+    axis_amount=min(.034,.40*available)
+    # All apertures share a 2.5% peak-to-peak bulk-width budget. The wider
+    # independent micro-grain fringe remains unchanged; no grain is removed.
+    return (center+(x-center)*(1.+width_amount*release*width)
+            +half*axis_amount*release*sway)
 
 
 def motion_parameters(half_width, pitch, max_depth, motion_scale=1.0):
@@ -441,7 +436,12 @@ void main(void) {
     float vertical=1.0-smoothstep(.75,1.0,abs(grain_local.y));
     // Small overlap between existing micro-grain carriers keeps the coherent
     // contour from acquiring one-row holes; micro-grain pixel size is unchanged.
-    float original=(1.0-smoothstep(.80,1.15,abs(grain_local.x)))*vertical*micro;
+    // Fine/medium mouths need a little more glyph overlap to avoid short
+    // notches; wide mouths already have dense coverage. Keep this geometric,
+    // never tied to a timer phase or the first collision.
+    float wide_mouth=smoothstep(.11,.13,short_geometry.z/sand_geometry.y);
+    float original=(1.0-smoothstep(mix(.95,.88,wide_mouth),
+                                  mix(1.30,1.23,wide_mouth),abs(grain_local.x)))*vertical*micro;
     float extra=(1.0-smoothstep(.75,1.0,abs(grain_local.x/support)))*vertical*micro;
     // Each contribution still has the same fixed local grains and real
     // particle lifetime. There is no background strip or animated envelope.
@@ -453,7 +453,9 @@ void main(void) {
     float rim_release=smoothstep(.25*short_geometry.z,1.25*short_geometry.z,rim_depth);
     float rim_side=smoothstep(.45*short_geometry.z,.80*short_geometry.z,
                              abs(sand_position.x-short_geometry.x));
-    float rim_falloff=1.0-smoothstep(.65,2.15,abs(grain_local.x));
+    // Keep edge detail close to its moving grain: overlapping broad fringes
+    // otherwise read as another temporary layer of bulk stream width.
+    float rim_falloff=1.0-smoothstep(.65,1.75,abs(grain_local.x));
     float rim_pick=step(seed_y,.24*rim_falloff*rim_falloff);
     float fringe=rim_pick*micro*vertical*rim_side*rim_release;
     coverage=max(coverage,fringe);
@@ -650,8 +652,8 @@ def install(widget_class):
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl",
             material_mode=self._short_material_mode,material_error=self._short_material_error,
-            painter_order="fixed_birth_depth",position_style="coherent_core_v10" if cohort else "coherent_core_plain_v10",
-            tail_style="exposed_grain_cap_v1")
+            painter_order="fixed_birth_depth",position_style="coherent_core_v11" if cohort else "coherent_core_plain_v11",
+            tail_style="exposed_grain_cap_v2")
 
     widget_class._build_dynamic_canvas=build
     widget_class._draw_stream=draw

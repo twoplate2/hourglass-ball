@@ -4208,7 +4208,9 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            cap_radius = min(Ri * 0.12, self._taper["t_in"] * 1.1)
+            # Extend the rounded landing shoulders beyond the visible stream.
+            # Shape, volume inversion and contacts still share this profile.
+            cap_radius = min(Ri * 0.22, self._taper["t_in"] * 2.0)
             shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC, cap_radius)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
@@ -4259,6 +4261,7 @@ class HourglassWidget(Widget):
                 _frames.append((tuple(_shp), _MoundProfile(Ri, _shp)))
             self._mound_frames = _frames
             self._mound_frame_k = None
+            self._mound_blend_columns = None
         except ValueError:
             self._mound_profile = None
             self._mound_shape = ()
@@ -4353,22 +4356,26 @@ class HourglassWidget(Widget):
         return dp(MOUND_FLOOR_MIN + (MOUND_FLOOR_MAX - MOUND_FLOOR_MIN) * t)
 
     def _sync_mound_frame(self):
-        """按 `elapsed` 把下球轮廓换成当前那一帧（**只换指针**, 逐颗粒零成本）。
-
-        面积表是**预烘在每个 `_MoundProfile` 里**的 ⇒ 画出来的轮廓与接触高度天然一致,
-        不存在"求解读 A、绘制读 B"的裂缝(1.93 那类问题的根源)。
-        """
+        """连续过渡预烘轮廓，体积反求、碰撞和绘制共用当前形状。"""
         frames = getattr(self, "_mound_frames", None)
         if not frames:
             return
         nf = len(frames)
         period = UPPER_ROUGH_PERIOD if UPPER_ROUGH_PERIOD > 0 else 1.0
-        k = int((self.elapsed / period) % 1.0 * nf) % nf
-        if getattr(self, "_mound_frame_k", None) == k:
+        phase = (self.elapsed / period) % 1.0 * nf
+        k = int(phase) % nf
+        blend = phase - int(phase)
+        key = (k, blend)
+        if getattr(self, "_mound_frame_k", None) == key:
             return
-        self._mound_frame_k = k
-        self._mound_shape, self._mound_profile = frames[k]
-        self._mound_shape_cache = None
+        from mound_blend import VolumeColumns, blend_profile
+        low, high = frames[k][1], frames[(k + 1) % nf][1]
+        if getattr(self, "_mound_blend_columns", None) is None:
+            self._mound_blend_columns = VolumeColumns(low.radius, low.xs)
+        self._mound_frame_k = key
+        self._mound_profile = blend_profile(low, high, blend, self._mound_blend_columns)
+        self._mound_shape = self._mound_profile.shape
+        self._mound_shape_cache = self._mound_curve_cache = None
 
     def _mound_height_px(self):
         eff = self._effective_fallen()

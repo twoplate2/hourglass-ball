@@ -19,6 +19,7 @@ src/tools/test_splash_tint_batch.py
 src/tools/test_splash33_impulse.py
 src/tools/test_short_grain.py
 src/tools/test_grain_style.py
+src/tools/test_mound_blend.py
 src/tools/test_ui_polish.py
 src/tools/test_keep_awake.py
 src/tools/test_physics_equiv.py"

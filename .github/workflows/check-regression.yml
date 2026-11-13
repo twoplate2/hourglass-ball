@@ -69,6 +69,7 @@ jobs:
           python -B src/tools/test_splash33_impulse.py
           python -B src/tools/test_short_grain.py
           python -B src/tools/test_grain_style.py
+          python -B src/tools/test_mound_blend.py
           python -B src/tools/test_ui_polish.py
           python -B src/tools/test_keep_awake.py
           python -B src/tools/test_physics_equiv.py

@@ -71,7 +71,8 @@ def assert_particle_meshes(widget):
     style=getattr(widget,'_short_flow_state',{}).get('position_style')
     if style is not None:
         if style not in ('depth_only_art_v1','coherent_core_v5','coherent_core_plain_v5',
-                         'coherent_core_v6','coherent_core_plain_v6','coherent_core_v10','coherent_core_plain_v10'):
+                         'coherent_core_v6','coherent_core_plain_v6','coherent_core_v10','coherent_core_plain_v10',
+                         'coherent_core_v11','coherent_core_plain_v11'):
             raise AssertionError('Unknown particle position style')
         # Independent scalar oracle for the authorized horizontal art offset.
         # Keep strict upload, per-grain identity, vertical position and payload
@@ -93,7 +94,8 @@ def assert_particle_meshes(widget):
                 pull=renderer.ART_STREAM_STRENGTH*active*(.075+.15*edge*seed)
                 if active>0.:expected[i,0]=center+(x-center)*(1.-pull)
                 if style in ('coherent_core_v5','coherent_core_plain_v5',
-                             'coherent_core_v6','coherent_core_plain_v6','coherent_core_v10','coherent_core_plain_v10'):
+                             'coherent_core_v6','coherent_core_plain_v6','coherent_core_v10','coherent_core_plain_v10',
+                             'coherent_core_v11','coherent_core_plain_v11'):
                     thin=max(0.,min(1.,(10.-half/max(.8,pitch))/3.))
                     bound=max(pitch,half-1.84*max(.8,pitch))
                     edge_pull=renderer.ART_STREAM_STRENGTH*active*(.075+.075*smooth(.40,.95,bound/max(1.,.87*half)))
@@ -101,7 +103,7 @@ def assert_particle_meshes(widget):
                     u=max(0.,min(1.,abs(expected[i,0]-center)/extent))
                     fill=.45*thin*smooth(.25*half,1.5*half,outlet-y)
                     expected[i,0]=center+(expected[i,0]-center)*(1.+fill*(1.-u*u))
-        if style in ('coherent_core_v5','coherent_core_v6','coherent_core_v10'):
+        if style in ('coherent_core_v5','coherent_core_v6','coherent_core_v10','coherent_core_v11'):
             # Independent scalar oracle for the advected material profile.
             for i,(x,y) in enumerate(expected.copy()):
                 coordinate=float(widget.pbt[i])*float(widget.pbm[i])*4.
@@ -110,7 +112,7 @@ def assert_particle_meshes(widget):
                 a=(math.sin(cell*12.9898+side)*43758.5453)%1.
                 b=(math.sin((cell+1)*12.9898+side)*43758.5453)%1.
                 noise=2.*(a*(1.-t)+b*t)-1.
-                if style in ('coherent_core_v6','coherent_core_v10'):
+                if style in ('coherent_core_v6','coherent_core_v10','coherent_core_v11'):
                     other=63.71 if x<center else 17.13
                     a2=(math.sin(cell*12.9898+other)*43758.5453)%1.
                     b2=(math.sin((cell+1)*12.9898+other)*43758.5453)%1.
@@ -129,14 +131,22 @@ def assert_particle_meshes(widget):
                     old_amount=min(.14,max(0.,half/max(pitch,.8)-6.)*.04)
                     old=center+(x-center)*(1.+old_amount*release*(left if x<center else right))
                     expected[i,0]=old+(expected[i,0]-old)*blend
+                if style=='coherent_core_v11':
+                    available=max(0.,half/max(pitch,.8)-6.)*.04
+                    inflation=smooth(.100,.103,half/max(float(widget._R_inner),1e-6))
+                    expected[i,0]=(center+(x-center)*(1.+min(.0125,available)*inflation*release*(left+right)*.5)
+                                   +half*min(.034,.40*available)*release*(right-left)*.5)
     tail_style=getattr(widget,'_short_flow_state',{}).get('tail_style')
     if tail_style is not None:
-        if tail_style!='exposed_grain_cap_v1':
+        if tail_style not in ('exposed_grain_cap_v1','exposed_grain_cap_v2'):
             raise AssertionError('Unknown drained-stream style')
-        if widget.pn>=2 and getattr(widget,'_sand_released',0.)>=1.-1e-12:
+        min_count=2 if tail_style=='exposed_grain_cap_v1' else 1
+        if widget.pn>=min_count and getattr(widget,'_sand_released',0.)>=1.-1e-12:
             top=max(expected[:,1]);bottom=min(expected[:,1])
             gap=max(0.,outlet-top)
-            amplitude=min(.30*half,3.*pitch,1.25*gap,.35*(top-bottom))
+            amplitude=min(.60*half,2.5*gap)
+            if tail_style=='exposed_grain_cap_v1':
+                amplitude=min(.30*half,3.*pitch,1.25*gap,.35*(top-bottom))
             if amplitude>0.:
                 for i,(x,y) in enumerate(expected):
                     d=max(0.,min(1.,(top-y)/(2.5*amplitude)))
@@ -686,7 +696,7 @@ class ParticleFallbackTests(unittest.TestCase):
                         widget.pn=count
                         widget._draw_stream()
                         self.assertEqual(widget._short_flow_state['position_style'],
-                                         'coherent_core_plain_v10' if basic else 'coherent_core_v10')
+                                         'coherent_core_plain_v11' if basic else 'coherent_core_v11')
                         self.assertTrue(all(isinstance(v,float) for v in widget._short_flow_context['short_texture_size']),
                                         'vec2纹理尺寸必须上传float，整数向量会走错误的uniform类型')
                         self.assertEqual(assert_particle_meshes(widget),count)

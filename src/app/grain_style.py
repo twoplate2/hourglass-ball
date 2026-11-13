@@ -11,11 +11,13 @@ def drained_stream_y(xs, ys, *, center, outlet, half, pitch, supplied):
     """
     import numpy as np
     y = np.asarray(ys)
-    if len(y) < 2 or supplied < 1.0-1e-12:
+    if len(y) == 0 or supplied < 1.0-1e-12:
         return y
-    top, bottom = float(np.max(y)), float(np.min(y))
+    top = float(np.max(y))
     gap = max(0.0, outlet-top)
-    amplitude = min(.30*half, 3.0*pitch, 1.25*gap, .35*(top-bottom))
+    # Landing lower grains must not lift/flatten the surviving rear cohort.
+    # This is the silhouette of the whole rear cap, not a micro-grain ripple.
+    amplitude = min(.60*half, 2.5*gap)
     if amplitude <= 0.0:
         return y
     depth = np.clip((top-y)/(2.5*amplitude),0.,1.)
