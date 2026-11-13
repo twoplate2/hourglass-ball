@@ -193,7 +193,7 @@ def birth_material_payload(birth_time, birth_scale, source_x, jump_y=1.0):
 
 
 def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_half=None,
-                      fringe=False):
+                      fringe=False, center=None):
     """One persistent short sprite per real particle; never changes its centre."""
     import numpy as np
     xs, ys, phases, sizes = [np.asarray(v) for v in (xs, ys, phases, sizes)]
@@ -201,6 +201,7 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
     out = np.empty((n, 4, 5), dtype=np.float32)
     corners = np.asarray(((-1,-1),(1,-1),(1,1),(-1,1)), dtype=np.float32)
     radius = sprite_radius(pitch,sizes)
+    seed = (phases / math.tau) % 1.0
     support = radius
     if aperture_half is not None:
         transition = np.clip((aperture_half / radius - 2.0) / 2.0, 0.0, 1.0)
@@ -208,6 +209,16 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
         support = radius + narrow * np.maximum(0.0, 2.0 * aperture_half - radius)
     if fringe:
         support = np.maximum(support, 2.2*radius)
+        if center is not None and aperture_half is not None and aperture_half>8.:
+            # The sparse outside band retains its aperture-scale width while
+            # the core contracts. Only selected edge carriers need this room.
+            distance=np.abs(xs-center)
+            gate=np.clip((distance-.28*aperture_half)/(.08*aperture_half),0.,1.)
+            gate=gate*gate*(3.-2.*gate)
+            tiny_radius=np.maximum(.8,.26*radius)
+            required=1.12*aperture_half-distance+tiny_radius+.25
+            outer=support+np.maximum(0.,required-support)*gate
+            support=np.where(seed<.082,outer,support)
     out[:,:,0] = xs[:,None] + support[:,None] * corners[None,:,0]
     out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * aspect
     out[:,:,2:4] = corners[None,:,:]
@@ -217,7 +228,7 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
         out[:,:,2] *= (support / radius)[:,None]
     # Two disjoint bands preserve the immutable seed AND size in one float.
     # The shader can reconstruct the actual pixel radius without a larger Mesh.
-    out[:,:,4] = (((phases / math.tau) % 1.0)*.5+(sizes>1))[:,None]
+    out[:,:,4] = (seed*.5+(sizes>1))[:,None]
     return out
 
 
@@ -381,6 +392,13 @@ vec3 micro_material_rgb(vec2 uv,vec2 local) {
     float tone=clamp(pigment*contrast+facet+illumination,-.9,.9);
     return mix(sand_base,tone >= 0.0 ? sand_light : sand_dark,abs(tone));
 }
+vec3 edge_grain_colour() {
+    // A detached grain keeps its own pigment as the core contracts beside it.
+    vec2 key=vec2(grain_tone*53.1+73.7,grain_tone*91.3+37.9);
+    vec2 pigment_uv=vec2(micro_hash(key),micro_hash(key+vec2(17.0,31.0)));
+    vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
+    return micro_material_rgb(uv,vec2(0.0));
+}
 void main(void) {
     // Clip only the aperture, this grain's shape and the actual pile occlusion.
     // No moving envelope, random deletion, or global-count opacity is applied.
@@ -459,6 +477,35 @@ void main(void) {
     float rim_pick=step(seed_y,.24*rim_falloff*rim_falloff);
     float fringe=rim_pick*micro*vertical*rim_side*rim_release;
     coverage=max(coverage,fringe);
+    // A few birth-selected fine grains travel just outside the dense body.
+    // Keep the existing core/fringe and real particle trajectories intact.
+    // No time noise, carrier displacement, or separate particle pool.
+    if (grain_tone < -.252 && short_geometry.z > 8.0) {
+        float parent_x=sand_position.x-grain_local.x*grain_radius;
+        float side=sign(parent_x-short_geometry.x);
+        float edge=smoothstep(.36*short_geometry.z,.52*short_geometry.z,
+                              abs(parent_x-short_geometry.x));
+        float freed=smoothstep(2.0*short_geometry.z,4.0*short_geometry.z,rim_depth);
+        float tiny_radius=max(.8,.26*grain_radius);
+        float spread=micro_hash(vec2(grain_tone*73.1,19.7));
+        float marker_x=short_geometry.x+side*short_geometry.z*(.92+.20*spread);
+        float stagger=grain_radius*(.15+.30*spread);
+        vec2 position=grain_local*grain_radius*vec2(1.0,short_aspect);
+        float distance=length(position-vec2(marker_x-parent_x,stagger));
+        float tiny=1.0-smoothstep(.55*tiny_radius,tiny_radius,distance);
+        float picked=1.0-smoothstep(-.256,-.252,grain_tone);
+        // Detached markers must not fill the last core pixel into a new bulge.
+        // This gates only the added grain, never masks the dense stream.
+        float separated=smoothstep(.75*short_geometry.z,.90*short_geometry.z,
+                                   abs(sand_position.x-short_geometry.x));
+        // Below this pixel scale a detached grain reads as bulk width instead.
+        float resolved=smoothstep(8.0,12.0,short_geometry.z);
+        float edge_coverage=tiny*picked*edge*freed*separated*(1.0-.45*spread)*resolved;
+        if (edge_coverage>coverage) {
+            rgb=edge_grain_colour();
+            coverage=edge_coverage;
+        }
+    }
     gl_FragColor = vec4(rgb,frag_color.a*coverage);
 }
 """
@@ -614,7 +661,7 @@ def install(widget_class):
             outlet=2*self._neck_y-self._taper['y_bot'],half=self._taper['t_in'],pitch=pitch,
             supplied=getattr(self,'_sand_released',0.0))
         vertices=particle_vertices(drawn_x,drawn_y,self.pwp[:n],self.psz[:n],pitch,aspect,
-                                   aperture_half=self._taper['t_in'],fringe=True)[order]
+                                   aperture_half=self._taper['t_in'],fringe=True,center=self._cx)[order]
         carrier = self._short_material_mode == 'carrier'
         if carrier:
             births=birth_material_payload(self.pbt[:n],self.pbm[:n],

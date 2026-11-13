@@ -128,6 +128,36 @@ class StreamFringeTests(unittest.TestCase):
 
 
 class FringeSupportTests(unittest.TestCase):
+    def test_unresolved_thin_stream_keeps_original_support(self):
+        args=([3.],[100.],[.01],[1],.8)
+        original=particle_vertices(*args,aperture_half=7.,fringe=True)
+        resolved=particle_vertices(*args,aperture_half=7.,fringe=True,center=0.)
+        np.testing.assert_array_equal(resolved,original)
+
+    def test_outer_band_keeps_room_when_the_dense_core_contracts(self):
+        import inspect
+        self.assertIn('center',inspect.signature(particle_vertices).parameters)
+        for x in (14.,11.,8.):
+            v=particle_vertices([x],[200.],[.01],[2],1.85,
+                                aperture_half=19.,fringe=True,center=0.)
+            self.assertGreater(v[0,:,0].max(),1.12*19.+max(.8,.26*sprite_radius(1.85,2)))
+            self.assertAlmostEqual(float(v[0,:,0].mean()),x,places=5)
+
+    def test_sparse_outer_grains_keep_the_existing_particle_centres_and_identity(self):
+        phases=np.linspace(0.,math.tau,2001,endpoint=False)
+        x=np.full(len(phases),13.);y=np.full(len(phases),200.)
+        sizes=np.ones_like(phases);pitch=1.85
+        v=particle_vertices(x,y,phases,sizes,pitch,aperture_half=19,fringe=True,center=0.)
+        radius=sprite_radius(pitch,sizes)
+        outer=np.ptp(v[:,:,0],axis=1)>4.5*radius
+        self.assertGreater(np.count_nonzero(outer),0,'No room for separated edge grains')
+        self.assertLess(np.mean(outer),.09,'Do not enlarge the whole stream fringe')
+        np.testing.assert_allclose(v[:,:,:2].mean(axis=1),np.column_stack((x,y)),atol=2e-5,rtol=0)
+        moved=particle_vertices(x+1,y-20,phases,sizes,pitch,aperture_half=19,fringe=True,center=1.)
+        np.testing.assert_allclose(moved[:,:,:2]-v[:,:,:2],
+                                  np.broadcast_to([1.,-20.],v[:,:,:2].shape),atol=3e-5,rtol=0)
+        np.testing.assert_array_equal(moved[:,:,2:],v[:,:,2:])
+
     def test_expansion_keeps_centres_and_grain_pixel_scale(self):
         xs=np.array([-13.,0.,13.]); ys=np.array([160.,200.,240.])
         phases=np.array([.1,2.,6.]); sizes=np.array([1,2,1]);pitch=1.85
