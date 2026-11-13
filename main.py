@@ -6099,6 +6099,10 @@ class HourglassWidget(Widget):
            `_eject_splash` 内部的 `uniform(vx) → uniform(vy) → choice((1,1,2))`。
         ⚠️ `mound_top` **未被使用**(出生高度用逐颗粒的 `hy`), 保留只为签名稳定。
         """
+        if len(hit_idx) >= 64:
+            from splash_emitter import replay
+            replay(self, hit_idx, hit_dt, globals())
+            return
         px = self.px
         pvy = self.pvy
         pdt = self.pdt

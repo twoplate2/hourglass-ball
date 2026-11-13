@@ -1,10 +1,12 @@
 """The airborne emitter must retain the user's accepted 3.3 impulse and RNG."""
 import ast
 import copy
+from functools import lru_cache
 import math
 from pathlib import Path
 import random
 import subprocess
+import sys
 from types import SimpleNamespace
 from types import MethodType
 import unittest
@@ -12,6 +14,7 @@ import numpy as np
 
 
 ROOT=Path(__file__).resolve().parents[2]
+sys.path.insert(0,str(ROOT/'src/app'))
 REFERENCE='ff3b721918a3c6b41428fbc4d26ddb14e430490e'
 WEAKENED='c869e24ea54732cddaed22b1ead18989b288e33b'
 PARAMETERS=('SPLASH_SPEED_LO','SPLASH_SPEED_HI','SPLASH_GAIN',
@@ -24,17 +27,20 @@ def historical(ref):
     return subprocess.check_output(['git','show',ref+':main.py'],cwd=ROOT).decode('utf-8')
 
 
+@lru_cache(maxsize=32)
 def method(source,name):
     cls=next(n for n in ast.parse(source).body if isinstance(n,ast.ClassDef)
              and n.name=='HourglassWidget')
     return next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name==name)
 
 
+@lru_cache(maxsize=8)
 def parameter_nodes(source):
     return {target.id:node for node in ast.parse(source).body if isinstance(node,ast.Assign)
             for target in node.targets if isinstance(target,ast.Name) and target.id in PARAMETERS}
 
 
+@lru_cache(maxsize=8)
 def emitter(source):
     import os
     nodes=list(parameter_nodes(source).values())+[copy.deepcopy(method(source,'_eject_splash'))]
@@ -124,8 +130,8 @@ class Splash33ImpulseTests(unittest.TestCase):
 class HitReplayTests(unittest.TestCase):
     reference='146f60e7116d228cde62c6d5565609643c9b3b64'
 
-    def run_replay(self,source,n,cap=0,first=True):
-        counter={'scalar_reads':0,'capped_emitter_calls':0}
+    def run_replay(self,source,n,cap=0,first=True,*,density=1.5,mode='normal',initial=0):
+        counter={'scalar_reads':0,'capped_emitter_calls':0,'emitter_calls':0}
         class ObservedArray(np.ndarray):
             def __getitem__(self,key):
                 if isinstance(key,(int,np.integer)):counter['scalar_reads']+=1
@@ -141,35 +147,45 @@ class HitReplayTests(unittest.TestCase):
                      'emitter-parameters','exec'),parameters)
         ns={'_np':np,'random':rng,'SPLASH_HIT_CHANCE':.50,
             'SPLASH_SIZE_MIX':parameters['SPLASH_SIZE_MIX']}
+        ns.update({name:parameters[name] for name in PARAMETERS})
         exec(compile(ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[])),
                      'hit-replay-test','exec'),ns)
         profile=SimpleNamespace(contact=lambda dx,apex:100.+.002*dx*dx,
-                                column=lambda dx,apex:(100.+.002*dx*dx,True,60.),
-                                bounds=lambda dx:(0.,900.))
+                                column=lambda dx,apex:(100.+.002*dx*dx,mode!='blocked',60.),
+                                bounds=lambda dx:(0.,101. if mode=='low-roof' else 900.))
+        if mode=='no-profile':profile=None
         def observed(values):return np.asarray(values,dtype=float).view(ObservedArray)
         w=SimpleNamespace(px=observed(np.linspace(230.,310.,n+2)),
             pvy=observed(np.linspace(-400.,-700.,n+2)),pdt=observed(np.full(n+2,.03)),
             pmass=np.full(n+2,.00001),_sand_landed=.2,flares=[],_mound_profile=profile,
             _mound_apex=lambda:150.,_lower_sand_bot=20.,_cx=270.,_mound_flow_clock=.5,
-            _splash_density=1.5,_splash_reference_speed=None if first else 500.,
-            _contact_hits=[],_R_inner=220.,_sn=0,_splash_cap=cap,
+            _splash_density=density,_splash_reference_speed=None if first else 500.,
+            _contact_hits=[],_R_inner=220.,_sn=initial,_splash_cap=cap,
             _splash_stats={'pool_full':0,'born_air':0},_splash_speed_scale=.8,
             _particle_motion_scale=2.,_splash_origin_blend=.6,
             _splash_random=lambda:effects,_contact_flow_diameter=lambda:40.,
             sdt=np.zeros(4*n+20))
-        w._mound_contact_h=lambda dx:profile.contact(dx,w._mound_apex())
-        rows=[]
+        w._mound_contact_h=lambda dx:profile.contact(dx,w._mound_apex()) if profile else 0.
+        fields=('sx','sy','svx','svy','shw','shh','sgd','srest','sstill','shas','saway','srw','srh','stag','sdt')
+        for name in fields:setattr(w,name,np.full(4*n+20,-999.))
+        w._s_grow=lambda need:None
         def append(*values):
-            rows.append(values);i=w._sn;w._sn+=1;return i
+            i=w._sn
+            for name,value in zip(fields[:7],values):getattr(w,name)[i]=value
+            for name in ('srest','sstill','shas','saway','stag','sdt'):getattr(w,name)[i]=0.
+            w.srw[i],w.srh[i]=w.shw[i],w.shh[i]
+            w._sn+=1;return i
         w._s_append=append
         emit=MethodType(emitter(source),w)
         def counted_emit(*args,**kwargs):
+            counter['emitter_calls']+=1
             if w._splash_cap and w._sn>=w._splash_cap:counter['capped_emitter_calls']+=1
             return emit(*args,**kwargs)
         w._eject_splash=counted_emit
         w._record_contact=MethodType(ns['_record_contact'],w)
         w._first_contact_extra=MethodType(ns['_first_contact_extra'],w)
         ns['_replay_hits'](w,np.arange(n,dtype=int),np.linspace(0,.04,n),100.,2.,0.)
+        rows=[getattr(w,name)[:w._sn].tolist() for name in fields]
         result=(w._sand_landed,w.flares,w._contact_hits,rows,w.sdt[:w._sn].tolist(),
                 w._splash_stats,rng.getstate(),effects.getstate())
         return result,counter
@@ -192,6 +208,23 @@ class HitReplayTests(unittest.TestCase):
         current=(ROOT/'main.py').read_text(encoding='utf-8')
         _,counts=self.run_replay(current,800,cap=5)
         self.assertEqual(counts['capped_emitter_calls'],0)
+
+    def test_dense_hit_batch_avoids_per_grain_emitter(self):
+        current=(ROOT/'main.py').read_text(encoding='utf-8')
+        _,counts=self.run_replay(current,800)
+        self.assertEqual(counts['emitter_calls'],0)
+
+    def test_batch_boundary_geometry_rejections_and_reused_slots_match(self):
+        old=historical(self.reference);current=(ROOT/'main.py').read_text(encoding='utf-8')
+        for n in (63,64,65):
+            for density in (.15,.7,1.5):
+                for mode in ('normal','low-roof','blocked','no-profile'):
+                    with self.subTest(n=n,density=density,mode=mode):
+                        args=dict(density=density,mode=mode)
+                        self.assertEqual(self.run_replay(old,n,**args)[0],self.run_replay(current,n,**args)[0])
+        for initial in (4,5):
+            self.assertEqual(self.run_replay(old,100,cap=5,initial=initial)[0],
+                             self.run_replay(current,100,cap=5,initial=initial)[0])
 
 
 if __name__=='__main__':unittest.main()
