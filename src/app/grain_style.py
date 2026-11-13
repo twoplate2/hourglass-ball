@@ -3,6 +3,27 @@
 import math
 
 
+def drained_stream_y(xs, ys, *, center, outlet, half, pitch, supplied):
+    """Round only the exposed rear edge of an already exhausted stream.
+
+    Translate complete grain sprites; no opacity fade, deletion, new grains
+    or independent timer. The effect grows from the actual empty outlet gap.
+    """
+    import numpy as np
+    y = np.asarray(ys)
+    if len(y) < 2 or supplied < 1.0-1e-12:
+        return y
+    top, bottom = float(np.max(y)), float(np.min(y))
+    gap = max(0.0, outlet-top)
+    amplitude = min(.30*half, 3.0*pitch, 1.25*gap, .35*(top-bottom))
+    if amplitude <= 0.0:
+        return y
+    depth = np.clip((top-y)/(2.5*amplitude),0.,1.)
+    cap = 1.0-depth*depth*(3.0-2.0*depth)
+    radial = np.minimum(1.0,np.abs(np.asarray(xs)-center)/max(1.0,half))
+    return y-amplitude*cap*(.15+.85*radial*radial)
+
+
 def stream_texture_phase(elapsed, motion_scale, diameter):
     """One repeating texture period, advanced by the application's elapsed time."""
     return (400.0 * max(0.25, motion_scale) * elapsed / max(2.0, diameter)) % 1.0

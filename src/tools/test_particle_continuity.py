@@ -67,7 +67,45 @@ def assert_particle_meshes(widget):
             identities.append(active[:,:,4])
             if carrier:birth_payloads.append(active[:,:,6:11])
     actual = np.concatenate(centres) if centres else np.empty((0, 2))
-    expected = np.column_stack((widget.px[:widget.pn], widget.py[:widget.pn]))[order]
+    expected = np.column_stack((widget.px[:widget.pn], widget.py[:widget.pn])).copy()
+    style=getattr(widget,'_short_flow_state',{}).get('position_style')
+    if style is not None:
+        if style!='depth_only_art_v1':
+            raise AssertionError('Unknown particle position style')
+        # Independent scalar oracle for the authorized horizontal art offset.
+        # Keep strict upload, per-grain identity, vertical position and payload
+        # checks. A generic displacement tolerance would hide real regressions.
+        pitch=float(widget._short_flow_state['pitch'])
+        half=float(widget._taper['t_in'])
+        center=float(widget._cx)
+        outlet=2*float(widget._neck_y)-float(widget._taper['y_bot'])
+        def smooth(a,b,value):
+            t=max(0.,min(1.,(value-a)/(b-a)))
+            return t*t*(3.-2.*t)
+        if half>5*pitch:
+            aperture=smooth(5.,8.,half/max(.8,pitch))
+            for i,(x,y) in enumerate(expected):
+                active=aperture*smooth(1.5*half,8.*half,outlet-y)
+                radial=min(1.,abs(x-center)/max(1.,.87*half))
+                edge=smooth(.40,.95,radial)
+                seed=(float(widget.pwp[i])*17.371)%1.
+                pull=renderer.ART_STREAM_STRENGTH*active*(.075+.15*edge*seed)
+                if active>0.:expected[i,0]=center+(x-center)*(1.-pull)
+    tail_style=getattr(widget,'_short_flow_state',{}).get('tail_style')
+    if tail_style is not None:
+        if tail_style!='exposed_grain_cap_v1':
+            raise AssertionError('Unknown drained-stream style')
+        if widget.pn>=2 and getattr(widget,'_sand_released',0.)>=1.-1e-12:
+            top=max(expected[:,1]);bottom=min(expected[:,1])
+            gap=max(0.,outlet-top)
+            amplitude=min(.30*half,3.*pitch,1.25*gap,.35*(top-bottom))
+            if amplitude>0.:
+                for i,(x,y) in enumerate(expected):
+                    d=max(0.,min(1.,(top-y)/(2.5*amplitude)))
+                    cap=1.-d*d*(3.-2.*d)
+                    radius=min(1.,abs(x-center)/max(1.,half))
+                    expected[i,1]=y-amplitude*cap*(.15+.85*radius*radius)
+    expected=expected[order]
     if actual.shape != expected.shape or not np.allclose(actual, expected, rtol=0, atol=2e-4):
         raise AssertionError("实际 Mesh 没有逐颗跟随真实粒子坐标")
     if widget.pn:
@@ -479,6 +517,10 @@ class ParticleFallbackTests(unittest.TestCase):
             with self.subTest(counts=counts):
                 self.check_line_fallback(False,success=True,draw_counts=counts)
 
+    def test_wide_stream_actual_draw_preserves_styled_particle_identity(self):
+        self.check_line_fallback(False,success=True,draw_counts=(3,1,0),aperture_half=20.)
+        self.check_line_fallback(False,success=True,draw_counts=(3,1,0),aperture_half=20.,carrier_failure=True)
+
     def test_birth_attribute_arrays_are_restored_after_other_contexts(self):
         self.check_line_fallback(False,success=True)
 
@@ -490,7 +532,8 @@ class ParticleFallbackTests(unittest.TestCase):
         self.check_line_fallback(False)
 
     def check_line_fallback(self,mesh_failure,success=False,draw_counts=None,carrier_failure=False,
-                            carrier_mesh_failure=False,force_fail=False,force_carrier=False):
+                            carrier_mesh_failure=False,force_fail=False,force_carrier=False,
+                            aperture_half=5.):
         class Canvas:
             def __init__(self):
                 self.children = []
@@ -526,7 +569,7 @@ class ParticleFallbackTests(unittest.TestCase):
                 if draw_counts is not None:
                     n=max(draw_counts)
                     self._cx=200.;self._R_inner=170.;self._upper_sand_bot=400.
-                    self._taper={'in_pts':[(0.,430.)],'t_in':5.,'y_bot':420.}
+                    self._taper={'in_pts':[(0.,430.)],'t_in':aperture_half,'y_bot':420.}
                     self._mound_carve=types.SimpleNamespace(_v=[])
                     self._lower_sand_bot=0.;self._neck_y=400.
                     self._sand_flow_contexts=[object()]
@@ -604,6 +647,7 @@ class ParticleFallbackTests(unittest.TestCase):
                     for count in draw_counts:
                         widget.pn=count
                         widget._draw_stream()
+                        self.assertEqual(widget._short_flow_state['position_style'],'depth_only_art_v1')
                         self.assertTrue(all(isinstance(v,float) for v in widget._short_flow_context['short_texture_size']),
                                         'vec2纹理尺寸必须上传float，整数向量会走错误的uniform类型')
                         self.assertEqual(assert_particle_meshes(widget),count)

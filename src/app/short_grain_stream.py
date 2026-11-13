@@ -1,7 +1,9 @@
-"""Persistent short sprites following the existing real particle trajectories.
+"""Persistent short sprites with a depth-only art offset from real trajectories.
 
-HourglassWidget owns births, motion, contact and mass accounting. Rendering adds
-no animated envelope or time-dependent mask that could delete airborne grains.
+HourglassWidget owns births, motion, contact and mass accounting. Rendering
+translates grains inward and rounds the exposed rear edge after supply ends;
+size, pigment and lifetime remain unchanged.
+There is no cycle-phase envelope or mask that could delete airborne grains.
 The pure field helpers below remain for historical 3.6 evidence tools.
 """
 import os
@@ -62,6 +64,36 @@ def contact_upper_bound(top, curve, cx, half):
     lo=max(0,int(math.floor((cx-half-x0)*scale)))
     hi=min(int(n1),int(math.ceil((cx+half-x0)*scale)))
     return max(top,max(ys[lo:hi+1]))
+
+
+
+# Art direction only: translate whole existing sprites, keeping their size,
+# pigment and lifetime. Physics and contact positions remain unchanged.
+ART_STREAM_STRENGTH = 1.7
+
+def art_stream_positions(xs, ys, phases, *, center, outlet, half,
+                         pitch, strength=ART_STREAM_STRENGTH):
+    """One geometric styling rule for every grain throughout the cycle.
+
+    No global time, birth time, first-impact switch or pile-height gate.
+    Whole sprites move inward smoothly with depth, retaining their material,
+    size and front detail. Actual pile clipping is handled by the renderer.
+    """
+    import numpy as np
+    x = np.asarray(xs)
+    if not len(x) or strength <= 0 or half <= 5*pitch:
+        return x
+    def smooth(a, b, value):
+        t = np.clip((value-a)/(b-a), 0.0, 1.0)
+        return t*t*(3.0-2.0*t)
+    y, phase = map(np.asarray, (ys, phases))
+    active = smooth(5.0, 8.0, half/max(.8, pitch))
+    active = active*smooth(1.5*half, 8.0*half, outlet-y)
+    radial = np.minimum(1.0, np.abs(x-center)/max(1.0, .87*half))
+    edge = smooth(.40, .95, radial)
+    seed = np.remainder(phase*17.371, 1.0)
+    pull = strength*active*(.075 + .15*edge*seed)
+    return np.where(active > 0.0, center+(x-center)*(1.0-pull), x)
 
 
 def flow_phase(elapsed, rate=12.0):
@@ -488,7 +520,15 @@ def install(widget_class):
         aspect=sprite_aspect(pitch,reference)
         order=grain_material.stable_grain_order(self.pwp[:n],self.ptl[:n])
         self._particle_draw_order=order
-        vertices=particle_vertices(self.px[:n],self.py[:n],self.pwp[:n],self.psz[:n],pitch,aspect,
+        original_x=np.asarray(self.px[:n])
+        drawn_x=art_stream_positions(original_x,self.py[:n],self.pwp[:n],
+            center=self._cx,outlet=2*self._neck_y-self._taper['y_bot'],
+            half=self._taper['t_in'],pitch=pitch)
+        from grain_style import drained_stream_y
+        drawn_y=drained_stream_y(drawn_x,self.py[:n],center=self._cx,
+            outlet=2*self._neck_y-self._taper['y_bot'],half=self._taper['t_in'],pitch=pitch,
+            supplied=getattr(self,'_sand_released',0.0))
+        vertices=particle_vertices(drawn_x,drawn_y,self.pwp[:n],self.psz[:n],pitch,aspect,
                                    aperture_half=self._taper['t_in'])[order]
         carrier = self._short_material_mode == 'carrier'
         if carrier:
@@ -527,7 +567,8 @@ def install(widget_class):
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl",
             material_mode=self._short_material_mode,material_error=self._short_material_error,
-            painter_order="fixed_birth_depth")
+            painter_order="fixed_birth_depth",position_style="depth_only_art_v1",
+            tail_style="exposed_grain_cap_v1")
 
     widget_class._build_dynamic_canvas=build
     widget_class._draw_stream=draw
