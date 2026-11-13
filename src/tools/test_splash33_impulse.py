@@ -6,7 +6,9 @@ from pathlib import Path
 import random
 import subprocess
 from types import SimpleNamespace
+from types import MethodType
 import unittest
+import numpy as np
 
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -117,6 +119,79 @@ class Splash33ImpulseTests(unittest.TestCase):
         old,new=emitter(self.old),emitter(self.current)
         for settings in ({'capped':True},{'clearance':1.2},{'clearance':0.}):
             with self.subTest(settings=settings):self.assertEqual(launch(old,**settings),launch(new,**settings))
+
+
+class HitReplayTests(unittest.TestCase):
+    reference='146f60e7116d228cde62c6d5565609643c9b3b64'
+
+    def run_replay(self,source,n,cap=0,first=True):
+        counter={'scalar_reads':0,'capped_emitter_calls':0}
+        class ObservedArray(np.ndarray):
+            def __getitem__(self,key):
+                if isinstance(key,(int,np.integer)):counter['scalar_reads']+=1
+                return super().__getitem__(key)
+        rng=random.Random(713)
+        effects=random.Random(912)
+        nodes=[copy.deepcopy(method(source,name)) for name in
+               ('_replay_hits','_record_contact','_first_contact_extra')]
+        parameters={}
+        import os
+        parameters.update(math=math,os=os)
+        exec(compile(ast.Module(body=list(parameter_nodes(source).values()),type_ignores=[]),
+                     'emitter-parameters','exec'),parameters)
+        ns={'_np':np,'random':rng,'SPLASH_HIT_CHANCE':.50,
+            'SPLASH_SIZE_MIX':parameters['SPLASH_SIZE_MIX']}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[])),
+                     'hit-replay-test','exec'),ns)
+        profile=SimpleNamespace(contact=lambda dx,apex:100.+.002*dx*dx,
+                                column=lambda dx,apex:(100.+.002*dx*dx,True,60.),
+                                bounds=lambda dx:(0.,900.))
+        def observed(values):return np.asarray(values,dtype=float).view(ObservedArray)
+        w=SimpleNamespace(px=observed(np.linspace(230.,310.,n+2)),
+            pvy=observed(np.linspace(-400.,-700.,n+2)),pdt=observed(np.full(n+2,.03)),
+            pmass=np.full(n+2,.00001),_sand_landed=.2,flares=[],_mound_profile=profile,
+            _mound_apex=lambda:150.,_lower_sand_bot=20.,_cx=270.,_mound_flow_clock=.5,
+            _splash_density=1.5,_splash_reference_speed=None if first else 500.,
+            _contact_hits=[],_R_inner=220.,_sn=0,_splash_cap=cap,
+            _splash_stats={'pool_full':0,'born_air':0},_splash_speed_scale=.8,
+            _particle_motion_scale=2.,_splash_origin_blend=.6,
+            _splash_random=lambda:effects,_contact_flow_diameter=lambda:40.,
+            sdt=np.zeros(4*n+20))
+        w._mound_contact_h=lambda dx:profile.contact(dx,w._mound_apex())
+        rows=[]
+        def append(*values):
+            rows.append(values);i=w._sn;w._sn+=1;return i
+        w._s_append=append
+        emit=MethodType(emitter(source),w)
+        def counted_emit(*args,**kwargs):
+            if w._splash_cap and w._sn>=w._splash_cap:counter['capped_emitter_calls']+=1
+            return emit(*args,**kwargs)
+        w._eject_splash=counted_emit
+        w._record_contact=MethodType(ns['_record_contact'],w)
+        w._first_contact_extra=MethodType(ns['_first_contact_extra'],w)
+        ns['_replay_hits'](w,np.arange(n,dtype=int),np.linspace(0,.04,n),100.,2.,0.)
+        result=(w._sand_landed,w.flares,w._contact_hits,rows,w.sdt[:w._sn].tolist(),
+                w._splash_stats,rng.getstate(),effects.getstate())
+        return result,counter
+
+    def test_hit_batches_preserve_published_particles_mass_and_both_rngs(self):
+        old=historical(self.reference);current=(ROOT/'main.py').read_text(encoding='utf-8')
+        for n in (0,1,32,800):
+            for cap in (0,5):
+                for first in (True,False):
+                    with self.subTest(n=n,cap=cap,first=first):
+                        self.assertEqual(self.run_replay(old,n,cap,first)[0],
+                                         self.run_replay(current,n,cap,first)[0])
+
+    def test_hit_batch_avoids_per_particle_numpy_scalar_reads(self):
+        current=(ROOT/'main.py').read_text(encoding='utf-8')
+        _,counts=self.run_replay(current,800)
+        self.assertEqual(counts['scalar_reads'],0)
+
+    def test_full_pool_skips_invisible_emitter_work(self):
+        current=(ROOT/'main.py').read_text(encoding='utf-8')
+        _,counts=self.run_replay(current,800,cap=5)
+        self.assertEqual(counts['capped_emitter_calls'],0)
 
 
 if __name__=='__main__':unittest.main()

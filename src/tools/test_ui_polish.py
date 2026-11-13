@@ -10,6 +10,7 @@ from pathlib import Path
 from types import MethodType, SimpleNamespace
 import time
 import unittest
+import wave
 from unittest.mock import Mock, patch
 
 
@@ -235,6 +236,87 @@ class UIPolishTests(unittest.TestCase):
                 clock.flush()
                 self.assertAlmostEqual(hg.set_sand_grain.call_args.args[0], expected)
                 self.assertEqual(hg.set_sand_grain.call_args.kwargs, {})
+
+
+class SoundOptionTests(unittest.TestCase):
+    def sound_globals(self):
+        names = {'WAV_FILENAME', 'SOUND_EFFECTS', 'SILENT_NAME', 'SOUND_OPTIONS'}
+        nodes = [deepcopy(node) for node in TREE.body if isinstance(node, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id in names for t in node.targets)]
+        env = {}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), 'main.py', 'exec'), env)
+        return env
+
+    def test_rain_and_all_existing_options_are_available(self):
+        env = self.sound_globals()
+        self.assertEqual([name for name, _ in env['SOUND_OPTIONS']],
+                         ['沙沙声', '水流声', '风声', '钟表声', '雨声', '海浪声', '无声音'])
+        for name, relative in env['SOUND_EFFECTS']:
+            with self.subTest(name=name), wave.open(str(ROOT / relative), 'rb') as sound:
+                self.assertEqual((sound.getframerate(), sound.getsampwidth(), sound.getnchannels()),
+                                 (48000, 2, 1))
+                self.assertGreater(sound.getnframes(), 48000)
+                self.assertEqual(sound.getcomptype(), 'NONE')
+
+    def test_all_voice_keys_exist_without_changing_existing_prompts(self):
+        env = self.sound_globals()
+        keys = method('HourglassWidget', '_voice_keys_sound', env)
+        for i, name in enumerate(['沙沙声', '水流声', '风声', '钟表声']):
+            self.assertEqual(keys(None, name), ['pre_sound', 'e%d' % i])
+        self.assertEqual(keys(None, '无声音'), ['pre_silent'])
+        rain = keys(None, '雨声')
+        self.assertIsNotNone(rain)
+        self.assertNotIn('e4', rain, 'e4 is the old silent label, not rain')
+        self.assertEqual(keys(None, '海浪声'), ['pre_sound', 'e_waves'])
+        for name, _ in env['SOUND_OPTIONS']:
+            for key in keys(None, name):
+                with wave.open(str(ROOT / 'sounds/voice' / (key + '.wav')), 'rb') as sound:
+                    self.assertEqual((sound.getframerate(), sound.getnchannels(), sound.getsampwidth()),
+                                     (24000, 1, 2))
+
+    def test_picker_exposes_every_option_and_keeps_silence(self):
+        UIStub.instances = []
+        env = self.sound_globals()
+        env.update(BoxLayout=UIStub, Button=UIStub, Label=UIStub, _SandBgPopup=UIStub,
+                   dp=lambda x:x, sp=lambda x:x, POPUP_GOLD_SEL=(1,1,0,1),
+                   POPUP_UNSEL_BASE=(0,0,0,1), POPUP_TEXT=(1,1,1,1),
+                   POPUP_CONFIRM=(1,0,0,1), POPUP_TEXT_WHITE=(1,1,1,1))
+        app = SimpleNamespace(hourglass=SimpleNamespace(sound_name='雨声'),
+                              _on_sound_picked=Mock(), _refresh_sound_diag=Mock(),
+                              _close_sound_picker=Mock())
+        method('HourglassApp', 'on_sound_picker', env)(app)
+        for name, _ in env['SOUND_OPTIONS']:
+            buttons = [w for w in UIStub.instances if w.text == name]
+            self.assertEqual(len(buttons), 1, name)
+            buttons[0].trigger('on_press')
+            self.assertEqual(app._on_sound_picked.call_args.args[0], name)
+        self.assertTrue(app._sound_popup.opened)
+        app._sound_popup.dismiss()
+        self.assertIsNone(app._sound_popup)
+
+    def test_running_rain_switch_silence_and_repeat_selection(self):
+        env = self.sound_globals()
+        old, rain = Mock(), Mock()
+        hg = SimpleNamespace(sound_name='沙沙声', _sound=old, running=True,
+                             _make_sound_proxy=Mock(return_value=rain), _play_sound=Mock())
+        switch = method('HourglassWidget', '_set_sound', env)
+        self.assertTrue(switch(hg, '雨声'))
+        self.assertIs(hg._sound, rain)
+        old.stop.assert_called_once(); old.close.assert_called_once()
+        hg._play_sound.assert_called_once()
+        self.assertFalse(switch(hg, '雨声'))
+        self.assertTrue(switch(hg, '无声音'))
+        self.assertIsNone(hg._sound)
+        rain.stop.assert_called_once(); rain.close.assert_called_once()
+
+    def test_paused_waves_selection_does_not_start_playback(self):
+        env = self.sound_globals()
+        old, waves = Mock(), Mock()
+        hg = SimpleNamespace(sound_name='雨声', _sound=old, running=False,
+                             _make_sound_proxy=Mock(return_value=waves), _play_sound=Mock())
+        self.assertTrue(method('HourglassWidget', '_set_sound', env)(hg, '海浪声'))
+        self.assertIs(hg._sound, waves)
+        hg._play_sound.assert_not_called()
 
 
 if __name__ == "__main__":

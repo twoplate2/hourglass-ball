@@ -47,13 +47,15 @@ def _tokens():
     yield "sec", "秒"
     yield "tail", "的沙漏计时完成"
     # ---- 操作提示音(2026-10-07): 换沙色 / 改周期 / 换提示音 各播一句 ----
-    # 🔴 **`c*` 与 `SAND_PRESETS` 同序、`e*` 与 `SOUND_OPTIONS` 同序** ——
+    # 🔴 `c*` 与 SAND_PRESETS 同序；e0..e4 保留旧五项，新增音效使用独立键 ——
     #    改那两张表的顺序**必须重生这批词块**, 否则会念错颜色/音效名
     #    (与 pc 版 `hourglass_v4.py` 的 `_say_color`/`_say_effect` 同一条约定)。
     for i, name in enumerate(("金沙", "红沙", "蓝沙", "绿沙", "紫沙", "黑沙")):
         yield f"c{i}", name
     for i, name in enumerate(("沙沙声", "水流声", "风声", "钟表声", "无声音")):
         yield f"e{i}", name
+    yield "e_rain", "雨声"
+    yield "e_waves", "海浪声"
     # 前缀整句念, 比把「计时」「时间」「设定为」拼起来自然(拼接会有顿挫)
     yield "pre_time", "计时时间设定为"
     yield "pre_sound", "提示音设定为"

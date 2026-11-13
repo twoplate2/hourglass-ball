@@ -2933,9 +2933,11 @@ SOUND_EFFECTS = [
     ("水流声", "sounds/water.wav"),
     ("风声", "sounds/wind.wav"),
     ("钟表声", "sounds/clock.wav"),
+    ("雨声", "sounds/rain.wav"),
+    ("海浪声", "sounds/waves.wav"),
 ]
 SILENT_NAME = "无声音"
-# 弹窗选项/配置值域 = 4 个实音效 + 无声音(None 路径仅表示静音,不建 proxy)
+# 弹窗选项/配置值域 = 6 个实音效 + 无声音(None 路径仅表示静音,不建 proxy)
 SOUND_OPTIONS = SOUND_EFFECTS + [(SILENT_NAME, None)]
 
 
@@ -5451,7 +5453,11 @@ class HourglassWidget(Widget):
         return None
 
     def _voice_keys_sound(self, name):
-        """音效名 → `e0..e4`, **序号与 `SOUND_OPTIONS` 同序**。"""
+        """原有音效沿用 e0..e3；新增雨声使用独立键，避免错读旧 e4 无声音。"""
+        if name == "雨声":
+            return ["pre_sound", "e_rain"]
+        if name == "海浪声":
+            return ["pre_sound", "e_waves"]
         for i, (n, _path) in enumerate(SOUND_OPTIONS):
             if n == name:
                 if n == SILENT_NAME:
@@ -6105,6 +6111,7 @@ class HourglassWidget(Widget):
         #   算式与 `_mound_contact_h` 逐字相同(见 `contact_np`), 由金标准轨迹兜底。
         _prof = self._mound_profile
         _apex = self._mound_apex()
+        contact_h = _prof.contact if _prof is not None and _apex > 0.0 else None
         # 🔴 **2026-10-07 回退**: 这里曾用 `contact_np` 整批算 `hy`(向量化, 净 −0.05ms)。
         #    但加完之后逐像素比对显示 **30 帧里有 1 帧不同**(同代码两遍是 0 差异 ⇒ 渲染本身
         #    是确定的, 差别来自这次改动)。隔离守卫(`_probe_ctab_equiv` 的 300×62 点)与
@@ -6112,6 +6119,20 @@ class HourglassWidget(Widget):
         #    一种输入。**收益 0.05ms 远小于一个我说不清的差异** ⇒ 整批路径不再启用。
         #    `contact_np` 与它的守卫留在代码里备查(要再启用, 先补一个能覆盖真实工况的判据)。
         hy_all = None
+
+        def emit(x, hy, impact):
+            if self._splash_cap and self._sn >= self._splash_cap:
+                # A full pool cannot display another splash. Keep the same
+                # underlying RNG draws, but skip all discarded launch math.
+                rng = self._splash_random()
+                rng.random()                     # speed uniform
+                rng.choice((-1.0, 1.0))
+                rng.random()                     # angle uniform
+                rng.choice(SPLASH_SIZE_MIX)
+                rng.random()                     # gravity uniform
+                self._splash_stats["pool_full"] += 1
+                return -1
+            return self._eject_splash(x, hy, impact, surface_aligned=True)
 
         def _hit_hy(kk, xx):
             """该颗粒**当地的接触高度** —— 与 scalar 路径同源(dingbu.md §7.1 第 6 条)。
@@ -6125,13 +6146,14 @@ class HourglassWidget(Widget):
             """
             if hy_all is not None:
                 return float(hy_all[kk])
-            return self._lower_sand_bot + self._mound_contact_h(xx - self._cx)
+            return self._lower_sand_bot + (contact_h(xx - self._cx, _apex)
+                                           if contact_h is not None else 0.0)
 
-        for k in range(len(hit_idx)):
-            i = int(hit_idx[k])
-            x = float(px[i])
-            vy = float(pvy[i])
-            step_dt = float(pdt[i])
+        # Gather exact float64 values once. Avoid crossing NumPy's scalar API
+        # for every hit when hundreds of grains reach the pile in one frame.
+        hit_rows = zip(px[hit_idx].tolist(), pvy[hit_idx].tolist(),
+                       pdt[hit_idx].tolist(), _np.asarray(hit_dt).tolist())
+        for k, (x, vy, step_dt, contact_dt) in enumerate(hit_rows):
             first_contact = self._record_contact(x, -vy)
             hy = None
             if rand() < 0.25 * self._splash_density:
@@ -6139,18 +6161,18 @@ class HourglassWidget(Widget):
                 append_flare({"x": x, "y": hy, "end": self._mound_flow_clock + 0.08})
             selected = rand() < SPLASH_HIT_CHANCE * self._splash_density
             if selected or first_contact:
-                if hy is None:
+                if hy is None and not (self._splash_cap and self._sn >= self._splash_cap):
                     hy = _hit_hy(k, x)
                 # ★ 唯一的飞溅模型(参数取自 PC v4) —— 见 `_eject_splash`。
                 #   旧版这里把 v4 的"向上弹"改成了 `vy = -|cos|·bounce·0.2`(**朝下、0.2 倍**)
                 #   ⇒ 抛物线没了, 就是用户说的「实际它是一个**先喷射再抛物线**」。
-                step_left = step_dt - float(hit_dt[k])
-                sp = self._eject_splash(x, hy, -vy, surface_aligned=True)
+                step_left = step_dt - contact_dt
+                sp = emit(x, hy, -vy)
                 if sp >= 0:                      # -1 = 撞上存活上限, 没生成(见 SPLASH_MAX)
                     self.sdt[sp] = step_left if step_left > 0 else 0
                 if first_contact:
                     for _ in range(self._first_contact_extra(rand)):
-                        sp = self._eject_splash(x, hy, -vy)
+                        sp = emit(x, hy, -vy)
                         if sp >= 0:
                             self.sdt[sp] = max(0.0, step_left)
 
@@ -10466,7 +10488,7 @@ class HourglassApp(App):
 
         content = BoxLayout(orientation="vertical", spacing=dp(8),
                             padding=(dp(12), dp(10), dp(12), dp(10)))
-        for i in range(0, len(SOUND_EFFECTS), 3):
+        for i in range(0, len(SOUND_OPTIONS), 3):
             row = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint=(1, None), height=dp(54))
             for label, _path in SOUND_OPTIONS[i:i + 3]:
@@ -10568,7 +10590,7 @@ class HourglassApp(App):
         popup.dismiss()
 
     def _update_sound_btn(self):
-        """主按钮显示当前音效名(沙沙声/水流声/风声/钟表声/无声音);
+        """主按钮显示当前音效名(沙沙声/水流声/风声/钟表声/雨声/海浪声/无声音);
         静音保持暖灰样式,有声金色。"""
         self.sound_btn.text = self.hourglass.sound_name
         if self.hourglass.sound_name == SILENT_NAME:
