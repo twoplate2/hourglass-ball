@@ -218,7 +218,7 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
             tiny_radius=np.maximum(.8,.26*radius)
             required=1.12*aperture_half-distance+tiny_radius+.25
             outer=support+np.maximum(0.,required-support)*gate
-            support=np.where(seed<.082,outer,support)
+            support=np.where(seed<.202,outer,support)
     out[:,:,0] = xs[:,None] + support[:,None] * corners[None,:,0]
     out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * aspect
     out[:,:,2:4] = corners[None,:,:]
@@ -477,30 +477,34 @@ void main(void) {
     float rim_pick=step(seed_y,.24*rim_falloff*rim_falloff);
     float fringe=rim_pick*micro*vertical*rim_side*rim_release;
     coverage=max(coverage,fringe);
-    // A few birth-selected fine grains travel just outside the dense body.
+    // Birth-selected fine grains fill a soft, inward-weighted outer band.
     // Keep the existing core/fringe and real particle trajectories intact.
     // No time noise, carrier displacement, or separate particle pool.
-    if (grain_tone < -.252 && short_geometry.z > 8.0) {
+    if (grain_tone < -.180 && short_geometry.z > 8.0) {
         float parent_x=sand_position.x-grain_local.x*grain_radius;
         float side=sign(parent_x-short_geometry.x);
         float edge=smoothstep(.36*short_geometry.z,.52*short_geometry.z,
                               abs(parent_x-short_geometry.x));
-        float freed=smoothstep(2.0*short_geometry.z,4.0*short_geometry.z,rim_depth);
+        // The body needs room to contract before extra points separate from
+        // it. Releasing them earlier turns their overlap into width pulses.
+        float freed=smoothstep(3.0*short_geometry.z,6.0*short_geometry.z,rim_depth);
         float tiny_radius=max(.8,.26*grain_radius);
         float spread=micro_hash(vec2(grain_tone*73.1,19.7));
-        float marker_x=short_geometry.x+side*short_geometry.z*(.92+.20*spread);
+        // Bias toward the core without fixed lanes or a hard outer shell.
+        // Each marker keeps its own x as the dense parent stream contracts.
+        float marker_x=short_geometry.x+side*short_geometry.z*(.92+.20*spread*sqrt(spread));
         float stagger=grain_radius*(.15+.30*spread);
         vec2 position=grain_local*grain_radius*vec2(1.0,short_aspect);
         float distance=length(position-vec2(marker_x-parent_x,stagger));
         float tiny=1.0-smoothstep(.55*tiny_radius,tiny_radius,distance);
-        float picked=1.0-smoothstep(-.256,-.252,grain_tone);
+        float picked=1.0-smoothstep(-.184,-.180,grain_tone);
         // Detached markers must not fill the last core pixel into a new bulge.
         // This gates only the added grain, never masks the dense stream.
         float separated=smoothstep(.75*short_geometry.z,.90*short_geometry.z,
                                    abs(sand_position.x-short_geometry.x));
         // Below this pixel scale a detached grain reads as bulk width instead.
         float resolved=smoothstep(8.0,12.0,short_geometry.z);
-        float edge_coverage=tiny*picked*edge*freed*separated*(1.0-.45*spread)*resolved;
+        float edge_coverage=tiny*picked*edge*freed*separated*(1.0-.15*spread)*resolved;
         if (edge_coverage>coverage) {
             rgb=edge_grain_colour();
             coverage=edge_coverage;

@@ -128,6 +128,14 @@ class StreamFringeTests(unittest.TestCase):
 
 
 class FringeSupportTests(unittest.TestCase):
+    def test_readable_outer_layer_has_support_for_second_seed_decile(self):
+        # The old 8% selection leaves this entire cohort without space for a
+        # visible grain. Support must reach the fixed envelope after narrowing.
+        for seed in (.10,.15,.19):
+            v=particle_vertices([8.],[200.],[seed*math.tau],[1],1.85,
+                                aperture_half=19.,fringe=True,center=0.)
+            self.assertGreater(v[0,:,0].max(),1.12*19.+.8)
+
     def test_unresolved_thin_stream_keeps_original_support(self):
         args=([3.],[100.],[.01],[1],.8)
         original=particle_vertices(*args,aperture_half=7.,fringe=True)
@@ -151,7 +159,8 @@ class FringeSupportTests(unittest.TestCase):
         radius=sprite_radius(pitch,sizes)
         outer=np.ptp(v[:,:,0],axis=1)>4.5*radius
         self.assertGreater(np.count_nonzero(outer),0,'No room for separated edge grains')
-        self.assertLess(np.mean(outer),.09,'Do not enlarge the whole stream fringe')
+        # Requested density increases the selected glyphs, never their centres.
+        self.assertLess(np.mean(outer),.21,'Do not enlarge the whole stream fringe')
         np.testing.assert_allclose(v[:,:,:2].mean(axis=1),np.column_stack((x,y)),atol=2e-5,rtol=0)
         moved=particle_vertices(x+1,y-20,phases,sizes,pitch,aperture_half=19,fringe=True,center=1.)
         np.testing.assert_allclose(moved[:,:,:2]-v[:,:,:2],
