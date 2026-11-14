@@ -617,9 +617,11 @@ class ParticleFallbackTests(unittest.TestCase):
                 if draw_counts is not None:
                     n=max(draw_counts)
                     self._cx=200.;self._R_inner=170.;self._upper_sand_bot=400.
-                    self._taper={'in_pts':[(0.,430.)],'t_in':aperture_half,'y_bot':420.}
+                    self._taper={'in_pts':[(45.,430.),((45.+3*aperture_half)/4.,423.5),
+                                           (aperture_half,420.)],
+                                 't_in':aperture_half,'y_bot':420.}
                     self._mound_carve=types.SimpleNamespace(_v=[])
-                    self._lower_sand_bot=0.;self._neck_y=400.
+                    self._lower_sand_bot=0.;self._lower_y_c=170.;self._neck_y=400.
                     self._sand_flow_contexts=[object()]
                     self.elapsed=360000.125;self._particle_motion_scale=1.;self.pn=n
                     self.sand_base=(.7,.5,.2);self.sand_dark=(.4,.2,.1);self.sand_light=(.9,.7,.4)
@@ -699,6 +701,7 @@ class ParticleFallbackTests(unittest.TestCase):
                                          'coherent_core_plain_v11' if basic else 'coherent_core_v11')
                         self.assertTrue(all(isinstance(v,float) for v in widget._short_flow_context['short_texture_size']),
                                         'vec2纹理尺寸必须上传float，整数向量会走错误的uniform类型')
+                        self.assertEqual(widget._short_flow_context['short_glass'],(45.,378.,370.,170.))
                         self.assertEqual(assert_particle_meshes(widget),count)
                         self.assertEqual(sum(widget._particle_counts),count)
                         for mesh,active in zip(widget._particle_meshes,widget._particle_counts):

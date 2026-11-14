@@ -213,13 +213,17 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
             # Every selected birth can contribute, including central parents.
             # Side is frozen in the seed; a contracting/swaying parent cannot
             # move a fine grain across the stream or make it disappear.
-            side=np.where(seed<.1,-1.,1.)
+            cohort=np.floor(seed*10.).astype(np.int32)
+            side=np.where(cohort%2==0,-1.,1.)
             tiny_radius=np.maximum(.82,.22*radius)
             inner=center+side*.72*aperture_half
-            outer_edge=center+side*1.36*aperture_half
+            outer_edge=center+side*np.where(seed<.2,1.36,1.72)*aperture_half
             required=np.maximum(np.abs(inner-xs),np.abs(outer_edge-xs))+tiny_radius+.25
+            boundary=np.abs(seed*10.-np.rint(seed*10.))<1e-4
+            required=np.where(boundary,np.abs(xs-center)+1.72*aperture_half+tiny_radius+.25,required)
             outer=np.maximum(support,required)
-            support=np.where(seed<.202,outer,support)
+            selected=(seed<.202)|((seed*10.-cohort)<.652)|boundary
+            support=np.where(selected,outer,support)
     out[:,:,0] = xs[:,None] + support[:,None] * corners[None,:,0]
     out[:,:,1] = ys[:,None] + radius[:,None] * corners[None,:,1] * aspect
     out[:,:,2:4] = corners[None,:,:]
@@ -231,6 +235,14 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
     # The shader can reconstruct the actual pixel radius without a larger Mesh.
     out[:,:,4] = (seed*.5+(sizes>1))[:,None]
     return out
+
+
+def neck_clip_geometry(points, mirror, lower_center):
+    """Recover the actual quadratic control and mirror it into the lower cup."""
+    i=len(points)//2
+    t=i/(len(points)-1);u=1.-t
+    control=(points[i][1]-u*u*points[0][1]-t*t*points[-1][1])/(2*u*t)
+    return (points[0][0],mirror-control,mirror-points[0][1],lower_center)
 
 
 def mound_surface_at(xs, carve_vertices, floor):
@@ -362,6 +374,7 @@ uniform float short_coarse;
 uniform float short_join_overlap;
 uniform float short_join_enabled;
 uniform float short_aspect;
+uniform vec4 short_glass;
 uniform float short_strength;
 uniform vec2 short_texture_size;
 varying float grain_radius;
@@ -399,6 +412,15 @@ vec3 edge_grain_colour() {
     vec2 pigment_uv=vec2(micro_hash(key),micro_hash(key+vec2(17.0,31.0)));
     vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
     return micro_material_rgb(uv,vec2(0.0));
+}
+float lower_glass_ceiling(float radial) {
+    if (radial<=short_geometry.z) return short_geometry.y;
+    if (radial<short_glass.x) {
+        float s=sqrt(clamp((radial-short_geometry.z)/(short_glass.x-short_geometry.z),0.0,1.0));
+        float u=1.0-s;
+        return u*u*short_geometry.y+2.0*u*s*short_glass.y+s*s*short_glass.z;
+    }
+    return short_glass.w+sqrt(max(0.0,sand_geometry.y*sand_geometry.y-radial*radial));
 }
 void main(void) {
     // Clip only the aperture, this grain's shape and the actual pile occlusion.
@@ -483,31 +505,45 @@ void main(void) {
     // Birth-selected fine grains fill a soft, inward-weighted outer band.
     // Keep the existing core/fringe and real particle trajectories intact.
     // No time noise, carrier displacement, or separate particle pool.
-    if (grain_tone < -.180 && short_geometry.z > 8.0) {
+    if (short_geometry.z > 8.0) {
         float parent_x=sand_position.x-grain_local.x*grain_radius;
-        float side=grain_tone<-.240 ? -1.0 : 1.0;
+        float cohort=floor((grain_tone/.60+.5)*10.0);
+        float side=mod(cohort,2.0)<.5 ? -1.0 : 1.0;
         float freed=smoothstep(.25*short_geometry.z,1.25*short_geometry.z,rim_depth);
         float tiny_radius=max(.82,.22*grain_radius);
         float spread=micro_hash(vec2(grain_tone*73.1,19.7));
         // Sample a broad continuous band through the body's edge. The dense
         // body naturally covers inner marks; never squeeze surviving marks
         // into a separate clearance ring. Each birth keeps its fixed x.
-        float marker_x=short_geometry.x+side*short_geometry.z*(.72+.64*spread);
+        float band_span=grain_tone<-.180 ? .64 : 1.00;
+        float marker_x=short_geometry.x+side*short_geometry.z*(.72+band_span*spread);
         float stagger=grain_radius*(.15+.30*spread);
         vec2 position=grain_local*grain_radius*vec2(1.0,short_aspect);
         float distance=length(position-vec2(marker_x-parent_x,stagger));
         float tiny=1.0-smoothstep(.60*tiny_radius,tiny_radius,distance);
-        float picked=1.0-smoothstep(-.184,-.180,grain_tone);
+        // Keep the original pair. Additional balanced cohorts occupy a wider
+        // band at partial density, avoiding solid side strips.
+        float cohort_phase=fract((grain_tone/.60+.5)*10.0);
+        float picked=grain_tone<-.180 ? 1.0-smoothstep(-.184,-.180,grain_tone)
+                                     : 1.0-smoothstep(.63,.65,cohort_phase);
         // Let near-body specks overlap softly instead of cutting out a moat.
         // Overlapping fully opaque points would become short bulk-width bumps.
         float contraction=smoothstep(5.0,8.0,short_geometry.z/max(.8,short_geometry.w))
             *smoothstep(1.5*short_geometry.z,8.0*short_geometry.z,rim_depth);
         float body_limit=short_geometry.z*(1.035-.20*contraction);
-        float edge_softness=mix(.18,1.0,smoothstep(body_limit+.25,body_limit+2.75,
+        float near_opacity=grain_tone<-.180 ? .18 : .035;
+        float extra_overlap=grain_tone<-.180 ? 0.0 : .75;
+        float edge_softness=mix(near_opacity,1.0,smoothstep(body_limit+.25+extra_overlap,body_limit+2.75+extra_overlap,
                                                 abs(marker_x-short_geometry.x)));
         // Below this pixel scale a detached grain reads as bulk width instead.
         float resolved=smoothstep(8.0,12.0,short_geometry.z);
         float edge_coverage=tiny*picked*freed*edge_softness*(1.0-.30*spread)*resolved;
+        // Follow the actual curved glass shoulder instead of blanking a fixed
+        // top section. This also prevents the wider halo painting the outline.
+        if (edge_coverage>0.0) {
+            float wall=lower_glass_ceiling(abs(sand_position.x-short_geometry.x));
+            edge_coverage*=smoothstep(.25,1.0,wall-sand_position.y);
+        }
         if (edge_coverage>coverage) {
             rgb=edge_grain_colour();
             coverage=edge_coverage;
@@ -701,6 +737,7 @@ def install(widget_class):
         context["short_texture_size"]=tuple(map(float,getattr(self._sand_material.texture,"size",(512,512))))
         context["short_join_overlap"]=module.OUTLET_OVERLAP
         context["short_aspect"]=aspect
+        context["short_glass"]=neck_clip_geometry(self._taper['in_pts'],2*self._neck_y,self._lower_y_c)
         context["short_join_enabled"]=float(carrier and bool(self._sand_flow_contexts)
                                             and not module.NECK_FREE_GEOM)
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,

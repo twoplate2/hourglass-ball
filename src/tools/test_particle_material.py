@@ -128,6 +128,36 @@ class StreamFringeTests(unittest.TestCase):
 
 
 class FringeSupportTests(unittest.TestCase):
+    def test_glass_clip_uses_the_actual_mirrored_neck_curve(self):
+        self.assertTrue(hasattr(renderer,'neck_clip_geometry'))
+        # Asymmetric control heights make a guessed linear widening fail.
+        points=[]
+        for i in range(25):
+            t=i/24.;u=1.-t
+            points.append((45*u*u+18*(2*u*t+t*t),120*u*u+2*110*u*t+100*t*t))
+        np.testing.assert_allclose(renderer.neck_clip_geometry(points,160.,40.),
+                                   (45.,50.,40.,40.),atol=1e-10)
+
+    def test_cohort_boundaries_cover_gpu_side_rounding(self):
+        # CPU doubles and GPU float32 can classify a boundary on opposite
+        # sides. Boundary supports must fit either side without losing a dot.
+        for seed in (.3-1e-8,.3,.3+1e-8):
+            for x in (-12.,12.):
+                v=particle_vertices([x],[200.],[seed*math.tau],[1],1.85,
+                                    aperture_half=19.,fringe=True,center=0.)
+                self.assertLess(v[0,:,0].min(),-1.72*19.-.82)
+                self.assertGreater(v[0,:,0].max(),1.72*19.+.82)
+
+    def test_added_density_cohorts_reach_alternating_sides(self):
+        # Keep the original first two cohorts, then add balanced left/right
+        # cohorts without clipping their extra points back into the core.
+        for seed,side in ((.025,-1),(.125,1),(.225,-1),(.325,1),(.425,-1),(.525,1),(.625,-1),(.725,1),(.825,-1),(.925,1)):
+            v=particle_vertices([0.],[200.],[seed*math.tau],[1],1.85,
+                                aperture_half=19.,fringe=True,center=0.)
+            extent=1.36 if seed<.2 else 1.72
+            self.assertLess(v[0,:,0].min(),side*extent*19.-.82)
+            self.assertGreater(v[0,:,0].max(),side*extent*19.+.82)
+
     def test_loose_outer_grains_are_not_clipped_into_the_old_narrow_band(self):
         for seed,side in ((.05,-1),(.15,1)):
             v=particle_vertices([0.],[200.],[seed*math.tau],[1],1.85,
@@ -178,8 +208,10 @@ class FringeSupportTests(unittest.TestCase):
         radius=sprite_radius(pitch,sizes)
         outer=np.ptp(v[:,:,0],axis=1)>4.5*radius
         self.assertGreater(np.count_nonzero(outer),0,'No room for separated edge grains')
-        # Requested density increases the selected glyphs, never their centres.
-        self.assertLess(np.mean(outer),.21,'Do not enlarge the whole stream fringe')
+        # Original pair plus partial additional pairs. This controls
+        # allocation only; physical centres, pixel scale and body gates stay.
+        self.assertGreater(np.mean(outer),.71)
+        self.assertLess(np.mean(outer),.73)
         np.testing.assert_allclose(v[:,:,:2].mean(axis=1),np.column_stack((x,y)),atol=2e-5,rtol=0)
         moved=particle_vertices(x+1,y-20,phases,sizes,pitch,aperture_half=19,fringe=True,center=1.)
         np.testing.assert_allclose(moved[:,:,:2]-v[:,:,:2],
