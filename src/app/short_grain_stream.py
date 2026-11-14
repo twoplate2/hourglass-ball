@@ -214,9 +214,9 @@ def particle_vertices(xs, ys, phases, sizes, pitch, aspect=1.45, *, aperture_hal
             # Side is frozen in the seed; a contracting/swaying parent cannot
             # move a fine grain across the stream or make it disappear.
             side=np.where(seed<.1,-1.,1.)
-            tiny_radius=np.maximum(1.,.26*radius)
-            inner=center+side*.86*aperture_half
-            outer_edge=center+side*1.20*aperture_half
+            tiny_radius=np.maximum(.82,.22*radius)
+            inner=center+side*.72*aperture_half
+            outer_edge=center+side*1.36*aperture_half
             required=np.maximum(np.abs(inner-xs),np.abs(outer_edge-xs))+tiny_radius+.25
             outer=np.maximum(support,required)
             support=np.where(seed<.202,outer,support)
@@ -487,27 +487,27 @@ void main(void) {
         float parent_x=sand_position.x-grain_local.x*grain_radius;
         float side=grain_tone<-.240 ? -1.0 : 1.0;
         float freed=smoothstep(.25*short_geometry.z,1.25*short_geometry.z,rim_depth);
-        float tiny_radius=max(1.0,.26*grain_radius);
+        float tiny_radius=max(.82,.22*grain_radius);
         float spread=micro_hash(vec2(grain_tone*73.1,19.7));
-        // Bias toward the core without fixed lanes or a hard outer shell.
-        // Each marker keeps its own x as the dense parent stream contracts.
-        float marker_x=short_geometry.x+side*short_geometry.z*(.86+.34*spread*sqrt(spread));
+        // Sample a broad continuous band through the body's edge. The dense
+        // body naturally covers inner marks; never squeeze surviving marks
+        // into a separate clearance ring. Each birth keeps its fixed x.
+        float marker_x=short_geometry.x+side*short_geometry.z*(.72+.64*spread);
         float stagger=grain_radius*(.15+.30*spread);
         vec2 position=grain_local*grain_radius*vec2(1.0,short_aspect);
         float distance=length(position-vec2(marker_x-parent_x,stagger));
-        float tiny=1.0-smoothstep(.55*tiny_radius,tiny_radius,distance);
+        float tiny=1.0-smoothstep(.60*tiny_radius,tiny_radius,distance);
         float picked=1.0-smoothstep(-.184,-.180,grain_tone);
-        // Release each fixed marker once the contracting body leaves room.
-        // Farther grains can be visible near the outlet; inner grains emerge
-        // farther down. Never blank an entire fixed-length top section.
+        // Let near-body specks overlap softly instead of cutting out a moat.
+        // Overlapping fully opaque points would become short bulk-width bumps.
         float contraction=smoothstep(5.0,8.0,short_geometry.z/max(.8,short_geometry.w))
             *smoothstep(1.5*short_geometry.z,8.0*short_geometry.z,rim_depth);
         float body_limit=short_geometry.z*(1.035-.20*contraction);
-        float clearance=abs(marker_x-short_geometry.x)-body_limit;
-        float separated=smoothstep(tiny_radius+.5,tiny_radius+1.5,clearance);
+        float edge_softness=mix(.18,1.0,smoothstep(body_limit+.25,body_limit+2.75,
+                                                abs(marker_x-short_geometry.x)));
         // Below this pixel scale a detached grain reads as bulk width instead.
         float resolved=smoothstep(8.0,12.0,short_geometry.z);
-        float edge_coverage=tiny*picked*freed*separated*(1.0-.15*spread)*resolved;
+        float edge_coverage=tiny*picked*freed*edge_softness*(1.0-.30*spread)*resolved;
         if (edge_coverage>coverage) {
             rgb=edge_grain_colour();
             coverage=edge_coverage;

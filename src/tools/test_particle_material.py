@@ -128,6 +128,14 @@ class StreamFringeTests(unittest.TestCase):
 
 
 class FringeSupportTests(unittest.TestCase):
+    def test_loose_outer_grains_are_not_clipped_into_the_old_narrow_band(self):
+        for seed,side in ((.05,-1),(.15,1)):
+            v=particle_vertices([0.],[200.],[seed*math.tau],[1],1.85,
+                                aperture_half=19.,fringe=True,center=0.)
+            outer=side*1.36*19.
+            self.assertLess(v[0,:,0].min(),outer-.82)
+            self.assertGreater(v[0,:,0].max(),outer+.82)
+
     def test_selected_central_carriers_can_reach_both_outer_sides(self):
         # Peripheral detail must not silently depend on the parent already
         # being at the edge. These two frozen seeds select opposite sides.
