@@ -128,6 +128,17 @@ class StreamFringeTests(unittest.TestCase):
 
 
 class FringeSupportTests(unittest.TestCase):
+    def test_selected_central_carriers_can_reach_both_outer_sides(self):
+        # Peripheral detail must not silently depend on the parent already
+        # being at the edge. These two frozen seeds select opposite sides.
+        for seed,side in ((.05,-1),(.15,1)):
+            for x in (-12.,0.,12.):
+                v=particle_vertices([x],[200.],[seed*math.tau],[1],1.85,
+                                    aperture_half=19.,fringe=True,center=0.)
+                self.assertLess(v[0,:,0].min(),side*1.20*19.-1.)
+                self.assertGreater(v[0,:,0].max(),side*1.20*19.+1.)
+                self.assertAlmostEqual(float(v[0,:,0].mean()),x,places=5)
+
     def test_readable_outer_layer_has_support_for_second_seed_decile(self):
         # The old 8% selection leaves this entire cohort without space for a
         # visible grain. Support must reach the fixed envelope after narrowing.
