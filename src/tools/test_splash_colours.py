@@ -15,13 +15,13 @@ sys.path.insert(0,str(ROOT/'src/app'))
 def curve():return [0,10,0,0,20,10,1,0,20,100,1,1,0,100,0,1]
 
 
-def colours(ys,rests=None,*,xs=None,vys=None,grain=.35,stills=None,seeds=None):
+def colours(ys,rests=None,*,xs=None,vys=None,grain=.35,stills=None,seeds=None,contact=None):
     from short_grain_stream import splash_colours
     n=len(ys)
     return splash_colours(n,xs if xs is not None else [5]*n,ys,
         vys if vys is not None else [-20]*n,rests if rests is not None else [0]*n,
         stills if stills is not None else [0]*n,seeds if seeds is not None else [.81]*n,
-        [.5]*n,curve(),0,(.8,.6,.3),(.95,.8,.5),grain)
+        [.5]*n,curve(),0,(.8,.6,.3),(.95,.8,.5),grain,contact=contact)
 
 
 class FakeColor:
@@ -61,6 +61,14 @@ def widget(batch):
 
 
 class SplashColourTests(unittest.TestCase):
+    def test_late_contact_tints_only_grains_immediately_above_the_pile_under_stream(self):
+        args=dict(xs=[5,14,5],vys=[20]*3,contact=(5,6,11))
+        rgb=np.asarray(colours([10.5,10.5,18],**args))
+        self.assertLess(rgb[0,0],230)
+        np.testing.assert_array_equal(rgb[1:],[[242,204,128,255]]*2)
+        with patch.dict(sys.modules,{'numpy':None}):
+            np.testing.assert_array_equal(colours([10.5,10.5,18],**args),rgb)
+
     def test_airborne_grains_keep_the_original_bright_palette(self):
         np.testing.assert_array_equal(colours([30,50]),[[242,204,128,255]]*2)
 

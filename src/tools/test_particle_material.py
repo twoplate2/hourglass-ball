@@ -116,6 +116,26 @@ class BirthMaterialPayloadTests(unittest.TestCase):
 
 
 class StreamFringeTests(unittest.TestCase):
+    def test_rounded_free_front_lifts_edges_but_leaves_actual_contact_alone(self):
+        x,y=np.array([-22.,0.,22.,22.]),np.array([45.,45.,45.,75.])
+        args=dict(center=0.,outlet=100.,half=30.,pitch=2.)
+        rounded=renderer.rounded_front_positions(x,y,surface=5.,**args)
+        np.testing.assert_array_equal(rounded[[1,3]],y[[1,3]])
+        self.assertGreater(rounded[0],y[0])
+        self.assertEqual(rounded[0],rounded[2])
+        np.testing.assert_array_equal(renderer.rounded_front_positions(x,y,surface=44.,**args),y)
+
+    def test_advected_edge_only_moves_outer_grains_between_outlet_and_contact(self):
+        x=np.array([0.,22.,-22.,22.,22.])
+        y=np.array([45.,45.,45.,99.,21.])
+        births=np.array([.1,.1,.1,.1,.1])
+        args=dict(center=0., outlet=100., half=30., surface=20.)
+        drawn=renderer.advected_edge_positions(x,y,births,**args)
+        self.assertTrue(np.array_equal(drawn[[0,3,4]],x[[0,3,4]]))
+        self.assertTrue(np.all(np.abs(drawn[1:3]-x[1:3])>.01))
+        self.assertNotAlmostEqual(drawn[1]-x[1],x[2]-drawn[2])
+        np.testing.assert_array_equal(renderer.advected_edge_positions(x[::-1],y[::-1],births[::-1],**args),drawn[::-1])
+
     def test_no_whole_carrier_shift_outside_dense_stream(self):
         from short_grain_stream import art_stream_positions
         # The rejected 20%-of-carriers trial grows multi-grain bumps here.

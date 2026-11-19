@@ -153,6 +153,43 @@ def cohort_stream_positions(xs, ys, births, scales, *, center, outlet, half, pit
             +half*axis_amount*release*sway)
 
 
+def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface):
+    """Move only the outer part of real grains, with birth-stable side signals."""
+    import numpy as np
+    x, y, birth = map(np.asarray, (xs, ys, births))
+    if not x.size or half <= 0:
+        return x
+    lane = (x - center) / half
+    depth = outlet - y
+    edge = np.clip((np.abs(lane) - .48) / .46, 0., 1.)
+    release = np.clip((depth - .35 * half) / (1.8 * half), 0., 1.)
+    landing = np.clip((y - surface - 2.) / (.7 * half), 0., 1.)
+    cell = birth / .075
+    key = np.floor(cell)
+    t = cell - key
+    t *= t * (3. - 2. * t)
+    side = np.where(lane < 0., 17.13, 63.71)
+    a = np.remainder(np.sin(key * 12.9898 + side) * 43758.5453, 1.)
+    b = np.remainder(np.sin((key + 1.) * 12.9898 + side) * 43758.5453, 1.)
+    return x + min(4., .12 * half) * edge**1.3 * release * landing * (2. * (a + (b-a)*t) - 1.)
+
+
+def rounded_front_positions(xs, ys, *, center, outlet, half, surface, pitch):
+    """Round the airborne leading cohort without changing its collision path."""
+    import numpy as np
+    y = np.asarray(ys)
+    if y.size < 2 or half <= 0:
+        return y
+    front = float(np.min(y))
+    clearance = np.clip((front - surface - 2.*pitch) / max(1.,half), 0., 1.)
+    amplitude = min(.32*half,.3*(outlet-front))*clearance
+    if amplitude <= 0.:
+        return y
+    lane = np.clip(np.abs(np.asarray(xs)-center)/half,0.,1.)
+    cap = np.clip(1.-(y-front)/(2.*amplitude),0.,1.)
+    return y+amplitude*lane**2*cap**2
+
+
 def motion_parameters(half_width, pitch, max_depth, motion_scale=1.0):
     """Pixel velocities follow canvas scale, independently of grain coarseness."""
     width = max(2.0, 2.0 * half_width)
@@ -288,7 +325,7 @@ def visible_splash_sizes(count,xs,ys,hws,hhs,carve_vertices,floor):
 
 
 def splash_colours(count,xs,ys,vys,rests,stills,seeds,half_heights,
-                   carve_vertices,floor,base,light,grain):
+                   carve_vertices,floor,base,light,grain,*,contact=None):
     """Keep bright airborne grains; merge supported grains into the pile palette.
 
     Gravity variation is immutable for a grain, including after array compaction.
@@ -296,6 +333,10 @@ def splash_colours(count,xs,ys,vys,rests,stills,seeds,half_heights,
     No position, count, lifetime, alpha or random state is changed here.
     """
     strength=max(0.0,min(1.5,grain/.35))
+    contact_strength=0.
+    if contact is not None:
+        center,half,clearance=contact
+        contact_strength=max(0.,min(1., (2.1*half-clearance)/max(1.,.65*half)))
     try:
         import numpy as np
     except ImportError:
@@ -318,6 +359,10 @@ def splash_colours(count,xs,ys,vys,rests,stills,seeds,half_heights,
             t=max(0.0,min(1.0,gap/(2.0*max(1.0,half_heights[i]))))
             blend=(1.0 if rests[i]>0.0 or stills[i]>0.0 else
                    1.0-t*t*(3.0-2.0*t) if vys[i]<=0.0 else 0.0)
+            if contact_strength:
+                radial=max(0., min(1., (half-abs(xs[i]-center))/max(1.,.25*half)))
+                vertical=max(0., 1.-gap/(3.*max(1.,half_heights[i])))
+                blend=max(blend,contact_strength*radial*vertical)
             detail=((seeds[i]*997.0)%1.0-.5)*.04*strength
             rgb=[max(0.0,min(1.0,base[k]+detail)) for k in range(3)]
             result.append(tuple(round(max(0.0,min(1.0,light[k]+(rgb[k]-light[k])*blend))*255)
@@ -330,6 +375,10 @@ def splash_colours(count,xs,ys,vys,rests,stills,seeds,half_heights,
              np.full(count,floor))
     t=np.clip(np.maximum(0.0,y-surface)/(2.0*np.maximum(1.0,hh)),0.0,1.0)
     blend=np.where((rest>0.0)|(still>0.0),1.0,np.where(vy<=0.0,1.0-t*t*(3.0-2.0*t),0.0))
+    if contact_strength:
+        radial=np.clip((half-np.abs(x-center))/max(1.,.25*half),0.,1.)
+        vertical=np.clip(1.-np.maximum(0.,y-surface)/(3.*np.maximum(1.,hh)),0.,1.)
+        blend=np.maximum(blend,contact_strength*radial*vertical)
     detail=((seed*997.0)%1.0-.5)*.04*strength
     ground=np.clip(np.asarray(base)[None,:]+detail[:,None],0.0,1.0)
     rgb=np.asarray(light)[None,:]+(ground-np.asarray(light)[None,:])*blend[:,None]
@@ -406,13 +455,6 @@ vec3 micro_material_rgb(vec2 uv,vec2 local) {
     float tone=clamp(pigment*contrast+facet+illumination,-.9,.9);
     return mix(sand_base,tone >= 0.0 ? sand_light : sand_dark,abs(tone));
 }
-vec3 edge_grain_colour() {
-    // A detached grain keeps its own pigment as the core contracts beside it.
-    vec2 key=vec2(grain_tone*53.1+73.7,grain_tone*91.3+37.9);
-    vec2 pigment_uv=vec2(micro_hash(key),micro_hash(key+vec2(17.0,31.0)));
-    vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
-    return micro_material_rgb(uv,vec2(0.0));
-}
 float lower_glass_ceiling(float radial) {
     if (radial<=short_geometry.z) return short_geometry.y;
     if (radial<short_glass.x) {
@@ -446,7 +488,14 @@ void main(void) {
     float micro_r=length(local);
     // Coarse grains keep pores without replacing their texture with large dots.
     float coarse=smoothstep(1.8,3.0,short_coarse);
-    float micro=1.0-smoothstep(mix(.42,.36,coarse),mix(.55,.47,coarse),micro_r);
+    float depth=max(0.0,short_geometry.y-sand_position.y);
+    float open_flow=smoothstep(.5*short_geometry.z,2.0*short_geometry.z,depth);
+    float outer=smoothstep(.42*short_geometry.z,.96*short_geometry.z,
+                          abs(sand_position.x-short_geometry.x));
+    float pore=open_flow*mix(.12,.23,outer)
+        *smoothstep(5.0,9.0,short_geometry.z/max(.8,short_geometry.w));
+    float micro=1.0-smoothstep(mix(.42,.36,coarse)-pore,
+                               mix(.55,.47,coarse)-pore,micro_r);
     // One baked pigment per visible grain; sample at a texel centre so linear
     // filtering cannot average four different grains into a soft parent patch.
     // The weak local facet supplies the grain's own surface relief.
@@ -454,7 +503,6 @@ void main(void) {
                          micro_hash(cell+grain_tone*91.3+vec2(37.9,3.1)));
     vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
     vec3 rgb=micro_material_rgb(uv,local);
-    float depth=max(0.0,short_geometry.y-sand_position.y);
     // Carry a small upstream texture patch with this real grain for its life.
     // Both colour details now use local coordinates and move with one particle.
     float join_length=short_join_overlap+max(4.0,1.5*short_geometry.z);
@@ -502,53 +550,9 @@ void main(void) {
     float rim_pick=rim_falloff>0.0 ? step(seed_y,.24*rim_falloff*rim_falloff) : 0.0;
     float fringe=rim_pick*micro*vertical*rim_side*rim_release;
     coverage=max(coverage,fringe);
-    // Birth-selected fine grains fill a soft, inward-weighted outer band.
-    // Keep the existing core/fringe and real particle trajectories intact.
-    // No time noise, carrier displacement, or separate particle pool.
-    if (short_geometry.z > 8.0) {
-        float parent_x=sand_position.x-grain_local.x*grain_radius;
-        float cohort=floor((grain_tone/.60+.5)*10.0);
-        float side=mod(cohort,2.0)<.5 ? -1.0 : 1.0;
-        float freed=smoothstep(.25*short_geometry.z,1.25*short_geometry.z,rim_depth);
-        float tiny_radius=max(.82,.22*grain_radius);
-        float spread=micro_hash(vec2(grain_tone*73.1,19.7));
-        // Sample a broad continuous band through the body's edge. The dense
-        // body naturally covers inner marks; never squeeze surviving marks
-        // into a separate clearance ring. Each birth keeps its fixed x.
-        float band_span=grain_tone<-.180 ? .64 : 1.00;
-        float marker_x=short_geometry.x+side*short_geometry.z*(.72+band_span*spread);
-        float stagger=grain_radius*(.15+.30*spread);
-        vec2 position=grain_local*grain_radius*vec2(1.0,short_aspect);
-        float distance=length(position-vec2(marker_x-parent_x,stagger));
-        float tiny=1.0-smoothstep(.60*tiny_radius,tiny_radius,distance);
-        // Keep the original pair. Additional balanced cohorts occupy a wider
-        // band at partial density, avoiding solid side strips.
-        float cohort_phase=fract((grain_tone/.60+.5)*10.0);
-        float picked=grain_tone<-.180 ? 1.0-smoothstep(-.184,-.180,grain_tone)
-                                     : 1.0-smoothstep(.63,.65,cohort_phase);
-        // Let near-body specks overlap softly instead of cutting out a moat.
-        // Overlapping fully opaque points would become short bulk-width bumps.
-        float contraction=smoothstep(5.0,8.0,short_geometry.z/max(.8,short_geometry.w))
-            *smoothstep(1.5*short_geometry.z,8.0*short_geometry.z,rim_depth);
-        float body_limit=short_geometry.z*(1.035-.20*contraction);
-        float near_opacity=grain_tone<-.180 ? .18 : .035;
-        float extra_overlap=grain_tone<-.180 ? 0.0 : .75;
-        float edge_softness=mix(near_opacity,1.0,smoothstep(body_limit+.25+extra_overlap,body_limit+2.75+extra_overlap,
-                                                abs(marker_x-short_geometry.x)));
-        // Below this pixel scale a detached grain reads as bulk width instead.
-        float resolved=smoothstep(8.0,12.0,short_geometry.z);
-        float edge_coverage=tiny*picked*freed*edge_softness*(1.0-.30*spread)*resolved;
-        // Follow the actual curved glass shoulder instead of blanking a fixed
-        // top section. This also prevents the wider halo painting the outline.
-        if (edge_coverage>0.0) {
-            float wall=lower_glass_ceiling(abs(sand_position.x-short_geometry.x));
-            edge_coverage*=smoothstep(.25,1.0,wall-sand_position.y);
-        }
-        if (edge_coverage>coverage) {
-            rgb=edge_grain_colour();
-            coverage=edge_coverage;
-        }
-    }
+    float wall=lower_glass_ceiling(abs(sand_position.x-short_geometry.x));
+    if (abs(sand_position.x-short_geometry.x)>short_geometry.z)
+        coverage*=smoothstep(.25,1.0,wall-sand_position.y);
     gl_FragColor = vec4(rgb,frag_color.a*coverage);
 }
 """
@@ -699,12 +703,19 @@ def install(widget_class):
             drawn_x=cohort_stream_positions(drawn_x,self.py[:n],self.pbt[:n],self.pbm[:n],
                 center=self._cx,outlet=2*self._neck_y-self._taper['y_bot'],
                 half=self._taper['t_in'],pitch=pitch,radius=self._R_inner)
+            drawn_x=advected_edge_positions(drawn_x,self.py[:n],self.pbt[:n],
+                center=self._cx,outlet=2*self._neck_y-self._taper['y_bot'],
+                half=self._taper['t_in'],surface=self.get_mound_top_y())
         from grain_style import drained_stream_y
         drawn_y=drained_stream_y(drawn_x,self.py[:n],center=self._cx,
             outlet=2*self._neck_y-self._taper['y_bot'],half=self._taper['t_in'],pitch=pitch,
             supplied=getattr(self,'_sand_released',0.0))
+        if cohort and n:
+            drawn_y=rounded_front_positions(drawn_x,drawn_y,center=self._cx,
+                outlet=2*self._neck_y-self._taper['y_bot'],half=self._taper['t_in'],
+                surface=self.get_mound_top_y(),pitch=pitch)
         vertices=particle_vertices(drawn_x,drawn_y,self.pwp[:n],self.psz[:n],pitch,aspect,
-                                   aperture_half=self._taper['t_in'],fringe=True,center=self._cx)[order]
+                                   aperture_half=self._taper['t_in'],fringe=True)[order]
         carrier = self._short_material_mode == 'carrier'
         if carrier:
             births=birth_material_payload(self.pbt[:n],self.pbm[:n],

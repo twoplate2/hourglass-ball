@@ -136,6 +136,10 @@ def assert_particle_meshes(widget):
                     inflation=smooth(.100,.103,half/max(float(widget._R_inner),1e-6))
                     expected[i,0]=(center+(x-center)*(1.+min(.0125,available)*inflation*release*(left+right)*.5)
                                    +half*min(.034,.40*available)*release*(right-left)*.5)
+    if style=='coherent_core_v11' and widget.pn:
+        from short_grain_stream import advected_edge_positions
+        expected[:,0]=advected_edge_positions(expected[:,0],expected[:,1],widget.pbt[:widget.pn],
+            center=center,outlet=outlet,half=half,surface=widget.get_mound_top_y())
     tail_style=getattr(widget,'_short_flow_state',{}).get('tail_style')
     if tail_style is not None:
         if tail_style not in ('exposed_grain_cap_v1','exposed_grain_cap_v2'):
@@ -153,6 +157,10 @@ def assert_particle_meshes(widget):
                     cap=1.-d*d*(3.-2.*d)
                     radius=min(1.,abs(x-center)/max(1.,half))
                     expected[i,1]=y-amplitude*cap*(.15+.85*radius*radius)
+    if style=='coherent_core_v11' and widget.pn:
+        from short_grain_stream import rounded_front_positions
+        expected[:,1]=rounded_front_positions(expected[:,0],expected[:,1],center=center,
+            outlet=outlet,half=half,surface=widget.get_mound_top_y(),pitch=pitch)
     expected=expected[order]
     if actual.shape != expected.shape or not np.allclose(actual, expected, rtol=0, atol=2e-4):
         raise AssertionError("实际 Mesh 没有逐颗跟随真实粒子坐标")
@@ -640,6 +648,9 @@ class ParticleFallbackTests(unittest.TestCase):
 
             def _draw_stream(self):
                 self.line_drawn = True
+
+            def get_mound_top_y(self):
+                return self._lower_sand_bot
 
             def _reserve_stream_lines(self):
                 self.reserved = True

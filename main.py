@@ -4208,9 +4208,7 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            # Extend the rounded landing shoulders beyond the visible stream.
-            # Shape, volume inversion and contacts still share this profile.
-            cap_radius = min(Ri * 0.22, self._taper["t_in"] * 2.0)
+            cap_radius = min(Ri * 0.12, self._taper["t_in"] * 1.1)
             shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC, cap_radius)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
@@ -8629,9 +8627,13 @@ class HourglassWidget(Widget):
         if self._sn and self._mound_carve is not None:
             hws,hhs=visible_splash_sizes(self._sn,self.sx,self.sy,self.srw,self.srh,
                                          self._mound_carve._v,self._lower_sand_bot)
+        contact = None
+        if self._sn and self._mound_carve is not None and getattr(self, '_taper', None):
+            outlet = 2*self._neck_y-self._taper['y_bot']
+            contact = (self._cx,self._taper['t_in'],outlet-self.get_mound_top_y())
         colours=splash_colours(self._sn,self.sx,self.sy,self.svy,self.srest,self.sstill,
             self.sgd,self.shh,self._mound_carve._v if self._mound_carve is not None else [],
-            self._lower_sand_bot,self.sand_base,self.sand_light,SAND_MATERIAL_GRAIN)
+            self._lower_sand_bot,self.sand_base,self.sand_light,SAND_MATERIAL_GRAIN,contact=contact)
         self._splash_color.rgba=(1.0,1.0,1.0,1.0)
         _batch = getattr(self, "_splash_batch", None)
         if _batch is None:
