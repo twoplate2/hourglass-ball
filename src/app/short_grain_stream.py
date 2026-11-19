@@ -26,15 +26,6 @@ def source_half_width(half,pitch):
     return max(0.0,half-sprite_radius(pitch,2))
 
 
-def occupied_lip_half(xs, ys, *, center, outlet, half, pitch):
-    """Width supported by the last sprites that can still reach the neck."""
-    import numpy as np
-    radius = sprite_radius(pitch, 2)
-    near = np.asarray(ys) >= outlet - 1.45 * radius
-    offsets = np.abs(np.asarray(xs)[near] - center)
-    return min(half, float(np.max(offsets, initial=0.)) + radius)
-
-
 def sprite_aspect(pitch,reference_pitch):
     # Fine clusters need the same support area, while their individual texture
     # grains remain fine. Bound exceptional inputs so this cannot become a line.
@@ -440,6 +431,7 @@ uniform vec4 short_geometry;
 uniform float short_coarse;
 uniform float short_join_overlap;
 uniform float short_join_enabled;
+uniform float short_drain;
 uniform float short_aspect;
 uniform vec4 short_glass;
 uniform float short_strength;
@@ -448,8 +440,10 @@ varying float grain_radius;
 varying vec2 grain_local;
 varying float grain_tone;
 varying float grain_surface;
+#ifdef HG_CARRIER
 varying vec4 grain_birth;
 varying float grain_birth_blend;
+#endif
 float micro_hash(vec2 p) {
     return clump_hash(p);
 }
@@ -517,28 +511,13 @@ void main(void) {
     // One baked pigment per visible grain; sample at a texel centre so linear
     // filtering cannot average four different grains into a soft parent patch.
     // The weak local facet supplies the grain's own surface relief.
-    vec2 pigment_uv=vec2(micro_hash(cell+grain_tone*53.1+73.7),
-                         micro_hash(cell+grain_tone*91.3+vec2(37.9,3.1)));
-    vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
-    vec3 rgb=micro_material_rgb(uv,local);
     float radial=abs(sand_position.x-short_geometry.x)/short_geometry.z;
-    // Carry a small upstream texture patch with this real grain for its life.
-    // Both colour details now use local coordinates and move with one particle.
-    float join_length=short_join_overlap+max(2.0*grain_radius,.34*short_geometry.z);
-    if (short_join_enabled > .5 && depth < join_length) {
-        vec2 source=vec2(grain_birth.x,short_geometry.y)
-            +grain_local*grain_radius*vec2(1.0,short_aspect);
-        vec3 inherited=neck_flow_rgb_at(source,grain_birth.y,grain_birth.zw,
-                                       grain_birth_blend);
-        float released=smoothstep(short_join_overlap,join_length,depth);
-        // Keep the birth patch only at the hand-off. A permanent soft blend
-        // averages away the moving grains' contrast and reads as a filament.
-        rgb=mix(inherited,rgb,released);
-    }
+#ifdef HG_CARRIER
     // A falling rim grain keeps its lane as the jet contracts.
     float birth_lane=abs(grain_birth.x-short_geometry.x)
                      /max(grain_radius,short_geometry.z-grain_radius);
     radial=mix(radial,max(radial,birth_lane),.52);
+#endif
     // Few-pixel streams need lateral glyph overlap as well as vertical
     // overlap. Only the central part receives extra moving micro-grains;
     // the original particle silhouette still supplies the entire outer edge.
@@ -601,24 +580,62 @@ void main(void) {
     float disc_end=mix(.90,.55,smoothstep(.36,.70,radial));
     float discrete=smoothstep(short_join_overlap,disc_end*short_geometry.z+short_join_overlap,depth)
         *mix(.72,1.0,clear_of_contact)*smoothstep(2.25,4.6,short_geometry.z/grain_radius);
+    float sparse=smoothstep(.14,.70,short_drain);
+    discrete=max(discrete,sparse);
     vec2 grain_jitter=vec2(micro_hash(vec2(grain_tone*73.7,31.1)),
                            micro_hash(vec2(47.9,grain_tone*91.3)))-.5;
     vec2 grain_xy=grain_local*vec2(1.0,short_aspect)-.56*grain_jitter;
     float grain_px=max(.8,mix(.49,.23,smoothstep(.40,.90,radial))*grain_radius);
+    grain_px=mix(grain_px,max(.85,.21*grain_radius),sparse);
     float rotation=6.2831853*micro_hash(vec2(grain_tone*61.9,35.7));
     float extinction=0.0;
     for (int grain=0; grain<3; ++grain) {
         float angle=rotation+2.0943951*float(grain);
-        vec2 delta=vec2(cos(angle),sin(angle))*.74*grain_px;
+        vec2 delta=vec2(cos(angle),sin(angle))*.74*grain_px*(1.0-sparse);
         float distance_px=length(grain_xy*grain_radius-delta);
-        extinction+=clamp(grain_px*.58+.5-distance_px,0.0,.86);
+        float count_weight=(grain==0 ? 1.0 : 1.0-sparse);
+        extinction+=count_weight*clamp(grain_px*.58+.5-distance_px,0.0,.86);
     }
     float isolated=1.0-exp(-1.65*extinction);
-    coverage=mix(coverage,max(isolated,fringe),discrete);
-    vec2 single_uv=vec2(micro_hash(vec2(grain_tone*53.1,73.7)),
-                        micro_hash(vec2(37.9,grain_tone*91.3+3.1)));
-    single_uv=(floor(single_uv*short_texture_size)+.5)/short_texture_size;
-    rgb=mix(rgb,micro_material_rgb(single_uv,grain_local),discrete);
+    coverage=mix(coverage,max(isolated,fringe*(1.0-sparse)),discrete);
+    float material_mix=0.0;
+#ifdef HG_CARRIER
+    if (short_join_enabled > .5)
+        material_mix=sand_mix_pin>=0.0 ? grain_birth_blend : 1.0;
+#endif
+    vec3 rgb=vec3(0.0);
+    if (material_mix<1.0) {
+        vec2 pigment_uv=vec2(micro_hash(cell+grain_tone*53.1+73.7),
+                             micro_hash(cell+grain_tone*91.3+vec2(37.9,3.1)));
+        vec2 single_uv=vec2(micro_hash(vec2(grain_tone*53.1,73.7)),
+                            micro_hash(vec2(37.9,grain_tone*91.3+3.1)));
+        vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
+        single_uv=(floor(single_uv*short_texture_size)+.5)/short_texture_size;
+        rgb=mix(micro_material_rgb(uv,local),micro_material_rgb(single_uv,grain_local),discrete);
+    }
+#ifdef HG_CARRIER
+    if (material_mix>0.0) {
+        vec2 throat=short_geometry.yz;
+        // Overlapping sprites in the body expose the same moving sand as the
+        // reservoir. Only separated rim grains and the last sparse grains
+        // carry individual patches, sampled at their own release position.
+        vec2 stretch;
+        vec2 coord=sand_coordinates(sand_position,stretch);
+        float loose=max(sparse,smoothstep(.40,1.0,radial)*smoothstep(.6*throat.y,4.2*throat.y,depth));
+        if (loose > 0.0) {
+            vec2 local_px=grain_local*grain_radius*vec2(1.0,short_aspect);
+            float turn=loose*(rotation-3.14159);
+            mat2 facet=mat2(cos(turn),-sin(turn),sin(turn),cos(turn));
+            vec2 born=vec2(.5,.31)+sand_advection(grain_birth.y,grain_birth.zw)
+                     +throat_texel_scale()*(vec2(grain_birth.x-sand_geometry.x,
+                                                  throat.x-sand_geometry.z)+facet*local_px);
+            coord+=loose*(fract(born-coord+.5)-.5);
+            stretch=mix(stretch,vec2(1.0),loose);
+        }
+        float pigment=flowing_sand_detail(coord,stretch,short_geometry.w);
+        rgb=mix(rgb,flowing_sand_colour(pigment,sand_position),material_mix);
+    }
+#endif
     float wall=lower_glass_ceiling(abs(sand_position.x-short_geometry.x));
     if (abs(sand_position.x-short_geometry.x)>short_geometry.z)
         coverage*=smoothstep(.25,1.0,wall-sand_position.y);
@@ -650,12 +667,6 @@ float clump_hash(vec2 p) {
     return fract((p3.x + p3.y) * p3.z);
 }
 """
-BASIC_FRAGMENT_BODY = ((FRAGMENT_BODY[:FRAGMENT_BODY.index('    // Carry a small upstream texture patch')]
-    + FRAGMENT_BODY[FRAGMENT_BODY.index('    // Few-pixel streams need lateral'):])
-    .replace('varying vec4 grain_birth;\n','')
-    .replace('varying float grain_birth_blend;\n',''))
-
-
 def install(widget_class):
     import numpy as np
     from kivy.graphics import Color, Mesh, Callback
@@ -681,8 +692,8 @@ def install(widget_class):
             if self._sand_material is None or self._sand_material.texture is None:
                 raise RuntimeError("particle material unavailable")
             for mode, vertex, fragment in (
-                    ('carrier',VERTEX_SHADER,GRAIN_FRAGMENT_HEADER+FRAGMENT_BODY),
-                    ('basic_grains',BASIC_VERTEX_SHADER,BASIC_FRAGMENT_HEADER+BASIC_FRAGMENT_BODY)):
+                    ('carrier',VERTEX_SHADER,GRAIN_FRAGMENT_HEADER+'\n#define HG_CARRIER\n'+FRAGMENT_BODY),
+                    ('basic_grains',BASIC_VERTEX_SHADER,BASIC_FRAGMENT_HEADER+FRAGMENT_BODY)):
                 try:
                     if mode == 'carrier' and os.environ.get('HG_FLOW_FORCE_CARRIER_FAIL'):
                         raise RuntimeError('forced carrier material failure')
@@ -816,10 +827,18 @@ def install(widget_class):
         context["short_strength"]=module.SAND_MATERIAL_GRAIN
         context["short_texture_size"]=tuple(map(float,getattr(self._sand_material.texture,"size",(512,512))))
         context["short_join_overlap"]=module.OUTLET_OVERLAP
+        timing=getattr(self,'_sand_timing',None)
+        context["short_drain"]=(max(0.,min(1.,1.-(timing[1]-self.elapsed)/self._sand_tail_span))
+                                if timing else 0.)
         context["short_aspect"]=aspect
-        context["short_glass"]=neck_clip_geometry(self._taper['in_pts'],2*self._neck_y,self._lower_y_c)
-        context["short_join_enabled"]=float(carrier and bool(self._sand_flow_contexts)
-                                            and not module.NECK_FREE_GEOM)
+        glass=neck_clip_geometry(self._taper['in_pts'],2*self._neck_y,self._lower_y_c)
+        context["short_glass"]=glass
+        joined=carrier and bool(self._sand_flow_contexts) and not module.NECK_FREE_GEOM
+        context["short_join_enabled"]=float(joined)
+        if carrier:
+            context["sand_throat"]=((outlet,self._taper['t_in'],pitch,self._taper['y_bot'])
+                                    if joined else (0.,0.,1.,0.))
+            context["sand_funnel"]=(glass[0],2*self._neck_y-glass[1])
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl",
             material_mode=self._short_material_mode,material_error=self._short_material_error,

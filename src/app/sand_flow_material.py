@@ -34,6 +34,7 @@ uniform float sand_clock;
 // 🔴 **不回绕**的时间(秒) —— 材料坐标的平流用它(见 `sand_free_vref`)。
 uniform float sand_time;
 uniform float sand_mix;
+uniform float sand_mix_pin;
 uniform vec3 sand_tail; // mean top, grain-front amplitude, tube half-width
 uniform vec4 sand_free; // outlet y, 边缘松散度, tube half-width, 前沿 y (<=0 关闭)
 uniform float sand_seam_band;   // 交界过渡半带宽(**球直径的比例**); <=0 ⇒ 阶跃(旧行为)
@@ -230,7 +231,9 @@ uniform float sand_up_scroll;
 uniform float sand_up_scale;
 // Only the neck context enables its existing short overlap with real grains.
 uniform vec2 sand_outlet_join; // outlet y, overlap length in canvas pixels
-uniform vec2 sand_lip_width;   // full and still-supplied half widths
+uniform vec4 sand_throat;      // outlet y, half-width, grain pitch and straight inlet y
+uniform vec2 sand_funnel;      // glass half-width at the upper join and quadratic control y
+uniform float sand_neck_fill; // coverage of the final sub-grain layer
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -256,51 +259,106 @@ vec3 grain_tone_color(float detail, float illumination) {
     float tone = clamp(illumination + detail, -1.0, 1.0);
     return mix(sand_base, tone >= 0.0 ? sand_light : sand_dark, abs(tone));
 }
-vec3 neck_flow_rgb_at(vec2 position, float clock, vec2 scroll, float mix_amount) {
-    // Explicit sampling state also lets a real grain carry its birth patch.
-    // Never resample a falling grain from a slower current-world colour field.
-    float diameter = max(2.0, 2.0 * sand_geometry.y);
-    vec2 uv = vec2(.5 + (position.x-sand_geometry.x)/diameter,
-                   (position.y-sand_geometry.z)/diameter);
-    vec2 mouth = vec2((position.x-sand_geometry.x)/diameter,
-                     max(0.0,position.y-sand_geometry.w)/diameter);
-    float sink = 1.0/(1.0+20.0*mouth.x*mouth.x+8.0*mouth.y*mouth.y);
-    vec2 velocity = vec2(-(position.x-sand_geometry.x)*.09*sink,
-                         -(4.0+46.0*sink)*sand_flow_vy)/diameter;
-    bool frozen = sand_adv_cont > 0.0 && sand_up_scroll == 0.0;
-    bool scrolling = sand_adv_cont > 0.0 && sand_up_scroll > 0.0;
-    float t = (frozen ? 0.0 : clock)+.2*sin(mouth.x*3.1+mouth.y*5.2);
-    float a=fract(t), b=fract(t+.5);
-    float wa=1.0-abs(1.0-2.0*a), wb=1.0-wa;
-    vec2 jump=vec2(.125,.0625*sand_jump_y);
-    vec2 sa=uv-velocity*a, sb=uv-velocity*b;
-    if (scrolling) { sa=uv+scroll; sb=sa; }
-    float ga=grain(sa+floor(t)*jump*(scrolling ? 0.0 : 1.0));
-    float gb=grain(sb+floor(t+.5)*jump+vec2(.5));
-    float detail=scrolling ? ga : (ga*wa+gb*wb)*inversesqrt(wa*wa+wb*wb);
-    if (!frozen && !scrolling) {
-        // 47.5 canvas pixels per motion-second matches the grains at release.
-        // Use an integer number of texture repeats per 16 s shader-clock wrap.
-        float travel=47.5*16.0;
-        float repeats=max(1.0,floor(travel/diameter+.5));
-        vec2 patch=(position-vec2(sand_geometry.x,sand_geometry.z))*repeats/travel
-                   +vec2(.5,.31+clock*repeats/16.0);
-        detail=mix(detail,1.85*grain(patch),.78);
-    }
-    vec2 luv=sand_wrap_light > 0.0 ? vec2(uv.x,fract(uv.y)) : uv;
-    vec3 flowing=grain_tone_color(detail,lighting(luv));
-    if (mix_amount >= 1.0) return flowing;
-    vec2 neck_uv=vec2(uv.x,sand_neck_anchor-uv.y);
-    float band=sand_seam_band*diameter;
-    float blend=band > 0.0 ? smoothstep(-band,band,position.y-sand_geometry.z)
-                           : step(sand_geometry.z,position.y);
-    vec3 original=mix(texture2D(texture0,fract(neck_uv)).rgb,
-                      texture2D(texture0,uv).rgb,blend);
-    return mix(original,flowing,mix_amount);
+float throat_texel_scale() {
+    // Integer texture repeats keep the bounded sixteen-second clock seamless.
+    const float travel=47.5*16.0;
+    return max(1.0,floor(travel/max(2.0,2.0*sand_geometry.y)+.5))/travel;
 }
-vec3 neck_flow_rgb(vec2 position) {
-    return neck_flow_rgb_at(position,sand_clock,
-        vec2(.125,.0625*sand_jump_y)*sand_time,sand_mix);
+vec2 sand_advection(float clock, vec2 scroll) {
+    if (sand_adv_cont > 0.0 && sand_up_scroll >= 0.0)
+        return sand_up_scroll > 0.0 ? scroll : vec2(0.0);
+    return vec2(0.0,clock*47.5*throat_texel_scale());
+}
+vec2 sand_coordinates(vec2 position, out vec2 stretch) {
+    float depth=sand_throat.x-position.y;
+    float below=max(0.0,depth);
+    float rise=max(0.0,position.y-sand_throat.w);
+    float above=rise/max(1.0,2.0*sand_throat.y);
+    // A point keeps its streamline and its time of passage through the lip.
+    // The supply converges and accelerates from the bowl into the neck.
+    float speed=sqrt(47.5*47.5+900.0*below);
+    float flight=2.0*below/(47.5+speed);
+    float height=max(0.0,-depth)+rise*.82*above/(1.0+above)-47.5*flight;
+    float width=pow(1.0+below/max(1.0,4.5*sand_throat.y),-.25);
+    if (rise>0.0) {
+        float wall;
+        if (position.y<sand_geometry.w) {
+            // Invert the same quadratic used to draw the funnel wall.
+            float b=2.0*(sand_funnel.y-sand_throat.w);
+            float a=sand_geometry.w-sand_throat.w-b;
+            float u=clamp(2.0*rise/max(.001,b+sqrt(max(0.0,b*b+4.0*a*rise))),0.0,1.0);
+            wall=mix(sand_throat.y,sand_funnel.x,u*u);
+        } else {
+            float h=clamp(position.y-sand_geometry.z,0.0,sand_geometry.y);
+            wall=sqrt(h*(2.0*sand_geometry.y-h));
+        }
+        // The moving central supply follows the funnel. Near the widest part
+        // of the bowl it approaches a broad column of slowly settling sand.
+        float extra=max(0.0,wall/sand_throat.y-1.0);
+        width=1.0+extra/(1.0+.48*extra);
+    }
+    float derivative=1.0+.82*(1.0-1.0/((1.0+above)*(1.0+above)));
+    stretch=vec2(width,(speed/47.5)/derivative);
+    float scale=throat_texel_scale();
+    vec2 scroll=vec2(.125,.0625*sand_jump_y)*sand_time;
+    return vec2(.5,.31)+sand_advection(sand_clock,scroll)+scale*
+          vec2((position.x-sand_geometry.x)/width,sand_throat.x-sand_geometry.z+height);
+}
+vec3 sand_site_seed(vec2 id) {
+    vec3 p=fract(id.xyx*vec3(.1031,.1030,.0973));
+    p+=dot(p,p.yxz+33.33);
+    return fract((p.xxy+p.yzz)*p.zyx);
+}
+void sand_site(vec2 id,vec2 local,vec2 stretch,float layer,float layer_cost,float cells,
+               inout vec3 front,inout vec3 next_site) {
+    vec3 seed=sand_site_seed(mod(id,cells)+vec2(23.71,9.13)*layer);
+    vec2 delta=(local-(.17+.66*seed.xy))*stretch;
+    vec2 facet=vec2(delta.x+.21*(seed.z-.5)*delta.y,delta.y);
+    float d2=dot(facet,facet);
+    float radius=.36+.12*seed.z;
+    // A front grain conceals deeper grains until acceleration opens a gap.
+    // The distance is in physical grain units, so its footprint stays compact.
+    float score=max(0.0,d2-radius*radius)+.16*d2+layer_cost*layer;
+    vec2 pigment=(mod(id,cells)+.5+.43*facet)/cells
+                 +vec2(.37,.19)*layer+seed.z*vec2(.21,.13);
+    vec3 site=vec3(score,pigment);
+    if (score<front.x) { next_site=front;front=site; }
+    else if (score<next_site.x) next_site=site;
+}
+float flowing_sand_detail(vec2 coord,vec2 stretch,float pitch) {
+    float cells=max(8.0,floor(.5+1.0/(1.06*pitch*throat_texel_scale())));
+    vec2 q=fract(coord)*cells;
+    vec3 front=vec3(1.e4,0.0,0.0),next_site=front;
+    float layer_cost=mix(.038,.018,smoothstep(3.0,12.0,stretch.y));
+    for (int k=0;k<10;++k) {
+        float layer=float(k);
+        if (next_site.x<layer_cost*layer) break;
+        vec2 base=q+fract(layer*vec2(.7548777,.5698403));
+        vec2 p=base;
+        p.y+=fract(mod(floor(p.x),cells)*.618034+layer*.381966);
+        vec2 id=floor(p),local=fract(p);
+        sand_site(id,local,stretch,layer,layer_cost,cells,front,next_site);
+        if (stretch.y<.90 && abs(local.y-.5)>.24) {
+            vec2 neighbour=vec2(0.0,sign(local.y-.5));
+            sand_site(id+neighbour,local-neighbour,stretch,layer,layer_cost,cells,front,next_site);
+        }
+        if (stretch.y>1.6 || abs(local.x-.5)>.24) {
+            float col=id.x+(local.x>=.5 ? 1.0 : -1.0);
+            float row=base.y+fract(mod(col,cells)*.618034+layer*.381966);
+            sand_site(vec2(col,floor(row)),vec2(base.x-col,fract(row)),
+                      stretch,layer,layer_cost,cells,front,next_site);
+        }
+    }
+    float edge=.5*(1.0-smoothstep(0.0,.016+.12/max(.8,pitch),next_site.x-front.x));
+    float visible=mix(grain(front.yz),grain(next_site.yz),edge);
+    // Adjacent grains arriving from the same part of the reservoir retain
+    // a common pigment variation as the front grains reveal the ones behind.
+    return .84*visible+.50*grain(coord);
+}
+vec3 flowing_sand_colour(float detail, vec2 position) {
+    vec2 uv=vec2(.5+(position.x-sand_geometry.x)/(2.0*sand_geometry.y),
+                 (position.y-sand_geometry.z)/(2.0*sand_geometry.y));
+    return grain_tone_color(1.48*detail,lighting(uv));
 }
 // 程序化平滑噪声(聚团场) —— 见 `sand_clump_gap` 那段。
 // ⚠️ 哈希**不用 `sin`**(Dave Hoskins 那个无 sin 版本): 移动 GPU 上 `sin` 常是 mediump,
@@ -591,8 +649,11 @@ void main(void) {
         samp_a.y *= sand_up_scale;
         samp_b.y *= sand_up_scale;
     }
-    float ga = grain(samp_a * ck + floor(t) * jump * sec * (1.0 - up_scroll));
-    float gb = grain(samp_b * ck + floor(t + 0.5) * jump * sec + vec2(0.5));
+    float ga=0.0,gb=0.0;
+    if (sand_throat.y<=0.0 || sand_uv_debug>.5) {
+        ga=grain(samp_a * ck + floor(t) * jump * sec * (1.0 - up_scroll));
+        gb=grain(samp_b * ck + floor(t + 0.5) * jump * sec + vec2(0.5));
+    }
     float detail = (sec < 0.5)
         ? ga * sand_free_grain
         : ((up_scroll > 0.5) ? ga
@@ -607,10 +668,13 @@ void main(void) {
     float coverage = 1.0;
     if (sand_tail.y > 0.0) {
         float u = 0.5 + (sand_position.x - sand_geometry.x) / (2.0 * sand_tail.z);
-        // Mirrored grain noise is odd across the tube: no net added cap volume.
+        // The centre drains first. The shallow bowl and the mirrored grain
+        // noise both average to zero across the width of the free surface.
         float left = grain(vec2(u, sand_clock * 0.25 + 0.37));
         float right = grain(vec2(1.0 - u, sand_clock * 0.25 + 0.37));
-        float top = sand_tail.x + sand_tail.y * clamp((left - right) * 0.7, -1.0, 1.0);
+        float radial=clamp(2.0*u-1.0,-1.0,1.0);
+        float top = sand_tail.x + sand_tail.y * clamp(.90*(radial*radial-1.0/3.0)
+                                                     +.65*(left-right),-1.0,1.0);
         coverage = 1.0 - smoothstep(top - 0.5, top + 0.5, sand_position.y);
     }
     float tail_coverage = coverage;
@@ -795,14 +859,6 @@ void main(void) {
         coverage = tail_coverage * (1.0-smoothstep(0.0,sand_outlet_join.y,
                                       sand_outlet_join.x-sand_position.y));
     }
-    if (sand_outlet_join.x > 0.0 && sand_lip_width.y < sand_lip_width.x) {
-        float above=sand_position.y-sand_outlet_join.x;
-        float mouth_weight=1.0-smoothstep(0.0,1.25*sand_lip_width.x,above);
-        if (mouth_weight > 0.0) {
-            float width=mix(sand_lip_width.x,sand_lip_width.y,mouth_weight);
-            coverage*=1.0-smoothstep(width-.7,width+.7,abs(sand_position.x-sand_geometry.x));
-        }
-    }
     if (sand_free.w > 0.0 && sand_position.y < sand_free.w) {
         // 前沿(在途沙的最低点): 不许切成一刀平。1~5px 的零均值锯齿。
         float l2 = grain(vec2(sand_position.x * 0.35, sand_clock * 0.22 + 0.11));
@@ -853,13 +909,19 @@ void main(void) {
         }
         return;
     }
-    vec3 final_rgb = outlet_join ? neck_flow_rgb(sand_position)
-                                : mix(original.rgb, flowing, sand_mix);
-    if (sand_outlet_join.x > 0.0 && sand_outlet_join.y > 0.0 && !outlet_join) {
-        float above=sand_position.y-sand_outlet_join.x;
-        float band=max(3.0,.055*diameter);
-        if (above < band)
-            final_rgb=mix(neck_flow_rgb(sand_position),final_rgb,smoothstep(0.0,band,above));
+    vec3 final_rgb;
+    if (sand_throat.y > 0.0) {
+        vec2 stretch;
+        vec2 coord=sand_coordinates(sand_position,stretch);
+        float pigment=flowing_sand_detail(coord,stretch,sand_throat.z);
+        float material_mix=sand_mix_pin>=0.0 ? sand_mix : 1.0;
+        final_rgb=mix(original.rgb,flowing_sand_colour(pigment,sand_position),material_mix);
+        if (sand_neck_fill < 1.0) {
+            float last_grain=.50+.38*clamp(2.5*grain(coord),-1.0,1.0);
+            coverage*=smoothstep(last_grain-.12,last_grain+.12,sand_neck_fill);
+        }
+    } else {
+        final_rgb=mix(original.rgb,flowing,sand_mix);
     }
     gl_FragColor = frag_color * vec4(final_rgb,
                                      original.a * coverage);
@@ -1024,7 +1086,9 @@ class SandFlowContext(RenderContext):
         self["sand_tail"] = (0.0, 0.0, 1.0)
         self["sand_free"] = (0.0, 0.0, 1.0, 0.0)
         self["sand_outlet_join"] = (0.0, 0.0)
-        self["sand_lip_width"] = (1.0, 1.0)
+        self["sand_throat"] = (0.0, 0.0, 1.0, 0.0)
+        self["sand_funnel"] = (0.0, 0.0)
+        self["sand_neck_fill"] = 1.0
         _sb = _flag_float("HG_SEAM_BAND", "seamband")
         self["sand_seam_band"] = 0.0 if _sb is None else float(_sb)
         _sa = _flag_float("HG_SEAM_ANCHOR", "seamanchor")

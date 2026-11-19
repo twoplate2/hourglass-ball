@@ -116,16 +116,6 @@ class BirthMaterialPayloadTests(unittest.TestCase):
 
 
 class StreamFringeTests(unittest.TestCase):
-    def test_draining_neck_follows_grains_still_touching_the_lip(self):
-        args = dict(center=100., outlet=200., half=40., pitch=3.)
-        xs = [91., 107., 138.]
-        ys = [197., 196., 145.]
-        width = renderer.occupied_lip_half(xs, ys, **args)
-        self.assertGreaterEqual(width, 9.)
-        self.assertLess(width, 16.)
-        self.assertEqual(renderer.occupied_lip_half([139.], [199.], **args), 40.)
-        self.assertLess(renderer.occupied_lip_half([], [], **args), width)
-
     def test_outer_births_keep_a_moving_rim_after_the_jet_contracts(self):
         # A side grain deep in the 50 s column can be only half an outlet
         # radius away from the axis. Its birth lane still identifies the rim.

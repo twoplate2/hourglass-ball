@@ -628,7 +628,7 @@ class ParticleFallbackTests(unittest.TestCase):
 
         class Context(dict):
             def __init__(self, *args, **kwargs):
-                if carrier_failure and 'grain_birth' in args[2]:
+                if carrier_failure and 'attribute vec4 vBirth;' in args[1]:
                     raise RuntimeError('synthetic carrier shader compile failure')
                 super().__init__(sand_jump_y=1.,sand_mix_pin=-1.)
 
@@ -739,6 +739,10 @@ class ParticleFallbackTests(unittest.TestCase):
                         self.assertTrue(all(isinstance(v,float) for v in widget._short_flow_context['short_texture_size']),
                                         'vec2纹理尺寸必须上传float，整数向量会走错误的uniform类型')
                         self.assertEqual(widget._short_flow_context['short_glass'],(45.,378.,370.,170.))
+                        if not basic:
+                            self.assertEqual(widget._short_flow_context['sand_throat'],
+                                (380.,aperture_half,widget._short_flow_state['pitch'],420.))
+                            self.assertEqual(widget._short_flow_context['sand_funnel'],(45.,422.))
                         self.assertEqual(assert_particle_meshes(widget),count)
                         self.assertEqual(sum(widget._particle_counts),count)
                         for mesh,active in zip(widget._particle_meshes,widget._particle_counts):

@@ -41,6 +41,24 @@ def real_update_flow():
 
 
 class CoarseFlowTests(unittest.TestCase):
+    def test_remaining_sand_and_emission_drain_together(self):
+        tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
+        widget = next(n for n in tree.body if getattr(n, "name", None) == "HourglassWidget")
+        method = next(n for n in widget.body if getattr(n, "name", None) == "_released_fraction_at")
+        env = {}
+        exec(compile(ast.Module([deepcopy(method)], []), "main.py", "exec"), env)
+        for duration in (1., 5., 50.):
+            start, end = .10, duration - 1./60.
+            span = min(.4, .2 * (end - start))
+            w = SimpleNamespace(_transfer_timing=lambda: (start, end, .002), _sand_tail_span=span)
+            release = lambda t: env[method.name](w, t)
+            self.assertEqual(release(0.), 0.)
+            self.assertEqual(release(duration), 1.)
+            remaining = 1. - release(end - span)
+            self.assertGreater(remaining, 0.)
+            self.assertAlmostEqual((1. - release(end - .5 * span)) / remaining, .125)
+            self.assertAlmostEqual(release(.35) - release(.30), release(.30) - release(.25))
+
     def test_tablet_jet_spreads_contraction_over_the_visible_fall(self):
         parameters = style_function("coarse_width_parameters")
         # Y700 recordings: outlet half-widths for the 5, 20 and 50 s timers.

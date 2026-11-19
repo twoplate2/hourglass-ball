@@ -4422,12 +4422,20 @@ class HourglassWidget(Widget):
             end = max(start + 1e-6, self.duration - 1.0 / 60.0)
             sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
             reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
+            from grain_style import tail_duration
+            self._sand_tail_span = tail_duration(outlet - self._lower_sand_top, scale, end - start)
             self._sand_timing = (start, end, reserve)
         return self._sand_timing
 
     def _released_fraction_at(self, elapsed):
+        from grain_style import tail_emission_time
         start, end, _reserve = self._transfer_timing()
-        return max(0.0, min(1.0, (elapsed - start) / (end - start)))
+        if elapsed <= start:
+            return 0.0
+        if elapsed >= end:
+            return 1.0
+        span = self._sand_tail_span
+        return 1.0 - tail_emission_time(end - elapsed, span) / tail_emission_time(end - start, span)
 
     def _upper_sand_fraction(self):
         if self.duration <= 0 or not self._geom_ready:
@@ -4905,7 +4913,8 @@ class HourglassWidget(Widget):
         if (OUTLET_OVERLAP > 0.0 and side
                 and abs(side[-1][1] - y_end) < 3.0):
             _x_last, _y_last = side[-1]
-            side[-1] = (_x_last, _y_last - OUTLET_OVERLAP)
+            overlap = min(OUTLET_OVERLAP, .4 * max(0., side[0][1] - y_end))
+            side[-1] = (_x_last, _y_last - overlap)
         # 🔴 **容量断言(2026-10-09)。** `_neck_quads` 装不下时, 绘制循环
                 #    `for i in range(len(quads))` **静默丢掉最后几段, 一行报错都没有** ——
                 #    项目踩过(`len(side)=27 > 容量 25`, 画面"一点没变"而原因查了很久)。
@@ -6415,7 +6424,7 @@ class HourglassWidget(Widget):
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
         from short_grain_stream import stream_pitch,source_half_width,sprite_radius,emission_scale,coherent_birth,contact_upper_bound
-        from grain_style import tail_duration, tail_emission_time, tail_remaining_time
+        from grain_style import tail_emission_time, tail_remaining_time
         sprite_pitch=stream_pitch(self._R_inner,SAND_MATERIAL_COARSE,self._taper['t_in'])
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
@@ -6455,7 +6464,7 @@ class HourglassWidget(Widget):
             #    而在途粒子数 rate×飞行时间 = ~1400, 与 5s 的 ~2300 **同量级**, 不是性能爆炸。
             rate = FLOW_BASE_RATE * self._particle_motion_scale * emission_scale(self._R_inner,self._taper['t_in'])
             # 沙柱先接通出口; 在帧内均匀发射,避免每一帧生出一整排同龄沙粒。
-            tail_span = tail_duration(gen_y - self._lower_sand_top, motion_scale, end - start)
+            tail_span = self._sand_tail_span
             tapering = emit_end > end - tail_span
             if tapering:
                 end_budget = tail_emission_time(end - emit_end, tail_span)
@@ -6570,14 +6579,14 @@ class HourglassWidget(Widget):
                     position,initial_speed=coherent_birth(self._sprite_birth_index,lateral,speed,self._sprite_birth_shift)
                     self._sprite_birth_index += 1
                     x_off=position*source_clip
+                    if tapering:
+                        drain = max(0., 1. - (end - birth) / tail_span)
+                        initial_speed += 18. * (speed - .5) * drain * drain
                     vy0=-initial_speed*motion_scale
                 elif LIM_INSET and size > 1:
                     # 🔴 **2026-10-12(2.87): 线自己的半个宽度也不许探出瓶颈** —— 见 `LIM_INSET`。
                     #    等比缩(不是夹), 免得粒子在边缘堆成一条密线。
                     x_off *= max(0.0, x_clip - size * 0.5) / x_clip
-                if tapering:
-                    # Outer lanes finish first; every emitted grain keeps its real path.
-                    x_off *= min(1., max(.05, (end - birth) / tail_span))
                 if FLOW_WIDTH_CAP and size > FLOW_WIDTH_CAP:
                     # 🔴 2026-10-10: **只压线宽, 不动随机数流**(上面那次 `random.random()`
                     #    照抽, 只是结果被盖掉) ⇒ 同 seed 下粒子的位置/相位/寿命一字不变。
@@ -8381,24 +8390,14 @@ class HourglassWidget(Widget):
             side = []
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
-        outlet_half = self._taper["t_in"]
-        lip_half = outlet_half
-        if side and not NECK_FREE_GEOM and getattr(self, "_short_flow_context", None) is not None:
-            from grain_style import tail_duration
-            from short_grain_stream import occupied_lip_half, stream_pitch
-            start, end, _ = self._transfer_timing()
-            span = tail_duration(outlet - self._lower_sand_top, self._particle_motion_scale, end - start)
-            if self.elapsed > end - span:
-                pitch = stream_pitch(self._R_inner, SAND_MATERIAL_COARSE, outlet_half)
-                occupied = occupied_lip_half(self.px[:self.pn], self.py[:self.pn],
-                    center=self._cx, outlet=outlet, half=outlet_half, pitch=pitch)
-                lip_half = max(occupied, outlet_half * max(0., (end - self.elapsed) / span))
         tail_front = (0.0, 0.0, 1.0)
+        neck_fill = 1.0
         if (side and self._sand_flow_contexts and self._sand_material is not None
                 and self._upper_sand_fraction() <= 0.0):
             mean_top = side[0][1]
             grain_px = max(1.0, diameter / SAND_MATERIAL_SIZE * SAND_MATERIAL_COARSE)
-            amplitude = max(0.0, min(1.6 * grain_px, 0.45 * (mean_top - outlet),
+            neck_fill = min(1.0, max(0.0, (mean_top - outlet) / (3.0 * grain_px)))
+            amplitude = max(0.0, min(max(1.6 * grain_px, .20 * self._taper["t_in"]), 0.45 * (mean_top - outlet),
                                      0.45 * (inlet - mean_top)))
             if amplitude > 0.0:
                 # Enlarge only the draw bound; the shader cuts a zero-mean grain front.
@@ -8646,6 +8645,11 @@ class HourglassWidget(Widget):
                     if _ln.points:
                         _ln.points = []
         if self._sand_flow_contexts and self._sand_material is not None:
+            throat = (0.0, 0.0, 1.0, 0.0)
+            funnel = (0.0, 0.0)
+            if getattr(self, "_short_material_mode", None) == "carrier":
+                throat = self._short_flow_context["sand_throat"]
+                funnel = self._short_flow_context["sand_funnel"]
             for i, context in enumerate(self._sand_flow_contexts):
                 context.update_flow(self.elapsed, self._particle_motion_scale,
                                     self._sand_material, colors,
@@ -8656,8 +8660,10 @@ class HourglassWidget(Widget):
                     if i == 1 and not NECK_FREE_GEOM
                     and getattr(self, "_short_flow_context", None) is not None
                     else (0.0, 0.0))
+                context["sand_throat"] = throat
+                context["sand_funnel"] = funnel
                 if i == 1:
-                    context["sand_lip_width"] = (outlet_half, lip_half)
+                    context["sand_neck_fill"] = neck_fill
                 # 🔴 **2026-10-12(2.90): 上球材质"随沙体伸缩"** —— 1.244 的 tex_coords 行为。
                 #    用户判词:「我tmd都说了 要做成 v1.244 那样 …… 现在上面的沙子**完全不变化了**」。
                 #    实测复核: 1.244 的上球**帧间差 1.45**(在动!), 而 2.89 冻钟之后只有 **0.002**
