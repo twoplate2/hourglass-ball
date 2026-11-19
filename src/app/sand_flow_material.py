@@ -390,9 +390,10 @@ float throat_rim_coverage(vec2 position,float width_scale,float gap) {
     float wall_distance=abs(abs(position.x-sand_geometry.x)-half_width*width_scale);
     float rim=1.0-smoothstep(0.0,1.5*pitch,wall_distance);
     float resolved=smoothstep(2.4,6.0,half_width/pitch);
-    // A few grain-sized recesses start along the glass, then travel out
-    // with those same grains until their individual silhouettes take over.
-    return 1.0-smoothstep(.43,.86,1.35*release*rim*gap*resolved);
+    // Inside the glass, deeper grains show through gaps in the front layer.
+    // The same moving sites gradually expose the background past the lip.
+    float exposed=smoothstep(-.35*pitch,.42*half_width,depth);
+    return 1.0-mix(.10,1.0,exposed)*smoothstep(.43,.86,1.35*release*rim*gap*resolved);
 }
 float draining_grain_coverage(vec2 position,vec2 site,float feed) {
     if (feed>=1.0) return 1.0;

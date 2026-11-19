@@ -594,7 +594,7 @@ void main(void) {
     // material hand-off in the lip and the support against the mound.
     float disc_end=mix(2.0,1.45,smoothstep(.36,.70,radial));
     float discrete=smoothstep(short_join_overlap,disc_end*short_geometry.z+short_join_overlap,depth)
-        *mix(.72,1.0,clear_of_contact)*smoothstep(2.25,4.6,short_geometry.z/grain_radius);
+        *mix(.72,1.0,clear_of_contact);
     float sparse=smoothstep(.14,.70,short_drain);
     discrete=max(discrete,sparse);
     vec2 grain_jitter=vec2(micro_hash(vec2(grain_tone*73.7,31.1)),
@@ -603,8 +603,13 @@ void main(void) {
     // Falling cohorts spread vertically. Open small gaps in the body as well
     // as its edges, without adding a transparent sheet behind the grains.
     float free_distance=depth/(depth+2.4*short_geometry.z);
-    float core_footprint=mix(.49,.375,free_distance);
-    float grain_px=max(.8,mix(core_footprint,.25,smoothstep(.40,.90,radial))*grain_radius);
+    // Measure the fringe from the local jet, including at small apertures.
+    // Each moving grain supplies its own silhouette throughout the fall.
+    float fall_length=max(4.5*short_geometry.z,.34*sand_geometry.y);
+    float jet_half=short_geometry.z*pow(1.0+depth/fall_length,-.25);
+    float jet_radius=abs(sand_position.x-short_geometry.x)/jet_half;
+    float core_footprint=mix(.55,.48,free_distance)+.11*narrow;
+    float grain_px=max(.8,mix(core_footprint,.26,smoothstep(.72,1.05,jet_radius))*grain_radius);
     grain_px=mix(grain_px,max(.85,.21*grain_radius),sparse);
     float rotation=6.2831853*micro_hash(vec2(grain_tone*61.9,35.7));
     float extinction=0.0;
@@ -616,7 +621,8 @@ void main(void) {
         extinction+=count_weight*clamp(grain_px*.58+.5-distance_px,0.0,.86);
     }
     float isolated=1.0-exp(-1.65*extinction);
-    coverage=mix(coverage,max(isolated,fringe*(1.0-sparse)),discrete);
+    float loose_fringe=fringe*mix(.78,.16,smoothstep(.82,1.25,jet_radius));
+    coverage=mix(coverage,max(isolated,loose_fringe*(1.0-sparse)),discrete);
     float material_mix=0.0;
 #ifdef HG_CARRIER
     if (short_join_enabled > .5)
