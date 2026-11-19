@@ -3,6 +3,45 @@
 import math
 
 
+def first_pile_height(height, age, mouth):
+    """Ease the shared visible and contact surface after the first real impact."""
+    if height <= 0 or age >= .45:
+        return height
+    phase = max(0., age) / .45
+    blend = phase * phase * (3. - 2. * phase)
+    early = mouth * (.22 + 7. * max(0., age))
+    return height - max(0., height - early) * (1. - blend)
+
+
+def coarse_width_parameters(half, pitch, original_floor, original_ramp):
+    """Jet contraction length, minimum width, and smooth lip transition."""
+    mouth = max(1., 2. * half)
+    # A few-pixel opening still needs room for a grain on each side.
+    floor = min(original_floor, max(.60, 4. * pitch / max(1., half)))
+    return mouth, floor, min(original_ramp, .40 * mouth)
+
+
+def tail_duration(clearance, motion_scale, transfer_duration):
+    """Give the last cohorts time to separate before crossing the final free gap."""
+    gap = max(1., clearance)
+    flight = 2. * gap / (47.5 + math.sqrt(47.5**2 + 900. * gap)) / motion_scale
+    return min(.20 * transfer_duration, 1.24 * flight)
+
+
+def tail_emission_time(remaining, span):
+    """Integral of a steady particle rate that falls quadratically to zero."""
+    if remaining >= span:
+        return remaining - 2. * span / 3.
+    return max(0., remaining)**3 / (3. * span * span)
+
+
+def tail_remaining_time(budget, span):
+    """Recover the exact remaining time at a grain's birth from that integral."""
+    if budget >= span / 3.:
+        return budget + 2. * span / 3.
+    return (max(0., budget) * 3. * span * span)**(1. / 3.)
+
+
 def drained_stream_y(xs, ys, *, center, outlet, half, pitch, supplied):
     """Round only the exposed rear edge of an already exhausted stream.
 

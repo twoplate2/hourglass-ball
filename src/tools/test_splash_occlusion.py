@@ -39,7 +39,7 @@ def render(batch,xs,ys,hws,hhs,curve):
     def tinted(n,x,y,hw,hh,rgba):submit(n,x,y,hw,hh)
     w=SimpleNamespace(_sn=len(xs),sx=np.array(xs,float),sy=np.array(ys,float),
         srw=np.array(hws,float),srh=np.array(hhs,float),_mound_carve=SimpleNamespace(_v=curve),
-        _lower_sand_bot=0,_splash_group=FakeGroup(),_splash_rects=[],
+        _lower_sand_bot=0,_R_inner=209.,_splash_group=FakeGroup(),_splash_rects=[],
         svy=np.full(len(xs),-20.),srest=np.zeros(len(xs)),sstill=np.zeros(len(xs)),
         sgd=np.full(len(xs),.81),shh=np.array(hhs,float),
         sand_base=(.8,.6,.3),sand_light=(.95,.8,.5),_splash_color=SimpleNamespace(rgba=(1,1,1,1)),

@@ -53,7 +53,7 @@ def widget(batch):
     w=SimpleNamespace(_sn=2,sx=np.array([5.,8.]),sy=np.array([30.,10.]),
         svy=np.array([-20.,0.]),srest=np.array([0.,.15]),sstill=np.zeros(2),sgd=np.array([.81,.92]),
         shh=np.array([.5,.5]),srw=np.array([.5,.5]),srh=np.array([.5,.5]),
-        _mound_carve=SimpleNamespace(_v=curve()),_lower_sand_bot=0.,
+        _mound_carve=SimpleNamespace(_v=curve()),_lower_sand_bot=0.,_R_inner=209.,
         sand_base=(.8,.6,.3),sand_light=(.95,.8,.5),_splash_color=SimpleNamespace(rgba=(1,1,1,1)),
         _splash_group=FakeGroup(),_splash_rects=[],
         _splash_batch=SimpleNamespace(update_arrays=old,update_tinted_arrays=tinted) if batch else None)

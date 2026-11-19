@@ -40,6 +40,71 @@ def real_update_flow():
     return namespace["update_flow"]
 
 
+class CoarseFlowTests(unittest.TestCase):
+    def test_wide_stream_gradually_contracts_but_thin_mouth_keeps_grain_support(self):
+        parameters = style_function("coarse_width_parameters")
+        mouth, floor, ramp = parameters(31., 1.85, .87, 92.)
+        def ratio(depth):
+            target = max(floor, (1. + depth / mouth)**-.25)
+            return 1. + (target - 1.) * min(1., depth / ramp)
+        self.assertGreater(ratio(.1 * mouth), .96)
+        self.assertAlmostEqual(ratio(4. * mouth), 5.**-.25)
+        self.assertLess(ratio(6. * mouth), ratio(4. * mouth))
+        self.assertGreaterEqual(parameters(3., .8, .87, 92.)[1], .85)
+
+    def test_contact_patch_returns_to_both_slopes_without_a_vertical_step(self):
+        tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
+        widget = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HourglassWidget")
+        method = next(n for n in widget.body if getattr(n, "name", None) == "_draw_contact_grains")
+        ns = {"FLOW_SHRINK_MIN": .87, "MOUND_CREST_MARGIN": 10.}
+        exec(compile(ast.Module([deepcopy(method)], []), "main.py", "exec"), ns)
+        segments = {}
+        band = SimpleNamespace(set=segments.__setitem__, flush=lambda: None)
+        surface = lambda dx: 100. - .6 * abs(dx)
+        w = SimpleNamespace(pn=100, _mound_profile=SimpleNamespace(
+            column=lambda dx, apex: (surface(dx), True, 20.)), _last_impact_clock=1.,
+            _mound_flow_clock=1., _contact_grains=band, _taper={"t_in":62., "y_bot":400.},
+            _R_inner=419., _neck_y=450., _mound_apex=lambda:100., _cx=0., _lower_sand_bot=0.,
+            _contact_grain_color=SimpleNamespace(), _sand_material=None, sand_base=(1.,.5,.2))
+        ns[method.name](w)
+        self.assertAlmostEqual(segments[0][7], surface(segments[0][0]))
+        self.assertAlmostEqual(segments[7][5], surface(segments[7][2]))
+        self.assertGreater(segments[4][7], surface(0.) + 1.)
+
+    def test_landing_keeps_an_immediate_pile_and_spreads_the_initial_jump(self):
+        limit = style_function("first_pile_height")
+        mouth = 62.65
+        ages = (0, 1/30, 2/30, .20, .45, 1.)
+        raw = (22.5, 75.8, 89.7, 130., 164., 200.)
+        heights = [limit(h, age, mouth) for h, age in zip(raw, ages)]
+        self.assertGreater(heights[0], 8)
+        self.assertLess(heights[1], 43)
+        self.assertLess(heights[2] - heights[1], 25)
+        self.assertEqual(heights[-2:], list(raw[-2:]))
+        self.assertEqual(heights, sorted(heights))
+        self.assertEqual(limit(0., 0., mouth), 0.)
+        self.assertAlmostEqual(limit(2*raw[1], ages[1], 2*mouth), 2*heights[1])
+
+    def test_tail_births_remain_ordered_across_the_rate_transition(self):
+        budget = style_function("tail_emission_time")
+        inverse = style_function("tail_remaining_time")
+        span = .13
+        for remaining in (0., .0001, .03, .1, span, .25, 1.):
+            self.assertAlmostEqual(inverse(budget(remaining, span), span), remaining, places=12)
+        self.assertAlmostEqual(budget(.30, span) - budget(.20, span), .1)
+        self.assertLess(budget(.03, span), .003)
+        self.assertAlmostEqual(budget(span, span), span / 3)
+
+    def test_terminal_release_covers_the_flight_to_the_full_pile_at_both_sizes(self):
+        duration = style_function("tail_duration")
+        for gap, scale in ((15., 1.), (31., 1.4)):
+            span = duration(gap, scale, 4.7)
+            distance = 47.5 * scale * span + 225. * (scale * span)**2
+            self.assertGreaterEqual(distance, gap)
+            self.assertLess(distance, 2. * gap)
+        self.assertLessEqual(duration(50., 2., .25), .05)
+
+
 class Uniforms(dict):
     def __init__(self):
         super().__init__(sand_mix_pin=-1.0)

@@ -18,6 +18,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 import short_grain_stream as renderer
 
 
+class AdvectedRimTests(unittest.TestCase):
+    def test_contracted_rim_drifts_without_moving_lip_core_or_contact(self):
+        birth = np.arange(256) * .013
+        half = 32.
+        y = np.full(birth.shape, 160.)
+        x = np.full(birth.shape, .70 * half)
+        args = dict(center=0., outlet=300., half=half, surface=40.)
+        moved = renderer.advected_edge_positions(x, y, birth, **args)
+        self.assertGreater(np.ptp(moved), .32 * half)
+        np.testing.assert_array_equal(
+            moved, renderer.advected_edge_positions(x, y - 8., birth, **args))
+        for original, depth in ((x, 300.), (x, 40.), (x * .5, 160.)):
+            np.testing.assert_array_equal(
+                original, renderer.advected_edge_positions(
+                    original, np.full(birth.shape, depth), birth, **args))
+
+
 def assert_particle_meshes(widget):
     """核对实际上传的顶点和索引，不只相信 renderer 自报的粒子数。"""
     counts = widget._particle_counts
@@ -201,6 +218,7 @@ def snapshot(widget):
         appearance[key]=(float(widget.pxo[i]),float(widget.pwa[i]),int(widget.psz[i]))
         birth_material[key]=(float(widget.pbt[i]),float(widget.pbm[i]))
     cx, cy, x0, scale, n1 = widget._mound_contact_curve()
+    app = sys.modules[widget.__class__.__module__]
     return {
         "particles": rows,
         "curve": (list(cx), list(cy)),
@@ -213,8 +231,9 @@ def snapshot(widget):
         "birth_material":birth_material,
         "motion":dict(cx=widget._cx,cut=2*widget._neck_y-widget._taper['y_bot'],
             top=widget._lower_sand_top,center=widget._lower_y_c,radius=widget._R_inner,
+            coarse_width=hasattr(widget, '_coarse_width_parameters') and app._TWOIMPL >= 3,
             half=widget._taper['t_in'],pitch=renderer.stream_pitch(widget._R_inner,
-                sys.modules[widget.__class__.__module__].SAND_MATERIAL_COARSE,widget._taper['t_in'])),
+                app.SAND_MATERIAL_COARSE,widget._taper['t_in'])),
     }
 
 
@@ -261,7 +280,13 @@ class ContinuityTrace:
                     depth=max(0,m['cut']-predicted)
                     speed=60*before['scale']
                     target=max(.87,math.sqrt(speed/math.sqrt(speed*speed+2*abs(gravity)*depth)))
-                    shrink=1 if predicted>m['cut'] else 1+(target-1)*min(1,depth/92)
+                    ramp=92.
+                    if m.get('coarse_width'):
+                        diameter=max(1.,2.*m['half'])
+                        lower=min(.87,max(.60,4.*m['pitch']/max(1.,m['half'])))
+                        target=max(lower,(1.+depth/diameter)**-.25)
+                        ramp=min(ramp,.4*diameter)
+                    shrink=1 if predicted>m['cut'] else 1+(target-1)*min(1,depth/ramp)
                     fallen=max(0,m['cut']-predicted)
                     raw=off*shrink+math.sin(fallen*.07+key[0])*amp*(1-shrink*.4)
                     lim=m['half']

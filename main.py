@@ -4208,7 +4208,7 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            cap_radius = min(Ri * 0.12, self._taper["t_in"] * 1.1)
+            cap_radius = min(Ri * 0.22, self._taper["t_in"] * 2.0)
             shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC, cap_radius)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
@@ -4330,7 +4330,12 @@ class HourglassWidget(Widget):
 
     @property
     def _fall_delay(self):
-        return min(self._neck_fill_time + self._natural_flight_time + 0.05,
+        flight = self._natural_flight_time
+        if self._geom_ready and self.duration <= 5.0 and self._R_inner > 209.0:
+            # Keep short cycles on the timing of the 540 px reference glass.
+            distance = flight * (50.0 + 225.0 * flight) * 209.0 / self._R_inner
+            flight = (math.sqrt(50.0**2 + 900.0 * distance) - 50.0) / 450.0
+        return min(self._neck_fill_time + flight + 0.05,
                    self.duration * 0.45)
 
     @property
@@ -4472,6 +4477,10 @@ class HourglassWidget(Widget):
         v1, y1 = table[k]
         return y0 + (y1 - y0) * max(0.0, min(1.0, (fraction - v0) / max(1e-12, v1 - v0)))
 
+    def _coarse_width_parameters(self, pitch):
+        from grain_style import coarse_width_parameters
+        return coarse_width_parameters(self._taper["t_in"], pitch, FLOW_SHRINK_MIN, FLOW_SHRINK_RAMP)
+
     def _free_width_ratio(self, depth):
         """自由射流在**出口以下 depth 处**的半宽收缩比 (1.0 = 与孔径同宽)。
 
@@ -4488,6 +4497,13 @@ class HourglassWidget(Widget):
         """
         if not NECK_TAPER or depth <= 0.0:
             return 1.0
+        if _TWOIMPL >= 3:
+            from short_grain_stream import stream_pitch
+            half = self._taper["t_in"]
+            pitch = stream_pitch(self._R_inner, SAND_MATERIAL_COARSE, half)
+            mouth, floor, ramp = self._coarse_width_parameters(pitch)
+            ratio = max(floor, (1. + depth / mouth)**-.25)
+            return 1. + (ratio - 1.) * min(1., depth / ramp)
         if _TWOIMPL >= 2:
             # 零点挪到粒子那套的原点: 粒子的 `below_tube = _lower_ball_cut - y`,
             # 而本函数的 `depth = 出口 - y` ⇒ 等价的粒子深度 = depth - shift,
@@ -4920,6 +4936,13 @@ class HourglassWidget(Widget):
             apex = 0.0
         elif self._sand_active:
             apex = profile.apex_for_fraction(self._effective_fallen())
+            if self._first_impact_clock is not None:
+                age = self._mound_flow_clock - self._first_impact_clock
+                if age < .45:
+                    from grain_style import first_pile_height
+                    height = apex + profile.shape_at(0.)
+                    apex += first_pile_height(height, age * self._particle_motion_scale,
+                                              2. * self._taper["t_in"]) - height
         else:
             apex = profile.apex_for_height(h)
         self._mound_shape_cache = (key, apex)
@@ -6392,6 +6415,7 @@ class HourglassWidget(Widget):
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
         from short_grain_stream import stream_pitch,source_half_width,sprite_radius,emission_scale,coherent_birth,contact_upper_bound
+        from grain_style import tail_duration, tail_emission_time, tail_remaining_time
         sprite_pitch=stream_pitch(self._R_inner,SAND_MATERIAL_COARSE,self._taper['t_in'])
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
@@ -6431,7 +6455,14 @@ class HourglassWidget(Widget):
             #    而在途粒子数 rate×飞行时间 = ~1400, 与 5s 的 ~2300 **同量级**, 不是性能爆炸。
             rate = FLOW_BASE_RATE * self._particle_motion_scale * emission_scale(self._R_inner,self._taper['t_in'])
             # 沙柱先接通出口; 在帧内均匀发射,避免每一帧生出一整排同龄沙粒。
-            self.particle_acc += emit_dt * rate
+            tail_span = tail_duration(gen_y - self._lower_sand_top, motion_scale, end - start)
+            tapering = emit_end > end - tail_span
+            if tapering:
+                end_budget = tail_emission_time(end - emit_end, tail_span)
+                emit_units = tail_emission_time(end - emit_start, tail_span) - end_budget
+            else:
+                emit_units = emit_dt
+            self.particle_acc += emit_units * rate
             self._sand_pending += max(
                 0.0, self._released_fraction_at(emit_end)
                 - self._released_fraction_at(emit_start))
@@ -6507,6 +6538,12 @@ class HourglassWidget(Widget):
             #    `HG_LIM_INSET=0` ⇒ 逐位回到旧行为。
             for spawn_index in range(spawn_count):
                 self.particle_acc -= 1
+                remaining_budget = max(0.0, self.particle_acc) / rate
+                if tapering:
+                    birth = end - tail_remaining_time(end_budget + remaining_budget, tail_span)
+                else:
+                    birth = emit_end - remaining_budget
+                birth = max(emit_start, min(emit_end, birth))
                 x_off = random.uniform(-x_clip, x_clip)
                 vy0 = -random.uniform(35, 60) * motion_scale
                 # 后续字段沿用既有抽取顺序; 窄颈时 size 短路, 不抽额外随机数。
@@ -6538,6 +6575,9 @@ class HourglassWidget(Widget):
                     # 🔴 **2026-10-12(2.87): 线自己的半个宽度也不许探出瓶颈** —— 见 `LIM_INSET`。
                     #    等比缩(不是夹), 免得粒子在边缘堆成一条密线。
                     x_off *= max(0.0, x_clip - size * 0.5) / x_clip
+                if tapering:
+                    # Outer lanes finish first; every emitted grain keeps its real path.
+                    x_off *= min(1., max(.05, (end - birth) / tail_span))
                 if FLOW_WIDTH_CAP and size > FLOW_WIDTH_CAP:
                     # 🔴 2026-10-10: **只压线宽, 不动随机数流**(上面那次 `random.random()`
                     #    照抽, 只是结果被盖掉) ⇒ 同 seed 下粒子的位置/相位/寿命一字不变。
@@ -6562,8 +6602,6 @@ class HourglassWidget(Widget):
                 self.pli[i] = 1.0 if is_light else 0.0
                 self.psz[i] = size
                 self.ptl[i] = trail_time
-                birth = emit_end - max(0.0, self.particle_acc) / rate
-                birth = max(emit_start, min(emit_end, birth))
                 self.pdt[i] = max(0.0, self.elapsed - birth)
                 self.pbt[i] = birth
                 self.pbm[i] = motion_scale
@@ -6587,6 +6625,12 @@ class HourglassWidget(Widget):
         g = -450.0 * motion_scale * motion_scale
         g_abs = abs(g)
         source_speed = 60.0 * motion_scale
+        shrink_min, shrink_ramp = FLOW_SHRINK_MIN, FLOW_SHRINK_RAMP
+        if _TWOIMPL >= 3:
+            mouth, shrink_min, shrink_ramp = self._coarse_width_parameters(sprite_pitch)
+            # v²/(2g) sets the lateral contraction length. Each grain's actual
+            # launch velocity and gravity still determine its vertical trajectory.
+            source_speed = math.sqrt(2. * g_abs * mouth)
         source_speed_squared = source_speed * source_speed
         # 🔴 **`twoimpl=3`: 粒子的收缩零点从"下球截口"改到"直筒出口"**(= 柱子那套的零点)。
         #    物理上**出口才是自由落体的起点** —— 粒子本来就是在出口生成的; `_lower_ball_cut`
@@ -6604,9 +6648,9 @@ class HourglassWidget(Widget):
         #   落程越长饱和占比越高(长周期档几乎全程饱和)。
         #   ⚠️ 阈值附近有浮点舍入差 ⇒ 在 `b_sat` 附近留一小段**回退原式**的缓冲带,
         #      并且必须用 `tools/_probe_shrink_equiv.py` 做逐点数值对照, 不许口头说"等价"。
-        _m4 = FLOW_SHRINK_MIN ** -4.0
+        _m4 = shrink_min ** -4.0
         b_sat = (source_speed * source_speed * (_m4 - 1.0) / (2.0 * g_abs)
-                 if g_abs > 0.0 and 0.0 < FLOW_SHRINK_MIN < 1.0 else -1.0)
+                 if g_abs > 0.0 and 0.0 < shrink_min < 1.0 else -1.0)
         SAT_GUARD = 1.0        # 缓冲带(px): [b_sat - SAT_GUARD, b_sat) 仍走原式
         lower_top = self._lower_sand_top
         lower_center = self._lower_y_c
@@ -6636,12 +6680,12 @@ class HourglassWidget(Widget):
                     "g": g, "g_abs": g_abs, "mound_top": mound_top,
                     "contact_ceiling":contact_ceiling,
                     "kill_inset": KILL_INSET,
-                    "shrink_ramp": FLOW_SHRINK_RAMP,
+                    "shrink_ramp": shrink_ramp,
                     "gen_y": gen_y, "lower_cut": lower_cut,
                     "lower_top": lower_top, "lower_center": lower_center,
                     "tube_lim": tube_lim, "Ri2": Ri2, "lower_bot": lower_bot,
                     "source_speed": source_speed,
-                    "shrink_min": FLOW_SHRINK_MIN,
+                    "shrink_min": shrink_min,
                     # ★ 把**饱和阈值**也交给向量化路径(2026-10-07)。标量路径早就在
                     #   `below_tube >= b_sat + SAT_GUARD` 时短路成 `FLOW_SHRINK_MIN`
                     #   (省两次 sqrt), 而向量化路径**一直在对全部粒子算两次 `np.power`**
@@ -6728,17 +6772,17 @@ class HourglassWidget(Widget):
                     below_tube = lower_cut - y
                     if below_tube >= b_sat + SAT_GUARD:
                         # 已在饱和区: 原式恒等于 FLOW_SHRINK_MIN ⇒ 两次 sqrt 全省。
-                        target = FLOW_SHRINK_MIN
+                        target = shrink_min
                     else:
                         # ★ `** 0.5` → `sqrt`: 两处操作数都**非负** ⇒ 逐字等价,
                         #   而 CPython 里 `**0.5` 走 `pow`、明显慢于 `math.sqrt`。
                         v_at_y = sqrt(source_speed_squared + 2 * g_abs * below_tube)
                         target = sqrt(source_speed / v_at_y)
-                        if target <= FLOW_SHRINK_MIN:
-                            target = FLOW_SHRINK_MIN
+                        if target <= shrink_min:
+                            target = shrink_min
                     # 平滑过渡区长度(px)
-                    if below_tube < FLOW_SHRINK_RAMP:
-                        shrink = 1.0 + (target - 1.0) * (below_tube / FLOW_SHRINK_RAMP)
+                    if below_tube < shrink_ramp:
+                        shrink = 1.0 + (target - 1.0) * (below_tube / shrink_ramp)
                     else:
                         shrink = target
                 x = cx + x_offset * shrink + sin(fallen_dist * 0.07 + wobble_phase) \
@@ -8625,8 +8669,12 @@ class HourglassWidget(Widget):
         from short_grain_stream import visible_splash_sizes, splash_colours
         hws,hhs=self.srw,self.srh
         if self._sn and self._mound_carve is not None:
+            # Preserve single-pixel grains on small windows. On larger
+            # windows, reduce the area of each airborne decal.
+            draw_scale = max(.60, min(1.0, 209.0 / self._R_inner))
             hws,hhs=visible_splash_sizes(self._sn,self.sx,self.sy,self.srw,self.srh,
-                                         self._mound_carve._v,self._lower_sand_bot)
+                                         self._mound_carve._v,self._lower_sand_bot,
+                                         draw_scale=draw_scale)
         contact = None
         if self._sn and self._mound_carve is not None and getattr(self, '_taper', None):
             outlet = 2*self._neck_y-self._taper['y_bot']
@@ -8954,7 +9002,9 @@ class HourglassWidget(Widget):
             dx = half * (i / 4.0 - 1.0)
             y, free, thick = profile.column(dx, apex)
             y += self._lower_sand_bot
-            cap = min(outlet, y + height * (1.0 - 0.35 * (dx / half) ** 2))
+            # The contact texture meets each real slope with zero height and slope at the rim.
+            weight = 1.0 - (dx / half) ** 2
+            cap = min(outlet, y + height * weight * weight)
             cols.append((self._cx + dx, y - 0.15, cap, free and thick > 0.5))
         for i in range(8):
             x0, y0, t0, free0 = cols[i]

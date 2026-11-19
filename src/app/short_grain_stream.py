@@ -54,7 +54,7 @@ def coherent_birth(index, lateral_random, speed_random, shift=.5):
     # original speed scatter at birth; never reshape or respawn live grains.
     onset=max(0.0,1.0-index/96.0)
     speed_span=.5+24.5*onset*onset
-    return x*(1.3-.3*x*x),47.5+speed_span*(speed_random-.5)
+    return x*(1.10-.10*x*x),47.5+speed_span*(speed_random-.5)
 
 
 def contact_upper_bound(top, curve, cx, half):
@@ -69,7 +69,8 @@ def contact_upper_bound(top, curve, cx, half):
 
 # Art direction only: translate whole existing sprites, keeping their size,
 # pigment and lifetime. Physics and contact positions remain unchanged.
-ART_STREAM_STRENGTH = 1.7
+# Physical trajectories now provide the main narrowing; keep a light art offset.
+ART_STREAM_STRENGTH = .88
 
 def art_stream_positions(xs, ys, phases, *, center, outlet, half,
                          pitch, strength=ART_STREAM_STRENGTH):
@@ -161,8 +162,10 @@ def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface):
         return x
     lane = (x - center) / half
     depth = outlet - y
-    edge = np.clip((np.abs(lane) - .48) / .46, 0., 1.)
-    release = np.clip((depth - .35 * half) / (1.8 * half), 0., 1.)
+    release = np.clip((depth - .12 * half) / (1.8 * half), 0., 1.)
+    # x is already contracted by the upstream contour pass. Pick the rim
+    # relative to that narrower body, not to the untouched aperture.
+    edge = np.clip((np.abs(lane) - .43) / (.43 - .16 * release), 0., 1.)
     landing = np.clip((y - surface - 2.) / (.7 * half), 0., 1.)
     cell = birth / .075
     key = np.floor(cell)
@@ -171,7 +174,19 @@ def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface):
     side = np.where(lane < 0., 17.13, 63.71)
     a = np.remainder(np.sin(key * 12.9898 + side) * 43758.5453, 1.)
     b = np.remainder(np.sin((key + 1.) * 12.9898 + side) * 43758.5453, 1.)
-    return x + min(4., .12 * half) * edge**1.3 * release * landing * (2. * (a + (b-a)*t) - 1.)
+    individual = 2. * np.remainder(np.sin(birth * 16753.7 + side) * 43758.5453, 1.) - 1.
+    drift = .16 * (2. * (a + (b-a)*t) - 1.) + .84 * individual
+    # Bias free-flying grains toward the centre while retaining the full
+    # aperture and the outermost paths. The original trajectory still lands.
+    normalized = np.clip(np.abs(lane) / .86, 0., 1.)
+    triangular = 1. - np.sqrt(1. - normalized)
+    rim = np.clip((np.abs(lane) - .40) / .22, 0., 1.)
+    lip = np.clip((depth - .06 * half) / (.55 * half), 0., 1.)
+    body = np.clip((depth - .75 * half) / (1.60 * half), 0., 1.)
+    inward = np.sign(lane) * .86 * half * (.56 - .40 * body) * (normalized - triangular)
+    inward *= rim * rim * (3. - 2. * rim)
+    offset = min(9.5, .25 * half) * (1. + .34 * body) * edge**1.3 * drift
+    return x + landing * (release * offset - lip * inward)
 
 
 def rounded_front_positions(xs, ys, *, center, outlet, half, surface, pitch):
@@ -182,11 +197,11 @@ def rounded_front_positions(xs, ys, *, center, outlet, half, surface, pitch):
         return y
     front = float(np.min(y))
     clearance = np.clip((front - surface - 2.*pitch) / max(1.,half), 0., 1.)
-    amplitude = min(.32*half,.3*(outlet-front))*clearance
+    amplitude = min(.58*half,.3*(outlet-front))*clearance
     if amplitude <= 0.:
         return y
-    lane = np.clip(np.abs(np.asarray(xs)-center)/half,0.,1.)
-    cap = np.clip(1.-(y-front)/(2.*amplitude),0.,1.)
+    lane = np.clip(np.abs(np.asarray(xs)-center)/(.80*half),0.,1.)
+    cap = np.clip(1.-(y-front)/min(2.*amplitude,.64*half),0.,1.)
     return y+amplitude*lane**2*cap**2
 
 
@@ -294,13 +309,15 @@ def mound_surface_at(xs, carve_vertices, floor):
     return np.interp(xs, surface[:, 0], surface[:, 1]).astype(np.float32)
 
 
-def visible_splash_sizes(count,xs,ys,hws,hhs,carve_vertices,floor):
+def visible_splash_sizes(count,xs,ys,hws,hhs,carve_vertices,floor,*,draw_scale=1.0):
     """Hide fully buried decals using the drawn surface; keep physical arrays intact."""
     if not count:return hws,hhs
     try:
         import numpy as np
     except ImportError:
         from bisect import bisect_right
+        hws = [hw * draw_scale for hw in hws[:count]]
+        hhs = [hh * draw_scale for hh in hhs[:count]]
         points=[]
         for i in range(0,len(carve_vertices),16):
             q=carve_vertices[i:i+16]
@@ -318,6 +335,8 @@ def visible_splash_sizes(count,xs,ys,hws,hhs,carve_vertices,floor):
         return ([hws[i] if visible[i] else 0.0 for i in range(count)],
                 [hhs[i] if visible[i] else 0.0 for i in range(count)])
     x,y,hw,hh=[np.asarray(a[:count]) for a in (xs,ys,hws,hhs)]
+    hw = hw * draw_scale
+    hh = hh * draw_scale
     samples=np.column_stack((x-hw,x,x+hw))
     surface=mound_surface_at(samples,carve_vertices,floor).min(axis=1)
     visible=y+hh>=surface
@@ -522,15 +541,25 @@ void main(void) {
     float support=1.0+narrow*max(0.0,2.0*short_geometry.z/grain_radius-1.0);
     float core=1.0-smoothstep(.90*short_geometry.z,.94*short_geometry.z,
                               abs(sand_position.x-short_geometry.x));
-    float vertical=1.0-smoothstep(.75,1.0,abs(grain_local.y));
+    float flight=smoothstep(.23*short_geometry.z,2.75*short_geometry.z,depth)
+        *smoothstep(4.0,8.0,short_geometry.z/max(.8,short_geometry.w));
+    float radial=abs(sand_position.x-short_geometry.x)/short_geometry.z;
+    float rim_body=smoothstep(.30,.74,radial);
+    float clear_of_contact=smoothstep(2.0,max(3.0,.65*short_geometry.z),
+                                     sand_position.y-grain_surface);
+    float body_air=flight*clear_of_contact;
+    float inner_rim=smoothstep(.24,.59,radial);
+    float footprint=mix(1.0,.38,body_air*rim_body);
+    float vertical=1.0-smoothstep(.75,1.0,abs(grain_local.y)/footprint);
     // Small overlap between existing micro-grain carriers keeps the coherent
     // contour from acquiring one-row holes; micro-grain pixel size is unchanged.
     // Fine/medium mouths need a little more glyph overlap to avoid short
     // notches; wide mouths already have dense coverage. Keep this geometric,
     // never tied to a timer phase or the first collision.
     float wide_mouth=smoothstep(.11,.13,short_geometry.z/sand_geometry.y);
+    float lateral=mix(1.0,.54,flight*rim_body*clear_of_contact);
     float original=(1.0-smoothstep(mix(.95,.88,wide_mouth),
-                                  mix(1.30,1.23,wide_mouth),abs(grain_local.x)))*vertical*micro;
+                                  mix(1.30,1.23,wide_mouth),abs(grain_local.x)/lateral))*vertical*micro;
     float extra=(1.0-smoothstep(.75,1.0,abs(grain_local.x/support)))*vertical*micro;
     // Each contribution still has the same fixed local grains and real
     // particle lifetime. There is no background strip or animated envelope.
@@ -544,12 +573,49 @@ void main(void) {
                              abs(sand_position.x-short_geometry.x));
     // Keep edge detail close to its moving grain: overlapping broad fringes
     // otherwise read as another temporary layer of bulk stream width.
-    float rim_falloff=1.0-smoothstep(.65,1.75,abs(grain_local.x));
+    float detached=smoothstep(.74,.95,radial);
+    float outer_flight=flight*clear_of_contact*detached;
+    float outward=grain_local.x*sign(sand_position.x-short_geometry.x);
+    float rim_offset=.55*outer_flight*smoothstep(0.0,.65,outward);
+    float rim_falloff=1.0-smoothstep(.65,1.75,abs(grain_local.x)-rim_offset);
     // Hash output can be exactly zero: step(0,0) must not create grains
     // outside the fringe when a selected quad spans the opposite side.
-    float rim_pick=rim_falloff>0.0 ? step(seed_y,.24*rim_falloff*rim_falloff) : 0.0;
+    float rim_probability=mix(.24,.48,outer_flight);
+    float rim_pick=rim_falloff>0.0 ? step(seed_y,rim_probability*rim_falloff*rim_falloff) : 0.0;
     float fringe=rim_pick*micro*vertical*rim_side*rim_release;
+    // Keep the lip opaque, then let moving grains accumulate opacity through
+    // blending instead of letting one carrier cell hide every grain behind it.
+    coverage*=mix(1.0,mix(.64,.43,outer),flight);
+    coverage*=mix(1.0,.56,body_air*inner_rim);
+    // Open holes between grains, not just translucency within each grain.
+    // The threshold is keyed to the moving micro-cell, not screen coordinates.
+    float exposure=micro_hash(cell+vec2(71.9,23.8)+grain_tone*47.3);
+    float openings=body_air*max(.66*rim_body,.74*inner_rim);
+    coverage*=smoothstep(openings-.08,openings,exposure);
     coverage=max(coverage,fringe);
+    // A free-flying particle has one circular footprint. Keep the existing
+    // material hand-off in the lip and the support against the mound.
+    float disc_end=mix(1.35,.66,smoothstep(.36,.70,radial));
+    float discrete=smoothstep(.10*short_geometry.z,disc_end*short_geometry.z,depth)
+        *clear_of_contact*smoothstep(5.0,9.0,short_geometry.z/grain_radius);
+    vec2 grain_jitter=vec2(micro_hash(vec2(grain_tone*73.7,31.1)),
+                           micro_hash(vec2(47.9,grain_tone*91.3)))-.5;
+    vec2 grain_xy=grain_local*vec2(1.0,short_aspect)-.56*grain_jitter;
+    float grain_px=max(.8,mix(.49,.17,smoothstep(.25,.75,radial))*grain_radius);
+    float rotation=6.2831853*micro_hash(vec2(grain_tone*61.9,35.7));
+    float extinction=0.0;
+    for (int grain=0; grain<3; ++grain) {
+        float angle=rotation+2.0943951*float(grain);
+        vec2 delta=vec2(cos(angle),sin(angle))*.74*grain_px;
+        float distance_px=length(grain_xy*grain_radius-delta);
+        extinction+=clamp(grain_px*.58+.5-distance_px,0.0,.86);
+    }
+    float isolated=1.0-exp(-1.65*extinction);
+    coverage=mix(coverage,max(isolated,fringe),discrete);
+    vec2 single_uv=vec2(micro_hash(vec2(grain_tone*53.1,73.7)),
+                        micro_hash(vec2(37.9,grain_tone*91.3+3.1)));
+    single_uv=(floor(single_uv*short_texture_size)+.5)/short_texture_size;
+    rgb=mix(rgb,micro_material_rgb(single_uv,grain_local),discrete);
     float wall=lower_glass_ceiling(abs(sand_position.x-short_geometry.x));
     if (abs(sand_position.x-short_geometry.x)>short_geometry.z)
         coverage*=smoothstep(.25,1.0,wall-sand_position.y);

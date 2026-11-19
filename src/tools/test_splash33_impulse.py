@@ -50,7 +50,7 @@ def emitter(source):
     return ns['_eject_splash']
 
 
-def representative_scale(source,period):
+def representative_scale(source,period,geometry_scale=1.):
     # Fixed PC geometry fixture; use the application's actual period properties.
     names=('_neck_fill_time','_natural_flight_time','_fall_delay','_particle_motion_scale')
     cls=ast.parse('class Motion: pass').body[0]
@@ -63,7 +63,10 @@ def representative_scale(source,period):
                  'main.py:period-scale-contract','exec'),ns)
     fixture=ns['Motion']()
     fixture.duration=period;fixture._geom_ready=True
-    fixture._neck_y=500.;fixture._taper={'y_bot':520.};fixture._lower_sand_bot=25.
+    fixture._R_inner=209.*geometry_scale
+    fixture._neck_y=500.*geometry_scale
+    fixture._taper={'y_bot':520.*geometry_scale}
+    fixture._lower_sand_bot=25.*geometry_scale
     return fixture._particle_motion_scale
 
 
@@ -92,6 +95,12 @@ class Splash33ImpulseTests(unittest.TestCase):
     def setUpClass(cls):
         cls.old=historical(REFERENCE)
         cls.current=(ROOT/'main.py').read_text(encoding='utf-8')
+
+    def test_five_second_flight_is_stable_when_the_same_glass_doubles_in_pixels(self):
+        def flight(size):
+            natural = (math.sqrt(50**2 + 900 * 455 * size) - 50) / 450
+            return natural / representative_scale(self.current, 5., size)
+        self.assertAlmostEqual(flight(1.), flight(2.), delta=.055)
 
     def test_actual_emitter_ast_matches_published_33(self):
         self.assertEqual(ast.dump(method(self.current,'_eject_splash')),
