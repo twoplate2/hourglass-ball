@@ -4200,6 +4200,8 @@ class HourglassWidget(Widget):
             'out_pts': _bezier2((w_out, y_out), (t_out, y_knee_o), (t_out, y_bot), TAPER_SEGS),
             'in_pts': _bezier2((w_in, y_in), (t_in, y_knee_i), (t_in, y_bot), TAPER_SEGS),
         }
+        from grain_style import neck_release_motion
+        self._neck_release = neck_release_motion(t_in, 2. * (y_bot - neck_y))
         self._build_neck_mass_table()
         if not self._sand_active:
             self._sand_timing = None
@@ -6528,6 +6530,7 @@ class HourglassWidget(Widget):
             # only the sprite's final horizontal birth position is remapped.
             x_clip = max(0.0,(source_half_width(self._taper['t_in'],sprite_pitch)-1.0)*_band)
             sprite_birth = getattr(self, "_short_flow_context", None) is not None
+            exit_boost = self._neck_release[1] - 47.5 if sprite_birth else 0.
             # 🔴 **2026-10-13: 叠一条"覆盖率闸"** —— 见 `_stream_ink_cover_q`。
             #    与末端净空那条(`_stream_ink_q`, 2.86)取**更薄**的一条:
             #    前者管"小窗口过饱和", 后者管"快流完时挤成一块板"。
@@ -6582,7 +6585,7 @@ class HourglassWidget(Widget):
                     if tapering:
                         drain = max(0., 1. - (end - birth) / tail_span)
                         initial_speed += 18. * (speed - .5) * drain * drain
-                    vy0=-initial_speed*motion_scale
+                    vy0=-(initial_speed + exit_boost)*motion_scale
                 elif LIM_INSET and size > 1:
                     # 🔴 **2026-10-12(2.87): 线自己的半个宽度也不许探出瓶颈** —— 见 `LIM_INSET`。
                     #    等比缩(不是夹), 免得粒子在边缘堆成一条密线。
@@ -6615,7 +6618,7 @@ class HourglassWidget(Widget):
                 self.pbt[i] = birth
                 self.pbm[i] = motion_scale
                 if final_emission and spawn_index == spawn_count - 1:
-                    self.pvy[i] = -35.0 * motion_scale
+                    self.pvy[i] = -(35.0 + exit_boost) * motion_scale
                 if self._sand_resized:
                     left = max(1e-6, self.duration - birth - 1.0 / 120)
                     distance = max(0.0, gen_y - self._mound_top_at(float(self.px[i])))
@@ -8662,8 +8665,11 @@ class HourglassWidget(Widget):
                     else (0.0, 0.0))
                 context["sand_throat"] = throat
                 context["sand_funnel"] = funnel
+                context["sand_release"] = self._neck_release
                 if i == 1:
                     context["sand_neck_fill"] = neck_fill
+                    drain = self._short_flow_context["short_drain"] if throat[1] > 0.0 else 0.0
+                    context["sand_neck_feed"] = (1.0 - drain) ** 2
                 # 🔴 **2026-10-12(2.90): 上球材质"随沙体伸缩"** —— 1.244 的 tex_coords 行为。
                 #    用户判词:「我tmd都说了 要做成 v1.244 那样 …… 现在上面的沙子**完全不变化了**」。
                 #    实测复核: 1.244 的上球**帧间差 1.45**(在动!), 而 2.89 冻钟之后只有 **0.002**
@@ -9168,7 +9174,8 @@ class HourglassWidget(Widget):
         span = max(1e-6, top_y - bottom_y)
         scale = self._particle_motion_scale
         twice_gravity = 900 * scale * scale
-        source_limit_squared = (75 * scale) ** 2
+        exit_boost = self._neck_release[1] - 47.5 if getattr(self, "_short_flow_context", None) is not None else 0.
+        source_limit_squared = ((75. + exit_boost) * scale) ** 2
         # 第一趟只求最深的投影深度, 第二趟再画 —— 原来给每个候选都分配一个
         # (distance, particle) 元组(峰值约 1800 次/帧)。两趟的候选顺序与 depth
         # 都与原实现一致, 所以 128 上限的截断结果也相同。按下标遍历 `_pv` 快照。

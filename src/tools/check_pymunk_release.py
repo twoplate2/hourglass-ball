@@ -45,7 +45,7 @@ def version_only(source, expected_digest, source_commit, measured_version):
     if expected_digest not in identities:
         raise ValueError("Version baseline is not the tested source")
     old, new = ast.parse(before), ast.parse(source.read_text(encoding="utf-8"))
-    before_version = parse_version(before.decode("utf-8"))
+    before_version = parse_version(before.decode("utf-8"), historical=True)
     after_version = parse_version(source.read_text(encoding="utf-8"))
     if ".".join(map(str, before_version)) != measured_version:
         raise ValueError("Version baseline differs from the measured report")

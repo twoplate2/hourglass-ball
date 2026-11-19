@@ -19,6 +19,27 @@ import short_grain_stream as renderer
 
 
 class AdvectedRimTests(unittest.TestCase):
+    def test_outlet_edge_groups_remain_visible_during_the_first_aperture(self):
+        half = 50.
+        birth = np.linspace(3.4, 4.6, 1200, endpoint=False)
+        # At this depth v3.28.2's outer grains differ by less than one
+        # display pixel even though each grain descends at the right speed.
+        y = np.full_like(birth, 300. - .75 * half)
+        for side in (-1., 1.):
+            x = np.full_like(birth, side * .83 * half)
+            kwargs = dict(center=0., outlet=300., half=half, surface=0., source_offsets=x)
+            shifted = renderer.advected_edge_positions(x, y, birth, **kwargs) - x
+            # Average over 20 ms of neighbouring births to exclude untrackable
+            # single-grain jitter. Old and new traces use identical births.
+            groups = np.convolve(shifted, np.ones(20) / 20, mode='valid')
+            self.assertGreater(np.percentile(groups, 90) - np.percentile(groups, 10), .065 * half)
+            self.assertLess(np.max(np.abs(shifted)), .17 * half)
+            np.testing.assert_array_equal(
+                x, renderer.advected_edge_positions(x, np.full_like(y, 300.), birth, **kwargs))
+        core = np.full_like(birth, .20 * half)
+        np.testing.assert_array_equal(core, renderer.advected_edge_positions(
+            core, y, birth, center=0., outlet=300., half=half, surface=0., source_offsets=core))
+
     def test_contracted_rim_drifts_without_moving_lip_core_or_contact(self):
         birth = np.arange(256) * .013
         half = 32.
@@ -656,6 +677,8 @@ class ParticleFallbackTests(unittest.TestCase):
                                  't_in':aperture_half,'y_bot':420.}
                     self._mound_carve=types.SimpleNamespace(_v=[])
                     self._lower_sand_bot=0.;self._lower_y_c=170.;self._neck_y=400.
+                    from grain_style import neck_release_motion
+                    self._neck_release=neck_release_motion(aperture_half,40.)
                     self._sand_flow_contexts=[object()]
                     self.elapsed=360000.125;self._particle_motion_scale=1.;self.pn=n
                     self.sand_base=(.7,.5,.2);self.sand_dark=(.4,.2,.1);self.sand_light=(.9,.7,.4)
@@ -743,6 +766,7 @@ class ParticleFallbackTests(unittest.TestCase):
                             self.assertEqual(widget._short_flow_context['sand_throat'],
                                 (380.,aperture_half,widget._short_flow_state['pitch'],420.))
                             self.assertEqual(widget._short_flow_context['sand_funnel'],(45.,422.))
+                            self.assertEqual(widget._short_flow_context['sand_release'],widget._neck_release)
                         self.assertEqual(assert_particle_meshes(widget),count)
                         self.assertEqual(sum(widget._particle_counts),count)
                         for mesh,active in zip(widget._particle_meshes,widget._particle_counts):

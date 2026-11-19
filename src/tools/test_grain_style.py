@@ -41,6 +41,21 @@ def real_update_flow():
 
 
 class CoarseFlowTests(unittest.TestCase):
+    def test_sand_accelerates_inside_the_neck_before_free_fall(self):
+        release = style_function("neck_release_motion")
+        self.assertEqual(release(50., 0.), (0., 47.5, 0.))
+        for half, stem in ((2., 15.), (20., 12.), (50., 74.)):
+            length, speed, transit = release(half, stem)
+            self.assertGreater(length, 0.)
+            self.assertLessEqual(length, stem)
+            # Acceleration rises from zero to gravity at the lip. The visual
+            # clock and actual birth use the speed at the end of this integral.
+            k = math.sqrt(450. / length)
+            self.assertAlmostEqual(47.5 / k * math.sinh(k * transit), length)
+            self.assertAlmostEqual(47.5 * math.cosh(k * transit), speed)
+            self.assertGreater(speed, 47.5)
+            self.assertLess(2. * length / (speed + math.sqrt(speed**2 + 900.*length)), transit)
+
     def test_remaining_sand_and_emission_drain_together(self):
         tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
         widget = next(n for n in tree.body if getattr(n, "name", None) == "HourglassWidget")

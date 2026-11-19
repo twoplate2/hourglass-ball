@@ -163,7 +163,8 @@ def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface,
         return x
     lane = (x - center if source_offsets is None else np.asarray(source_offsets)) / half
     depth = outlet - y
-    release = np.clip((depth - .12 * half) / (1.8 * half), 0., 1.)
+    fraction = np.clip((depth - .12 * half) / (4. * half), 0., 1.)
+    release = fraction**3 * (4. - 3. * fraction)
     edge = np.clip((np.abs(lane) - .40) / .35, 0., 1.)
     edge *= edge * (3. - 2. * edge)
     landing = np.clip((y - surface - 2.) / (.7 * half), 0., 1.)
@@ -175,8 +176,22 @@ def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface,
     a = np.remainder(np.sin(key * 12.9898 + side) * 43758.5453, 1.)
     b = np.remainder(np.sin((key + 1.) * 12.9898 + side) * 43758.5453, 1.)
     individual = 2. * np.remainder(np.sin(birth * 16753.7 + side) * 43758.5453, 1.) - 1.
-    drift = .20 * (2. * (a + (b-a)*t) - 1.) + .80 * individual
-    return x + .21 * half * landing * release * edge * drift
+    cohort = 2. * (a + (b-a)*t) - 1.
+    drift = .20 * cohort + .80 * individual
+    spread = .21 * release * edge * drift
+
+    # The first exposed layers travel together for a few grain diameters.
+    # Their left/right displacements belong to the birth cohort and follow it
+    # down the jet. Independent dispersion takes over farther from the lip.
+    # Keep the grains touching the lip seated against its inner edge.
+    leaving = np.clip((depth - .12 * half) / (.70 * half), 0., 1.)
+    leaving *= leaving * (3. - 2. * leaving)
+    together = np.clip((2.75 * half - depth) / (1.35 * half), 0., 1.)
+    together *= together * (3. - 2. * together)
+    outer = np.clip((np.abs(lane) - .57) / .26, 0., 1.)
+    outer *= outer * (3. - 2. * outer)
+    near_drift = .115 * leaving * together * outer * cohort
+    return x + half * landing * (spread + near_drift)
 
 
 def rounded_front_positions(xs, ys, *, center, outlet, half, surface, pitch):
@@ -550,7 +565,7 @@ void main(void) {
     // blocks. Cell identity is fixed for life and moves with the real grain.
     // Retain the original dense core and share pigment/size with its grains.
     float rim_depth=max(0.0,short_geometry.y-sand_position.y);
-    float rim_release=smoothstep(.25*short_geometry.z,1.25*short_geometry.z,rim_depth);
+    float rim_release=smoothstep(.18*short_geometry.z,2.8*short_geometry.z,rim_depth);
     float rim_side=smoothstep(.45*short_geometry.z,.80*short_geometry.z,
                              abs(sand_position.x-short_geometry.x));
     // Keep edge detail close to its moving grain: overlapping broad fringes
@@ -577,7 +592,7 @@ void main(void) {
     coverage=max(coverage,fringe);
     // A free-flying particle has one circular footprint. Keep the existing
     // material hand-off in the lip and the support against the mound.
-    float disc_end=mix(.90,.55,smoothstep(.36,.70,radial));
+    float disc_end=mix(2.0,1.45,smoothstep(.36,.70,radial));
     float discrete=smoothstep(short_join_overlap,disc_end*short_geometry.z+short_join_overlap,depth)
         *mix(.72,1.0,clear_of_contact)*smoothstep(2.25,4.6,short_geometry.z/grain_radius);
     float sparse=smoothstep(.14,.70,short_drain);
@@ -585,7 +600,11 @@ void main(void) {
     vec2 grain_jitter=vec2(micro_hash(vec2(grain_tone*73.7,31.1)),
                            micro_hash(vec2(47.9,grain_tone*91.3)))-.5;
     vec2 grain_xy=grain_local*vec2(1.0,short_aspect)-.56*grain_jitter;
-    float grain_px=max(.8,mix(.49,.23,smoothstep(.40,.90,radial))*grain_radius);
+    // Falling cohorts spread vertically. Open small gaps in the body as well
+    // as its edges, without adding a transparent sheet behind the grains.
+    float free_distance=depth/(depth+2.4*short_geometry.z);
+    float core_footprint=mix(.49,.375,free_distance);
+    float grain_px=max(.8,mix(core_footprint,.25,smoothstep(.40,.90,radial))*grain_radius);
     grain_px=mix(grain_px,max(.85,.21*grain_radius),sparse);
     float rotation=6.2831853*micro_hash(vec2(grain_tone*61.9,35.7));
     float extinction=0.0;
@@ -621,7 +640,8 @@ void main(void) {
         // carry individual patches, sampled at their own release position.
         vec2 stretch;
         vec2 coord=sand_coordinates(sand_position,stretch);
-        float loose=max(sparse,smoothstep(.40,1.0,radial)*smoothstep(.6*throat.y,4.2*throat.y,depth));
+        float detached_tail=sparse*smoothstep(0.0,max(4.0*short_geometry.w,sand_release.x),depth);
+        float loose=max(detached_tail,smoothstep(.40,1.0,radial)*smoothstep(.6*throat.y,4.2*throat.y,depth));
         if (loose > 0.0) {
             vec2 local_px=grain_local*grain_radius*vec2(1.0,short_aspect);
             float turn=loose*(rotation-3.14159);
@@ -632,7 +652,12 @@ void main(void) {
             coord+=loose*(fract(born-coord+.5)-.5);
             stretch=mix(stretch,vec2(1.0),loose);
         }
-        float pigment=flowing_sand_detail(coord,stretch,short_geometry.w);
+        vec2 site;
+        float pigment=flowing_sand_detail(coord,stretch,short_geometry.w,site);
+        coverage*=mix(1.0,throat_rim_coverage(sand_position,stretch.x,site.x),
+                      material_mix*(1.0-loose));
+        float feed=(1.0-short_drain)*(1.0-short_drain);
+        coverage*=mix(1.0,draining_grain_coverage(sand_position,site,feed),material_mix);
         rgb=mix(rgb,flowing_sand_colour(pigment,sand_position),material_mix);
     }
 #endif
@@ -839,6 +864,7 @@ def install(widget_class):
             context["sand_throat"]=((outlet,self._taper['t_in'],pitch,self._taper['y_bot'])
                                     if joined else (0.,0.,1.,0.))
             context["sand_funnel"]=(glass[0],2*self._neck_y-glass[1])
+            context["sand_release"]=self._neck_release
         self._short_flow_state=dict(active=bool(n),particles=n,pitch=pitch,
             rendered_particles=sum(self._particle_counts),birth_identity="pwp+ptl",
             material_mode=self._short_material_mode,material_error=self._short_material_error,

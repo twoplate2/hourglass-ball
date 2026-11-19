@@ -1,4 +1,4 @@
-"""Small, deterministic rendering controls; no particle or timer state is changed."""
+"""Shared geometry, grain-motion and appearance calculations for the hourglass."""
 
 import math
 
@@ -20,6 +20,18 @@ def coarse_width_parameters(half, pitch, original_floor, original_ramp):
     # the smallest aperture without imposing that floor on a tablet-sized jet.
     floor = min(original_floor, max(.38, 3.3 * pitch / max(1., half)))
     return 2.25 * mouth, floor, min(original_ramp, .55 * mouth)
+
+
+def neck_release_motion(half, stem_height):
+    """Length, exit speed and transit time for the last part of the filled neck."""
+    length = max(0., min(stem_height, 1.35 * half))
+    inlet = 47.5
+    if length == 0.:
+        return 0., inlet, 0.
+    # Acceleration increases linearly from zero at entry to gravity at exit.
+    # At distance x, v² = inlet² + (k*x)². All values use unscaled game time.
+    k = math.sqrt(450. / length)
+    return length, math.hypot(inlet, k * length), math.asinh(k * length / inlet) / k
 
 
 def tail_duration(clearance, motion_scale, transfer_duration):

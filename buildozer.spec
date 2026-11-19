@@ -14,7 +14,7 @@ source.include_patterns = ui/fonts/*.otf,sounds/*.wav,sounds/voice/*.wav,ui/*.pn
 # 开发资料、原始素材和本地输出不进入 APK; gitignore 不控制本地打包。
 source.exclude_dirs = docs,design,benchmark_logs,sounds/source,_temp,Temp,_kivyhome,__pycache__,src/__pycache__,src/app/__pycache__,src/tools
 
-version.regex = APP_VERSION = ['"]([^'"]+)['"]
+version.regex = APP_VERSION = ['"]([0-9]+\.[0-9]+)['"]
 version.filename = %(source.dir)s/src/app/app_version.py
 
 requirements = python3,kivy==2.3.0,pyjnius,numpy

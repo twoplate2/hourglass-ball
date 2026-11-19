@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-p4a 构建后 hook — 往最终 AndroidManifest.xml 注入横屏反旋转所需的两个声明。
+p4a 构建 hook，设置覆盖升级用的整数版本码，并补全屏幕方向声明。
 
 背景(buildozer 1.5.0 的限制):
 - buildozer.spec 的 `orientation` 键被 1.5.0 校验器锁死, 只认 4 值
@@ -10,13 +10,14 @@ p4a 构建后 hook — 往最终 AndroidManifest.xml 注入横屏反旋转所需
   半屏 letterbox 盒, 必须在 manifest 里写 `screenOrientation=fullSensor` +
   `resizeableActivity=true` + targetSdk>=33。
 - 所以 spec 里 `orientation` 四方向只是"过校验的壳", `android.manifest.orientation=fullSensor`
-  走 buildozer 直写键, 本 hook 再在 before_apk_build 强制兜底(spec 四方向可能被 p4a 写成
+  走 buildozer 直写键, 本 hook 再在 after_apk_build 强制兜底(spec 四方向可能被 p4a 写成
   `unspecified`), 并叠加 resizeableActivity=true。
 
 ⚠️ 依赖 `org.kivy.android.PythonActivity` 的唯一类名锚点定位主 activity; 若 p4a 换类名或
    主 activity 写作自闭合 `<activity ... />`, 正则插入逻辑会破坏结构(见 _insert_attr 对
-   自闭合的防护, 但仍建议留意)。hook 失败只 return 0 不抛错 —— 不阻断构建, 但横屏能力丢。
+   自闭合的防护, 但仍建议留意)。方向声明写入失败时保留原 Manifest。
 """
+import argparse
 import os
 import re
 
@@ -89,8 +90,33 @@ def _inject_manifest(ctx):
     return 1
 
 
-def before_apk_build(*args):
-    """gradle 构建前注入 —— 生效点。args[0] 为 buildozer/p4a 传入的 ctx(带 distribution)。"""
+def android_version_code(version):
+    """从公开的 a.b 生成 Android 整数码，排在已发三段版本的 102132801 之后。"""
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)", version)
+    if not match:
+        raise ValueError(f"APK version must have two numeric fields (a.b): {version}")
+    major, minor = map(int, match.groups())
+    code = 100_000_000 + major * 1_000_000 + minor
+    if minor >= 1_000_000 or code > 2_100_000_000:
+        raise ValueError(f"APK version exceeds the Android versionCode range: {version}")
+    return code
+
+
+def before_apk_build(toolchain):
+    """p4a 接下来会把这组参数用于生成 Manifest 和 Gradle 配置。"""
+    args = toolchain.args.unknown_args
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--numeric-version", type=int)
+    options, _ = parser.parse_known_args(args)
+    code = android_version_code(options.version)
+    if options.numeric_version is None:
+        args.extend(["--numeric-version", str(code)])
+    after_apk_build(toolchain)
+
+
+def after_apk_build(*args):
+    """p4a 生成 Manifest 后、Gradle 打包前补全方向声明。"""
     try:
         ctx = args[0] if args else None
         if ctx is not None:
@@ -98,8 +124,3 @@ def before_apk_build(*args):
     except Exception:
         # 绝不阻断构建; 失败 = 横屏能力丢失, 需另行排查
         pass
-
-
-def after_apk_build(*args):
-    """幂等兜底(此时 APK 已产出, 无实际作用, 仅保持一致)。"""
-    before_apk_build(*args)

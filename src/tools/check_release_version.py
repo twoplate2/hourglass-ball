@@ -1,4 +1,4 @@
-"""Validate one patch-version increment per push and a Chinese commit title."""
+"""Validate a two-field app version and its Chinese commit title."""
 
 import argparse
 import ast
@@ -17,54 +17,47 @@ def git(*args):
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
 
 
-def parse_version(text):
+def version_fields(value, *, historical=False):
+    pattern = r"[0-9]+\.[0-9]+(?:\.[0-9]+)?" if historical else r"[0-9]+\.[0-9]+"
+    if not isinstance(value, str) or not re.fullmatch(pattern, value):
+        raise ValueError(f"Invalid historical version: {value!r}" if historical else
+                         f"APP_VERSION must have exactly two numeric fields (a.b): {value!r}")
+    return tuple(map(int, value.split(".")))
+
+
+def parse_version(text, *, historical=False):
     tree = ast.parse(text)
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
                 isinstance(target, ast.Name) and target.id == "APP_VERSION"
                 for target in node.targets):
-            version = ast.literal_eval(node.value)
-            if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+(\.\d+)?", version):
-                raise ValueError("APP_VERSION must have the form major.minor[.patch]")
-            return tuple(map(int, version.split(".")))
+            return version_fields(ast.literal_eval(node.value), historical=historical)
     raise ValueError("APP_VERSION is missing")
 
 
-def version_at(ref):
+def version_at(ref, *, historical=False):
     for path in ("src/app/app_version.py", "app/app_version.py", "app_version.py"):
         result = git("show", f"{ref}:{path}")
         if result.returncode == 0:
-            return parse_version(result.stdout)
+            return parse_version(result.stdout, historical=historical)
     legacy = git("show", f"{ref}:buildozer.spec")
     if legacy.returncode:
         raise ValueError(f"Cannot read version at {ref}: {legacy.stderr.strip()}")
     spec = ConfigParser(interpolation=None)
     spec.read_string(legacy.stdout)
-    version = spec.get("app", "version")
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise ValueError("Invalid legacy APK version")
-    return tuple(map(int, version.split(".")))
+    return version_fields(spec.get("app", "version"), historical=historical)
 
 
 def validate_increment(before, after):
-    """版本号必须严格递增(按补零对齐后比较, 如 1.0 与 1.0.0 视为同一版本)。
-    同段数时最后一段必须正好 +1(1.0 -> 1.1);里程碑式跃迁(段数或前几段变化,
-    如 0.1.3 -> 1.0)也允许。同一版本只换写法(1.0.0 <-> 1.0)放行 —— 那不是回落。
-    """
-    width = max(len(before), len(after))
-    padded_before = before + (0,) * (width - len(before))
-    padded_after = after + (0,) * (width - len(after))
-    if padded_after == padded_before:
-        if len(before) != len(after):
-            return                      # 只是写法变了(补零对齐后相等)
-        raise ValueError(f"Version must change: "
-                         f"still {'.'.join(map(str, after))}")
-    if padded_after < padded_before:
+    """新版本固定为 a.b。同一主版本每次递增 b，历史基线可以有三段。"""
+    if len(after) != 2:
+        raise ValueError("APP_VERSION must have exactly two numeric fields (a.b)")
+    if after <= before:
         raise ValueError(f"Version must increase: "
                          f"found {'.'.join(map(str, after))} "
                          f"after {'.'.join(map(str, before))}")
-    if len(after) == len(before) and after[:-1] == before[:-1]:
-        expected = (*before[:-1], before[-1] + 1)
+    if after[0] == before[0]:
+        expected = (before[0], before[1] + 1)
         if after != expected:
             raise ValueError(f"Each push must increment the last component: "
                              f"expected {'.'.join(map(str, expected))}, "
@@ -86,7 +79,7 @@ def main():
     try:
         current = version_at(args.head)
         if args.base and set(args.base) != {"0"}:
-            validate_increment(version_at(args.base), current)
+            validate_increment(version_at(args.base, historical=True), current)
         if args.check_title:
             result = git("log", "-1", "--format=%s", args.head)
             if result.returncode:

@@ -233,7 +233,9 @@ uniform float sand_up_scale;
 uniform vec2 sand_outlet_join; // outlet y, overlap length in canvas pixels
 uniform vec4 sand_throat;      // outlet y, half-width, grain pitch and straight inlet y
 uniform vec2 sand_funnel;      // glass half-width at the upper join and quadratic control y
+uniform vec3 sand_release;     // accelerating length in the neck, exit speed, transit time
 uniform float sand_neck_fill; // coverage of the final sub-grain layer
+uniform float sand_neck_feed; // current particle discharge relative to steady flow
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -276,9 +278,20 @@ vec2 sand_coordinates(vec2 position, out vec2 stretch) {
     float above=rise/max(1.0,2.0*sand_throat.y);
     // A point keeps its streamline and its time of passage through the lip.
     // The supply converges and accelerates from the bowl into the neck.
-    float speed=sqrt(47.5*47.5+900.0*below);
-    float flight=2.0*below/(47.5+speed);
-    float height=max(0.0,-depth)+rise*.82*above/(1.0+above)-47.5*flight;
+    float speed;
+    float height;
+    if (depth>=0.0) {
+        speed=sqrt(sand_release.y*sand_release.y+900.0*below);
+        height=-47.5*2.0*below/(sand_release.y+speed);
+    } else {
+        float travelled=max(0.0,sand_release.x+depth);
+        float k=sqrt(450.0/max(.001,sand_release.x));
+        float u=k*travelled/47.5;
+        float v=sqrt(1.0+u*u);
+        speed=47.5*v;
+        height=max(0.0,-depth-sand_release.x)+47.5*(sand_release.z-log(u+v)/k);
+        height+=rise*.82*above/(1.0+above);
+    }
     float width=pow(1.0+below/max(1.0,4.5*sand_throat.y),-.25);
     if (rise>0.0) {
         float wall;
@@ -310,7 +323,7 @@ vec3 sand_site_seed(vec2 id) {
     return fract((p.xxy+p.yzz)*p.zyx);
 }
 void sand_site(vec2 id,vec2 local,vec2 stretch,float layer,float layer_cost,float cells,
-               inout vec3 front,inout vec3 next_site) {
+               inout vec4 front,inout vec4 next_site) {
     vec3 seed=sand_site_seed(mod(id,cells)+vec2(23.71,9.13)*layer);
     vec2 delta=(local-(.17+.66*seed.xy))*stretch;
     vec2 facet=vec2(delta.x+.21*(seed.z-.5)*delta.y,delta.y);
@@ -321,14 +334,14 @@ void sand_site(vec2 id,vec2 local,vec2 stretch,float layer,float layer_cost,floa
     float score=max(0.0,d2-radius*radius)+.16*d2+layer_cost*layer;
     vec2 pigment=(mod(id,cells)+.5+.43*facet)/cells
                  +vec2(.37,.19)*layer+seed.z*vec2(.21,.13);
-    vec3 site=vec3(score,pigment);
+    vec4 site=vec4(score,pigment,fract(seed.x+seed.y+seed.z));
     if (score<front.x) { next_site=front;front=site; }
     else if (score<next_site.x) next_site=site;
 }
-float flowing_sand_detail(vec2 coord,vec2 stretch,float pitch) {
+float flowing_sand_detail(vec2 coord,vec2 stretch,float pitch,out vec2 site_state) {
     float cells=max(8.0,floor(.5+1.0/(1.06*pitch*throat_texel_scale())));
     vec2 q=fract(coord)*cells;
-    vec3 front=vec3(1.e4,0.0,0.0),next_site=front;
+    vec4 front=vec4(1.e4,0.0,0.0,0.0),next_site=front;
     float layer_cost=mix(.038,.018,smoothstep(3.0,12.0,stretch.y));
     for (int k=0;k<10;++k) {
         float layer=float(k);
@@ -350,10 +363,49 @@ float flowing_sand_detail(vec2 coord,vec2 stretch,float pitch) {
         }
     }
     float edge=.5*(1.0-smoothstep(0.0,.016+.12/max(.8,pitch),next_site.x-front.x));
-    float visible=mix(grain(front.yz),grain(next_site.yz),edge);
-    // Adjacent grains arriving from the same part of the reservoir retain
-    // a common pigment variation as the front grains reveal the ones behind.
-    return .84*visible+.50*grain(coord);
+    vec2 tones=vec2(grain(front.yz),grain(next_site.yz));
+    float visible=mix(tones.x,tones.y,edge);
+    float contact=1.0-smoothstep(0.0,.07,next_site.x-front.x);
+    float relief=(.38-contact)*min(.22,abs(tones.x-tones.y));
+    site_state=vec2(smoothstep(.045,.15,front.x),front.w);
+    // Related tones across a few neighbouring grains keep the converging
+    // supply legible when the whole hourglass is displayed at tablet scale.
+    float groups=max(3.0,floor(.34*cells));
+    vec2 group=fract(coord)*groups;
+    vec2 id=floor(group), f=smoothstep(vec2(0.0),vec2(1.0),fract(group));
+    vec2 x0=mod(id,groups), x1=mod(id+1.0,groups);
+    float packet_tone=mix(mix(sand_site_seed(x0).z,sand_site_seed(vec2(x1.x,x0.y)).z,f.x),
+                          mix(sand_site_seed(vec2(x0.x,x1.y)).z,sand_site_seed(x1).z,f.x),f.y)-.5;
+    // Neighbouring grains have related colours. As they separate, the
+    // compact exposed faces carry more of the detail than that shared patch.
+    float loosen=smoothstep(1.35,5.0,stretch.y);
+    float related=packet_tone*min(.42,abs(tones.x)+abs(tones.y))*mix(.95,.35,loosen);
+    return mix(.88,1.16,loosen)*visible+mix(.46,.22,loosen)*grain(coord)+relief+related;
+}
+float throat_rim_coverage(vec2 position,float width_scale,float gap) {
+    float half_width=sand_throat.y, pitch=sand_throat.z;
+    float depth=sand_throat.x-position.y;
+    float release=smoothstep(-sand_release.x,.35*half_width,depth)
+                 *(1.0-smoothstep(.12*half_width,1.45*half_width,depth));
+    float wall_distance=abs(abs(position.x-sand_geometry.x)-half_width*width_scale);
+    float rim=1.0-smoothstep(0.0,1.5*pitch,wall_distance);
+    float resolved=smoothstep(2.4,6.0,half_width/pitch);
+    // A few grain-sized recesses start along the glass, then travel out
+    // with those same grains until their individual silhouettes take over.
+    return 1.0-smoothstep(.43,.86,1.35*release*rim*gap*resolved);
+}
+float draining_grain_coverage(vec2 position,vec2 site,float feed) {
+    if (feed>=1.0) return 1.0;
+    float distance=abs(position.y-sand_throat.x);
+    float span=max(4.0*sand_throat.z,sand_release.x);
+    float inside=smoothstep(0.0,span,distance);
+    // Several grains overlap along the line of sight. First the gaps between
+    // their sites open, then individual centres remain as the supply ends.
+    float vacant=1.0-feed;
+    float projected=1.0-vacant*vacant;
+    float density=mix(projected,1.0,inside);
+    float rank=mix(.015,.985,site.y);
+    return smoothstep(rank-.012,rank+.012,density-.30*(1.0-density)*site.x);
 }
 vec3 flowing_sand_colour(float detail, vec2 position) {
     vec2 uv=vec2(.5+(position.x-sand_geometry.x)/(2.0*sand_geometry.y),
@@ -913,9 +965,12 @@ void main(void) {
     if (sand_throat.y > 0.0) {
         vec2 stretch;
         vec2 coord=sand_coordinates(sand_position,stretch);
-        float pigment=flowing_sand_detail(coord,stretch,sand_throat.z);
+        vec2 site;
+        float pigment=flowing_sand_detail(coord,stretch,sand_throat.z,site);
         float material_mix=sand_mix_pin>=0.0 ? sand_mix : 1.0;
+        coverage*=mix(1.0,throat_rim_coverage(sand_position,stretch.x,site.x),material_mix);
         final_rgb=mix(original.rgb,flowing_sand_colour(pigment,sand_position),material_mix);
+        coverage*=draining_grain_coverage(sand_position,site,sand_neck_feed);
         if (sand_neck_fill < 1.0) {
             float last_grain=.50+.38*clamp(2.5*grain(coord),-1.0,1.0);
             coverage*=smoothstep(last_grain-.12,last_grain+.12,sand_neck_fill);
@@ -1088,7 +1143,9 @@ class SandFlowContext(RenderContext):
         self["sand_outlet_join"] = (0.0, 0.0)
         self["sand_throat"] = (0.0, 0.0, 1.0, 0.0)
         self["sand_funnel"] = (0.0, 0.0)
+        self["sand_release"] = (0.0, 47.5, 0.0)
         self["sand_neck_fill"] = 1.0
+        self["sand_neck_feed"] = 1.0
         _sb = _flag_float("HG_SEAM_BAND", "seamband")
         self["sand_seam_band"] = 0.0 if _sb is None else float(_sb)
         _sa = _flag_float("HG_SEAM_ANCHOR", "seamanchor")

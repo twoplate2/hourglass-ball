@@ -21,7 +21,8 @@ def digest(data):
 def source_equal(measured, current, version=False):
     if not version:
         return measured.replace(b"\r\n", b"\n") == current.replace(b"\r\n", b"\n")
-    old_version, new_version = parse_version(measured.decode()), parse_version(current.decode())
+    old_version = parse_version(measured.decode(), historical=True)
+    new_version = parse_version(current.decode())
     if new_version != old_version:
         validate_increment(old_version, new_version)
     trees = [ast.parse(measured), ast.parse(current)]
