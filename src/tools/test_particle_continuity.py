@@ -156,7 +156,8 @@ def assert_particle_meshes(widget):
     if style=='coherent_core_v11' and widget.pn:
         from short_grain_stream import advected_edge_positions
         expected[:,0]=advected_edge_positions(expected[:,0],expected[:,1],widget.pbt[:widget.pn],
-            center=center,outlet=outlet,half=half,surface=widget.get_mound_top_y())
+            center=center,outlet=outlet,half=half,surface=widget.get_mound_top_y(),
+            source_offsets=widget.pxo[:widget.pn])
     tail_style=getattr(widget,'_short_flow_state',{}).get('tail_style')
     if tail_style is not None:
         if tail_style not in ('exposed_grain_cap_v1','exposed_grain_cap_v2'):
@@ -283,9 +284,9 @@ class ContinuityTrace:
                     ramp=92.
                     if m.get('coarse_width'):
                         diameter=max(1.,2.*m['half'])
-                        lower=min(.87,max(.60,4.*m['pitch']/max(1.,m['half'])))
-                        target=max(lower,(1.+depth/diameter)**-.25)
-                        ramp=min(ramp,.4*diameter)
+                        lower=min(.87,max(.38,3.3*m['pitch']/max(1.,m['half'])))
+                        target=max(lower,(1.+depth/(2.25*diameter))**-.25)
+                        ramp=min(ramp,.55*diameter)
                     shrink=1 if predicted>m['cut'] else 1+(target-1)*min(1,depth/ramp)
                     fallen=max(0,m['cut']-predicted)
                     raw=off*shrink+math.sin(fallen*.07+key[0])*amp*(1-shrink*.4)

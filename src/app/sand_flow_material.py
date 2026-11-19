@@ -230,6 +230,7 @@ uniform float sand_up_scroll;
 uniform float sand_up_scale;
 // Only the neck context enables its existing short overlap with real grains.
 uniform vec2 sand_outlet_join; // outlet y, overlap length in canvas pixels
+uniform vec2 sand_lip_width;   // full and still-supplied half widths
 
 float luma(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
@@ -277,6 +278,15 @@ vec3 neck_flow_rgb_at(vec2 position, float clock, vec2 scroll, float mix_amount)
     float ga=grain(sa+floor(t)*jump*(scrolling ? 0.0 : 1.0));
     float gb=grain(sb+floor(t+.5)*jump+vec2(.5));
     float detail=scrolling ? ga : (ga*wa+gb*wb)*inversesqrt(wa*wa+wb*wb);
+    if (!frozen && !scrolling) {
+        // 47.5 canvas pixels per motion-second matches the grains at release.
+        // Use an integer number of texture repeats per 16 s shader-clock wrap.
+        float travel=47.5*16.0;
+        float repeats=max(1.0,floor(travel/diameter+.5));
+        vec2 patch=(position-vec2(sand_geometry.x,sand_geometry.z))*repeats/travel
+                   +vec2(.5,.31+clock*repeats/16.0);
+        detail=mix(detail,1.85*grain(patch),.78);
+    }
     vec2 luv=sand_wrap_light > 0.0 ? vec2(uv.x,fract(uv.y)) : uv;
     vec3 flowing=grain_tone_color(detail,lighting(luv));
     if (mix_amount >= 1.0) return flowing;
@@ -785,6 +795,14 @@ void main(void) {
         coverage = tail_coverage * (1.0-smoothstep(0.0,sand_outlet_join.y,
                                       sand_outlet_join.x-sand_position.y));
     }
+    if (sand_outlet_join.x > 0.0 && sand_lip_width.y < sand_lip_width.x) {
+        float above=sand_position.y-sand_outlet_join.x;
+        float mouth_weight=1.0-smoothstep(0.0,1.25*sand_lip_width.x,above);
+        if (mouth_weight > 0.0) {
+            float width=mix(sand_lip_width.x,sand_lip_width.y,mouth_weight);
+            coverage*=1.0-smoothstep(width-.7,width+.7,abs(sand_position.x-sand_geometry.x));
+        }
+    }
     if (sand_free.w > 0.0 && sand_position.y < sand_free.w) {
         // 前沿(在途沙的最低点): 不许切成一刀平。1~5px 的零均值锯齿。
         float l2 = grain(vec2(sand_position.x * 0.35, sand_clock * 0.22 + 0.11));
@@ -837,6 +855,12 @@ void main(void) {
     }
     vec3 final_rgb = outlet_join ? neck_flow_rgb(sand_position)
                                 : mix(original.rgb, flowing, sand_mix);
+    if (sand_outlet_join.x > 0.0 && sand_outlet_join.y > 0.0 && !outlet_join) {
+        float above=sand_position.y-sand_outlet_join.x;
+        float band=max(3.0,.055*diameter);
+        if (above < band)
+            final_rgb=mix(neck_flow_rgb(sand_position),final_rgb,smoothstep(0.0,band,above));
+    }
     gl_FragColor = frag_color * vec4(final_rgb,
                                      original.a * coverage);
 }
@@ -1000,6 +1024,7 @@ class SandFlowContext(RenderContext):
         self["sand_tail"] = (0.0, 0.0, 1.0)
         self["sand_free"] = (0.0, 0.0, 1.0, 0.0)
         self["sand_outlet_join"] = (0.0, 0.0)
+        self["sand_lip_width"] = (1.0, 1.0)
         _sb = _flag_float("HG_SEAM_BAND", "seamband")
         self["sand_seam_band"] = 0.0 if _sb is None else float(_sb)
         _sa = _flag_float("HG_SEAM_ANCHOR", "seamanchor")

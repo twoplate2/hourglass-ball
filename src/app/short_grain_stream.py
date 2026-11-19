@@ -26,6 +26,15 @@ def source_half_width(half,pitch):
     return max(0.0,half-sprite_radius(pitch,2))
 
 
+def occupied_lip_half(xs, ys, *, center, outlet, half, pitch):
+    """Width supported by the last sprites that can still reach the neck."""
+    import numpy as np
+    radius = sprite_radius(pitch, 2)
+    near = np.asarray(ys) >= outlet - 1.45 * radius
+    offsets = np.abs(np.asarray(xs)[near] - center)
+    return min(half, float(np.max(offsets, initial=0.)) + radius)
+
+
 def sprite_aspect(pitch,reference_pitch):
     # Fine clusters need the same support area, while their individual texture
     # grains remain fine. Bound exceptional inputs so this cannot become a line.
@@ -70,7 +79,7 @@ def contact_upper_bound(top, curve, cx, half):
 # Art direction only: translate whole existing sprites, keeping their size,
 # pigment and lifetime. Physics and contact positions remain unchanged.
 # Physical trajectories now provide the main narrowing; keep a light art offset.
-ART_STREAM_STRENGTH = .88
+ART_STREAM_STRENGTH = .32
 
 def art_stream_positions(xs, ys, phases, *, center, outlet, half,
                          pitch, strength=ART_STREAM_STRENGTH):
@@ -154,18 +163,18 @@ def cohort_stream_positions(xs, ys, births, scales, *, center, outlet, half, pit
             +half*axis_amount*release*sway)
 
 
-def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface):
-    """Move only the outer part of real grains, with birth-stable side signals."""
+def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface,
+                            source_offsets=None):
+    """Let the outer birth lanes disperse even after the column has narrowed."""
     import numpy as np
     x, y, birth = map(np.asarray, (xs, ys, births))
     if not x.size or half <= 0:
         return x
-    lane = (x - center) / half
+    lane = (x - center if source_offsets is None else np.asarray(source_offsets)) / half
     depth = outlet - y
     release = np.clip((depth - .12 * half) / (1.8 * half), 0., 1.)
-    # x is already contracted by the upstream contour pass. Pick the rim
-    # relative to that narrower body, not to the untouched aperture.
-    edge = np.clip((np.abs(lane) - .43) / (.43 - .16 * release), 0., 1.)
+    edge = np.clip((np.abs(lane) - .40) / .35, 0., 1.)
+    edge *= edge * (3. - 2. * edge)
     landing = np.clip((y - surface - 2.) / (.7 * half), 0., 1.)
     cell = birth / .075
     key = np.floor(cell)
@@ -175,18 +184,8 @@ def advected_edge_positions(xs, ys, births, *, center, outlet, half, surface):
     a = np.remainder(np.sin(key * 12.9898 + side) * 43758.5453, 1.)
     b = np.remainder(np.sin((key + 1.) * 12.9898 + side) * 43758.5453, 1.)
     individual = 2. * np.remainder(np.sin(birth * 16753.7 + side) * 43758.5453, 1.) - 1.
-    drift = .16 * (2. * (a + (b-a)*t) - 1.) + .84 * individual
-    # Bias free-flying grains toward the centre while retaining the full
-    # aperture and the outermost paths. The original trajectory still lands.
-    normalized = np.clip(np.abs(lane) / .86, 0., 1.)
-    triangular = 1. - np.sqrt(1. - normalized)
-    rim = np.clip((np.abs(lane) - .40) / .22, 0., 1.)
-    lip = np.clip((depth - .06 * half) / (.55 * half), 0., 1.)
-    body = np.clip((depth - .75 * half) / (1.60 * half), 0., 1.)
-    inward = np.sign(lane) * .86 * half * (.56 - .40 * body) * (normalized - triangular)
-    inward *= rim * rim * (3. - 2. * rim)
-    offset = min(9.5, .25 * half) * (1. + .34 * body) * edge**1.3 * drift
-    return x + landing * (release * offset - lip * inward)
+    drift = .20 * (2. * (a + (b-a)*t) - 1.) + .80 * individual
+    return x + .21 * half * landing * release * edge * drift
 
 
 def rounded_front_positions(xs, ys, *, center, outlet, half, surface, pitch):
@@ -467,7 +466,7 @@ vec3 micro_material_rgb(vec2 uv,vec2 local) {
     // Few-pixel streams need stronger fixed grain differences, rather than
     // lower coverage. The cue belongs to each micro-grain and moves with it.
     float narrow=1.0-smoothstep(2.0,4.0,short_geometry.z/grain_radius);
-    float contrast=mix(1.4,3.0,narrow);
+    float contrast=mix(1.80,3.0,narrow);
     float facet=short_strength*.15*clamp(dot(local,vec2(-.35,.7)),-1.0,1.0);
     float outlet_uv=(short_geometry.y-sand_geometry.z)/(2.0*sand_geometry.y);
     float illumination=sand_lighting.x*sand_lighting.y*(fract(outlet_uv)-.5);
@@ -522,9 +521,10 @@ void main(void) {
                          micro_hash(cell+grain_tone*91.3+vec2(37.9,3.1)));
     vec2 uv=(floor(pigment_uv*short_texture_size)+.5)/short_texture_size;
     vec3 rgb=micro_material_rgb(uv,local);
+    float radial=abs(sand_position.x-short_geometry.x)/short_geometry.z;
     // Carry a small upstream texture patch with this real grain for its life.
     // Both colour details now use local coordinates and move with one particle.
-    float join_length=short_join_overlap+max(4.0,1.5*short_geometry.z);
+    float join_length=short_join_overlap+max(2.0*grain_radius,.34*short_geometry.z);
     if (short_join_enabled > .5 && depth < join_length) {
         vec2 source=vec2(grain_birth.x,short_geometry.y)
             +grain_local*grain_radius*vec2(1.0,short_aspect);
@@ -535,6 +535,10 @@ void main(void) {
         // averages away the moving grains' contrast and reads as a filament.
         rgb=mix(inherited,rgb,released);
     }
+    // A falling rim grain keeps its lane as the jet contracts.
+    float birth_lane=abs(grain_birth.x-short_geometry.x)
+                     /max(grain_radius,short_geometry.z-grain_radius);
+    radial=mix(radial,max(radial,birth_lane),.52);
     // Few-pixel streams need lateral glyph overlap as well as vertical
     // overlap. Only the central part receives extra moving micro-grains;
     // the original particle silhouette still supplies the entire outer edge.
@@ -543,7 +547,6 @@ void main(void) {
                               abs(sand_position.x-short_geometry.x));
     float flight=smoothstep(.23*short_geometry.z,2.75*short_geometry.z,depth)
         *smoothstep(4.0,8.0,short_geometry.z/max(.8,short_geometry.w));
-    float radial=abs(sand_position.x-short_geometry.x)/short_geometry.z;
     float rim_body=smoothstep(.30,.74,radial);
     float clear_of_contact=smoothstep(2.0,max(3.0,.65*short_geometry.z),
                                      sand_position.y-grain_surface);
@@ -595,13 +598,13 @@ void main(void) {
     coverage=max(coverage,fringe);
     // A free-flying particle has one circular footprint. Keep the existing
     // material hand-off in the lip and the support against the mound.
-    float disc_end=mix(1.35,.66,smoothstep(.36,.70,radial));
-    float discrete=smoothstep(.10*short_geometry.z,disc_end*short_geometry.z,depth)
-        *clear_of_contact*smoothstep(5.0,9.0,short_geometry.z/grain_radius);
+    float disc_end=mix(.90,.55,smoothstep(.36,.70,radial));
+    float discrete=smoothstep(short_join_overlap,disc_end*short_geometry.z+short_join_overlap,depth)
+        *mix(.72,1.0,clear_of_contact)*smoothstep(2.25,4.6,short_geometry.z/grain_radius);
     vec2 grain_jitter=vec2(micro_hash(vec2(grain_tone*73.7,31.1)),
                            micro_hash(vec2(47.9,grain_tone*91.3)))-.5;
     vec2 grain_xy=grain_local*vec2(1.0,short_aspect)-.56*grain_jitter;
-    float grain_px=max(.8,mix(.49,.17,smoothstep(.25,.75,radial))*grain_radius);
+    float grain_px=max(.8,mix(.49,.23,smoothstep(.40,.90,radial))*grain_radius);
     float rotation=6.2831853*micro_hash(vec2(grain_tone*61.9,35.7));
     float extinction=0.0;
     for (int grain=0; grain<3; ++grain) {
@@ -647,7 +650,7 @@ float clump_hash(vec2 p) {
     return fract((p3.x + p3.y) * p3.z);
 }
 """
-BASIC_FRAGMENT_BODY = ((FRAGMENT_BODY[:FRAGMENT_BODY.index('    float depth=')]
+BASIC_FRAGMENT_BODY = ((FRAGMENT_BODY[:FRAGMENT_BODY.index('    // Carry a small upstream texture patch')]
     + FRAGMENT_BODY[FRAGMENT_BODY.index('    // Few-pixel streams need lateral'):])
     .replace('varying vec4 grain_birth;\n','')
     .replace('varying float grain_birth_blend;\n',''))
@@ -771,7 +774,7 @@ def install(widget_class):
                 half=self._taper['t_in'],pitch=pitch,radius=self._R_inner)
             drawn_x=advected_edge_positions(drawn_x,self.py[:n],self.pbt[:n],
                 center=self._cx,outlet=2*self._neck_y-self._taper['y_bot'],
-                half=self._taper['t_in'],surface=self.get_mound_top_y())
+                half=self._taper['t_in'],surface=self.get_mound_top_y(),source_offsets=self.pxo[:n])
         from grain_style import drained_stream_y
         drawn_y=drained_stream_y(drawn_x,self.py[:n],center=self._cx,
             outlet=2*self._neck_y-self._taper['y_bot'],half=self._taper['t_in'],pitch=pitch,

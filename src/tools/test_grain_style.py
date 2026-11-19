@@ -41,6 +41,18 @@ def real_update_flow():
 
 
 class CoarseFlowTests(unittest.TestCase):
+    def test_tablet_jet_spreads_contraction_over_the_visible_fall(self):
+        parameters = style_function("coarse_width_parameters")
+        # Y700 recordings: outlet half-widths for the 5, 20 and 50 s timers.
+        for half in (72., 51., 40.):
+            with self.subTest(half=half):
+                length, floor, ramp = parameters(half, 4.3, .87, 92.)
+                def width(depth):
+                    target = max(floor, (1. + depth / length)**-.25)
+                    return 1. + (target - 1.) * min(1., depth / ramp)
+                self.assertGreater(width(2. * half), .89)
+                self.assertGreater(width(400.) - width(850.), .065)
+
     def test_wide_stream_gradually_contracts_but_thin_mouth_keeps_grain_support(self):
         parameters = style_function("coarse_width_parameters")
         mouth, floor, ramp = parameters(31., 1.85, .87, 92.)

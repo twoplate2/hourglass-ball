@@ -16,9 +16,10 @@ def first_pile_height(height, age, mouth):
 def coarse_width_parameters(half, pitch, original_floor, original_ramp):
     """Jet contraction length, minimum width, and smooth lip transition."""
     mouth = max(1., 2. * half)
-    # A few-pixel opening still needs room for a grain on each side.
-    floor = min(original_floor, max(.60, 4. * pitch / max(1., half)))
-    return mouth, floor, min(original_ramp, .40 * mouth)
+    # Let the jet contract along the fall. Retain room for a few grains in
+    # the smallest aperture without imposing that floor on a tablet-sized jet.
+    floor = min(original_floor, max(.38, 3.3 * pitch / max(1., half)))
+    return 2.25 * mouth, floor, min(original_ramp, .55 * mouth)
 
 
 def tail_duration(clearance, motion_scale, transfer_duration):

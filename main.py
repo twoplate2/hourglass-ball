@@ -4501,8 +4501,8 @@ class HourglassWidget(Widget):
             from short_grain_stream import stream_pitch
             half = self._taper["t_in"]
             pitch = stream_pitch(self._R_inner, SAND_MATERIAL_COARSE, half)
-            mouth, floor, ramp = self._coarse_width_parameters(pitch)
-            ratio = max(floor, (1. + depth / mouth)**-.25)
+            contraction_length, floor, ramp = self._coarse_width_parameters(pitch)
+            ratio = max(floor, (1. + depth / contraction_length)**-.25)
             return 1. + (ratio - 1.) * min(1., depth / ramp)
         if _TWOIMPL >= 2:
             # 零点挪到粒子那套的原点: 粒子的 `below_tube = _lower_ball_cut - y`,
@@ -6627,10 +6627,10 @@ class HourglassWidget(Widget):
         source_speed = 60.0 * motion_scale
         shrink_min, shrink_ramp = FLOW_SHRINK_MIN, FLOW_SHRINK_RAMP
         if _TWOIMPL >= 3:
-            mouth, shrink_min, shrink_ramp = self._coarse_width_parameters(sprite_pitch)
+            contraction_length, shrink_min, shrink_ramp = self._coarse_width_parameters(sprite_pitch)
             # v²/(2g) sets the lateral contraction length. Each grain's actual
             # launch velocity and gravity still determine its vertical trajectory.
-            source_speed = math.sqrt(2. * g_abs * mouth)
+            source_speed = math.sqrt(2. * g_abs * contraction_length)
         source_speed_squared = source_speed * source_speed
         # 🔴 **`twoimpl=3`: 粒子的收缩零点从"下球截口"改到"直筒出口"**(= 柱子那套的零点)。
         #    物理上**出口才是自由落体的起点** —— 粒子本来就是在出口生成的; `_lower_ball_cut`
@@ -8381,6 +8381,18 @@ class HourglassWidget(Widget):
             side = []
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         inlet = self._taper["y_bot"]
+        outlet_half = self._taper["t_in"]
+        lip_half = outlet_half
+        if side and not NECK_FREE_GEOM and getattr(self, "_short_flow_context", None) is not None:
+            from grain_style import tail_duration
+            from short_grain_stream import occupied_lip_half, stream_pitch
+            start, end, _ = self._transfer_timing()
+            span = tail_duration(outlet - self._lower_sand_top, self._particle_motion_scale, end - start)
+            if self.elapsed > end - span:
+                pitch = stream_pitch(self._R_inner, SAND_MATERIAL_COARSE, outlet_half)
+                occupied = occupied_lip_half(self.px[:self.pn], self.py[:self.pn],
+                    center=self._cx, outlet=outlet, half=outlet_half, pitch=pitch)
+                lip_half = max(occupied, outlet_half * max(0., (end - self.elapsed) / span))
         tail_front = (0.0, 0.0, 1.0)
         if (side and self._sand_flow_contexts and self._sand_material is not None
                 and self._upper_sand_fraction() <= 0.0):
@@ -8644,6 +8656,8 @@ class HourglassWidget(Widget):
                     if i == 1 and not NECK_FREE_GEOM
                     and getattr(self, "_short_flow_context", None) is not None
                     else (0.0, 0.0))
+                if i == 1:
+                    context["sand_lip_width"] = (outlet_half, lip_half)
                 # 🔴 **2026-10-12(2.90): 上球材质"随沙体伸缩"** —— 1.244 的 tex_coords 行为。
                 #    用户判词:「我tmd都说了 要做成 v1.244 那样 …… 现在上面的沙子**完全不变化了**」。
                 #    实测复核: 1.244 的上球**帧间差 1.45**(在动!), 而 2.89 冻钟之后只有 **0.002**

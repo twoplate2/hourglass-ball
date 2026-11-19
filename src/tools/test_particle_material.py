@@ -116,6 +116,31 @@ class BirthMaterialPayloadTests(unittest.TestCase):
 
 
 class StreamFringeTests(unittest.TestCase):
+    def test_draining_neck_follows_grains_still_touching_the_lip(self):
+        args = dict(center=100., outlet=200., half=40., pitch=3.)
+        xs = [91., 107., 138.]
+        ys = [197., 196., 145.]
+        width = renderer.occupied_lip_half(xs, ys, **args)
+        self.assertGreaterEqual(width, 9.)
+        self.assertLess(width, 16.)
+        self.assertEqual(renderer.occupied_lip_half([139.], [199.], **args), 40.)
+        self.assertLess(renderer.occupied_lip_half([], [], **args), width)
+
+    def test_outer_births_keep_a_moving_rim_after_the_jet_contracts(self):
+        # A side grain deep in the 50 s column can be only half an outlet
+        # radius away from the axis. Its birth lane still identifies the rim.
+        half = 40.
+        births = np.arange(500) / 73.
+        x = np.full_like(births, .52 * half)
+        drawn = renderer.advected_edge_positions(
+            x, np.zeros_like(x), births, center=0., outlet=500., half=half, surface=-100.,
+            source_offsets=np.full_like(x, .85 * half))
+        self.assertGreater(np.percentile(drawn, 90) - np.percentile(drawn, 10), .22 * half)
+        held = renderer.advected_edge_positions(
+            x, np.zeros_like(x), births, center=0., outlet=500., half=half, surface=-100.,
+            source_offsets=np.full_like(x, .25 * half))
+        np.testing.assert_array_equal(held, x)
+
     def test_rounded_free_front_lifts_edges_but_leaves_actual_contact_alone(self):
         x,y=np.array([-22.,0.,22.,22.]),np.array([45.,45.,45.,75.])
         args=dict(center=0.,outlet=100.,half=30.,pitch=2.)
