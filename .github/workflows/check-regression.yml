@@ -2,7 +2,7 @@ name: APK Application Checks
 
 on:
   push:
-    branches-ignore: [main, master]
+    branches-ignore: [main, master, trial/b14-3.36]
   pull_request:
   workflow_dispatch:
   workflow_call:

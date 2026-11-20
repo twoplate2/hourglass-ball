@@ -1,12 +1,16 @@
 """Compare the candidate application trajectory to measured v3.19 frames."""
 
+import json
+import math
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
+import grain_style
 from grain_style import B13_REFERENCE_RADIUS, B13Transit, hourglass_transit
 from neck_geometry import inner_width
 
@@ -17,6 +21,15 @@ def transit_for(duration):
 
 
 class B14OpeningTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not grain_style.B14_TRIAL:
+            # Exercise the trial profile in an ordinary CI checkout. Package
+            # commands separately require the actual marker before any tests run.
+            trial = patch.object(grain_style, 'B14_TRIAL', True)
+            trial.start()
+            cls.addClassCleanup(trial.stop)
+
     def test_leading_edge_matches_measured_normal_speed_positions(self):
         # 540 by 924, outlet y=477.27. The floor was still empty at frame 45.
         for duration in (20, 50, 6000):
@@ -90,5 +103,38 @@ class B14OpeningTests(unittest.TestCase):
                     previous = depth
 
 
+def run_packaged(command):
+    root = Path(__file__).resolve().parents[2]
+    expected = root / 'src/app/b14_trial_build.py'
+    marker = sys.modules.get('b14_trial_build')
+    if (not expected.is_file() or not marker or Path(marker.__file__).resolve() != expected
+            or marker.B14_TRIAL is not True or grain_style.B14_TRIAL is not True):
+        print('B14 trial build marker missing or inactive', file=sys.stderr)
+        return 1
+    if command == '--packaged-capacity':
+        from test_splash33_impulse import opening_capacity_samples
+
+        source = (root / 'main.py').read_text(encoding='utf-8')
+        oversized = False
+        for glass, arrival, released, capacity in opening_capacity_samples(source):
+            if not all(math.isfinite(v) and v > 0. for v in (arrival, released, capacity)):
+                raise ValueError(f'Invalid capacity measurement for {glass.duration} seconds')
+            print('CAPACITY', json.dumps(dict(duration=glass.duration, released=released,
+                                               capacity=capacity)))
+            if released > capacity:
+                oversized = True
+                print(f'{glass.duration:g} s FAIL: released {released:.3%}, '
+                      f'maximum {capacity:.3%}', file=sys.stderr)
+        return 2 if oversized else 0
+
+    from test_outlet_flow import ApplicationOutletFlowTests
+
+    suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case)
+                               for case in (B14OpeningTests, ApplicationOutletFlowTests))
+    return 0 if unittest.TextTestRunner().run(suite).wasSuccessful() else 1
+
+
 if __name__ == '__main__':
+    if sys.argv[1:] in (['--packaged-trial'], ['--packaged-capacity']):
+        sys.exit(run_packaged(sys.argv[1]))
     unittest.main()

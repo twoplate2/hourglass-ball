@@ -4,6 +4,13 @@ import math
 from functools import lru_cache
 from typing import NamedTuple
 
+try:
+    from b14_trial_build import B14_TRIAL
+except ModuleNotFoundError as error:
+    if error.name != 'b14_trial_build':
+        raise
+    B14_TRIAL = False
+
 
 B13_REFERENCE_RADIUS = 208.845
 B13_LIP_SPEED = 21.0
@@ -109,6 +116,8 @@ class B13Transit(NamedTuple):
 
 def hourglass_transit(duration, half, clock=0.):
     """Use the same calibrated front for the visible jet and landing collisions."""
+    if not B14_TRIAL:
+        return B13Transit.for_glass(duration, half)
     transit = B13Transit.for_glass(duration, half, opening='b14')
     return transit.at_clock(clock) if duration > 5. else transit
 

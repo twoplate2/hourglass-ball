@@ -72,6 +72,16 @@ def representative_motion(source,period,geometry_scale=1.):
     return fixture
 
 
+def opening_capacity_samples(source):
+    """Real widget travel time and full-cylinder upper bound on the reference glass."""
+    for duration in (1., 5., 20., 50., 6000.):
+        glass = representative_motion(source, duration, 1040. / 455.)
+        arrival = glass._fall_delay
+        depth = 2. * glass._neck_y - glass._taper["y_bot"] - glass._lower_sand_bot
+        capacity = glass._taper["t_in"]**2 * depth / (4. * glass._R_inner**3 / 3.)
+        yield glass, arrival, arrival / duration, capacity
+
+
 def launch(fn,*,seed=297,scale=1.,x=270.,radius=208.8,reference=None,
            impact=600.,clearance=1000.,capped=False):
     rng=random.Random(seed)
@@ -94,19 +104,17 @@ def launch(fn,*,seed=297,scale=1.,x=270.,radius=208.8,reference=None,
 
 class Splash33ImpulseTests(unittest.TestCase):
     def test_bulk_front_fits_the_charge_while_splash_speed_stays_comfortable(self):
-        glasses = [representative_motion(self.current, d, 1040./455.)
-                   for d in (1., 5., 20., 50., 6000.)]
-        arrivals = [w._fall_delay for w in glasses]
-        self.assertLess(abs(arrivals[0] - arrivals[1]), .045)
-        self.assertLess(max(arrivals[2:]) - min(arrivals[2:]), .002)
+        samples = list(opening_capacity_samples(self.current))
+        arrivals = [arrival for _, arrival, _, _ in samples]
+        self.assertLess(max(arrivals) - min(arrivals), .045)
+        self.assertLess(max(arrivals[1:]) - min(arrivals[1:]), .002)
         self.assertLess(arrivals[1], .175)
-        for glass, arrival in zip(glasses, arrivals):
-            depth = 2. * glass._neck_y - glass._taper["y_bot"] - glass._lower_sand_bot
-            capacity = glass._taper["t_in"]**2 * depth / (4. * glass._R_inner**3 / 3.)
+        splash_scale = samples[0][0]._particle_motion_scale
+        for glass, arrival, released, capacity in samples:
             with self.subTest(duration=glass.duration):
-                self.assertAlmostEqual(glass._particle_motion_scale, glasses[0]._particle_motion_scale)
+                self.assertAlmostEqual(glass._particle_motion_scale, splash_scale)
                 self.assertGreater(arrival, 0.)
-                self.assertLessEqual(arrival / glass.duration, capacity)
+                self.assertLessEqual(released, capacity)
 
     @classmethod
     def setUpClass(cls):
