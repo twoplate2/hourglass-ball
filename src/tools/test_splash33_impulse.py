@@ -58,7 +58,7 @@ def representative_scale(source,period,geometry_scale=1.):
     constants=[node for node in ast.parse(source).body if isinstance(node,ast.Assign)
                and any(isinstance(t,ast.Name) and t.id in ('NECK_FILL','FALL_DELAY')
                        for t in node.targets)]
-    ns={'math':math}
+    ns={'math':math, 'FLOW_RENDERER':'b13'}
     exec(compile(ast.fix_missing_locations(ast.Module(body=constants+[cls],type_ignores=[])),
                  'main.py:period-scale-contract','exec'),ns)
     fixture=ns['Motion']()
@@ -91,6 +91,13 @@ def launch(fn,*,seed=297,scale=1.,x=270.,radius=208.8,reference=None,
 
 
 class Splash33ImpulseTests(unittest.TestCase):
+    def test_tablet_first_impact_matches_across_normal_timer_durations(self):
+        natural = (math.sqrt(60.**2 + 900. * 1040.) - 60.) / 450.
+        flights = [natural / representative_scale(self.current, d, 1040./455.)
+                   for d in (5., 20., 50., 6000.)]
+        self.assertLess(max(flights) - min(flights), .045)
+        self.assertTrue(1.55 < flights[0] < 2.05)
+
     @classmethod
     def setUpClass(cls):
         cls.old=historical(REFERENCE)

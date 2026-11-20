@@ -1,6 +1,55 @@
 """Shared geometry, grain-motion and appearance calculations for the hourglass."""
 
 import math
+from functools import lru_cache
+
+
+B13_REFERENCE_RADIUS = 208.845
+
+
+def b13_depth(age, launch_speed):
+    # Zero extra speed at release. The gain in speed levels off in a short glass.
+    ramp = age / (age + .50)
+    return age * (launch_speed + 310. * ramp * ramp)
+
+
+def b13_flight(distance, launch_speed):
+    if distance <= 0.:
+        return 0.
+    lo, hi = 0., distance / launch_speed
+    for _ in range(26):
+        age = .5 * (lo + hi)
+        if b13_depth(age, launch_speed) < distance:
+            lo = age
+        else:
+            hi = age
+    return hi
+
+
+@lru_cache(maxsize=32)
+def b13_clocks(distance, radius, duration, neck_fill):
+    distance = max(0., distance)
+    reference_flight = b13_flight(distance * B13_REFERENCE_RADIUS / radius, 33.)
+    if reference_flight == 0.:
+        return 0., 1., 1.
+    flight = min(reference_flight, max(.001, .45 * duration - neck_fill))
+    # The collision particles use constant gravity. Their leading grain and
+    # the optical leading grain must touch the same floor at the same instant.
+    ballistic = 2. * distance / (60. + math.sqrt(60.**2 + 900. * distance))
+    return flight, reference_flight / flight, ballistic / flight
+
+
+def b13_pile_height(height, age, mouth, duration):
+    phase = max(0., age) / min(.80, .20 * duration)
+    # A small deposit can appear at once. Limit the rise of the visible slopes
+    # only while the mass-based surface would grow faster at first contact.
+    return min(height, mouth * (.022 + phase * (1.75 + 1.35 * phase)))
+
+
+def b13_neck_ratio(height, half):
+    # For the last shallow layer, width and height shrink together. With both
+    # scaled by this cube root the remaining volume still follows the ledger.
+    return min(1., (max(0., height) / max(1., .85 * half)) ** (1. / 3.))
 
 
 def first_pile_height(height, age, mouth):

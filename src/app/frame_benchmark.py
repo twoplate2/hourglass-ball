@@ -84,6 +84,9 @@ def benchmark_environment(widget):
     # 而日志里看不出来。
     "splash_renderer": getattr(widget, "splash_renderer", "rect"),
 }
+    image = getattr(getattr(widget, "_b13_mesh", None), "image", None)
+    if image is not None:
+        environment["b13_raster"] = "native" if image.accumulate is not None else "numpy"
     # 纹理上传的量具旋钮也必须记进日志 —— 与上面 `splash_renderer` 同一条教训:
     # **不记的话, "标记文件到底有没有被读到"就只能靠猜**。设备单变量对照全靠它。
     try:

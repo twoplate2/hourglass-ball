@@ -80,8 +80,6 @@ jobs:
             ~/.buildozer
             .buildozer
           key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec', 'src/build/recipes/**') }}
-          restore-keys: |
-            buildozer-v1-${{ runner.os }}-
 
       - name: Build APK (debug)
         run: |
@@ -90,7 +88,8 @@ jobs:
           yes | buildozer android debug 2>&1 | tee build.log
           rc=${PIPESTATUS[1]}
           echo "buildozer exit=$rc"
-          exit $rc
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          unzip -t bin/*.apk lib/arm64-v8a/libb13raster.so
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
 

@@ -62,6 +62,57 @@ class ShortGrainTests(unittest.TestCase):
 
 
 class B13StreamTests(unittest.TestCase):
+    def test_native_disc_coverage_matches_numpy_at_native_size(self):
+        import ctypes
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+        import numpy as np
+        from unittest.mock import patch
+        from b13_raster import GrainImage, _configure_accumulator
+        from b13_stream import REFERENCE_HALF, sample_grains
+
+        source = Path(__file__).resolve().parents[1] / "build/recipes/b13raster/raster.c"
+        compiler = shutil.which("cl" if os.name == "nt" else "cc")
+        if compiler is None:
+            self.skipTest("A host C compiler is needed for the native comparison")
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = Path(tmp) / ("raster.dll" if os.name == "nt" else "raster.so")
+            command = ([compiler, "/nologo", "/O2", "/LD", str(source), "/link", "/OUT:" + str(lib)]
+                       if os.name == "nt" else
+                       [compiler, "-O3", "-shared", "-fPIC", str(source), "-o", str(lib), "-lm"])
+            subprocess.run(command, check=True, cwd=tmp, capture_output=True)
+            library = ctypes.CDLL(str(lib))
+            native = _configure_accumulator(library)
+            origin, size, jet = (7., 14.), (176, 1021), (94., 1002.3, 2.35, REFERENCE_HALF)
+            with patch("b13_raster._load_accumulator", return_value=None):
+                reference = GrainImage(origin, size, jet)
+            with patch("b13_raster._load_accumulator", return_value=native):
+                actual = GrainImage(origin, size, jet)
+            surface = 220. + .21 * np.arange(size[0]+1)
+            for t, pitch in ((.02, .6), (2., 1.), (4.95, 2.), (10., 1.)):
+                grains = sample_grains(t, 5., REFERENCE_HALF, 350., pitch)
+                for image in (reference, actual):
+                    image.paint(grains, surface, (.72,.25,.34), 326.)
+                self.assertLessEqual(np.abs(actual.rgba.astype(int)-reference.rgba).max(), 1)
+            if os.name == "nt":
+                import _ctypes
+                _ctypes.FreeLibrary(library._handle)
+
+    def test_short_fall_keeps_slow_launch_and_limits_lower_grain_speed(self):
+        import numpy as np
+        from b13_stream import REFERENCE_HALF, sample_grains
+        def speed(time):
+            a = sample_grains(time, 20., REFERENCE_HALF, 600.)
+            b = sample_grains(time + .01, 20., REFERENCE_HALF, 600.)
+            serial, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+            return np.median((b.depth[j] - a.depth[i])[serial < 140] / .01)
+        self.assertTrue(20. < speed(.045) < 45.)
+        # On the tall tablet even the old 20 s path reached about 358
+        # reference pixels/s in the lower chamber. Keep visible headroom.
+        self.assertTrue(250. < speed(1.6) < 310.)
+
     def test_y700_first_batch_uses_only_an_image_on_the_main_canvas(self):
         from unittest.mock import Mock, patch
         from types import SimpleNamespace
@@ -243,15 +294,21 @@ class B13StreamTests(unittest.TestCase):
             paused = sample_grains(time + .001, time + 5., half, 400.)
             self.assertTrue(np.array_equal(paused.x, b.x))
 
-    def test_b13_front_and_tail_reach_the_reference_heights(self):
+    def test_short_glass_front_accelerates_gently_and_tail_clears(self):
         import numpy as np
         from b13_stream import REFERENCE_HALF, sample_grains
         front = sample_grains(1.33, 5., REFERENCE_HALF, 433.)
-        self.assertTrue(320. < front.depth.max() < 334.)
+        # At this instant the old steep acceleration covered three quarters
+        # of the reference glass. The gentler fall covers about three fifths.
+        self.assertTrue(.58 < front.depth.max() / 433. < .62)
+        # Follow the narrowing rear across the gap, then require it to leave
+        # that band. A steady full-width column or an early cut fails this.
+        for t in (5.06, 5.07, 5.08):
+            tail = sample_grains(t, 5., REFERENCE_HALF, 15.)
+            mid = tail.x[np.abs(tail.depth - 7.) < 1.]
+            self.assertTrue(len(mid) >= 2 and np.ptp(mid) < 16.)
         tail = sample_grains(5.1, 5., REFERENCE_HALF, 15.)
-        self.assertGreater(tail.depth.min(), 3.)
-        mid = tail.x[np.abs(tail.depth - 7.) < 1.]
-        self.assertTrue(0 < len(mid) and np.ptp(mid) < 16.)
+        self.assertGreater(tail.depth.min(), 8.)
         settled = sample_grains(5.4, 5., REFERENCE_HALF, 15.)
         self.assertEqual(len(settled.serial), 0)
 

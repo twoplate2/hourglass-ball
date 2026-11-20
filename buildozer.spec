@@ -17,7 +17,8 @@ source.exclude_dirs = docs,design,shazhu_html,benchmark_logs,sounds/source,_temp
 version.regex = APP_VERSION = ['"]([0-9]+\.[0-9]+)['"]
 version.filename = %(source.dir)s/src/app/app_version.py
 
-requirements = python3,kivy==2.3.0,pyjnius,numpy
+requirements = python3,kivy==2.3.0,pyjnius,numpy,b13raster
+p4a.local_recipes = src/build/recipes
 
 # ⚠️ 关键:锁定 python-for-android 到 2024 年 tag。
 # 不锁的话 2026 年的新版 p4a 默认下 Python 3.14 alpha,与 Kivy 2.3 C API 不兼容必失败。

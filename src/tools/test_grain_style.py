@@ -60,7 +60,7 @@ class CoarseFlowTests(unittest.TestCase):
         tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
         widget = next(n for n in tree.body if getattr(n, "name", None) == "HourglassWidget")
         method = next(n for n in widget.body if getattr(n, "name", None) == "_released_fraction_at")
-        env = {}
+        env = {"FLOW_RENDERER": "grain"}
         exec(compile(ast.Module([deepcopy(method)], []), "main.py", "exec"), env)
         for duration in (1., 5., 50.):
             start, end = .10, duration - 1./60.
@@ -129,6 +129,22 @@ class CoarseFlowTests(unittest.TestCase):
         self.assertEqual(heights, sorted(heights))
         self.assertEqual(limit(0., 0., mouth), 0.)
         self.assertAlmostEqual(limit(2*raw[1], ages[1], 2*mouth), 2*heights[1])
+
+    def test_b13_first_contact_starts_with_grains_and_retains_the_final_height(self):
+        limit = style_function("b13_pile_height")
+        heights = [limit(160., age, 62., 5.) for age in (0., .04, .12, .22, .4, .6, .8)]
+        self.assertTrue(0. < heights[0] < 3.)
+        self.assertLess(heights[3], 46.)
+        self.assertEqual(heights, sorted(heights))
+        self.assertEqual(heights[-1], 160.)
+
+    def test_last_packed_sand_narrows_before_the_throat_empties(self):
+        ratio = style_function("b13_neck_ratio")
+        widths = [ratio(h, 40.) for h in (0., .25, 2., 12., 60.)]
+        self.assertEqual(widths[0], 0.)
+        self.assertLess(widths[1], .30)
+        self.assertEqual(widths, sorted(widths))
+        self.assertEqual(widths[-1], 1.)
 
     def test_tail_births_remain_ordered_across_the_rate_transition(self):
         budget = style_function("tail_emission_time")

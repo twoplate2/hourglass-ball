@@ -7,10 +7,10 @@ from functools import lru_cache
 from typing import NamedTuple
 
 import numpy as np
+from grain_style import B13_REFERENCE_RADIUS as REFERENCE_RADIUS, b13_clocks, b13_depth, b13_flight, b13_neck_ratio
 
 
 # The B13 reference frame has a 417.69 px inner diameter and a 15% opening.
-REFERENCE_RADIUS = 208.845
 REFERENCE_HALF = .15 * REFERENCE_RADIUS
 RATE = 14500
 BLOCK = 5 * RATE
@@ -41,7 +41,15 @@ def _birth_material():
     drift = np.where(lanes < 0., np.interp(birth, keys, signals[0]),
                      np.interp(birth, keys, signals[1]))
     rank = np.random.default_rng(1209).random(BLOCK)
-    return offsets, lanes, jitter, tone, radius, drift, rank
+    edge = np.clip((np.abs(lanes) - .30) / .70, 0., 1.)
+    launch = 28. + 5. * jitter - 9. * edge**2
+    inward = .08 * np.sin(np.pi * lanes)
+    # Some moving outer grains continue along the lip before drifting inward.
+    # The centre and outermost lane keep their original positions.
+    lip_shift = .40 * np.sign(lanes) * np.maximum(0., np.abs(lanes) - .40) * (1. - np.abs(lanes))
+    outer = np.clip((np.abs(lanes) - .48) / .46, 0., 1.) ** 1.3
+    radius += .13 * np.maximum(0., 1. - (lanes / .68)**2)
+    return offsets, lanes, jitter, tone, radius, drift, rank, launch, inward, outer, lip_shift
 
 
 def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, attached=0.):
@@ -50,11 +58,12 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, attached
     Time and depth are measured in the B13 reference units. Identities continue
     across blocks and are independent of draw cadence, pause and skipped frames.
     """
-    offsets, lanes, jitter, tones, radii, edge_drift, rank = _birth_material()
+    (offsets, lanes, jitter, tones, radii, edge_drift, rank, launch,
+     inward, outer, lip_shift) = _birth_material()
     width_ratio = half / REFERENCE_HALF
     rate = RATE * width_ratio / grain_scale**2
     limit = max(0., gap if max_depth is None else max_depth) + 2. * grain_scale
-    lifetime = ((limit + 6.) / 148.) ** (1. / 2.3)
+    lifetime = b13_flight(limit + 6., 14.)
     first = max(0, math.floor((time - lifetime) * rate))
     last = math.ceil(min(time, end) * rate)
     serial = np.arange(first, max(first, last), dtype=np.int64)
@@ -62,37 +71,40 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, attached
     ids = (slot + block * 24317) % BLOCK
     birth = (serial + offsets[slot]) / rate
     lane = lanes[ids]
-    remaining = end - birth
-    # The last grains are released just inside the neck. Each outer lane stops
-    # earlier than the centre; already falling grains keep their trajectory.
-    supply = np.clip((remaining - .10 - .18 * np.abs(lane)**.9) / .18, 0., 1.)
-    flowing = rank[ids] < supply**2
     age = np.maximum(0., time - birth)
-    edge = np.clip((np.abs(lane) - .30) / .70, 0., 1.)
-    depth = (28. + 5. * jitter[ids] - 9. * edge**2) * age + 148. * age**2.3
-    inside = np.clip((.65 - remaining) / .18, 0., 1.)
-    depth -= 6. * inside**2 * (3. - 2. * inside)
-    if attached > 0. and time > end - .65:
-        # While there is still packed sand at the lip, the outer lanes turn
-        # inward across the first few rows instead of exposing a flat shelf.
-        d = np.maximum(0., depth) / width_ratio
-        width = half - (.46 * d + .055 * d**2) * width_ratio
-        join = np.clip((width + 1. - np.abs(lane) * half) / 2., 0., 1.)
-        join *= np.clip((15. - d) / 7., 0., 1.) * attached
-        flowing |= rank[ids] < join
-    keep = (birth <= time) & flowing & (depth <= limit)
+    depth = b13_depth(age, launch[ids])
+    flowing = birth <= time
+    if time > end - .65:
+        # The final grains start inside the draining neck, with the outer
+        # lanes giving way to the centre as the packed layer runs out.
+        remaining = end - birth
+        supply = np.clip((remaining - .10 - .18 * np.abs(lane)**.9) / .18, 0., 1.)
+        inside = np.clip((.65 - remaining) / .18, 0., 1.)
+        depth -= 6. * inside**2 * (3. - 2. * inside)
+        remaining_lanes = rank[ids] < supply**2
+        if attached > 0.:
+            d = np.maximum(0., depth) / width_ratio
+            width = half * attached - (.46 * d + .055 * d**2) * width_ratio
+            join = np.clip((width + 1. - np.abs(lane) * half) / 2., 0., 1.)
+            join *= np.clip((15. - d) / 7., 0., 1.) * attached
+            remaining_lanes |= rank[ids] < join
+        flowing &= remaining_lanes
+    if time < lifetime + .16:
+        opening = np.minimum(1., birth / .16)
+        flowing &= rank[ids] < .18 + .82 * opening
+    keep = flowing & (depth <= limit)
     serial, ids, lane, depth = (v[keep] for v in (serial, ids, lane, depth))
     released = np.maximum(depth, 0.)
     narrow = 1. - .13 * (1. - np.exp(-released / 54.))
     settle = np.clip((released - 24.) / 145., 0., 1.)
-    lateral = lane - .08 * np.sin(np.pi * lane) * settle
+    lateral = lane - inward[ids] * settle
+    near_lip = np.clip(1. - released / max(1., 1.10 * half), 0., 1.)
+    lateral += lip_shift[ids] * near_lip**2 * (3. - 2. * near_lip)
     x = lateral * max(0., half - .9 * grain_scale) * narrow
-    outer = np.clip((np.abs(lane) - .48) / .46, 0., 1.) ** 1.3
     travel = 1. - np.exp(-np.maximum(0., depth - 12.) / 53.)
     contact = np.clip((gap - depth) / 21., 0., 1.)
-    x += (edge_drift[ids] * width_ratio * 4.8 + jitter[ids] * 1.35) * outer * travel * contact
-    core = .13 * np.maximum(0., 1. - (lane / .68)**2)
-    return Grains(serial, x, depth, (radii[ids] + core) * grain_scale, tones[ids])
+    x += (edge_drift[ids] * width_ratio * 4.8 + jitter[ids] * 1.35) * outer[ids] * travel * contact
+    return Grains(serial, x, depth, radii[ids] * grain_scale, tones[ids])
 
 
 VERTEX_SHADER = """
@@ -308,16 +320,6 @@ def stream_for_renderer(renderer):
     return TextureStream if name == "adreno840" else StreamMesh
 
 
-def _playback_rate(widget, scale, distance):
-    # Match the physical first impact even on a one-second timer or a rotated
-    # glass. At the reference size and normal speed this reduces to one.
-    def flight(d):
-        return 2. * d / (60. + math.sqrt(60.**2 + 900. * d))
-    reference = .25 + flight(distance / scale)
-    actual = widget._neck_fill_time + flight(distance) / widget._particle_motion_scale
-    return reference / actual
-
-
 def install(widget_class):
     from short_grain_stream import mound_surface_at
     old_build, old_draw = widget_class._build_dynamic_canvas, widget_class._draw_stream
@@ -347,6 +349,7 @@ def install(widget_class):
                 raise RuntimeError("forced B13 fallback")
             from kivy.graphics.opengl import GL_RENDERER, glGetString
             stream = stream_for_renderer(glGetString(GL_RENDERER))(w)
+            _birth_material()  # Prepare the grain identities before the first timed frame.
             # Packed sand and the original impact/splash layers occlude the jet.
             front = w._sand_flow_contexts[1] if w._sand_flow_contexts else w._splash_group
             w.canvas.insert(w.canvas.children.index(front), stream.context)
@@ -367,14 +370,15 @@ def install(widget_class):
         outlet = 2. * w._neck_y - w._taper["y_bot"]
         gap = (outlet - w.get_mound_top_y()) / scale
         distance = outlet - w._lower_sand_bot
-        speed = _playback_rate(w, scale, distance)
-        time = (w.elapsed + w._stream_settle_age) * speed
-        end = w.duration * speed
+        fill = w._neck_fill_time
+        _, speed, _ = b13_clocks(distance, radius, w.duration, fill)
+        time = (w.elapsed + w._stream_settle_age - fill) * speed
+        end = (w.duration - fill) * speed
         grain_scale = (game.SAND_MATERIAL_COARSE / 1.8) ** .5
         opened = w._sand_active and w.elapsed > w._neck_fill_time
         # The event loop keeps redrawing idle and completed timers. Stop
         # allocating vertices once even the slowest last grain passed the floor.
-        if not opened or time > end + ((distance / scale + 10.) / 148.) ** (1. / 2.3):
+        if not opened or (time > end and time > end + b13_flight(distance / scale + 10., 14.)):
             stream.clear()
             w._short_flow_state = dict(active=False, particles=w.pn, rendered_particles=0,
                                        material_mode="b13", pitch=scale * grain_scale, position_style="b13")
@@ -385,8 +389,9 @@ def install(widget_class):
         attached = 0.
         if end - .65 < time < end:
             reserve = w._transfer_timing()[2]
-            neck_top = w._neck_surface_y(min(1., (1. - w._sand_released) / reserve))
-            attached = max(0., min(1., (neck_top - outlet) / (3. * scale)))
+            released = w._released_fraction_at(w.elapsed)
+            neck_top = w._neck_surface_y(min(1., (1. - released) / reserve))
+            attached = b13_neck_ratio(neck_top - outlet, half * scale)
         grains = sample_grains(time, end, half, gap, grain_scale, deepest, attached)
         pigment = (w.sand_base[0]-1./255., w.sand_base[1]-1./255., w.sand_base[2])
         stream.update(grains, surface_y, pigment, gap)
