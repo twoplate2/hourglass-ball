@@ -60,8 +60,14 @@ def assert_particle_meshes(widget):
     """核对实际上传的顶点和索引，不只相信 renderer 自报的粒子数。"""
     if getattr(widget, 'flow_renderer', None) == 'b13_grains':
         # Each mass carrier represents many visible grains. Inspect the actual
-        # optical pass and its indexed discs separately from the mass ledger.
+        # optical pass separately from the mass ledger.
         optical = widget._b13_mesh
+        if hasattr(optical, 'image'):
+            uploaded = np.frombuffer(optical.texture.pixels, dtype=np.uint8)
+            if (optical.source_count != widget._short_flow_state['rendered_particles']
+                    or not np.array_equal(uploaded, optical.image.rgba.ravel())):
+                raise AssertionError('B13 贴图读回与本帧取样或图像不符')
+            return optical.source_count
         if not (optical.field.shader.success and optical.context.shader.success):
             raise AssertionError('B13 颗粒累积或着色通道不可用')
         count = 0

@@ -169,15 +169,8 @@ void main(void) {
 """
 
 
-class StreamMesh:
-    """One native-resolution disc per visible grain, in reusable GLES2 batches."""
-    chunk = 4096
-    corners = np.array([[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]], dtype=np.float32)
-
+class StreamArea:
     def __init__(self, widget):
-        from kivy.graphics import Callback, ClearBuffers, ClearColor, Fbo, Rectangle, RenderContext
-        from kivy.graphics.opengl import (GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA,
-                                          glBlendFuncSeparate)
         scale = widget._R_inner / REFERENCE_RADIUS
         outlet = 2. * widget._neck_y - widget._taper["y_bot"]
         extent = widget._taper["t_in"] + 8. * scale
@@ -187,19 +180,33 @@ class StreamMesh:
         self.surface_x = np.arange(left, left + size[0] + 1, dtype=float)
         dx = self.surface_x - widget._cx
         self.bowl = widget._lower_y_c - np.sqrt(np.maximum(0., widget._R_inner**2 - dx**2))
+        self.origin = (left, bottom)
+        self.size = size
+        self.jet = (widget._cx, outlet, scale, widget._taper["t_in"] / scale)
+
+
+class StreamMesh(StreamArea):
+    """One native-resolution disc per visible grain, in reusable GLES2 batches."""
+    chunk = 4096
+    corners = np.array([[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]], dtype=np.float32)
+
+    def __init__(self, widget):
+        from kivy.graphics import Callback, ClearBuffers, ClearColor, Fbo, Rectangle, RenderContext
+        from kivy.graphics.opengl import (GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA,
+                                          glBlendFuncSeparate)
+        super().__init__(widget)
         self.context = RenderContext(use_parent_projection=True, use_parent_modelview=True)
         self.context.shader.vs = COMPOSITE_VERTEX
         self.context.shader.fs = COMPOSITE_FRAGMENT
         with self.context:
-            self.field = Fbo(size=size)
-            Rectangle(pos=(left,bottom), size=size, texture=self.field.texture)
+            self.field = Fbo(size=self.size)
+            Rectangle(pos=self.origin, size=self.size, texture=self.field.texture)
         self.field.shader.vs = VERTEX_SHADER
         self.field.shader.fs = FRAGMENT_SHADER
         if not self.context.shader.success or not self.field.shader.success:
             raise RuntimeError("B13 grain shader could not compile")
-        self.field["target"] = (float(left), float(bottom), float(size[0]), float(size[1]))
-        geometry = (widget._cx, outlet, scale, widget._taper["t_in"]/scale)
-        self.context["jet"] = self.field["jet"] = geometry
+        self.field["target"] = tuple(map(float, self.origin + self.size))
+        self.context["jet"] = self.field["jet"] = self.jet
         with self.field.before:
             ClearColor(0., 0., 0., 0.)
             ClearBuffers()
@@ -220,7 +227,10 @@ class StreamMesh:
                         fmt=[(b"vPosition", 4, "float"), (b"vTexCoords0", 3, "float")])
         self.batches.append((mesh, vertices))
 
-    def update(self, grains, cx, outlet, scale, surface_x, surface_y):
+    def update(self, grains, surface_y, pigment, gap):
+        cx, outlet, scale, _ = self.jet
+        self.context["gap"] = float(gap)
+        self.context["pigment"] = pigment
         count = len(grains.x)
         while count > self.chunk * len(self.batches):
             self.add_batch()
@@ -239,7 +249,7 @@ class StreamMesh:
             v[:, :, 1] = (outlet - scale * grains.depth[block, None]) + scale * v[:, :, 3]
             v[:, :, 4] = support[:, None]
             v[:, :, 5] = grains.tone[block, None]
-            v[:, :, 6] = np.interp(v[:, :, 0], surface_x, surface_y)
+            v[:, :, 6] = np.interp(v[:, :, 0], self.surface_x, surface_y)
             # Publish data before its indices. Keep the backing size constant
             # across first draw, batch growth and shrinking tails.
             mesh.vertices = buf.ravel()
@@ -250,6 +260,52 @@ class StreamMesh:
         for mesh, _ in self.batches:
             if len(mesh.indices):
                 mesh.indices = []
+
+
+class TextureStream(StreamArea):
+    """Render the B13 optical image on the CPU and display one ordinary rectangle."""
+    def __init__(self, widget):
+        from kivy.graphics import Color, InstructionGroup, PopState, PushState, Rectangle
+        from kivy.graphics.texture import Texture
+        from b13_raster import GrainImage
+
+        super().__init__(widget)
+        self.image = GrainImage(self.origin, self.size, self.jet)
+        self.source_count = 0
+        self.texture = Texture.create(size=self.size, colorfmt="rgba")
+        self.texture.add_reload_observer(self.upload)
+        self.upload(self.texture)
+        self.context = InstructionGroup()
+        self.context.add(PushState("color"))
+        self.context.add(Color(1., 1., 1., 1.))
+        self.context.add(Rectangle(pos=self.origin, size=self.size, texture=self.texture))
+        self.context.add(PopState("color"))
+
+    def upload(self, texture):
+        texture.blit_buffer(self.image.rgba.ravel(), colorfmt="rgba", bufferfmt="ubyte")
+
+    def update(self, grains, surface_y, pigment, gap):
+        if not len(grains.x):
+            self.clear()
+            return
+        self.image.paint(grains, surface_y, pigment, gap)
+        self.upload(self.texture)
+        self.source_count = len(grains.x)
+        self.context.flag_update()
+
+    def clear(self):
+        if self.source_count:
+            self.image.rgba.fill(0)
+            self.upload(self.texture)
+            self.source_count = 0
+            self.context.flag_update()
+
+
+def stream_for_renderer(renderer):
+    if isinstance(renderer, bytes):
+        renderer = renderer.decode("ascii", "replace")
+    name = "".join((renderer or "").lower().split()).replace("(tm)", "")
+    return TextureStream if name == "adreno840" else StreamMesh
 
 
 def _playback_rate(widget, scale, distance):
@@ -289,7 +345,8 @@ def install(widget_class):
         try:
             if os.environ.get("HG_FLOW_FORCE_FAIL"):
                 raise RuntimeError("forced B13 fallback")
-            stream = StreamMesh(w)
+            from kivy.graphics.opengl import GL_RENDERER, glGetString
+            stream = stream_for_renderer(glGetString(GL_RENDERER))(w)
             # Packed sand and the original impact/splash layers occlude the jet.
             front = w._sand_flow_contexts[1] if w._sand_flow_contexts else w._splash_group
             w.canvas.insert(w.canvas.children.index(front), stream.context)
@@ -304,7 +361,7 @@ def install(widget_class):
 
     def draw_grains(w, stream):
         game = sys.modules[widget_class.__module__]
-        cx, radius = w._cx, w._R_inner
+        radius = w._R_inner
         scale = radius / REFERENCE_RADIUS
         half = w._taper["t_in"] / scale
         outlet = 2. * w._neck_y - w._taper["y_bot"]
@@ -331,9 +388,8 @@ def install(widget_class):
             neck_top = w._neck_surface_y(min(1., (1. - w._sand_released) / reserve))
             attached = max(0., min(1., (neck_top - outlet) / (3. * scale)))
         grains = sample_grains(time, end, half, gap, grain_scale, deepest, attached)
-        stream.context["gap"] = float(gap)
-        stream.context["pigment"] = (w.sand_base[0]-1./255., w.sand_base[1]-1./255., w.sand_base[2])
-        stream.update(grains, cx, outlet, scale, surface_x, surface_y)
+        pigment = (w.sand_base[0]-1./255., w.sand_base[1]-1./255., w.sand_base[2])
+        stream.update(grains, surface_y, pigment, gap)
         w._short_flow_state = dict(active=bool(len(grains.x)), particles=w.pn,
                                    rendered_particles=len(grains.x), material_mode="b13",
                                    pitch=scale * grain_scale, position_style="b13")

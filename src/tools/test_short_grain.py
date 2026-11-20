@@ -62,6 +62,79 @@ class ShortGrainTests(unittest.TestCase):
 
 
 class B13StreamTests(unittest.TestCase):
+    def test_y700_first_batch_uses_only_an_image_on_the_main_canvas(self):
+        from unittest.mock import Mock, patch
+        from types import SimpleNamespace
+        import numpy as np
+        import b13_stream as b13
+
+        widget = SimpleNamespace(_cx=100., _neck_y=140., _R_inner=b13.REFERENCE_RADIUS,
+                                 _lower_y_c=220., _lower_sand_bot=10.,
+                                 _taper={'t_in': b13.REFERENCE_HALF, 'y_bot': 150.})
+        seen = []
+        class Texture:
+            def add_reload_observer(self, reload):
+                self.reload = reload
+            def blit_buffer(self, pixels, **kwargs):
+                seen.append(np.frombuffer(pixels, dtype=np.uint8).copy())
+
+        graphics = Mock()
+        graphics.InstructionGroup.return_value = Mock()
+        texture = Texture()
+        factory = Mock()
+        factory.Texture.create.return_value = texture
+        graphics.Fbo.side_effect = graphics.Mesh.side_effect = AssertionError('particle GPU draw')
+        modules = {'kivy.graphics': graphics, 'kivy.graphics.texture': factory}
+        with patch.dict(sys.modules, modules):
+            stream_class = b13.stream_for_renderer(b'Adreno (TM) 840')
+            self.assertEqual(stream_class.__name__, 'TextureStream')
+            self.assertIs(b13.stream_for_renderer(b'Adreno(TM)840'), stream_class)
+            self.assertIs(b13.stream_for_renderer(b'Adreno (TM) 740'), b13.StreamMesh)
+            stream = stream_class(widget)
+            self.assertFalse(np.any(seen[-1]))
+            grains = b13.Grains(*(v[:1240] for v in b13.sample_grains(.4, 50., b13.REFERENCE_HALF, 120.)))
+            surface = np.full_like(stream.surface_x, 25.)
+            stream.update(grains, surface, (.84, .64, .38), 105.)
+            self.assertEqual(stream.source_count, 1240)
+            active = seen[-1].copy()
+            self.assertGreater(np.count_nonzero(active[3::4]), 0)
+            texture.reload(texture)
+            np.testing.assert_array_equal(seen[-1], active)
+            stream.clear()
+            self.assertEqual(stream.source_count, 0)
+            self.assertFalse(np.any(seen[-1]))
+            texture.reload(texture)
+            self.assertFalse(np.any(seen[-1]))
+            graphics.Rectangle.assert_called_once()
+            graphics.Fbo.assert_not_called()
+            graphics.Mesh.assert_not_called()
+            graphics.RenderContext.assert_not_called()
+
+    def test_b13_image_overlaps_coloured_discs_and_clips_at_lip_and_pile(self):
+        import numpy as np
+        from b13_raster import GrainImage
+        from b13_stream import Grains
+
+        image = GrainImage((0, 0), (15, 18), (7.5, 15.5, 1., 4.))
+        pigment = (.8, .6, .4)
+        floor = np.full(16, 4.)
+        def draw(x, depth, radius, tones):
+            data = Grains(np.arange(len(x)), *(np.array(v) for v in (x, depth, radius, tones)))
+            image.paint(data, floor, pigment, 12.)
+
+        draw([0., 0.], [8., 8.], [.5, .5], [1., -1.])
+        t = (8. - 4.) / 39.
+        extinction = 1.65 * (2. - t**2 * (3. - 2. * t))
+        expected_alpha = round(255. * (1. - np.exp(-extinction * 2. * .86)))
+        np.testing.assert_array_equal(image.rgba[7, 7], (204, 153, 102, expected_alpha))
+        self.assertEqual(np.count_nonzero(image.rgba[:, :, 3]), 1)
+        draw([5., 0., 1.], [-1., 13., 6.], [.5, .5, .5], [-1., 0., 1.])
+        self.assertEqual(image.rgba[16, 12, 3], 0)  # outside the neck, above the outlet
+        self.assertEqual(image.rgba[2, 7, 3], 0)    # below the mound
+        self.assertEqual(image.rgba[7, 7, 3], 0)    # no trail from the previous frame
+        np.testing.assert_array_equal(image.rgba[9, 8, :3], (222, 173, 119))
+        self.assertGreater(image.rgba[9, 8, 3], 0)
+
     def test_first_upload_never_advertises_indices_without_vertices(self):
         import numpy as np
         from types import SimpleNamespace
@@ -77,11 +150,12 @@ class B13StreamTests(unittest.TestCase):
         stream.batches = [(mesh, data)]
         grains = sample_grains(.26, 20., REFERENCE_HALF, 430.)
         xs, ys = np.array([0., 240.]), np.array([0., 0.])
+        stream.jet, stream.surface_x, stream.context = (120., 400., 1., REFERENCE_HALF), xs, {}
         with patch('b13_stream.np.interp', side_effect=MemoryError('first vertex upload')):
             with self.assertRaises(MemoryError):
-                stream.update(grains, 120., 400., 1., xs, ys)
+                stream.update(grains, ys, (.84, .64, .38), 400.)
         self.assertEqual(len(mesh.indices), 0)
-        stream.update(grains, 120., 400., 1., xs, ys)
+        stream.update(grains, ys, (.84, .64, .38), 400.)
         self.assertEqual(len(mesh.indices), 6 * len(grains.x))
         self.assertLess(max(mesh.indices), len(mesh.vertices) // 7)
         second = SimpleNamespace(indices=[], vertices=[])
@@ -94,10 +168,10 @@ class B13StreamTests(unittest.TestCase):
             return interpolate(x, xp, fp)
         with patch('b13_stream.np.interp', side_effect=fail_next_batch):
             with self.assertRaises(MemoryError):
-                stream.update(more, 120., 400., 1., xs, ys)
+                stream.update(more, ys, (.84, .64, .38), 400.)
         self.assertEqual(len(mesh.indices), 6 * stream.chunk)
         self.assertEqual(len(second.indices), 0)
-        stream.update(more, 120., 400., 1., xs, ys)
+        stream.update(more, ys, (.84, .64, .38), 400.)
         self.assertEqual(len(second.indices), 6 * (len(more.x) - stream.chunk))
 
     def test_draw_failure_keeps_the_timer_and_detaches_the_b13_pass(self):
