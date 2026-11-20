@@ -3943,6 +3943,7 @@ class HourglassWidget(Widget):
         self._s_alloc(512)
         self._bg_splash_acc = 0.0
         self._mound_flow_clock = 0.0
+        self._stream_settle_age = 0.0
         self._first_impact_clock = self._last_impact_clock = None
         self._contact_hits = deque(maxlen=256)
         self._effect_random = None
@@ -4201,7 +4202,9 @@ class HourglassWidget(Widget):
             'in_pts': _bezier2((w_in, y_in), (t_in, y_knee_i), (t_in, y_bot), TAPER_SEGS),
         }
         from grain_style import neck_release_motion
-        self._neck_release = neck_release_motion(t_in, 2. * (y_bot - neck_y))
+        # B13 uses the reference glass's launch speed for first impact and splash.
+        release_length = 0. if FLOW_RENDERER == "b13" else 2. * (y_bot - neck_y)
+        self._neck_release = neck_release_motion(t_in, release_length)
         self._build_neck_mass_table()
         if not self._sand_active:
             self._sand_timing = None
@@ -4210,7 +4213,8 @@ class HourglassWidget(Widget):
         #   两张面积表只建一次, 每帧只查一次表求逆。粗糙数组用固定 seed, 整轮不重抽。
         self._geom_generation += 1
         try:
-            cap_radius = min(Ri * 0.22, self._taper["t_in"] * 2.0)
+            cap_radius = (min(Ri * .12, self._taper["t_in"] * 1.1) if FLOW_RENDERER == "b13"
+                          else min(Ri * .22, self._taper["t_in"] * 2.))
             shape = _mound_shape_array(Ri, UPPER_ROUGH_FRAC, cap_radius)
             self._mound_profile = _MoundProfile(Ri, shape)
             # 上球微粗糙的 65 点数组(与下球同一套节点口径, 但独立 seed / 独立幅度)
@@ -4425,7 +4429,10 @@ class HourglassWidget(Widget):
             sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
             reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
             from grain_style import tail_duration
-            self._sand_tail_span = tail_duration(outlet - self._lower_sand_top, scale, end - start)
+            # B13 drains the packed neck at the reference mass rate. Its last
+            # exposed lanes empty individually while this remaining sand lands.
+            self._sand_tail_span = (0. if FLOW_RENDERER == "b13" else
+                                    tail_duration(outlet - self._lower_sand_top, scale, end - start))
             self._sand_timing = (start, end, reserve)
         return self._sand_timing
 
@@ -5187,6 +5194,7 @@ class HourglassWidget(Widget):
         #    重置后残留的零头会让新一局头几帧多喷几颗(总量可控但没道理)。
         self._bg_splash_acc = 0.0
         self._mound_flow_clock = 0.0
+        self._stream_settle_age = 0.0
         self._first_impact_clock = self._last_impact_clock = None
         self._contact_hits.clear()
         self._effect_random = None
@@ -5803,6 +5811,7 @@ class HourglassWidget(Widget):
                 completed = not self._completion_triggered
                 self._completion_triggered = True
         elif self._completion_triggered:
+            self._stream_settle_age += dt
             self.update_particles(dt)
         else:
             self._warm_batches_step()
@@ -10831,9 +10840,8 @@ class HourglassApp(App):
 # 表现为"一整段周期帧率都上不去"。
 # 批处理把同色同线宽的粒子并进一个 Mesh, 端点走顶点纹理;几何(含圆头帽)与
 # 逐 Line 版一致, 实测画面逐像素同一。同机同配置: 15s 47.9→65.4fps, Canvas 8.46→3.06ms。
-FLOW_RENDERER = os.environ.get("HG_FLOW_RENDERER") or "grain"   # grain | line | batch | gpu | texture
-# PC 与 Android 默认都使用短颗粒绘制，避免只在诊断路径看见改善。
-# texture / line / batch / gpu 保留为显式旧路径；新绘制失败时回退 Line。
+FLOW_RENDERER = os.environ.get("HG_FLOW_RENDERER") or "b13"
+# PC 与 Android 使用同一个 B13 入口。旧的绘制方式仍可显式选择。
 
 
 def _install_flow_renderer(widget_class):
@@ -10850,7 +10858,7 @@ def _install_flow_renderer(widget_class):
     tools = _RUNTIME_DIR
     if tools not in sys.path:
         sys.path.insert(0, tools)
-    target = {"grain": "short_grain_stream", "batch": "flow_batch_experiment",
+    target = {"b13": "b13_stream", "grain": "short_grain_stream", "batch": "flow_batch_experiment",
               "gpu": "flow_gpu_experiment",
               "texture": "flow_texture_experiment"}[FLOW_RENDERER]
     if target == "flow_texture_experiment":

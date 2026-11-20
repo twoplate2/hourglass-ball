@@ -1,3 +1,3 @@
 """Single version source for APK metadata and benchmark reports."""
 
-APP_VERSION = "3.30"
+APP_VERSION = "3.31"

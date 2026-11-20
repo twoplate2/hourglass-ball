@@ -58,6 +58,30 @@ class AdvectedRimTests(unittest.TestCase):
 
 def assert_particle_meshes(widget):
     """核对实际上传的顶点和索引，不只相信 renderer 自报的粒子数。"""
+    if getattr(widget, 'flow_renderer', None) == 'b13_grains':
+        # Each mass carrier represents many visible grains. Inspect the actual
+        # optical pass and its indexed discs separately from the mass ledger.
+        optical = widget._b13_mesh
+        if not (optical.field.shader.success and optical.context.shader.success):
+            raise AssertionError('B13 颗粒累积或着色通道不可用')
+        count = 0
+        for mesh, _ in optical.batches:
+            indices = np.asarray(mesh.indices)
+            if not len(indices):
+                continue
+            n, remainder = divmod(len(indices), 6)
+            vertices = np.asarray(mesh.vertices).reshape(-1, 4, 7)
+            if remainder or n != len(vertices) or not np.array_equal(indices, optical.indices[:6*n]):
+                raise AssertionError('B13 实际绘制的颗粒索引和顶点不匹配')
+            if not np.isfinite(vertices).all() or np.any(vertices[:, :, 4] <= 0):
+                raise AssertionError('B13 可见颗粒的位置或大小无效')
+            radius = vertices[:, :1, 4:5]
+            if not np.allclose(vertices[:, :, 2:4], radius * optical.corners, atol=1e-5):
+                raise AssertionError('B13 颗粒的片元坐标和半径不匹配')
+            count += n
+        if count != widget._short_flow_state['rendered_particles']:
+            raise AssertionError('B13 实际上传粒数与当前画面不匹配')
+        return count
     counts = widget._particle_counts
     meshes = widget._particle_meshes
     if len(counts) != len(meshes) or sum(counts) != widget.pn:

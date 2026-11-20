@@ -61,5 +61,39 @@ class ShortGrainTests(unittest.TestCase):
             self.assertAlmostEqual((after-before) % 4096, .002*rate, places=8)
 
 
+class B13StreamTests(unittest.TestCase):
+    def test_same_grains_fall_across_a_birth_block_and_a_long_timer(self):
+        import numpy as np
+        from b13_stream import REFERENCE_HALF, sample_grains
+        for half, time in ((REFERENCE_HALF, 5.), (5., 360000.)):
+            a = sample_grains(time - .001, time + 5., half, 400.)
+            b = sample_grains(time + .001, time + 5., half, 400.)
+            ids, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+            self.assertGreater(len(ids), .97 * len(a.serial))
+            self.assertTrue(np.all(b.depth[j] > a.depth[i]))
+            self.assertTrue(np.array_equal(a.radius[i], b.radius[j]))
+            self.assertTrue(np.array_equal(a.tone[i], b.tone[j]))
+            paused = sample_grains(time + .001, time + 5., half, 400.)
+            self.assertTrue(np.array_equal(paused.x, b.x))
+
+    def test_b13_front_and_tail_reach_the_reference_heights(self):
+        import numpy as np
+        from b13_stream import REFERENCE_HALF, sample_grains
+        front = sample_grains(1.33, 5., REFERENCE_HALF, 433.)
+        self.assertTrue(320. < front.depth.max() < 334.)
+        tail = sample_grains(5.1, 5., REFERENCE_HALF, 15.)
+        self.assertGreater(tail.depth.min(), 3.)
+        mid = tail.x[np.abs(tail.depth - 7.) < 1.]
+        self.assertTrue(0 < len(mid) and np.ptp(mid) < 16.)
+        settled = sample_grains(5.4, 5., REFERENCE_HALF, 15.)
+        self.assertEqual(len(settled.serial), 0)
+
+    def test_duration_scales_supply_with_aperture(self):
+        from b13_stream import REFERENCE_HALF, sample_grains
+        wide = sample_grains(3., 50., REFERENCE_HALF, 300.)
+        narrow = sample_grains(3., 6000., REFERENCE_HALF / 5., 300.)
+        self.assertAlmostEqual(len(narrow.serial) / len(wide.serial), .2, delta=.012)
+
+
 if __name__ == "__main__":
     unittest.main()

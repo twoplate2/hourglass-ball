@@ -352,7 +352,7 @@ class MoundShoulderTests(unittest.TestCase):
                  and any(isinstance(t,ast.Name) and t.id=='cap_radius' for t in n.targets))
         drop=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_mound_base_drop')
         for half in (8.,19.,27.):
-            ns=dict(Ri=180.,self=SimpleNamespace(_taper={'t_in':half}),
+            ns=dict(Ri=180.,self=SimpleNamespace(_taper={'t_in':half}),FLOW_RENDERER='grain',
                     MOUND_SLOPE_L=.58,MOUND_SLOPE_R=.62)
             exec(compile(ast.Module(body=[deepcopy(cap),deepcopy(drop)],type_ignores=[]),'mound','exec'),ns)
             f=ns['_mound_base_drop']; r=ns['cap_radius']; dx=half*.20
@@ -365,6 +365,9 @@ class MoundShoulderTests(unittest.TestCase):
                 far=3.*half
                 slope=.58 if sign<0 else .62
                 self.assertAlmostEqual(f(sign*far,r),slope*far)
+            ns['FLOW_RENDERER']='b13'
+            exec(compile(ast.Module(body=[deepcopy(cap)],type_ignores=[]),'mound','exec'),ns)
+            self.assertAlmostEqual(ns['cap_radius'], min(.12*ns['Ri'], 1.1*half))
 
 
 class StreamArtConsistencyTests(unittest.TestCase):

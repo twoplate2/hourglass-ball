@@ -270,8 +270,11 @@ def capture(args, helper, report, write_report):
                     raise RuntimeError("Warm queue did not complete")
                 if args.renderer == "texture" and getattr(widget, "flow_renderer", None) not in ("short_grain_field", "particle_sprite_pool"):
                     raise RuntimeError("Requested texture path fell back to another renderer")
-                if args.renderer == "native" and getattr(widget, "flow_renderer", "line_pool") not in ("short_grain_field", "particle_sprite_pool"):
-                    raise RuntimeError("Native PC default short-grain renderer did not activate")
+                if args.renderer == "native":
+                    expected = (("b13_grains",) if game.FLOW_RENDERER == "b13"
+                                else ("short_grain_field", "particle_sprite_pool"))
+                    if getattr(widget, "flow_renderer", "line_pool") not in expected:
+                        raise RuntimeError("Native PC default sand renderer did not activate")
                 if args.renderer == "fallback" and widget.flow_renderer != "line_pool":
                     raise RuntimeError("Forced fallback did not activate")
                 if args.renderer == "legacy" and widget.flow_renderer != "mesh_endpoint_texture":
