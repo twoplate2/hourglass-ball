@@ -62,6 +62,99 @@ class ShortGrainTests(unittest.TestCase):
 
 
 class B13StreamTests(unittest.TestCase):
+    def test_first_upload_never_advertises_indices_without_vertices(self):
+        import numpy as np
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from b13_stream import StreamMesh, sample_grains, REFERENCE_HALF
+
+        stream = object.__new__(StreamMesh)
+        stream.chunk = 4096
+        data = np.zeros((stream.chunk, 4, 7), dtype=np.float32)
+        mesh = SimpleNamespace(indices=[], vertices=[])
+        stream.indices = (np.arange(stream.chunk, dtype=np.uint16)[:, None] * 4
+                          + [0, 1, 2, 0, 2, 3]).astype(np.uint16).ravel()
+        stream.batches = [(mesh, data)]
+        grains = sample_grains(.26, 20., REFERENCE_HALF, 430.)
+        xs, ys = np.array([0., 240.]), np.array([0., 0.])
+        with patch('b13_stream.np.interp', side_effect=MemoryError('first vertex upload')):
+            with self.assertRaises(MemoryError):
+                stream.update(grains, 120., 400., 1., xs, ys)
+        self.assertEqual(len(mesh.indices), 0)
+        stream.update(grains, 120., 400., 1., xs, ys)
+        self.assertEqual(len(mesh.indices), 6 * len(grains.x))
+        self.assertLess(max(mesh.indices), len(mesh.vertices) // 7)
+        second = SimpleNamespace(indices=[], vertices=[])
+        stream.batches.append((second, np.zeros_like(data)))
+        more = sample_grains(.42, 20., REFERENCE_HALF, 430.)
+        interpolate = np.interp
+        def fail_next_batch(x, xp, fp):
+            if x.shape[0] < stream.chunk:
+                raise MemoryError('second vertex upload')
+            return interpolate(x, xp, fp)
+        with patch('b13_stream.np.interp', side_effect=fail_next_batch):
+            with self.assertRaises(MemoryError):
+                stream.update(more, 120., 400., 1., xs, ys)
+        self.assertEqual(len(mesh.indices), 6 * stream.chunk)
+        self.assertEqual(len(second.indices), 0)
+        stream.update(more, 120., 400., 1., xs, ys)
+        self.assertEqual(len(second.indices), 6 * (len(more.x) - stream.chunk))
+
+    def test_draw_failure_keeps_the_timer_and_detaches_the_b13_pass(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from b13_stream import install, REFERENCE_RADIUS
+
+        class Widget:
+            def _build_dynamic_canvas(self):
+                pass
+
+            def _draw_stream(self):
+                self.drawn_with_lines.append(self.elapsed)
+
+        for successful_frames in (0, 3):
+            with self.subTest(successful_frames=successful_frames):
+                class TestWidget(Widget):
+                    pass
+                widget = TestWidget()
+                install(TestWidget)
+                widget._cx, widget._R_inner, widget._neck_y = 200., REFERENCE_RADIUS, 450.
+                widget._taper = {'t_in': 30., 'y_bot': 460.}
+                widget._lower_sand_bot = 10.
+                widget.get_mound_top_y = lambda: 10.
+                widget._particle_motion_scale, widget._neck_fill_time = 1., .25
+                widget.elapsed, widget.duration, widget._stream_settle_age = .6, 20., 0.
+                widget.pn, widget._sand_active = 987, True
+                widget.sand_base = (.84, .64, .38)
+                widget._mound_carve = SimpleNamespace(_v=[])
+                widget._reserve_stream_lines, widget.drawn_with_lines = Mock(), []
+                context = {}
+                import numpy as np
+                stream = SimpleNamespace(context=context, surface_x=np.arange(10.),
+                    bowl=np.ones(10), update=Mock(side_effect=[None] * successful_frames
+                                                  + [RuntimeError('mesh upload failed')]))
+                widget._b13_mesh, widget._short_flow_context = stream, context
+                widget.canvas = [context]
+                with patch.object(sys.modules[__name__], 'SAND_MATERIAL_COARSE', 1.8, create=True):
+                    for remaining in range(successful_frames, 0, -1):
+                        widget.elapsed = .6 - remaining * .1
+                        widget._draw_stream()
+                        self.assertGreater(widget._short_flow_state['rendered_particles'], 0)
+                    widget.elapsed = .6
+                    with self.assertLogs('b13_stream', level='ERROR') as diagnostic:
+                        widget._draw_stream()
+                    self.assertIn('0.600', diagnostic.output[0])
+                    self.assertIn('mesh upload failed', diagnostic.output[0])
+                    widget.elapsed += .1
+                    widget._draw_stream()
+                self.assertEqual(widget.drawn_with_lines, [.6, .7])
+                self.assertEqual(widget.pn, 987)
+                self.assertEqual(widget.flow_renderer, 'line_pool')
+                self.assertNotIn(context, widget.canvas)
+                self.assertIsNone(widget._b13_mesh)
+                widget._reserve_stream_lines.assert_called_once()
+                self.assertEqual(stream.update.call_count, successful_frames + 1)
+
     def test_same_grains_fall_across_a_birth_block_and_a_long_timer(self):
         import numpy as np
         from b13_stream import REFERENCE_HALF, sample_grains

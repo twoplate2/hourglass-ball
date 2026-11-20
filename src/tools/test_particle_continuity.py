@@ -70,9 +70,11 @@ def assert_particle_meshes(widget):
             if not len(indices):
                 continue
             n, remainder = divmod(len(indices), 6)
-            vertices = np.asarray(mesh.vertices).reshape(-1, 4, 7)
-            if remainder or n != len(vertices) or not np.array_equal(indices, optical.indices[:6*n]):
+            buffer = np.asarray(mesh.vertices).reshape(-1, 4, 7)
+            if (remainder or len(buffer) != optical.chunk or n > len(buffer)
+                    or not np.array_equal(indices, optical.indices[:6*n])):
                 raise AssertionError('B13 实际绘制的颗粒索引和顶点不匹配')
+            vertices = buffer[:n]
             if not np.isfinite(vertices).all() or np.any(vertices[:, :, 4] <= 0):
                 raise AssertionError('B13 可见颗粒的位置或大小无效')
             radius = vertices[:, :1, 4:5]

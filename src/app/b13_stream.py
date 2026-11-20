@@ -1,5 +1,6 @@
 """Live B13 grains in reference-glass coordinates, drawn at native resolution."""
 import math
+import logging
 import os
 import sys
 from functools import lru_cache
@@ -95,18 +96,24 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, attached
 
 
 VERTEX_SHADER = """
-$HEADER$
-attribute vec3 vGrain;
+#ifdef GL_ES
+precision highp float;
+#endif
+// The same two attributes as an ordinary Kivy mesh, with extra components.
+attribute vec4 vPosition;    // pixel position and local disc offset
+attribute vec3 vTexCoords0;  // support radius, pigment and surface height
+varying vec4 frag_color;
+varying vec2 tex_coord0;
 uniform vec4 jet;  // centre x, outlet y, glass scale, reference half-width
 uniform vec4 target;  // native-pixel bounds of the optical accumulation texture
 varying vec2 local_offset;
 varying vec2 jet_position;
 varying vec3 grain;
 void main(void) {
-    local_offset = vTexCoords0;
+    local_offset = vPosition.zw;
     jet_position = vec2(vPosition.x-jet.x, jet.y-vPosition.y) / jet.z;
-    grain = vec3(vGrain.xy, (vPosition.y-vGrain.z) / jet.z);
-    gl_Position = vec4(2.0*(vPosition-target.xy)/target.zw-1.0, 0.0, 1.0);
+    grain = vec3(vTexCoords0.xy, (vPosition.y-vTexCoords0.z) / jet.z);
+    gl_Position = vec4(2.0*(vPosition.xy-target.xy)/target.zw-1.0, 0.0, 1.0);
 }
 """
 
@@ -203,27 +210,14 @@ class StreamMesh:
         self.indices = (4 * np.arange(self.chunk, dtype=np.uint16)[:, None]
                         + np.array([0, 1, 2, 0, 2, 3], dtype=np.uint16)).ravel()
         self.batches = []
-        self.add_batch()
 
     def add_batch(self):
-        from kivy.graphics import Callback, Mesh
-        from kivy.graphics.opengl import (GL_CURRENT_PROGRAM, glGetIntegerv,
-                                          glGetAttribLocation, glEnableVertexAttribArray)
-
-        def restore_attributes(_instruction):
-            # A previous Kivy RenderContext can disable the shared GL attributes.
-            program = glGetIntegerv(GL_CURRENT_PROGRAM)[0]
-            for name in (b"vPosition", b"vTexCoords0", b"vGrain"):
-                location = glGetAttribLocation(program, name)
-                if location >= 0:
-                    glEnableVertexAttribArray(location)
+        from kivy.graphics import Mesh
 
         vertices = np.zeros((self.chunk, 4, 7), dtype=np.float32)
         with self.field:
-            Callback(restore_attributes)
-            mesh = Mesh(vertices=[], indices=[], mode="triangles",
-                        fmt=[(b"vPosition", 2, "float"), (b"vTexCoords0", 2, "float"),
-                             (b"vGrain", 3, "float")])
+            mesh = Mesh(vertices=vertices.ravel(), indices=[], mode="triangles",
+                        fmt=[(b"vPosition", 4, "float"), (b"vTexCoords0", 3, "float")])
         self.batches.append((mesh, vertices))
 
     def update(self, grains, cx, outlet, scale, surface_x, surface_y):
@@ -233,9 +227,9 @@ class StreamMesh:
         for i, (mesh, buf) in enumerate(self.batches):
             first = self.chunk * i
             n = min(self.chunk, max(0, count - first))
-            if len(mesh.indices) != n * 6:
-                mesh.indices = self.indices[:n * 6]
             if n == 0:
+                if len(mesh.indices):
+                    mesh.indices = []
                 continue
             block = slice(first, first + n)
             v = buf[:n]
@@ -246,7 +240,11 @@ class StreamMesh:
             v[:, :, 4] = support[:, None]
             v[:, :, 5] = grains.tone[block, None]
             v[:, :, 6] = np.interp(v[:, :, 0], surface_x, surface_y)
-            mesh.vertices = v.ravel()
+            # Publish data before its indices. Keep the backing size constant
+            # across first draw, batch growth and shrinking tails.
+            mesh.vertices = buf.ravel()
+            if len(mesh.indices) != n * 6:
+                mesh.indices = self.indices[:n * 6]
 
     def clear(self):
         for mesh, _ in self.batches:
@@ -268,6 +266,15 @@ def install(widget_class):
     from short_grain_stream import mound_surface_at
     old_build, old_draw = widget_class._build_dynamic_canvas, widget_class._draw_stream
 
+    def use_lines(w):
+        if w._b13_mesh is not None:
+            w.canvas.remove(w._b13_mesh.context)
+        w._b13_mesh = w._short_flow_context = None
+        w._short_material_mode = None
+        w._short_flow_state = {}
+        w._reserve_stream_lines()
+        w.flow_renderer = "line_pool"
+
     def build(w):
         w._stream_batched = True
         try:
@@ -276,6 +283,9 @@ def install(widget_class):
             w._stream_batched = False
         w._b13_mesh = w._short_flow_context = None
         w._short_material_mode = None
+        if getattr(w, "_b13_draw_failed", False):
+            use_lines(w)
+            return
         try:
             if os.environ.get("HG_FLOW_FORCE_FAIL"):
                 raise RuntimeError("forced B13 fallback")
@@ -284,8 +294,7 @@ def install(widget_class):
             front = w._sand_flow_contexts[1] if w._sand_flow_contexts else w._splash_group
             w.canvas.insert(w.canvas.children.index(front), stream.context)
         except Exception as exc:
-            w._reserve_stream_lines()
-            w.flow_renderer = "line_pool"
+            use_lines(w)
             print("B13 unavailable, using Line: %s" % exc)
             return
         w._b13_mesh = stream
@@ -293,10 +302,7 @@ def install(widget_class):
         w._short_material_mode = "b13"
         w.flow_renderer = "b13_grains"
 
-    def draw(w):
-        stream = w._b13_mesh
-        if stream is None:
-            return old_draw(w)
+    def draw_grains(w, stream):
         game = sys.modules[widget_class.__module__]
         cx, radius = w._cx, w._R_inner
         scale = radius / REFERENCE_RADIUS
@@ -331,6 +337,16 @@ def install(widget_class):
         w._short_flow_state = dict(active=bool(len(grains.x)), particles=w.pn,
                                    rendered_particles=len(grains.x), material_mode="b13",
                                    pitch=scale * grain_scale, position_style="b13")
+
+    def draw(w):
+        if w._b13_mesh is not None:
+            try:
+                return draw_grains(w, w._b13_mesh)
+            except Exception:
+                logging.getLogger(__name__).exception("B13 draw failed at %.3f s", w.elapsed)
+                w._b13_draw_failed = True
+                use_lines(w)
+        return old_draw(w)
 
     widget_class._build_dynamic_canvas = build
     widget_class._draw_stream = draw
