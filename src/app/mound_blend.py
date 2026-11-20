@@ -78,13 +78,16 @@ class BlendedArea:
         raise ArithmeticError('Continuous mound volume inverse did not converge')
 
 
-def blend_profile(low,high,weight,columns):
-    if weight<=0.:return low
-    if weight>=1.:return high
+def blend_profile(low,high,weight,columns,inclination=1.):
+    if inclination == 1.:
+        if weight<=0.:return low
+        if weight>=1.:return high
     # The original profile methods continue to own every contact/render path.
     result=object.__new__(type(low))
     result.radius=low.radius
     result.shape=tuple(a+(b-a)*weight for a,b in zip(low.shape,high.shape))
+    if inclination != 1.:
+        result.shape = tuple(value * inclination for value in result.shape)
     result.xs=low.xs;result.flat=low.flat
     result.slope_l=abs(result.shape[0])/result.radius
     result.slope_r=abs(result.shape[-1])/result.radius

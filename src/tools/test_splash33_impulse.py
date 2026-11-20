@@ -52,7 +52,7 @@ def emitter(source):
 
 def representative_motion(source,period,geometry_scale=1.):
     # Fixed PC geometry fixture; use the application's actual period properties.
-    names=('_neck_fill_time','_natural_flight_time','_fall_delay','_particle_motion_scale')
+    names=('_neck_fill_time','_natural_flight_time','_b13_transit_at','_b13_transit','_fall_delay','_particle_motion_scale')
     cls=ast.parse('class Motion: pass').body[0]
     cls.body=[copy.deepcopy(method(source,name)) for name in names]
     constants=[node for node in ast.parse(source).body if isinstance(node,ast.Assign)
@@ -65,7 +65,9 @@ def representative_motion(source,period,geometry_scale=1.):
     fixture.duration=period;fixture._geom_ready=True
     fixture._R_inner=209.*geometry_scale
     fixture._neck_y=500.*geometry_scale
-    fixture._taper={'y_bot':520.*geometry_scale}
+    from neck_geometry import inner_width
+    half_ratio = inner_width(period, 1.)
+    fixture._taper={'y_bot':520.*geometry_scale, 't_in': fixture._R_inner * half_ratio}
     fixture._lower_sand_bot=25.*geometry_scale
     return fixture
 
@@ -91,12 +93,20 @@ def launch(fn,*,seed=297,scale=1.,x=270.,radius=208.8,reference=None,
 
 
 class Splash33ImpulseTests(unittest.TestCase):
-    def test_first_flight_uses_wall_time_even_when_the_timer_rings_in_midair(self):
+    def test_bulk_front_fits_the_charge_while_splash_speed_stays_comfortable(self):
         glasses = [representative_motion(self.current, d, 1040./455.)
                    for d in (1., 5., 20., 50., 6000.)]
         arrivals = [w._fall_delay for w in glasses]
-        self.assertLess(max(arrivals) - min(arrivals), .001)
-        self.assertTrue(3.5 < arrivals[0] < 3.8)
+        self.assertLess(abs(arrivals[0] - arrivals[1]), .045)
+        self.assertLess(max(arrivals[2:]) - min(arrivals[2:]), .002)
+        self.assertLess(arrivals[1], .175)
+        for glass, arrival in zip(glasses, arrivals):
+            depth = 2. * glass._neck_y - glass._taper["y_bot"] - glass._lower_sand_bot
+            capacity = glass._taper["t_in"]**2 * depth / (4. * glass._R_inner**3 / 3.)
+            with self.subTest(duration=glass.duration):
+                self.assertAlmostEqual(glass._particle_motion_scale, glasses[0]._particle_motion_scale)
+                self.assertGreater(arrival, 0.)
+                self.assertLessEqual(arrival / glass.duration, capacity)
 
     @classmethod
     def setUpClass(cls):
@@ -146,7 +156,7 @@ class Splash33ImpulseTests(unittest.TestCase):
 class HitReplayTests(unittest.TestCase):
     reference='146f60e7116d228cde62c6d5565609643c9b3b64'
 
-    def run_replay(self,source,n,cap=0,first=True,*,density=1.5,mode='normal',initial=0):
+    def run_replay(self,source,n,cap=0,first=True,*,density=1.5,mode='normal',initial=0,renderer="line"):
         counter={'scalar_reads':0,'capped_emitter_calls':0,'emitter_calls':0}
         class ObservedArray(np.ndarray):
             def __getitem__(self,key):
@@ -161,7 +171,7 @@ class HitReplayTests(unittest.TestCase):
         parameters.update(math=math,os=os)
         exec(compile(ast.Module(body=list(parameter_nodes(source).values()),type_ignores=[]),
                      'emitter-parameters','exec'),parameters)
-        ns={'_np':np,'random':rng,'SPLASH_HIT_CHANCE':.50,
+        ns={'_np':np,'random':rng,'SPLASH_HIT_CHANCE':.50,'FLOW_RENDERER':renderer,
             'SPLASH_SIZE_MIX':parameters['SPLASH_SIZE_MIX']}
         ns.update({name:parameters[name] for name in PARAMETERS})
         exec(compile(ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[])),
@@ -214,6 +224,17 @@ class HitReplayTests(unittest.TestCase):
                     with self.subTest(n=n,cap=cap,first=first):
                         self.assertEqual(self.run_replay(old,n,cap,first)[0],
                                          self.run_replay(current,n,cap,first)[0])
+
+    def test_b13_first_impact_limits_spray_without_losing_mass_or_random_draws(self):
+        from grain_style import B13_LIP_SPEED, B13_REFERENCE_RADIUS, B13_SPEED_GAIN
+        src=(ROOT/'main.py').read_text(encoding='utf-8')
+        for n in (1, 63, 64, 65, 800):
+            reference, _ = self.run_replay(src, n)
+            actual, _ = self.run_replay(src, n, renderer="b13")
+            self.assertEqual(actual[0], reference[0])
+            self.assertEqual(actual[-2:], reference[-2:])
+            self.assertAlmostEqual(actual[2][0][2], (B13_LIP_SPEED + B13_SPEED_GAIN) * 220. / B13_REFERENCE_RADIUS)
+            self.assertLess(actual[2][0][2], reference[2][0][2])
 
     def test_hit_batch_avoids_per_particle_numpy_scalar_reads(self):
         current=(ROOT/'main.py').read_text(encoding='utf-8')

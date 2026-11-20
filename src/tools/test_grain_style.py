@@ -130,13 +130,43 @@ class CoarseFlowTests(unittest.TestCase):
         self.assertEqual(limit(0., 0., mouth), 0.)
         self.assertAlmostEqual(limit(2*raw[1], ages[1], 2*mouth), 2*heights[1])
 
-    def test_b13_first_contact_starts_with_grains_and_retains_the_final_height(self):
-        limit = style_function("b13_pile_height")
-        heights = [limit(160., age, 62.) for age in (0., .04, .12, .22, .4, .6, .8)]
-        self.assertTrue(0. < heights[0] < 3.)
-        self.assertLess(heights[3], 46.)
-        self.assertEqual(heights, sorted(heights))
-        self.assertEqual(heights[-1], 160.)
+    def test_b13_airborne_charge_fits_the_visible_column_before_first_contact(self):
+        from grain_style import B13Transit, B13_REFERENCE_RADIUS
+        radius = B13_REFERENCE_RADIUS
+        for end, ratio in ((1., .15), (5., .15), (20., .105), (50., .082), (6000., .024)):
+            half = radius * ratio
+            transit = B13Transit.for_glass(end, half)
+            for depth in (.01, half, 2. * half, radius, 2.07 * radius):
+                time = transit.age_at(depth)
+                self.assertAlmostEqual(transit.depth_at(time), depth)
+                capacity = half**2 * depth / (4.*radius**3 / 3.)
+                self.assertLessEqual(time / end, capacity)
+                self.assertGreater(time, 0.)
+
+    def test_b13_bed_receives_a_smooth_supply_only_after_contact(self):
+        from grain_style import B13Transit
+        duration, depth = 5., 433.
+        flow = B13Transit.for_glass(duration, 31.)
+        hit = flow.age_at(depth)
+        for t in (hit * .5, hit, hit + .001, hit + .2, duration, duration + hit + .01):
+            parcels = list(flow.cohorts(0., min(t, duration), t, depth, duration, 2400.))
+            self.assertAlmostEqual(sum(mass for _, mass in parcels), min(1., t / duration))
+            landed = sum(mass for birth, mass in parcels if flow.depth_at(t - birth) >= depth)
+            self.assertAlmostEqual(landed, max(0., min(1., (t - hit) / duration)), delta=1./12000.)
+            if t <= hit:
+                self.assertEqual(landed, 0.)
+
+    def test_same_fall_distance_has_comparable_arrival_across_timer_settings(self):
+        from grain_style import B13Transit, B13_REFERENCE_RADIUS
+        from neck_geometry import inner_width
+
+        diameter = 2. * B13_REFERENCE_RADIUS
+        for depth in (.1 * diameter, diameter, 1.05 * diameter):
+            arrivals = [B13Transit.for_glass(t, inner_width(t, diameter) / 2.).age_at(depth)
+                        for t in (1, 2, 5, 20, 50, 6000, 360000)]
+            self.assertLessEqual(max(arrivals) - min(arrivals), .045)
+            self.assertLess(max(arrivals[2:]) - min(arrivals[2:]), .002)
+            self.assertGreater(min(arrivals), 0.)
 
     def test_last_packed_sand_narrows_before_the_throat_empties(self):
         ratio = style_function("b13_neck_ratio")
@@ -280,6 +310,39 @@ class GrainStyleTests(unittest.TestCase):
 
 
 class UpperSurfaceStyleTests(unittest.TestCase):
+    def test_packed_flow_uses_the_drawn_surface_and_actual_discharge(self):
+        source = (ROOT / 'main.py').read_text(encoding='utf8')
+        widget = next(n for n in ast.parse(source).body if getattr(n, 'name', '') == 'HourglassWidget')
+        names = {'_upper_sand_fraction', '_reservoir_flow_state'}
+        methods = [deepcopy(n) for n in widget.body if getattr(n, 'name', '') in names]
+        self.assertEqual({n.name for n in methods}, names)
+        env = {}
+        exec(compile(ast.Module(methods, []), 'main.py', 'exec'), env)
+        model = type('Reservoir', (), {name: env[name] for name in names})()
+        model.duration, model._geom_ready, model._supply_elapsed = 50., True, 2.
+        model._R_inner = 200.
+        model._transfer_timing = lambda: (.25, model.duration, .012)
+        model._released_fraction_at = lambda t: max(0., t - .25) / model.duration
+        model._upper_level_for = lambda h: h + 2.
+        model._upper_funnel_params = lambda p, h: (4., 160.)
+        model._raw_height_ratio = math.sqrt
+        from grain_style import B13_TEXTURE_SPEED, B13_REFERENCE_RADIUS
+        lip = B13_TEXTURE_SPEED / B13_REFERENCE_RADIUS
+        for period in (5., 20., 50., 6000.):
+            model.duration = period
+            state, transport = model._reservoir_flow_state(198.)
+            self.assertAlmostEqual(transport[1], 1.25 * lip / 2.)
+            self.assertEqual(state[:3], (.5, .01, .4))
+            self.assertAlmostEqual(state[3] * lip, (4./3.) / period)
+            before = model._upper_sand_fraction(2. - .625)
+            after = model._upper_sand_fraction(2. + .625)
+            self.assertAlmostEqual(transport[2] * lip / 2., (math.sqrt(before) - math.sqrt(after)) / 1.25)
+            self.assertEqual((state, transport), model._reservoir_flow_state(198.))  # paused redraw
+        model.duration, model._supply_elapsed = 5., .125
+        state, _ = model._reservoir_flow_state(198.)
+        # The opening window includes both the neck reserve and the discharged mass.
+        self.assertAlmostEqual(state[3] * lip, (4./3.) * (.012 + (.75 - .25)/5.) / .75)
+
     def model(self):
         path = ROOT/'main.py'
         tree = ast.parse(path.read_text(encoding='utf-8'))

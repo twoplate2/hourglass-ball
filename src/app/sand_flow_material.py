@@ -447,6 +447,50 @@ float clump_field(vec2 p, float warp) {
 """
 
 FRAGMENT_SHADER = GRAIN_FRAGMENT_HEADER + """
+uniform vec4 sand_channel;   // throat / join radii, straight inlet / Bezier control heights (px)
+uniform vec4 sand_reservoir; // surface level, dip, half-width (in diameters), equatorial Q/A relative to lip
+uniform vec4 sand_transport; // bounded phase, lip travel per cycle, free-surface speed / lip, volume travel
+
+// Return the projected bulk velocity in units of the lip speed. The section follows
+// the same spherical wall and quadratic shoulder as the sand mask.
+vec2 reservoir_velocity(vec2 position) {
+    float radius = sand_geometry.y;
+    float y = position.y;
+    float wall = sand_channel.x;
+    float slope = 0.0;
+    if (y >= sand_geometry.w) {
+        float h = clamp((y - sand_geometry.z) / radius, 0.0, 2.0);
+        wall = radius * sqrt(max(.00001, h * (2.0 - h)));
+        slope = max(0.0, (1.0 - h) * radius / wall);
+    } else if (y > sand_channel.z) {
+        float b = 2.0 * (sand_channel.w - sand_channel.z);
+        float a = sand_geometry.w - sand_channel.z - b;
+        float rise = y - sand_channel.z;
+        float root = sqrt(max(0.0, b*b + 4.0*a*rise));
+        float u = clamp(2.0 * rise / max(.001, b + root), 0.0, 1.0);
+        float spread = sand_channel.y - sand_channel.x;
+        wall += spread * u*u;
+        slope = 2.0 * spread * u / max(.001, root);
+    }
+    float lane = clamp((position.x - sand_geometry.x) / max(1.0,wall), -1.0, 1.0);
+    float neck = sand_channel.x / radius;
+    float r = wall / radius;
+    float area = clamp((r*r - neck*neck) / max(.001, 1.0 - neck*neck), 0.0, 1.0);
+    // Bound the apparent Q/A as the neck narrows; the preset controls the mass flow,
+    // the visible lip stays continuous with the first free grains even on a 1 s timer.
+    float rate = sand_reservoir.w;
+    float wide = max(.00001, rate / sqrt(1.0 + rate*rate));
+    float mean = wide / (wide + (1.0 - wide) * area);
+    // An hours-long timer can supply almost no visible bulk motion. Bring the
+    // moving grains into the tube over the lower shoulder instead of its last pixel.
+    float approach = 1.0 - smoothstep(0.0, .45, (y - sand_channel.z) / radius);
+    mean = mix(mean, 1.0, approach*approach);
+    float slip = mix(1.0 - .09*lane*lane, 1.0 + .22*(1.0-2.0*lane*lane),
+                     smoothstep(0.0, .32, area));
+    float vertical = mean * slip;
+    return -vertical * vec2(lane * slope / (1.0 + .65*slope), 1.0);
+}
+
 void main(void) {
     // 🔴 **2026-10-09: 交界处做过渡。** 用户报的:「上面沙漏瓶子沙子的渲染, 和沙流沙柱的
     //    渲染, 这2个渲染是不同的, 所以可以看到界限」—— 放大看确认为**质地变了**(球那头
@@ -505,6 +549,29 @@ void main(void) {
                            + 8.0 * from_mouth.y * from_mouth.y);
     vec2 velocity = vec2(-(sand_position.x - sand_geometry.x) * 0.09 * sink,
                          -(4.0 + 46.0 * sink)) / diameter;
+    float skin = 0.0;
+    float quiet = 0.0;
+    float surface = 1.0;
+    bool reservoir_flow = sand_channel.x > 0.0 && sand_up_scroll < 0.0
+                       && (sand_free.x <= 0.0 || sand_position.y >= sand_free.x);
+    if (reservoir_flow) {
+        vec2 bulk = reservoir_velocity(sand_position);
+        float lane = (uv.x - .5) / max(.0001, sand_reservoir.z);
+        surface = sand_reservoir.x - sand_reservoir.y * max(0.0, 1.0 - lane*lane);
+        float below = max(0.0, surface - uv.y);
+        float in_bowl = smoothstep(0.0, .18, (sand_position.y - sand_channel.z) / diameter);
+        float settling = in_bowl * (1.0 - smoothstep(.035, .46, below));
+        velocity = mix(bulk, vec2(0.0, -min(5.0, sand_transport.z)), settling) * sand_transport.y;
+        // Match velocities across the blend as well as the material itself.
+        // Rapidly descending surfaces carry a deeper layer with them. Keep
+        // its texture attached to the actual level, then blend into the funnel.
+        // Distance discharged per trace period, in cup diameters, independent of lip speed.
+        float fast_surface = smoothstep(.2514, .6285, sand_reservoir.w * sand_transport.y);
+        float skin_start = mix(.025, .12, fast_surface);
+        float skin_end = mix(.11, .25, fast_surface);
+        skin = smoothstep(.70,1.0,in_bowl) * (1.0 - smoothstep(skin_start, skin_end, below));
+        quiet = 1.0 - smoothstep(.02, .12, -velocity.y / sand_transport.y);
+    }
     // 🔴 2026-10-10 (B-①): 出口以下改按**深度**给漂移速度(见 `sand_free_drift` 的注释)。
     //    必须在下面采 `grain()` **之前**改 —— 那两行就是拿 `velocity` 去偏移采样坐标的。
     float clump = 0.5;        // 聚团场 0..1(只有出口以下才有; 0.5 = 中性)
@@ -614,6 +681,7 @@ void main(void) {
     float up_static = (sand_adv_cont > 0.0 && sand_up_scroll == 0.0
                        && free_s < 0.5) ? 1.0 : 0.0;
     float t = (up_static > 0.5 ? 0.0 : sand_clock) + jitter;
+    if (reservoir_flow) t = sand_transport.x + jitter;
     float a = fract(t);
     float b = fract(t + 0.5);
     // 🔴 **2026-10-10: 平流的**时间项**必须连续。**
@@ -688,6 +756,11 @@ void main(void) {
     //    (自由段 `sec == 0` ⇒ 取 `adv`, 与旧写法逐位相同, 那一侧一字未动。)
     float b_off = (sec < 0.5) ? adv : b;
     vec2 samp_b = uv - velocity * b_off;
+    // Centred, bounded traces keep grain sites from stretching at strong gradients.
+    if (reservoir_flow) {
+        samp_a += .5 * velocity;
+        samp_b += .5 * velocity;
+    }
     if (free_here > 0.5) {         // 自由段: y 交给材料坐标(上面算好的 `mat_y`)
         samp_a.y = mat_y;
         samp_b.y = mat_y;          // 自由段 `sec==0` ⇒ 两相位本来就同式
@@ -703,14 +776,36 @@ void main(void) {
         samp_b.y *= sand_up_scale;
     }
     float ga=0.0,gb=0.0;
-    if (sand_throat.y<=0.0 || sand_uv_debug>.5) {
-        ga=grain(samp_a * ck + floor(t) * jump * sec * (1.0 - up_scroll));
-        gb=grain(samp_b * ck + floor(t + 0.5) * jump * sec + vec2(0.5));
+    bool common_start = false;
+    if ((sand_throat.y<=0.0 && skin<1.0 && quiet<1.0) || sand_uv_debug>.5) {
+        vec2 site_a = samp_a * ck + floor(t) * jump * sec * (1.0 - up_scroll);
+        vec2 site_b = samp_b * ck + floor(t + 0.5) * jump * sec + vec2(0.5);
+        // Phases already alive when Start was pressed share the original still
+        // grain sites. Each adopts its normal trace when its weight next reaches zero.
+        if (reservoir_flow && sand_time < 2.0) {
+            bool first_a = floor(t) == floor(jitter);
+            bool first_b = floor(t + .5) == floor(jitter + .5);
+            vec2 start_site = uv - velocity * sand_transport.x;
+            if (first_a) site_a = start_site;
+            if (first_b) site_b = start_site;
+            common_start = first_a && first_b;
+        }
+        ga=grain(site_a);
+        gb=grain(site_b);
     }
     float detail = (sec < 0.5)
         ? ga * sand_free_grain
         : ((up_scroll > 0.5) ? ga
            : (ga * wa + gb * wb) * inversesqrt(wa * wa + wb * wb));
+    if (common_start) detail = ga;
+    if (quiet > 0.0 && skin < 1.0) {
+        float slow_detail = grain(vec2(uv.x, uv.y + sand_transport.w));
+        detail = mix(detail, slow_detail, quiet) * inversesqrt(quiet*quiet + (1.0-quiet)*(1.0-quiet));
+    }
+    if (skin > 0.0) {
+        float surface_detail = grain(vec2(uv.x, uv.y + (1.0 - surface)));
+        detail = mix(detail, surface_detail, skin) * inversesqrt(skin*skin + (1.0-skin)*(1.0-skin));
+    }
     // ⚠️ 聚团**不能加在 `detail` 上**: `tone = clamp(lighting + detail, -1, 1)` 早就饱和,
     //    加进去会被**裁掉**(实测 amp=0.18 只改 2 级、amp=2.0 也只 20 级且看不出形状)。
     //    ⇒ 它按物理该是**密度**变化: 改成去调制 `coverage`(见下面自由段那一处)。
@@ -1137,6 +1232,9 @@ class SandFlowContext(RenderContext):
         if not self.shader.success:
             raise RuntimeError("sand flow shader failed to compile")
         self["sand_geometry"] = tuple(map(float, geometry))
+        self["sand_channel"] = (0.0, 0.0, 0.0, 0.0)
+        self["sand_reservoir"] = (1.0, 0.0, 0.0, 0.0)
+        self["sand_transport"] = (0.0, 1.0, 0.0, 0.0)
         self["sand_clock"] = 0.0
         self["sand_mix"] = 0.0
         self["sand_tail"] = (0.0, 0.0, 1.0)

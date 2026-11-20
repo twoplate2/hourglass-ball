@@ -2,6 +2,7 @@
 
 import math
 from functools import lru_cache
+from typing import NamedTuple
 
 
 B13_REFERENCE_RADIUS = 208.845
@@ -9,27 +10,20 @@ B13_LIP_SPEED = 21.0
 B13_SPEED_SCATTER = 3.0
 B13_SPEED_GAIN = 200.0
 B13_RAMP_SECONDS = 3.0
+# All apertures carry visible pigment at the same speed (417.69 px cup).
+B13_TEXTURE_SPEED = 80.
 
 
 def _unit_interval(x):
     return x.clip(0., 1.) if hasattr(x, "clip") else max(0., min(1., x))
 
 
-def b13_launch_speed(lane, jitter):
-    return B13_LIP_SPEED * (1. - .09 * lane * lane) + B13_SPEED_SCATTER * jitter
-
-
 def b13_depth(age, launch_speed):
-    """Integral of the same eased velocity used by the mass-carrying grains."""
+    """Original B13 fall retained for splash timing."""
     u = _unit_interval(age / B13_RAMP_SECONDS)
     ramp_distance = B13_RAMP_SECONDS * u**3 * (1. - .5 * u)
     coast_time = age - B13_RAMP_SECONDS * u
     return launch_speed * age + B13_SPEED_GAIN * (ramp_distance + coast_time)
-
-
-def b13_speed(age, launch_speed):
-    u = _unit_interval(age / B13_RAMP_SECONDS)
-    return launch_speed + B13_SPEED_GAIN * u * u * (3. - 2. * u)
 
 
 def b13_flight(distance, launch_speed):
@@ -50,29 +44,73 @@ def b13_first_flight(distance, radius):
     return b13_flight(distance * B13_REFERENCE_RADIUS / radius, B13_LIP_SPEED + B13_SPEED_SCATTER)
 
 
-def b13_tail_span(supply_seconds):
-    return min(.65, .20 * supply_seconds)
+class B13Transit(NamedTuple):
+    """Bulk travel time from the lip, using the exposed jet's packed volume / flow.
+
+    Coordinates use the reference glass. The occupied section falls from a
+    nearly filled mouth to a narrower porous stream over the first 54 pixels.
+    The integral of its relative area is .60*z + .40*z/(1 + z/54).
+    """
+
+    seconds_per_pixel: float
+
+    @classmethod
+    @lru_cache(maxsize=32)
+    def for_glass(cls, duration, half, *, opening='capacity'):
+        from neck_geometry import FIVE_SECOND_RATIO, WIDE_PERIOD
+        radius = B13_REFERENCE_RADIUS
+        # Use the five-second front for the same drop, even where the visible
+        # throat has a readability floor. Only the widest, very short timers
+        # can release more sand than fits in that front before first contact.
+        packed = duration * (half / radius)**2
+        reference = WIDE_PERIOD * FIVE_SECOND_RATIO**2
+        transit = cls(.90 * .75 / radius * min(packed, reference))
+        if opening == 'b14' and duration > WIDE_PERIOD:
+            from b14_transit import B14Transit
+            return B14Transit(duration, transit)
+        return transit
+
+    @staticmethod
+    def lane_factor(lane, jitter):
+        return 1. - .08 * lane**2 + .02 * jitter
+
+    def age_at(self, depth):
+        return self.seconds_per_pixel * depth * (.60 + .40 / (1. + depth / 54.))
+
+    def depth_at(self, age):
+        x = age / (54. * self.seconds_per_pixel)
+        return 54. * (x - 1. + ((1. - x)**2 + 2.4*x)**.5) / 1.2
+
+    @staticmethod
+    def relative_area(depth):
+        return .60 + .40 / (1. + depth / 54.)**2
+
+    def motion(self, age, lane, jitter, outlet, scale):
+        factor = self.lane_factor(lane, jitter)
+        depth = self.depth_at(age * factor)
+        speed = factor / (self.seconds_per_pixel * self.relative_area(depth))
+        return outlet - scale * depth, -scale * speed
+
+    def cohorts(self, start, end, clock, floor_depth, duration, rate):
+        """Group the volume released in [start, end] into dated collision samples."""
+        # A late UI tick can cover minutes. Group already floor-reaching sand
+        # separately, preserving normal sampling of the part still in flight.
+        oldest_live = clock - self.age_at(floor_depth + 2.) / self.lane_factor(1., -1.)
+        if end - start > .25 and oldest_live > start:
+            stop = min(oldest_live, end)
+            yield .5 * (start + stop), (stop - start) / duration
+            start = stop
+        if start < end:
+            count = max(1, math.ceil(rate * (end - start)))
+            step = (end - start) / count
+            for i in range(count):
+                yield start + (i + .5) * step, step / duration
 
 
-def b13_birth_recess(remaining, span):
-    # The last grains start a little way inside the draining neck. A brief
-    # burst has a proportionally shallower recess as well as a shorter taper.
-    u = _unit_interval((1. - remaining / span) * (.65 / .18))
-    return (6. / .65) * span * u * u * (3. - 2. * u)
-
-
-def b13_carrier_motion(clock, birth, x_offset, phase, outlet, half, scale, end, tail_span):
-    age = clock - birth
-    launch = b13_launch_speed(x_offset / half, phase / math.pi - 1.)
-    depth = b13_depth(age, launch) - b13_birth_recess(end - birth, tail_span)
-    return outlet - scale * depth, -scale * b13_speed(age, launch)
-
-
-def b13_pile_height(height, age, mouth):
-    phase = max(0., age) / .80
-    # A small deposit can appear at once. Limit the rise of the visible slopes
-    # only while the mass-based surface would grow faster at first contact.
-    return min(height, mouth * (.022 + phase * (1.75 + 1.35 * phase)))
+def hourglass_transit(duration, half, clock=0.):
+    """Use the same calibrated front for the visible jet and landing collisions."""
+    transit = B13Transit.for_glass(duration, half, opening='b14')
+    return transit.at_clock(clock) if duration > 5. else transit
 
 
 def b13_neck_ratio(height, half):

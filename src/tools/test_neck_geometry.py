@@ -9,9 +9,11 @@ import neck_geometry as geometry
 
 
 class NeckGeometryTests(unittest.TestCase):
-    def test_short_periods_share_fifteen_percent(self):
-        for period in (1,2,5):
-            self.assertAlmostEqual(geometry.inner_width(period,400),60)
+    def test_short_periods_have_visibly_distinct_apertures(self):
+        widths = [geometry.inner_width(period, 400) for period in (1, 2, 3, 4, 5)]
+        self.assertAlmostEqual(widths[0], 110.)
+        self.assertAlmostEqual(widths[-1], 60.)
+        self.assertTrue(all(a > b for a, b in zip(widths, widths[1:])))
 
     def test_long_period_halves_previous_minimum(self):
         for period in (36000,360000):
@@ -19,7 +21,7 @@ class NeckGeometryTests(unittest.TestCase):
 
     def test_period_mapping_is_monotonic_and_bounded(self):
         values=[geometry.inner_width(math.exp(i/20),300) for i in range(260)]
-        self.assertTrue(all(4.5<=v<=45 for v in values))
+        self.assertTrue(all(4.5<=v<=82.5 for v in values))
         self.assertTrue(all(b<=a for a,b in zip(values,values[1:])))
 
     def test_period_mapping_is_nonlinear(self):
@@ -38,7 +40,9 @@ class NeckGeometryTests(unittest.TestCase):
 
     def test_outer_half_includes_wall_once(self):
         self.assertEqual(geometry.outer_half(5,400,6),36)
-        self.assertEqual(geometry.half_limits(400,6),(9,36))
+        narrow, wide = geometry.half_limits(400,6)
+        self.assertAlmostEqual(narrow, 9.)
+        self.assertAlmostEqual(wide, 61.)
 
     def test_invalid_geometry_rejected(self):
         for value in (0,-1,float('nan'),float('inf')):

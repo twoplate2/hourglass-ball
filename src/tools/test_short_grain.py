@@ -62,7 +62,18 @@ class ShortGrainTests(unittest.TestCase):
 
 
 class B13StreamTests(unittest.TestCase):
-    def test_widget_plays_the_same_grains_across_the_one_second_bell(self):
+    def test_original_flight_curve_still_bounds_dilute_transit(self):
+        from grain_style import b13_depth, b13_flight
+
+        # This curve still sets the empty-cup flight limit for a dilute jet.
+        for depth, limits in ((0., (16., 24.)), (4.5, (18., 29.)),
+                              (18., (32., 49.)), (216., (160., 212.)),
+                              (427., (190., 232.))):
+            age = b13_flight(depth, 20.)
+            speed = (b13_depth(age + .001, 20.) - b13_depth(age, 20.)) / .001
+            self.assertTrue(limits[0] < speed < limits[1], (depth, speed))
+
+    def test_widget_cuts_off_at_the_bell_and_drains_only_the_free_gap(self):
         from types import SimpleNamespace
         from unittest.mock import Mock, patch
         import numpy as np
@@ -80,8 +91,7 @@ class B13StreamTests(unittest.TestCase):
             w._cx, w._R_inner, w._neck_y, w._lower_sand_bot = 200., REFERENCE_RADIUS, 450., 10.
             w._taper = {'t_in': REFERENCE_HALF, 'y_bot': 460.}
             w.get_mound_top_y = lambda: 10.
-            w._neck_fill_time, w.duration = .25, duration
-            w._transfer_timing = lambda: (.25, max(5., duration) - 1./60., .02)
+            w.duration = duration
             w.elapsed, w._stream_settle_age = min(at, duration), max(0., at - duration)
             w._sand_active, w.pn, w.sand_base = True, 50, (.84, .64, .38)
             w._mound_carve = SimpleNamespace(_v=[])
@@ -90,36 +100,57 @@ class B13StreamTests(unittest.TestCase):
             return w._b13_mesh.update.call_args.args[0]
 
         with patch.object(sys.modules[__name__], 'SAND_MATERIAL_COARSE', 1.8, create=True):
-            for t in (.55, 1., 1.40, 2.5):
-                short, long = positions(1., t), positions(20., t)
-                self.assertGreater(len(short.serial), 300)
-                np.testing.assert_array_equal(short.serial, long.serial)
-                np.testing.assert_array_equal(short.depth, long.depth)
+            self.assertGreater(len(positions(1., .55).serial), 300)
+            trailing = positions(1., 1.005)
+            self.assertGreater(len(trailing.serial), 0)
+            self.assertGreater(trailing.depth.min(), REFERENCE_HALF)
+            self.assertEqual(len(positions(1., 1.04).serial), 0)
+            self.assertGreater(len(positions(20., 1.04).serial), 300)
 
-    def test_exit_and_landing_speeds_follow_distance_on_every_timer(self):
+    def test_visible_downward_speed_is_shared_by_wide_and_narrow_streams(self):
         import numpy as np
-        from b13_stream import REFERENCE_HALF, sample_grains
-        from grain_style import b13_depth, b13_flight
+        from b13_stream import REFERENCE_RADIUS, sample_grains
+        from neck_geometry import inner_width
 
-        # A tablet pixel is about 0.45 reference pixels in the user's recording.
-        # Follow a grain near the wall at the lip, 10 and 40 tablet pixels below,
-        # then halfway down and just above the empty floor.
-        for distance, bounds in ((0., (16., 24.)), (4.5, (18., 29.)),
-                                 (18., (32., 49.)), (216., (160., 212.)),
-                                 (427., (190., 232.))):
-            age = b13_flight(distance, 20.)
-            speed = (b13_depth(age + .001, 20.) - b13_depth(age, 20.)) / .001
-            with self.subTest(distance=distance):
-                self.assertTrue(bounds[0] < speed < bounds[1], speed)
-        # A short burst can already be entirely airborne at the bell. Its grains
-        # must still travel at the same speed as the long timer's surviving IDs.
-        for age in (.12, .55, 1.35, 2.8):
-            short = sample_grains(age, .75, REFERENCE_HALF, 433.)
-            long = sample_grains(age, 19.75, REFERENCE_HALF, 433.)
-            ids, i, j = np.intersect1d(short.serial, long.serial, return_indices=True)
-            early = ids < 800
-            self.assertGreater(np.sum(early), 50)
-            np.testing.assert_allclose(short.depth[i[early]], long.depth[j[early]])
+        for duration in (1., 2., 5., 20., 50., 6000., 360000.):
+            with self.subTest(duration=duration):
+                half = inner_width(duration, 2.*REFERENCE_RADIUS) / 2.
+                t = min(3., duration / 2.)
+                a = sample_grains(t, duration, half, 433.)
+                b = sample_grains(t + .02, duration, half, 433.)
+                _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+                speeds = (b.depth[j] - a.depth[i]) / .02
+                for z in (3, 100, 390):
+                    band = (abs(a.depth[i]-z) < 3) & (abs(a.x[i]) < .7*half)
+                    self.assertGreater(band.sum(), 10)
+                    self.assertTrue(76. <= np.median(speeds[band]) <= 81.,
+                                    (z, np.median(speeds[band])))
+
+    def test_line_fallback_keeps_grain_identity_and_short_strokes(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import numpy as np
+        from b13_stream import LineStream, REFERENCE_HALF, REFERENCE_RADIUS, sample_grains
+
+        pools = {(shade, 1): (SimpleNamespace(add=lambda line: None), None, []) for shade in range(3, 8)}
+        w = SimpleNamespace(_R_inner=REFERENCE_RADIUS, _cx=250., _neck_y=450.,
+                            _taper={"t_in": REFERENCE_HALF, "y_bot": 460.},
+                            _lower_y_c=210., _lower_sand_bot=1.,
+                            _stream_pools=pools, _stream_counts=dict.fromkeys(pools, 0))
+        lines = LineStream(w)
+        grains = sample_grains(.05, 1., REFERENCE_HALF, 400.)
+        subset = sample_grains(.05, 1., REFERENCE_HALF, 400., stride=lines.stride)
+        np.testing.assert_array_equal(subset.serial, grains.serial[grains.serial % lines.stride == 0])
+        with patch.dict(sys.modules, {"kivy.graphics": SimpleNamespace(Line=SimpleNamespace)}):
+            lines.update(subset, np.full_like(lines.surface_x, 40.), (1., .7, .4), 400.)
+        strokes = [line.points for key, count in lines.counts.items() for line in pools[key][2][:count]]
+        self.assertGreater(len(strokes), 100)
+        for x, bottom, other_x, top in strokes:
+            self.assertEqual(x, other_x)
+            self.assertTrue(40. <= bottom < top <= 440.)
+            self.assertLess(top - bottom, REFERENCE_HALF * .6)
+        lines.clear()
+        self.assertFalse(any(lines.counts.values()))
 
     def test_native_disc_coverage_matches_numpy_at_native_size(self):
         import ctypes
@@ -158,19 +189,6 @@ class B13StreamTests(unittest.TestCase):
             if os.name == "nt":
                 import _ctypes
                 _ctypes.FreeLibrary(library._handle)
-
-    def test_short_fall_keeps_slow_launch_and_limits_lower_grain_speed(self):
-        import numpy as np
-        from b13_stream import REFERENCE_HALF, sample_grains
-        def speed(time):
-            a = sample_grains(time, 20., REFERENCE_HALF, 600.)
-            b = sample_grains(time + .01, 20., REFERENCE_HALF, 600.)
-            serial, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
-            return np.median((b.depth[j] - a.depth[i])[serial < 140] / .01)
-        self.assertTrue(20. < speed(.045) < 45.)
-        # In 3.34 this same cohort was already moving at 250–310 reference
-        # pixels/s here. The new ramp is still well below its cruising speed.
-        self.assertTrue(100. < speed(1.6) < 150.)
 
     def test_y700_first_batch_uses_only_an_image_on_the_main_canvas(self):
         from unittest.mock import Mock, patch
@@ -249,7 +267,7 @@ class B13StreamTests(unittest.TestCase):
         import numpy as np
         from types import SimpleNamespace
         from unittest.mock import patch
-        from b13_stream import StreamMesh, sample_grains, REFERENCE_HALF
+        from b13_stream import StreamMesh, Grains, sample_grains, REFERENCE_HALF
 
         stream = object.__new__(StreamMesh)
         stream.chunk = 4096
@@ -258,7 +276,10 @@ class B13StreamTests(unittest.TestCase):
         stream.indices = (np.arange(stream.chunk, dtype=np.uint16)[:, None] * 4
                           + [0, 1, 2, 0, 2, 3]).astype(np.uint16).ravel()
         stream.batches = [(mesh, data)]
-        grains = sample_grains(.26, 20., REFERENCE_HALF, 430.)
+        # Fill both batches regardless of how slowly the first grains leave the lip.
+        source = sample_grains(2., 20., REFERENCE_HALF, 430.)
+        grains = Grains(*(col[:1240] for col in source))
+        self.assertEqual(len(grains.serial), 1240)
         xs, ys = np.array([0., 240.]), np.array([0., 0.])
         stream.jet, stream.surface_x, stream.context = (120., 400., 1., REFERENCE_HALF), xs, {}
         with patch('b13_stream.np.interp', side_effect=MemoryError('first vertex upload')):
@@ -270,7 +291,8 @@ class B13StreamTests(unittest.TestCase):
         self.assertLess(max(mesh.indices), len(mesh.vertices) // 7)
         second = SimpleNamespace(indices=[], vertices=[])
         stream.batches.append((second, np.zeros_like(data)))
-        more = sample_grains(.65, 20., REFERENCE_HALF, 430.)
+        more = Grains(*(col[:5600] for col in source))
+        self.assertEqual(len(more.serial), 5600)
         interpolate = np.interp
         def fail_next_batch(x, xp, fp):
             if x.shape[0] < stream.chunk:
@@ -342,33 +364,40 @@ class B13StreamTests(unittest.TestCase):
 
     def test_same_grains_fall_across_a_birth_block_and_a_long_timer(self):
         import numpy as np
-        from b13_stream import REFERENCE_HALF, sample_grains
-        for half, time in ((REFERENCE_HALF, 5.), (5., 360000.)):
-            a = sample_grains(time - .001, time + 5., half, 400.)
-            b = sample_grains(time + .001, time + 5., half, 400.)
+        from b13_stream import BLOCK, REFERENCE_HALF, sample_grains
+        from grain_style import B13_TEXTURE_SPEED
+        wide_rate = 100. * B13_TEXTURE_SPEED
+        for half, duration, time in ((REFERENCE_HALF, 50., BLOCK / wide_rate),
+                                     (5., 360005., 360000.)):
+            a = sample_grains(time - .001, duration, half, 400.)
+            b = sample_grains(time + .001, duration, half, 400.)
+            if half == REFERENCE_HALF:
+                self.assertLess(a.serial.max(), BLOCK)
+                self.assertGreaterEqual(b.serial.max(), BLOCK)
             ids, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
             self.assertGreater(len(ids), .97 * len(a.serial))
             self.assertTrue(np.all(b.depth[j] > a.depth[i]))
             self.assertTrue(np.array_equal(a.radius[i], b.radius[j]))
             self.assertTrue(np.array_equal(a.tone[i], b.tone[j]))
-            paused = sample_grains(time + .001, time + 5., half, 400.)
+            paused = sample_grains(time + .001, duration, half, 400.)
             self.assertTrue(np.array_equal(paused.x, b.x))
 
-    def test_short_glass_front_accelerates_gently_and_tail_clears(self):
+    def test_short_glass_front_tracks_transported_volume_and_tail_clears(self):
         import numpy as np
         from b13_stream import REFERENCE_HALF, sample_grains
-        front = sample_grains(1.33, 5., REFERENCE_HALF, 433.)
-        # The leading grains have travelled roughly one mouth width in 1.33 s.
-        self.assertTrue(REFERENCE_HALF * 2. < front.depth.max() < REFERENCE_HALF * 2.6)
-        # Follow the narrowing rear across the gap, then require it to leave
-        # that band. A steady full-width column or an early cut fails this.
-        for t in (5.35, 5.36, 5.37):
-            tail = sample_grains(t, 5., REFERENCE_HALF, 15.)
-            mid = tail.x[np.abs(tail.depth - 7.) < 1.]
-            self.assertTrue(len(mid) >= 2 and np.ptp(mid) < 16.)
-        tail = sample_grains(5.45, 5., REFERENCE_HALF, 15.)
-        self.assertGreater(tail.depth.min(), 8.)
-        settled = sample_grains(5.65, 5., REFERENCE_HALF, 15.)
+        from grain_style import B13Transit
+        transit = B13Transit.for_glass(5., REFERENCE_HALF)
+        for depth in (12., 140., 425.):
+            front = sample_grains(transit.age_at(depth), 5., REFERENCE_HALF, 433.)
+            self.assertGreater(front.depth.max(), depth * .98)
+            self.assertLess(front.depth.max(), depth * 1.04)
+        short_gap = transit.age_at(15.)
+        before = sample_grains(5. - .2 * short_gap, 5., REFERENCE_HALF, 15.)
+        after = sample_grains(5. + .5 * short_gap, 5., REFERENCE_HALF, 15.)
+        self.assertGreater(np.ptp(before.x[before.depth < 1.]), REFERENCE_HALF * .35)
+        self.assertGreater(after.depth.min(), 6.)
+        self.assertLess(after.depth.min(), 12.)
+        settled = sample_grains(5. + 2. * short_gap, 5., REFERENCE_HALF, 15.)
         self.assertEqual(len(settled.serial), 0)
 
     def test_duration_scales_supply_with_aperture(self):

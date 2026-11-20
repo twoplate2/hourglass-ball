@@ -275,8 +275,7 @@ def snapshot(widget):
     app = sys.modules[widget.__class__.__module__]
     b13 = None
     if app.FLOW_RENDERER == 'b13':
-        _, end, _ = widget._transfer_timing()
-        b13 = (widget.elapsed + widget._stream_settle_age, end, widget._sand_tail_span)
+        b13 = (widget.elapsed + widget._stream_settle_age, widget._b13_transit)
     return {
         "particles": rows,
         "curve": (list(cx), list(cy)),
@@ -310,6 +309,28 @@ def _surface(state, x):
     return ys[i] + (ys[i + 1] - ys[i]) * (z - i)
 
 
+def _predicted_x(before, key, predicted, gravity):
+    m=before['motion'];off,amp,size=before['appearance'][key]
+    depth=max(0,m['cut']-predicted)
+    speed=60*before['scale']
+    target=max(.87,math.sqrt(speed/math.sqrt(speed*speed+2*abs(gravity)*depth)))
+    ramp=92.
+    if m.get('coarse_width'):
+        diameter=max(1.,2.*m['half'])
+        lower=min(.87,max(.38,3.3*m['pitch']/max(1.,m['half'])))
+        target=max(lower,(1.+depth/(2.25*diameter))**-.25)
+        ramp=min(ramp,.55*diameter)
+    shrink=1 if predicted>m['cut'] else 1+(target-1)*min(1,depth/ramp)
+    fallen=max(0,m['cut']-predicted)
+    raw=off*shrink+math.sin(fallen*.07+key[0])*amp*(1-shrink*.4)
+    lim=m['half']
+    if predicted<m['top']:
+        ball=math.sqrt(max(0,m['radius']**2-(predicted-m['center'])**2))
+        lim+=(ball-lim)*min(1,(m['top']-predicted)/30)
+    lim=max(0,lim-renderer.sprite_radius(m['pitch'],size))
+    return m['cx']+max(-lim,min(lim,raw))
+
+
 class ContinuityTrace:
     """只接受积分可达堆面的回收，不允许半空消失后重用旧身份。"""
     def __init__(self):
@@ -326,9 +347,8 @@ class ContinuityTrace:
         tolerance = 2e-5
         b13 = after.get('b13')
         if b13 is not None:
-            from grain_style import (B13_REFERENCE_RADIUS, b13_birth_recess, b13_depth,
-                                     b13_launch_speed, b13_speed)
-            clock, cutoff, tail_span = b13
+            from grain_style import B13_REFERENCE_RADIUS
+            clock, transit = b13
             glass_scale = after['motion']['radius'] / B13_REFERENCE_RADIUS
         for key, (x, y, vy) in previous.items():
             if b13 is None:
@@ -336,10 +356,13 @@ class ContinuityTrace:
                 speed_y = vy + gravity * dt
             else:
                 age = clock - before['birth_material'][key][0]
-                start = max(0., age - dt)
-                launch = -vy / glass_scale - b13_speed(start, 0.)
-                predicted = y - glass_scale * (b13_depth(age, launch) - b13_depth(start, launch))
-                speed_y = -glass_scale * b13_speed(age, launch)
+                lane = before['appearance'][key][0] / before['aperture_half']
+                factor = transit.lane_factor(lane, key[0] / math.pi - 1.)
+                start = transit.age_at((before['outlet'] - y) / glass_scale) / factor
+                if abs(age - dt - start) > tolerance:
+                    raise AssertionError("同一批过口沙的飞行时钟不连续")
+                predicted, speed_y = transit.motion(age, lane, key[0] / math.pi - 1.,
+                                                     before['outlet'], glass_scale)
             if key in current:
                 if 'birth_material' in before:
                     if after.get('birth_material',{}).get(key)!=before['birth_material'][key]:
@@ -347,27 +370,9 @@ class ContinuityTrace:
                 if abs(current[key][0]-x)>1.0+dt*(abs(vy)+abs(gravity*dt)):
                     raise AssertionError("同一粒子的横向位置突变")
                 if 'motion' in before:
-                    m=before['motion'];off,amp,size=before['appearance'][key]
                     if after['appearance'][key]!=before['appearance'][key]:
                         raise AssertionError('同一粒子的粒径或运动身份突变')
-                    depth=max(0,m['cut']-predicted)
-                    speed=60*before['scale']
-                    target=max(.87,math.sqrt(speed/math.sqrt(speed*speed+2*abs(gravity)*depth)))
-                    ramp=92.
-                    if m.get('coarse_width'):
-                        diameter=max(1.,2.*m['half'])
-                        lower=min(.87,max(.38,3.3*m['pitch']/max(1.,m['half'])))
-                        target=max(lower,(1.+depth/(2.25*diameter))**-.25)
-                        ramp=min(ramp,.55*diameter)
-                    shrink=1 if predicted>m['cut'] else 1+(target-1)*min(1,depth/ramp)
-                    fallen=max(0,m['cut']-predicted)
-                    raw=off*shrink+math.sin(fallen*.07+key[0])*amp*(1-shrink*.4)
-                    lim=m['half']
-                    if predicted<m['top']:
-                        ball=math.sqrt(max(0,m['radius']**2-(predicted-m['center'])**2))
-                        lim+=(ball-lim)*min(1,(m['top']-predicted)/30)
-                    lim=max(0,lim-renderer.sprite_radius(m['pitch'],size))
-                    expected=m['cx']+max(-lim,min(lim,raw))
+                    expected = _predicted_x(before, key, predicted, gravity)
                     if abs(current[key][0]-expected)>tolerance:
                         raise AssertionError('同一粒子的横向轨迹不连续')
                 if abs(current[key][1] - predicted) > tolerance:
@@ -377,6 +382,9 @@ class ContinuityTrace:
                 self.survivor_steps += 1
             else:
                 contact = _surface(before, x) - kill_inset
+                if b13 is not None:
+                    next_x = _predicted_x(before, key, predicted, gravity)
+                    contact = max(contact, _surface(after, next_x) - kill_inset)
                 if predicted > contact + tolerance:
                     raise AssertionError("粒子尚未触及堆面便消失")
                 self.retired.add(key)
@@ -398,9 +406,9 @@ class ContinuityTrace:
                 raise AssertionError('新粒子的横向出生位置越过出口')
             if b13 is not None:
                 birth = after['birth_material'][key][0]
-                launch = b13_launch_speed(after['appearance'][key][0] / half, key[0] / math.pi - 1.)
-                origin = outlet + glass_scale * b13_birth_recess(cutoff - birth, tail_span)
-                expected = origin - glass_scale * b13_depth(clock - birth, launch)
+                lane = after['appearance'][key][0] / half
+                expected, _ = transit.motion(clock - birth, lane, key[0] / math.pi - 1.,
+                                             outlet, glass_scale)
                 if not -tolerance <= clock - birth <= dt + tolerance or abs(y - expected) > tolerance:
                     raise AssertionError("新粒子没有沿杯口的速度出生")
             elif not lowest - tolerance <= y <= outlet + tolerance:

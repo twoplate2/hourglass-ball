@@ -12,7 +12,7 @@ source.include_exts = py,png,jpg,kv,atlas,ttf,otf,wav
 # 子目录里的非 .py 资源必须显式列出,否则不进 APK(字体不列会中文乱码,音效不列会无声)
 source.include_patterns = ui/fonts/*.otf,sounds/*.wav,sounds/voice/*.wav,ui/*.png
 # 开发资料、原始素材和本地输出不进入 APK; gitignore 不控制本地打包。
-source.exclude_dirs = docs,design,shazhu_html,benchmark_logs,sounds/source,_temp,Temp,_kivyhome,__pycache__,src/__pycache__,src/app/__pycache__,src/tools
+source.exclude_dirs = docs,design,shazhu_html,benchmark_logs,sounds/source,_temp,shalou_temp,Temp,_kivyhome,__pycache__,src/__pycache__,src/app/__pycache__,src/tools
 
 version.regex = APP_VERSION = ['"]([0-9]+\.[0-9]+)['"]
 version.filename = %(source.dir)s/src/app/app_version.py
