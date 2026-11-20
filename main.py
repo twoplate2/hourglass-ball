@@ -3944,6 +3944,7 @@ class HourglassWidget(Widget):
         self._bg_splash_acc = 0.0
         self._mound_flow_clock = 0.0
         self._stream_settle_age = 0.0
+        self._b13_pile_settling = False
         self._first_impact_clock = self._last_impact_clock = None
         self._contact_hits = deque(maxlen=256)
         self._effect_random = None
@@ -4287,9 +4288,11 @@ class HourglassWidget(Widget):
                     self.pxo[i] *= sx
                     self.pwa[i] *= sx
                     self.py[i] = outlet + (self.py[i] - old_outlet) * sy
-                    contact = self._mound_top_at(float(self.px[i]))
-                    speed = max(0.0, (self.py[i] - contact) / left - 0.5 * gravity * left)
-                    self.pvy[i] = min(self.pvy[i] * sy, -speed)
+                    self.pvy[i] *= sy
+                    if FLOW_RENDERER != "b13":
+                        contact = self._mound_top_at(float(self.px[i]))
+                        speed = max(0.0, (self.py[i] - contact) / left - 0.5 * gravity * left)
+                        self.pvy[i] = min(self.pvy[i], -speed)
                 self._p_refresh_view()
         self._build_glass_shell()
         self._build_dynamic_canvas()
@@ -4323,7 +4326,21 @@ class HourglassWidget(Widget):
         return max(0.0, 1 - self.elapsed / self.duration) if self.duration > 0 else 0
 
     @property
+    def _supply_duration(self):
+        # A full upper bulb needs time to feed the rising pile. The alarm
+        # and the start/reset controls continue to use the selected duration.
+        return max(5., self.duration) if FLOW_RENDERER == "b13" else self.duration
+
+    @property
+    def _supply_elapsed(self):
+        if FLOW_RENDERER == "b13" and self._stream_settle_age:
+            return min(self._supply_duration, self.elapsed + self._stream_settle_age)
+        return self.elapsed
+
+    @property
     def _neck_fill_time(self):
+        if FLOW_RENDERER == "b13":
+            return NECK_FILL
         return max(1e-6, min(NECK_FILL, self.duration * 0.15))
 
     @property
@@ -4338,10 +4355,9 @@ class HourglassWidget(Widget):
     @property
     def _fall_delay(self):
         if self._geom_ready and FLOW_RENDERER == "b13":
-            from grain_style import b13_clocks
+            from grain_style import b13_first_flight
             distance = 2. * self._neck_y - self._taper["y_bot"] - self._lower_sand_bot
-            return self._neck_fill_time + b13_clocks(
-                distance, self._R_inner, self.duration, self._neck_fill_time)[0]
+            return self._neck_fill_time + b13_first_flight(distance, self._R_inner)
         flight = self._natural_flight_time
         if self._geom_ready and self.duration <= 5.0 and self._R_inner > 209.0:
             # Keep short cycles on the timing of the 540 px reference glass.
@@ -4352,11 +4368,9 @@ class HourglassWidget(Widget):
 
     @property
     def _particle_motion_scale(self):
-        """极短周期以缩时播放飞行,首批粒子仍先触底再堆积。"""
+        """粒子发射与飞溅的倍率。B13 的纵向轨迹独立使用真实秒数。"""
         if self._geom_ready and FLOW_RENDERER == "b13":
-            from grain_style import b13_clocks
-            distance = 2. * self._neck_y - self._taper["y_bot"] - self._lower_sand_bot
-            return b13_clocks(distance, self._R_inner, self.duration, self._neck_fill_time)[2]
+            return self._natural_flight_time / max(1e-6, self._fall_delay - self._neck_fill_time)
         available = max(1e-6, self._fall_delay - self._neck_fill_time)
         return max(1.0, self._natural_flight_time / available)
 
@@ -4374,14 +4388,14 @@ class HourglassWidget(Widget):
         t = min(1.0, (eff / MOUND_FLOOR_EFF) ** 0.5)
         return dp(MOUND_FLOOR_MIN + (MOUND_FLOOR_MAX - MOUND_FLOOR_MIN) * t)
 
-    def _sync_mound_frame(self):
+    def _sync_mound_frame(self, elapsed=None):
         """连续过渡预烘轮廓，体积反求、碰撞和绘制共用当前形状。"""
         frames = getattr(self, "_mound_frames", None)
         if not frames:
             return
         nf = len(frames)
         period = UPPER_ROUGH_PERIOD if UPPER_ROUGH_PERIOD > 0 else 1.0
-        phase = (self.elapsed / period) % 1.0 * nf
+        phase = ((self.elapsed if elapsed is None else elapsed) / period) % 1.0 * nf
         k = int(phase) % nf
         blend = phase - int(phase)
         key = (k, blend)
@@ -4430,13 +4444,13 @@ class HourglassWidget(Widget):
             #    ⇒ 去掉这一项: **上球恰好在计时结束时才空**, 全程"堆在长的时候一定有沙在落"。
             #    ⚠️ 代价: 最后几粒在 `duration` 之后才落地 ⇒ 终态沙堆差约 0.4%(肉眼不可辨),
             #      换来"整个计时期间流动与堆积同进同止"。
-            end = max(start + 1e-6, self.duration - 1.0 / 60.0)
+            end = max(start + 1e-6, self._supply_duration - 1.0 / 60.0)
             sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
             reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
-            from grain_style import tail_duration
+            from grain_style import b13_tail_span, tail_duration
             # Slow the last cohorts enough for the neck to empty across
             # several frames. The packed sand and outgoing mass share this clock.
-            self._sand_tail_span = (min(.62, .2 * (end - start)) if FLOW_RENDERER == "b13" else
+            self._sand_tail_span = (b13_tail_span(end - start) if FLOW_RENDERER == "b13" else
                                     tail_duration(outlet - self._lower_sand_top, scale, end - start))
             self._sand_timing = (start, end, reserve)
         return self._sand_timing
@@ -4461,15 +4475,16 @@ class HourglassWidget(Widget):
         if self.duration <= 0 or not self._geom_ready:
             return 1.0 if self.duration > 0 else 0.0
         start, _end, reserve = self._transfer_timing()
-        remaining = 1.0 - self._released_fraction_at(self.elapsed)
-        neck = min(remaining, reserve * min(1.0, max(0.0, self.elapsed / start)))
+        elapsed = self._supply_elapsed
+        remaining = 1.0 - self._released_fraction_at(elapsed)
+        neck = min(remaining, reserve * min(1.0, max(0.0, elapsed / start)))
         return max(0.0, remaining - neck)
 
     def sand_transfer_state(self):
         """取证/快照接口; 热循环不按颗粒构造字典。"""
         upper = self._upper_sand_fraction()
         released = (self._sand_released if self._sand_active
-                    else self._released_fraction_at(self.elapsed))
+                    else self._released_fraction_at(self._supply_elapsed))
         landed = self._sand_landed if self._sand_active else self._effective_fallen()
         return {"upper": upper, "neck": max(0.0, 1.0 - upper - released),
                 "flight": max(0.0, released - landed), "landed": landed}
@@ -4573,6 +4588,11 @@ class HourglassWidget(Widget):
         y_end = 2 * self._neck_y - self._taper["y_bot"]
         if not NECK_FRONT:
             return self._lower_sand_bot
+        if FLOW_RENDERER == "b13":
+            from grain_style import B13_REFERENCE_RADIUS, B13_LIP_SPEED, B13_SPEED_SCATTER, b13_depth
+            age = max(0., self.elapsed + self._stream_settle_age - self._neck_fill_time)
+            depth = b13_depth(age, B13_LIP_SPEED + B13_SPEED_SCATTER)
+            return max(y_end - depth * self._R_inner / B13_REFERENCE_RADIUS, self._lower_sand_bot)
         ms = self._particle_motion_scale
         tau = self.elapsed - self._neck_fill_time       # 第一颗沙离口的时刻
         if tau <= 0.0:
@@ -4731,10 +4751,11 @@ class HourglassWidget(Widget):
         pts = tp['in_pts']
         y_top, y_end = pts[0][1], 2 * self._neck_y - tp['y_bot']
         start, _end, reserve = self._transfer_timing()
-        if self.elapsed <= 0:
+        elapsed = self._supply_elapsed
+        if elapsed <= 0:
             return []
-        if self.elapsed < start:
-            bottom = y_top - (y_top - y_end) * self.elapsed / start
+        if elapsed < start:
+            bottom = y_top - (y_top - y_end) * elapsed / start
             top = y_top
         else:
             upper = self._upper_sand_fraction()
@@ -4747,7 +4768,7 @@ class HourglassWidget(Widget):
                 top = min(y_top, center)
             else:
                 released = (self._sand_released if self._sand_active and FLOW_RENDERER != "b13"
-                            else self._released_fraction_at(self.elapsed))
+                            else self._released_fraction_at(elapsed))
                 neck = max(0.0, 1.0 - released)
                 if neck <= 1e-12:
                     return []
@@ -4758,7 +4779,7 @@ class HourglassWidget(Widget):
         side = [(self._neck_width_at(top), top)]
         side.extend((x, y) for x, y in pts if bottom < y < top)
         side.append((self._neck_width_at(bottom), bottom))
-        if FLOW_RENDERER == "b13" and self.elapsed >= start and upper <= 0.:
+        if FLOW_RENDERER == "b13" and elapsed >= start and upper <= 0.:
             from grain_style import b13_neck_ratio
             ratio = b13_neck_ratio(top - bottom, tp["t_in"])
             if 0. < ratio < 1.:
@@ -4979,7 +5000,9 @@ class HourglassWidget(Widget):
                 if FLOW_RENDERER == "b13":
                     from grain_style import b13_pile_height
                     height = apex + profile.shape_at(0.)
-                    apex += b13_pile_height(height, age, 2. * self._taper["t_in"], self.duration) - height
+                    visible = b13_pile_height(height, age, 2. * self._taper["t_in"])
+                    self._b13_pile_settling = visible < height
+                    apex += visible - height
                 elif age < .45:
                     from grain_style import first_pile_height
                     height = apex + profile.shape_at(0.)
@@ -5219,6 +5242,7 @@ class HourglassWidget(Widget):
         self._bg_splash_acc = 0.0
         self._mound_flow_clock = 0.0
         self._stream_settle_age = 0.0
+        self._b13_pile_settling = False
         self._first_impact_clock = self._last_impact_clock = None
         self._contact_hits.clear()
         self._effect_random = None
@@ -5814,15 +5838,20 @@ class HourglassWidget(Widget):
         if not self._geom_ready:
             return
         now = time.perf_counter()
-        dt = max(0.0, min(0.05, now - self.last_frame))   # 特效限幅; 沙流与计时共用 flow_dt
+        frame_dt = max(0., now - self.last_frame)
+        dt = min(.05, frame_dt)
         self.last_frame = now
         flow_dt = 0.0
         completed = False
         if self.running:
             if self.last_tick is not None:
                 previous = self.elapsed
-                self.elapsed = min(self.duration, self.elapsed + max(0.0, now - self.last_tick))
+                total = self.elapsed + max(0.0, now - self.last_tick)
+                self.elapsed = min(self.duration, total)
                 flow_dt = self.elapsed - previous
+                if FLOW_RENDERER == "b13" and total > self.duration:
+                    self._stream_settle_age = total - self.duration
+                    flow_dt += self._stream_settle_age
             self.last_tick = now
             # ⚠️ 换帧必须在**物理之前** —— 否则同一帧里"粒子撞的轮廓"和"画出来的轮廓"
             #    不是同一个(1.93 那类裂缝的根源)。
@@ -5835,8 +5864,11 @@ class HourglassWidget(Widget):
                 completed = not self._completion_triggered
                 self._completion_triggered = True
         elif self._completion_triggered:
-            self._stream_settle_age += dt
-            self.update_particles(dt)
+            flow_dt = frame_dt if FLOW_RENDERER == "b13" else dt
+            self._stream_settle_age += flow_dt
+            if FLOW_RENDERER == "b13" and self._supply_duration > self.elapsed:
+                self._sync_mound_frame(self._supply_elapsed)
+            self.update_particles(dt, flow_dt=flow_dt)
         else:
             self._warm_batches_step()
         self.redraw()
@@ -5874,6 +5906,8 @@ class HourglassWidget(Widget):
         Clock.schedule_once(fire, COMPLETION_POPUP_DELAY)
 
     def _spawn_dust(self):
+        if FLOW_RENDERER == "b13" and self._first_impact_clock is None:
+            return
         mound_top = self.get_mound_top_y()
         # A full bulb has no exposed free surface to eject sand back into the empty neck.
         if mound_top >= self._lower_sand_top - 1e-6:
@@ -6459,7 +6493,11 @@ class HourglassWidget(Widget):
         gen_y = 2 * self._neck_y - self._taper['y_bot']
         motion_scale = self._particle_motion_scale
         from short_grain_stream import stream_pitch,source_half_width,sprite_radius,emission_scale,coherent_birth,contact_upper_bound
-        from grain_style import tail_emission_time, tail_remaining_time
+        from grain_style import (B13_REFERENCE_RADIUS, b13_carrier_motion, b13_launch_speed,
+                                 tail_emission_time, tail_remaining_time)
+        b13 = FLOW_RENDERER == "b13"
+        glass_scale = self._R_inner / B13_REFERENCE_RADIUS
+        flow_clock = self.elapsed + self._stream_settle_age if b13 else self.elapsed
         sprite_pitch=stream_pitch(self._R_inner,SAND_MATERIAL_COARSE,self._taper['t_in'])
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
@@ -6483,12 +6521,13 @@ class HourglassWidget(Widget):
             self.sdt[:self._sn] = effect_dt
 
         start, end, _reserve = self._transfer_timing()
-        previous = max(0.0, self.elapsed - dt)
+        previous = max(0.0, flow_clock - dt)
         emit_start = max(start, previous)
-        emit_end = min(end, self.elapsed)
+        emit_end = min(end, flow_clock)
         emit_dt = max(0.0, emit_end - emit_start)
-        final_emission = previous < end <= self.elapsed
-        if self.running and (emit_dt > 0.0 or final_emission):
+        final_emission = previous < end <= flow_clock
+        feeding = self.running or (b13 and self._completion_triggered)
+        if feeding and (emit_dt > 0.0 or final_emission):
             # 🔴 **2026-10-06 用户一眼看出来: 1 秒档的沙流是"断续虚线", 5s/15s 是"连续的一条绳"。**
             #    根因: `_particle_motion_scale` 把初速与重力乘了倍率(1s 档 6.44)让粒子飞快穿过,
             #    **但生成率没跟着放大** ⇒ 同样多的粒子被摊在 6.4 倍的长度上
@@ -6541,7 +6580,7 @@ class HourglassWidget(Widget):
             #      改成**按剩余时间比例**(`FLOW_TAIL_SPAN` = 收尾段占整个计时的比例)。
             #    用户补充判词:「主要是**随机一些、不规范一些**可能更好。**每次都不一样更好**」
             #      ⇒ 收尾指数**逐颗不同**(用已经抽好的 `amp` 抖动), 不做成一条固定曲线。
-            _released_frac = self._released_fraction_at(min(self.elapsed, end))
+            _released_frac = self._released_fraction_at(emit_end)
             _tail = min(1.0, max(0.0, (1.0 - _released_frac) / max(1e-6, FLOW_TAIL_SPAN)))
             # 🔴 **2026-10-12(2.86): 末段墨量权重** —— 每帧算一次(净空那一套是记忆化的)。
             #    `1.0` ⇒ 出生时那次 `random.random() < 0.85` 与旧版**逐位相同**。
@@ -6647,12 +6686,15 @@ class HourglassWidget(Widget):
                 self.pli[i] = 1.0 if is_light else 0.0
                 self.psz[i] = size
                 self.ptl[i] = trail_time
-                self.pdt[i] = max(0.0, self.elapsed - birth)
+                self.pdt[i] = max(0.0, flow_clock - birth)
                 self.pbt[i] = birth
                 self.pbm[i] = motion_scale
-                if final_emission and spawn_index == spawn_count - 1:
+                if b13:
+                    self.pvy[i] = -glass_scale * b13_launch_speed(
+                        x_off / self._taper["t_in"], phase / math.pi - 1.)
+                elif final_emission and spawn_index == spawn_count - 1:
                     self.pvy[i] = -(35.0 + exit_boost) * motion_scale
-                if self._sand_resized:
+                if self._sand_resized and not b13:
                     left = max(1e-6, self.duration - birth - 1.0 / 120)
                     distance = max(0.0, gen_y - self._mound_top_at(float(self.px[i])))
                     speed = max(0.0, distance / left - 225.0 * motion_scale ** 2 * left)
@@ -6742,6 +6784,10 @@ class HourglassWidget(Widget):
                     "curve": (_cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1),
                     "sprite_pitch":sprite_pitch,
                 }
+                if b13:
+                    consts["b13_motion"] = b13_carrier_motion(
+                        flow_clock, self.pbt[:pn], self.pxo[:pn], self.pwp[:pn],
+                        gen_y, self._taper["t_in"], glass_scale, end, self._sand_tail_span)
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
                     self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
                     self.psz, self.pdt, pn, consts)
@@ -6777,8 +6823,13 @@ class HourglassWidget(Widget):
                 wobble_phase = p["wobble_phase"]
                 wobble_amp = p["wobble_amp"]
                 size = p["size"]
-                y += vy * step_dt + 0.5 * g * step_dt * step_dt
-                vy += g * step_dt
+                if b13:
+                    y, vy = b13_carrier_motion(flow_clock, p["_birth_time"], x_offset,
+                                               wobble_phase, gen_y, self._taper["t_in"],
+                                               glass_scale, end, self._sand_tail_span)
+                else:
+                    y += vy * step_dt + 0.5 * g * step_dt * step_dt
+                    vy += g * step_dt
                 # 命中判定: 锥顶已是全堆最高点 ⇒ `y <= mound_top` 是**必要非充分**的免费预筛,
                 # 只有落到堆附近的少量颗粒才去查 H(x)(专家 dingbu.md §7)。
                 # ⚠️ 用**上一帧的 x**(p["x"]): 粒子一帧横向只动 1~2px ⇒ H 的误差 ≤1.2px(亚像素);
@@ -6800,13 +6851,17 @@ class HourglassWidget(Widget):
                     self._sand_landed += p.get("_sand_mass", 0.0)
                     d = old_y - hy
                     distance = d if d > 0 else 0
-                    v = -old_vy
-                    speed = v if v > 0 else 0
-                    denom = speed + sqrt(speed * speed + 2 * g_abs * distance)
-                    hit_dt = 2 * distance / (denom if denom > 1e-6 else 1e-6)
-                    hit_dt = hit_dt if hit_dt < step_dt else step_dt
+                    if b13:
+                        fraction = min(1., distance / max(1e-6, old_y - y))
+                        hit_dt = step_dt * fraction
+                        vy = old_vy + (vy - old_vy) * fraction
+                    else:
+                        v = -old_vy
+                        speed = v if v > 0 else 0
+                        denom = speed + sqrt(speed * speed + 2 * g_abs * distance)
+                        hit_dt = min(step_dt, 2 * distance / (denom if denom > 1e-6 else 1e-6))
+                        vy = old_vy + g * hit_dt
                     y = hy
-                    vy = old_vy + g * hit_dt
                 fd = gen_y - y
                 fallen_dist = fd if fd > 0.0 else 0.0
                 # 管内: 管壁约束,填满内径 shrink=1.0
@@ -6887,7 +6942,10 @@ class HourglassWidget(Widget):
         self.mound_peak_offset = peak_offset
         if abs(self._sand_landed - 1.0) < 1e-12:
             self._sand_landed = 1.0
-        if self._sand_landed != getattr(self, "_landed_for_geometry", None):
+        if (self._sand_landed != getattr(self, "_landed_for_geometry", None)
+                or (self._completion_triggered and self._b13_pile_settling)):
+            # Finish collisions against one surface, then publish the newly
+            # deposited mass and the eased height even with a frozen countdown.
             self._landed_for_geometry = self._sand_landed
             self._mound_shape_cache = self._mound_curve_cache = None
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
@@ -6946,7 +7004,7 @@ class HourglassWidget(Widget):
             _pm("splash_loop")
         if _pm:
             _pm("phys_splash")
-        if self.running:
+        if self.running or (b13 and self._completion_triggered and self.pn):
             self._spawn_bg_splashes(dt)
 
         # A fast-growing pile can bury a live flash. Both render paths consume
@@ -7379,7 +7437,7 @@ class HourglassWidget(Widget):
         frames = getattr(self, "_upper_rough_frames", None)
         if not frames:
             return getattr(self, "_upper_rough", None)
-        t = self.elapsed
+        t = self._supply_elapsed
         if getattr(self, "_upper_rough_cache_t", None) == t:
             return self._upper_rough_cache
         nf = len(frames)
@@ -7538,7 +7596,7 @@ class HourglassWidget(Widget):
         #   **逐位相同**(都来自本帧的 `_upper_sand_height_px()`), `elapsed` 一帧内也不变
         #   ⇒ 后两次是**纯白算**。memo 键用 `(elapsed, upper_height, duration)`,
         #   三个量任何一个变了都必须重解(暂停/重置/改周期都会变)。
-        _key = (self.elapsed, upper_height, self.duration)
+        _key = (self._supply_elapsed, upper_height, self.duration)
         if getattr(self, "_upper_level_key", None) == _key:
             return self._upper_level_val
         p = 1.0 - self._upper_sand_fraction()
@@ -7593,7 +7651,7 @@ class HourglassWidget(Widget):
             return
         Ri = self._R_inner
         life = SURFACE_MARKER_LIFE
-        t = self.elapsed
+        t = self._supply_elapsed
         # ⚠️ 两档都必须是**沙面自身那条亮带之外**的色。踩过两次同款坑:
         #    ① 最初用 (sand_light, sand_base): base 就是沙体本色 ⇒ 画上去 delta=0, 10 颗隐形;
         #    ② 改成 (sand_light, sand_dark) 后, **亮档又撞上了沙面自带的 3px 亮带**
@@ -8689,8 +8747,13 @@ class HourglassWidget(Widget):
             if getattr(self, "_short_material_mode", None) == "carrier":
                 throat = self._short_flow_context["sand_throat"]
                 funnel = self._short_flow_context["sand_funnel"]
+            material_speed = self._particle_motion_scale
+            if FLOW_RENDERER == "b13":
+                from grain_style import B13_LIP_SPEED, B13_REFERENCE_RADIUS
+                # The packed-sand shader moves its centre at 50 px per clock second.
+                material_speed = (B13_LIP_SPEED / 50.) * self._R_inner / B13_REFERENCE_RADIUS
             for i, context in enumerate(self._sand_flow_contexts):
-                context.update_flow(self.elapsed, self._particle_motion_scale,
+                context.update_flow(self._supply_elapsed, material_speed,
                                     self._sand_material, colors,
                                     tail_front if i == 1 else (0.0, 0.0, 1.0),
                                     free_front if i == 1 else (0.0, 0.0, 1.0, 0.0))

@@ -273,6 +273,10 @@ def snapshot(widget):
         birth_material[key]=(float(widget.pbt[i]),float(widget.pbm[i]))
     cx, cy, x0, scale, n1 = widget._mound_contact_curve()
     app = sys.modules[widget.__class__.__module__]
+    b13 = None
+    if app.FLOW_RENDERER == 'b13':
+        _, end, _ = widget._transfer_timing()
+        b13 = (widget.elapsed + widget._stream_settle_age, end, widget._sand_tail_span)
     return {
         "particles": rows,
         "curve": (list(cx), list(cy)),
@@ -283,6 +287,7 @@ def snapshot(widget):
         "aperture_half":float(widget._taper['t_in']),
         "appearance":appearance,
         "birth_material":birth_material,
+        "b13":b13,
         "motion":dict(cx=widget._cx,cut=2*widget._neck_y-widget._taper['y_bot'],
             top=widget._lower_sand_top,center=widget._lower_y_c,radius=widget._R_inner,
             coarse_width=hasattr(widget, '_coarse_width_parameters') and app._TWOIMPL >= 3,
@@ -319,8 +324,22 @@ class ContinuityTrace:
             raise AssertionError("暂停时粒子的身份或位置不连续")
         gravity = -450.0 * before["scale"] ** 2
         tolerance = 2e-5
+        b13 = after.get('b13')
+        if b13 is not None:
+            from grain_style import (B13_REFERENCE_RADIUS, b13_birth_recess, b13_depth,
+                                     b13_launch_speed, b13_speed)
+            clock, cutoff, tail_span = b13
+            glass_scale = after['motion']['radius'] / B13_REFERENCE_RADIUS
         for key, (x, y, vy) in previous.items():
-            predicted = y + vy * dt + 0.5 * gravity * dt * dt
+            if b13 is None:
+                predicted = y + vy * dt + 0.5 * gravity * dt * dt
+                speed_y = vy + gravity * dt
+            else:
+                age = clock - before['birth_material'][key][0]
+                start = max(0., age - dt)
+                launch = -vy / glass_scale - b13_speed(start, 0.)
+                predicted = y - glass_scale * (b13_depth(age, launch) - b13_depth(start, launch))
+                speed_y = -glass_scale * b13_speed(age, launch)
             if key in current:
                 if 'birth_material' in before:
                     if after.get('birth_material',{}).get(key)!=before['birth_material'][key]:
@@ -353,7 +372,7 @@ class ContinuityTrace:
                         raise AssertionError('同一粒子的横向轨迹不连续')
                 if abs(current[key][1] - predicted) > tolerance:
                     raise AssertionError("同一粒子的下落位置不连续")
-                if abs(current[key][2] - (vy + gravity * dt)) > tolerance:
+                if abs(current[key][2] - speed_y) > tolerance:
                     raise AssertionError("同一粒子的速度不连续")
                 self.survivor_steps += 1
             else:
@@ -377,7 +396,14 @@ class ContinuityTrace:
                 radius=renderer.sprite_radius(before['motion']['pitch'],after['appearance'][key][2])
             if abs(current[key][0]-center)+radius>half+tolerance:
                 raise AssertionError('新粒子的横向出生位置越过出口')
-            if not lowest - tolerance <= y <= outlet + tolerance:
+            if b13 is not None:
+                birth = after['birth_material'][key][0]
+                launch = b13_launch_speed(after['appearance'][key][0] / half, key[0] / math.pi - 1.)
+                origin = outlet + glass_scale * b13_birth_recess(cutoff - birth, tail_span)
+                expected = origin - glass_scale * b13_depth(clock - birth, launch)
+                if not -tolerance <= clock - birth <= dt + tolerance or abs(y - expected) > tolerance:
+                    raise AssertionError("新粒子没有沿杯口的速度出生")
+            elif not lowest - tolerance <= y <= outlet + tolerance:
                 raise AssertionError("新粒子并非从出口出生")
         self.births += len(births)
 

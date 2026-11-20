@@ -7,7 +7,8 @@ from functools import lru_cache
 from typing import NamedTuple
 
 import numpy as np
-from grain_style import B13_REFERENCE_RADIUS as REFERENCE_RADIUS, b13_clocks, b13_depth, b13_flight, b13_neck_ratio
+from grain_style import (B13_REFERENCE_RADIUS as REFERENCE_RADIUS, b13_birth_recess,
+                         b13_depth, b13_flight, b13_launch_speed, b13_neck_ratio, b13_tail_span)
 
 
 # The B13 reference frame has a 417.69 px inner diameter and a 15% opening.
@@ -41,8 +42,7 @@ def _birth_material():
     drift = np.where(lanes < 0., np.interp(birth, keys, signals[0]),
                      np.interp(birth, keys, signals[1]))
     rank = np.random.default_rng(1209).random(BLOCK)
-    edge = np.clip((np.abs(lanes) - .30) / .70, 0., 1.)
-    launch = 28. + 5. * jitter - 9. * edge**2
+    launch = b13_launch_speed(lanes, jitter)
     inward = .08 * np.sin(np.pi * lanes)
     # Some moving outer grains continue along the lip before drifting inward.
     # The centre and outermost lane keep their original positions.
@@ -61,7 +61,9 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, attached
     (offsets, lanes, jitter, tones, radii, edge_drift, rank, launch,
      inward, outer, lip_shift) = _birth_material()
     width_ratio = half / REFERENCE_HALF
-    rate = RATE * width_ratio / grain_scale**2
+    # The slower stream spends longer in each row. Match the B13 grain
+    # spacing in the established fall as well as at the filled lip.
+    rate = .67 * RATE * width_ratio / grain_scale**2
     limit = max(0., gap if max_depth is None else max_depth) + 2. * grain_scale
     lifetime = b13_flight(limit + 6., 14.)
     first = max(0, math.floor((time - lifetime) * rate))
@@ -74,13 +76,14 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, attached
     age = np.maximum(0., time - birth)
     depth = b13_depth(age, launch[ids])
     flowing = birth <= time
-    if time > end - .65:
+    tail_span = b13_tail_span(end)
+    if tail_span > 0. and time > end - tail_span:
         # The final grains start inside the draining neck, with the outer
         # lanes giving way to the centre as the packed layer runs out.
         remaining = end - birth
-        supply = np.clip((remaining - .10 - .18 * np.abs(lane)**.9) / .18, 0., 1.)
-        inside = np.clip((.65 - remaining) / .18, 0., 1.)
-        depth -= 6. * inside**2 * (3. - 2. * inside)
+        tail_time = remaining * (.65 / tail_span)
+        supply = np.clip((tail_time - .10 - .18 * np.abs(lane)**.9) / .18, 0., 1.)
+        depth -= b13_birth_recess(remaining, tail_span)
         remaining_lanes = rank[ids] < supply**2
         if attached > 0.:
             d = np.maximum(0., depth) / width_ratio
@@ -370,12 +373,11 @@ def install(widget_class):
         outlet = 2. * w._neck_y - w._taper["y_bot"]
         gap = (outlet - w.get_mound_top_y()) / scale
         distance = outlet - w._lower_sand_bot
-        fill = w._neck_fill_time
-        _, speed, _ = b13_clocks(distance, radius, w.duration, fill)
-        time = (w.elapsed + w._stream_settle_age - fill) * speed
-        end = (w.duration - fill) * speed
+        fill, cutoff, reserve = w._transfer_timing()
+        time = w.elapsed + w._stream_settle_age - fill
+        end = cutoff - fill
         grain_scale = (game.SAND_MATERIAL_COARSE / 1.8) ** .5
-        opened = w._sand_active and w.elapsed > w._neck_fill_time
+        opened = w._sand_active and time > 0.
         # The event loop keeps redrawing idle and completed timers. Stop
         # allocating vertices once even the slowest last grain passed the floor.
         if not opened or (time > end and time > end + b13_flight(distance / scale + 10., 14.)):
@@ -387,9 +389,8 @@ def install(widget_class):
         surface_y = np.maximum(stream.bowl, mound_surface_at(surface_x, w._mound_carve._v, w._lower_sand_bot))
         deepest = (outlet - surface_y.min()) / scale
         attached = 0.
-        if end - .65 < time < end:
-            reserve = w._transfer_timing()[2]
-            released = w._released_fraction_at(w.elapsed)
+        if end - b13_tail_span(end) < time < end:
+            released = w._released_fraction_at(time + fill)
             neck_top = w._neck_surface_y(min(1., (1. - released) / reserve))
             attached = b13_neck_ratio(neck_top - outlet, half * scale)
         grains = sample_grains(time, end, half, gap, grain_scale, deepest, attached)

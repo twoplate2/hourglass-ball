@@ -50,7 +50,7 @@ def emitter(source):
     return ns['_eject_splash']
 
 
-def representative_scale(source,period,geometry_scale=1.):
+def representative_motion(source,period,geometry_scale=1.):
     # Fixed PC geometry fixture; use the application's actual period properties.
     names=('_neck_fill_time','_natural_flight_time','_fall_delay','_particle_motion_scale')
     cls=ast.parse('class Motion: pass').body[0]
@@ -67,7 +67,7 @@ def representative_scale(source,period,geometry_scale=1.):
     fixture._neck_y=500.*geometry_scale
     fixture._taper={'y_bot':520.*geometry_scale}
     fixture._lower_sand_bot=25.*geometry_scale
-    return fixture._particle_motion_scale
+    return fixture
 
 
 def launch(fn,*,seed=297,scale=1.,x=270.,radius=208.8,reference=None,
@@ -91,12 +91,12 @@ def launch(fn,*,seed=297,scale=1.,x=270.,radius=208.8,reference=None,
 
 
 class Splash33ImpulseTests(unittest.TestCase):
-    def test_tablet_first_impact_matches_across_normal_timer_durations(self):
-        natural = (math.sqrt(60.**2 + 900. * 1040.) - 60.) / 450.
-        flights = [natural / representative_scale(self.current, d, 1040./455.)
-                   for d in (5., 20., 50., 6000.)]
-        self.assertLess(max(flights) - min(flights), .045)
-        self.assertTrue(1.55 < flights[0] < 2.05)
+    def test_first_flight_uses_wall_time_even_when_the_timer_rings_in_midair(self):
+        glasses = [representative_motion(self.current, d, 1040./455.)
+                   for d in (1., 5., 20., 50., 6000.)]
+        arrivals = [w._fall_delay for w in glasses]
+        self.assertLess(max(arrivals) - min(arrivals), .001)
+        self.assertTrue(3.5 < arrivals[0] < 3.8)
 
     @classmethod
     def setUpClass(cls):
@@ -105,9 +105,9 @@ class Splash33ImpulseTests(unittest.TestCase):
 
     def test_five_second_flight_is_stable_when_the_same_glass_doubles_in_pixels(self):
         def flight(size):
-            natural = (math.sqrt(50**2 + 900 * 455 * size) - 50) / 450
-            return natural / representative_scale(self.current, 5., size)
-        self.assertAlmostEqual(flight(1.), flight(2.), delta=.055)
+            w = representative_motion(self.current, 5., size)
+            return w._fall_delay - w._neck_fill_time
+        self.assertAlmostEqual(flight(1.), flight(2.), places=8)
 
     def test_actual_emitter_ast_matches_published_33(self):
         self.assertEqual(ast.dump(method(self.current,'_eject_splash')),
@@ -122,7 +122,7 @@ class Splash33ImpulseTests(unittest.TestCase):
     def test_seeded_emission_matches_33_at_short_and_normal_period_scales(self):
         old,new=emitter(self.old),emitter(self.current)
         for period in (1.,5.,50.):
-            scale=representative_scale(self.current,period)
+            scale=representative_motion(self.current,period)._particle_motion_scale
             for seed in (0,7,297):
                 for x in (250.,270.,290.):
                     for reference in (None,540.):

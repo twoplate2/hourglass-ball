@@ -62,6 +62,65 @@ class ShortGrainTests(unittest.TestCase):
 
 
 class B13StreamTests(unittest.TestCase):
+    def test_widget_plays_the_same_grains_across_the_one_second_bell(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        import numpy as np
+        from b13_stream import install, REFERENCE_HALF, REFERENCE_RADIUS
+
+        class Widget:
+            def _build_dynamic_canvas(self):
+                pass
+            def _draw_stream(self):
+                raise AssertionError('unexpected fallback')
+
+        install(Widget)
+        def positions(duration, at):
+            w = Widget()
+            w._cx, w._R_inner, w._neck_y, w._lower_sand_bot = 200., REFERENCE_RADIUS, 450., 10.
+            w._taper = {'t_in': REFERENCE_HALF, 'y_bot': 460.}
+            w.get_mound_top_y = lambda: 10.
+            w._neck_fill_time, w.duration = .25, duration
+            w._transfer_timing = lambda: (.25, max(5., duration) - 1./60., .02)
+            w.elapsed, w._stream_settle_age = min(at, duration), max(0., at - duration)
+            w._sand_active, w.pn, w.sand_base = True, 50, (.84, .64, .38)
+            w._mound_carve = SimpleNamespace(_v=[])
+            w._b13_mesh = SimpleNamespace(surface_x=np.arange(10.), bowl=np.full(10, 10.), update=Mock())
+            w._draw_stream()
+            return w._b13_mesh.update.call_args.args[0]
+
+        with patch.object(sys.modules[__name__], 'SAND_MATERIAL_COARSE', 1.8, create=True):
+            for t in (.55, 1., 1.40, 2.5):
+                short, long = positions(1., t), positions(20., t)
+                self.assertGreater(len(short.serial), 300)
+                np.testing.assert_array_equal(short.serial, long.serial)
+                np.testing.assert_array_equal(short.depth, long.depth)
+
+    def test_exit_and_landing_speeds_follow_distance_on_every_timer(self):
+        import numpy as np
+        from b13_stream import REFERENCE_HALF, sample_grains
+        from grain_style import b13_depth, b13_flight
+
+        # A tablet pixel is about 0.45 reference pixels in the user's recording.
+        # Follow a grain near the wall at the lip, 10 and 40 tablet pixels below,
+        # then halfway down and just above the empty floor.
+        for distance, bounds in ((0., (16., 24.)), (4.5, (18., 29.)),
+                                 (18., (32., 49.)), (216., (160., 212.)),
+                                 (427., (190., 232.))):
+            age = b13_flight(distance, 20.)
+            speed = (b13_depth(age + .001, 20.) - b13_depth(age, 20.)) / .001
+            with self.subTest(distance=distance):
+                self.assertTrue(bounds[0] < speed < bounds[1], speed)
+        # A short burst can already be entirely airborne at the bell. Its grains
+        # must still travel at the same speed as the long timer's surviving IDs.
+        for age in (.12, .55, 1.35, 2.8):
+            short = sample_grains(age, .75, REFERENCE_HALF, 433.)
+            long = sample_grains(age, 19.75, REFERENCE_HALF, 433.)
+            ids, i, j = np.intersect1d(short.serial, long.serial, return_indices=True)
+            early = ids < 800
+            self.assertGreater(np.sum(early), 50)
+            np.testing.assert_allclose(short.depth[i[early]], long.depth[j[early]])
+
     def test_native_disc_coverage_matches_numpy_at_native_size(self):
         import ctypes
         import os
@@ -109,9 +168,9 @@ class B13StreamTests(unittest.TestCase):
             serial, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
             return np.median((b.depth[j] - a.depth[i])[serial < 140] / .01)
         self.assertTrue(20. < speed(.045) < 45.)
-        # On the tall tablet even the old 20 s path reached about 358
-        # reference pixels/s in the lower chamber. Keep visible headroom.
-        self.assertTrue(250. < speed(1.6) < 310.)
+        # In 3.34 this same cohort was already moving at 250–310 reference
+        # pixels/s here. The new ramp is still well below its cruising speed.
+        self.assertTrue(100. < speed(1.6) < 150.)
 
     def test_y700_first_batch_uses_only_an_image_on_the_main_canvas(self):
         from unittest.mock import Mock, patch
@@ -211,7 +270,7 @@ class B13StreamTests(unittest.TestCase):
         self.assertLess(max(mesh.indices), len(mesh.vertices) // 7)
         second = SimpleNamespace(indices=[], vertices=[])
         stream.batches.append((second, np.zeros_like(data)))
-        more = sample_grains(.42, 20., REFERENCE_HALF, 430.)
+        more = sample_grains(.65, 20., REFERENCE_HALF, 430.)
         interpolate = np.interp
         def fail_next_batch(x, xp, fp):
             if x.shape[0] < stream.chunk:
@@ -249,6 +308,7 @@ class B13StreamTests(unittest.TestCase):
                 widget.get_mound_top_y = lambda: 10.
                 widget._particle_motion_scale, widget._neck_fill_time = 1., .25
                 widget.elapsed, widget.duration, widget._stream_settle_age = .6, 20., 0.
+                widget._transfer_timing = lambda: (.25, 20. - 1./60., .02)
                 widget.pn, widget._sand_active = 987, True
                 widget.sand_base = (.84, .64, .38)
                 widget._mound_carve = SimpleNamespace(_v=[])
@@ -298,18 +358,17 @@ class B13StreamTests(unittest.TestCase):
         import numpy as np
         from b13_stream import REFERENCE_HALF, sample_grains
         front = sample_grains(1.33, 5., REFERENCE_HALF, 433.)
-        # At this instant the old steep acceleration covered three quarters
-        # of the reference glass. The gentler fall covers about three fifths.
-        self.assertTrue(.58 < front.depth.max() / 433. < .62)
+        # The leading grains have travelled roughly one mouth width in 1.33 s.
+        self.assertTrue(REFERENCE_HALF * 2. < front.depth.max() < REFERENCE_HALF * 2.6)
         # Follow the narrowing rear across the gap, then require it to leave
         # that band. A steady full-width column or an early cut fails this.
-        for t in (5.06, 5.07, 5.08):
+        for t in (5.35, 5.36, 5.37):
             tail = sample_grains(t, 5., REFERENCE_HALF, 15.)
             mid = tail.x[np.abs(tail.depth - 7.) < 1.]
             self.assertTrue(len(mid) >= 2 and np.ptp(mid) < 16.)
-        tail = sample_grains(5.1, 5., REFERENCE_HALF, 15.)
+        tail = sample_grains(5.45, 5., REFERENCE_HALF, 15.)
         self.assertGreater(tail.depth.min(), 8.)
-        settled = sample_grains(5.4, 5., REFERENCE_HALF, 15.)
+        settled = sample_grains(5.65, 5., REFERENCE_HALF, 15.)
         self.assertEqual(len(settled.serial), 0)
 
     def test_duration_scales_supply_with_aperture(self):

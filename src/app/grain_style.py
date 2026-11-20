@@ -5,12 +5,31 @@ from functools import lru_cache
 
 
 B13_REFERENCE_RADIUS = 208.845
+B13_LIP_SPEED = 21.0
+B13_SPEED_SCATTER = 3.0
+B13_SPEED_GAIN = 200.0
+B13_RAMP_SECONDS = 3.0
+
+
+def _unit_interval(x):
+    return x.clip(0., 1.) if hasattr(x, "clip") else max(0., min(1., x))
+
+
+def b13_launch_speed(lane, jitter):
+    return B13_LIP_SPEED * (1. - .09 * lane * lane) + B13_SPEED_SCATTER * jitter
 
 
 def b13_depth(age, launch_speed):
-    # Zero extra speed at release. The gain in speed levels off in a short glass.
-    ramp = age / (age + .50)
-    return age * (launch_speed + 310. * ramp * ramp)
+    """Integral of the same eased velocity used by the mass-carrying grains."""
+    u = _unit_interval(age / B13_RAMP_SECONDS)
+    ramp_distance = B13_RAMP_SECONDS * u**3 * (1. - .5 * u)
+    coast_time = age - B13_RAMP_SECONDS * u
+    return launch_speed * age + B13_SPEED_GAIN * (ramp_distance + coast_time)
+
+
+def b13_speed(age, launch_speed):
+    u = _unit_interval(age / B13_RAMP_SECONDS)
+    return launch_speed + B13_SPEED_GAIN * u * u * (3. - 2. * u)
 
 
 def b13_flight(distance, launch_speed):
@@ -27,20 +46,30 @@ def b13_flight(distance, launch_speed):
 
 
 @lru_cache(maxsize=32)
-def b13_clocks(distance, radius, duration, neck_fill):
-    distance = max(0., distance)
-    reference_flight = b13_flight(distance * B13_REFERENCE_RADIUS / radius, 33.)
-    if reference_flight == 0.:
-        return 0., 1., 1.
-    flight = min(reference_flight, max(.001, .45 * duration - neck_fill))
-    # The collision particles use constant gravity. Their leading grain and
-    # the optical leading grain must touch the same floor at the same instant.
-    ballistic = 2. * distance / (60. + math.sqrt(60.**2 + 900. * distance))
-    return flight, reference_flight / flight, ballistic / flight
+def b13_first_flight(distance, radius):
+    return b13_flight(distance * B13_REFERENCE_RADIUS / radius, B13_LIP_SPEED + B13_SPEED_SCATTER)
 
 
-def b13_pile_height(height, age, mouth, duration):
-    phase = max(0., age) / min(.80, .20 * duration)
+def b13_tail_span(supply_seconds):
+    return min(.65, .20 * supply_seconds)
+
+
+def b13_birth_recess(remaining, span):
+    # The last grains start a little way inside the draining neck. A brief
+    # burst has a proportionally shallower recess as well as a shorter taper.
+    u = _unit_interval((1. - remaining / span) * (.65 / .18))
+    return (6. / .65) * span * u * u * (3. - 2. * u)
+
+
+def b13_carrier_motion(clock, birth, x_offset, phase, outlet, half, scale, end, tail_span):
+    age = clock - birth
+    launch = b13_launch_speed(x_offset / half, phase / math.pi - 1.)
+    depth = b13_depth(age, launch) - b13_birth_recess(end - birth, tail_span)
+    return outlet - scale * depth, -scale * b13_speed(age, launch)
+
+
+def b13_pile_height(height, age, mouth):
+    phase = max(0., age) / .80
     # A small deposit can appear at once. Limit the rise of the visible slopes
     # only while the mass-based surface would grow faster at first contact.
     return min(height, mouth * (.022 + phase * (1.75 + 1.35 * phase)))

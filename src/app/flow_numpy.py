@@ -78,8 +78,12 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     old_vy = vy
 
     # y += vy*dt + 0.5*g*dt*dt —— 括号位置与原式一一对应(见模块头 规则 1)
-    y = y + (vy * dt + 0.5 * g * dt * dt)
-    vy = vy + g * dt
+    b13_motion = c.get("b13_motion")
+    if b13_motion is None:
+        y = y + (vy * dt + 0.5 * g * dt * dt)
+        vy = vy + g * dt
+    else:
+        y, vy = b13_motion
 
     # 接触高度按**上一帧的 x** 查 H(x)(专家 dingbu.md §7: 取消平台后不再只认一个 y)。
     # `y <= mound_top` 是必要非充分的免费预筛(锥顶是全堆最高点) ⇒ 只有落到堆附近的才查表。
@@ -119,14 +123,17 @@ def step(px, py, pvy, pxo, pwp, pwa, psz, pdt, n, c):
     if hit.any():
         d = old_y - hy_eff
         distance = np.maximum(d, 0.0)          # d if d > 0 else 0
-        v = -old_vy
-        speed = np.maximum(v, 0.0)             # v if v > 0 else 0
-        denom = speed + np.sqrt(speed * speed + 2 * g_abs * distance)
-        denom = np.where(denom > 1e-6, denom, 1e-6)
-        hit_dt = 2 * distance / denom
-        hit_dt = np.minimum(hit_dt, dt)        # hit_dt if hit_dt < step_dt else step_dt
+        if b13_motion is None:
+            speed = np.maximum(-old_vy, 0.0)
+            denom = speed + np.sqrt(speed * speed + 2 * g_abs * distance)
+            hit_dt = np.minimum(2 * distance / np.maximum(denom, 1e-6), dt)
+            contact_vy = old_vy + g * hit_dt
+        else:
+            fraction = np.minimum(1., distance / np.maximum(1e-6, old_y - y))
+            hit_dt = dt * fraction
+            contact_vy = old_vy + (vy - old_vy) * fraction
         y = np.where(hit, hy_eff, y)
-        vy = np.where(hit, old_vy + g * hit_dt, vy)
+        vy = np.where(hit, contact_vy, vy)
 
     fd = c["gen_y"] - y
     fallen_dist = np.maximum(fd, 0.0)          # fd if fd > 0 else 0

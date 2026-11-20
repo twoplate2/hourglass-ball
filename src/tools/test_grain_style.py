@@ -132,7 +132,7 @@ class CoarseFlowTests(unittest.TestCase):
 
     def test_b13_first_contact_starts_with_grains_and_retains_the_final_height(self):
         limit = style_function("b13_pile_height")
-        heights = [limit(160., age, 62., 5.) for age in (0., .04, .12, .22, .4, .6, .8)]
+        heights = [limit(160., age, 62.) for age in (0., .04, .12, .22, .4, .6, .8)]
         self.assertTrue(0. < heights[0] < 3.)
         self.assertLess(heights[3], 46.)
         self.assertEqual(heights, sorted(heights))
