@@ -1,8 +1,8 @@
 """Period-to-aperture geometry, measured inside the glass wall."""
 import math
 
-MAX_RATIO=.275
-FIVE_SECOND_RATIO=.15
+MAX_RATIO=.39
+FIVE_SECOND_RATIO=.28
 MIN_RATIO=.015
 WIDE_PERIOD=5.0
 NARROW_PERIOD=36000.0
@@ -22,9 +22,16 @@ def inner_width(period,diameter):
     if period < WIDE_PERIOD:
         u = math.log(max(1., period)) / math.log(WIDE_PERIOD)
         return diameter * MAX_RATIO * (FIVE_SECOND_RATIO / MAX_RATIO)**u
-    u=max(0.0,min(1.0,math.log(period/WIDE_PERIOD)
-                   /math.log(NARROW_PERIOD/WIDE_PERIOD)))
-    return diameter*FIVE_SECOND_RATIO*(MIN_RATIO/FIVE_SECOND_RATIO)**u
+    # In the short clocks the actual opening must hold the first airborne
+    # charge. From twenty seconds the same flight can carry less volume by
+    # reducing area in proportion to flow. Keep long thin streams legible.
+    normal_ratio = .24
+    if period < 20.:
+        u = math.log(period / WIDE_PERIOD) / math.log(20. / WIDE_PERIOD)
+        return diameter * FIVE_SECOND_RATIO * (normal_ratio / FIVE_SECOND_RATIO)**u
+    readable = .15 * (MIN_RATIO / .15)**min(1., math.log(period / WIDE_PERIOD)
+                                               / math.log(NARROW_PERIOD / WIDE_PERIOD))
+    return diameter * max(readable, normal_ratio * math.sqrt(20. / period))
 
 
 def outer_half(period,diameter,wall):

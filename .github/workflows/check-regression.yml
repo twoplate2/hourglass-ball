@@ -2,7 +2,7 @@ name: APK Application Checks
 
 on:
   push:
-    branches-ignore: [main, master, trial/b14-3.36]
+    branches-ignore: [main, master]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -70,7 +70,8 @@ jobs:
           python -B src/tools/test_short_grain.py
           python -B src/tools/test_grain_style.py
           python -B src/tools/test_outlet_flow.py
-          python -B src/tools/test_b14_transit.py
+          python -B src/tools/test_opening_transit.py
+          python -B src/tools/test_recorded_flow.py
           python -B src/tools/test_mound_blend.py
           python -B src/tools/test_ui_polish.py
           python -B src/tools/test_keep_awake.py

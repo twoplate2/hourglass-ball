@@ -4176,6 +4176,10 @@ class HourglassWidget(Widget):
         widest_inner = max(1.0, self._neck_width_for_duration(WIDE_PERIOD) - ow)
         narrowest_inner = max(1.0, narrowest - ow)
         self._splash_density = max(0.15, min(1.5, 1.5 * (t_in / widest_inner)))
+        if FLOW_RENDERER == "b13":
+            # Only a fraction of real contacts throw visible loose grains.
+            # Preserve the impact speed and the full density of the falling jet.
+            self._splash_density *= .62
         self._splash_cap = max(1, round(SPLASH_MAX * self._splash_density)) if SPLASH_MAX else 0
         width_fraction = max(0.0, min(1.0, (t_in - narrowest_inner)
                                      / max(1e-9, widest_inner - narrowest_inner)))
@@ -4446,7 +4450,13 @@ class HourglassWidget(Widget):
 
     def _upper_sand_height_px(self):
         """上球、颈部、在途与落地共用一份归一化沙量。"""
-        return self._raw_height_ratio(self._upper_sand_fraction()) * 2 * self._R_inner
+        fraction = self._upper_sand_fraction()
+        if FLOW_RENDERER == "b13" and self._geom_ready:
+            # The initial charge fills BOTH the sphere and the packed neck.
+            # The ledger reports shares of that charge; the height table
+            # expects a share of the sphere alone.
+            fraction /= 1. - self._transfer_timing()[2]
+        return self._raw_height_ratio(min(1., fraction)) * 2 * self._R_inner
 
     def _transfer_timing(self):
         """Cup-lip opening, last release, and initial packed neck capacity."""
@@ -4466,6 +4476,7 @@ class HourglassWidget(Widget):
             sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
             reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
             if FLOW_RENDERER == "b13":
+                reserve = self._neck_volume / (sphere_volume + self._neck_volume)
                 end = self.duration
             else:
                 from grain_style import tail_duration
@@ -7083,6 +7094,10 @@ class HourglassWidget(Widget):
             _pm("ctab")
         # 飞溅积分: **并行数组 + numpy 掩码**(原来那段逐颗的 Python 循环见 git 历史)。
         # 语义逐句等价 —— 由 `tools/_splash_golden.py` 逐帧逐字段兜底。
+        if b13 and grains_landed and dt > 0. and self._sn and _ctab is not None:
+            from splash_motion import follow_rising_impact
+            rise = max(0., self.get_mound_top_y() - mound_top)
+            follow_rising_impact(self, rise, dt, _ctab, _ctab_inv)
         self._update_splashes(dt, g_splash, g_abs, _ctab, _ctab_n, _ctab_r, _ctab_inv,
                               _mound_bot, lower_center, lower_bot, lower_top,
                               cx, Ri2, _profile, _apex)
@@ -7280,6 +7295,13 @@ class HourglassWidget(Widget):
             return self._preview_material
         return sand_material(self.sand_base, self.sand_dark, self.sand_light)
 
+    def _bind_surface_colours(self):
+        self._mound_band_color.rgb = self._upper_band_color.rgb = self.sand_light
+        self._splash_color.rgb = self._dust_color.rgb = self.sand_light
+        for (index, _size), (_group, color, _pool) in self._stream_pools.items():
+            color.rgb = self._hilite_color if index < 0 else self._flow_table[index]
+        self._render_colors = (self.sand_base, self.sand_dark, self.sand_light)
+
     def rebind_sand_material(self, material):
         """把一份材质绑到**已有的**沙体 rect / 颈部 quad 上。
 
@@ -7294,6 +7316,7 @@ class HourglassWidget(Widget):
             rect.texture = tex
             color.rgb = (1, 1, 1) if white else self.sand_base
         self._neck_quads.set_texture(tex)
+        self._contact_grains.set_texture(tex)
         self._neck_solid_rect.texture = self._neck_fade_rect.texture = tex
         if white:
             # 材质烘的就是 albedo ⇒ 前面必须保持白色, 再染一层沙色会明显发暗
@@ -7302,8 +7325,7 @@ class HourglassWidget(Widget):
         else:
             self._neck_color.rgb = self.sand_base
             self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
-        # 绑定已经是当前配色了 ⇒ 别让 redraw 的换色分支再拿缓存材质覆盖掉预览
-        self._render_colors = (self.sand_base, self.sand_dark, self.sand_light)
+        self._bind_surface_colours()
         self.redraw()
 
     def set_sand_grain(self, grain, preview=False):
@@ -8470,19 +8492,7 @@ class HourglassWidget(Widget):
                 # 退回平色时颈部才跟着染沙色; 有材质时前面必须保持白色(否则双重着色变暗)
                 self._neck_color.rgb = self.sand_base
                 self._neck_solid_color.rgb = self._neck_fade_color.rgb = self.sand_base
-            # (2026-10-09 删: 这里原来刷 `_sand_bands` 那条作废亮带的颜色 —— 带子已删)
-            self._mound_band_color.rgb = self.sand_light
-            # ⚠️ **上球那条也要刷**(2026-10-05 r9-1号 查出漏了): 它原来只在
-            #    `_build_dynamic_canvas()` 创建时取一次 sand_light, 换沙色后**一直是旧色**,
-            #    直到发生几何重建(改周期/改尺寸/跑一次 benchmark)才跟上。
-            #    实测: 金沙换绿沙后未重建时沙面首 3 行仍 (221,215,166) 暖色调,
-            #    触发重建后 (200,217,160) 才变绿。3~5 设备像素高 × 约 900px 宽, 通道差 ≈20 级。
-            self._upper_band_color.rgb = self.sand_light
-            for (index, _size), (_group, color, _pool) in self._stream_pools.items():
-                color.rgb = (self._hilite_color if index < 0
-                             else self._flow_table[index])
-            self._splash_color.rgb = self._dust_color.rgb = self.sand_light
-            self._render_colors = colors
+            self._bind_surface_colours()
 
         h_mound = self._mound_height_px()
         upper_height = self._upper_sand_height_px()

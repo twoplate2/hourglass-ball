@@ -64,6 +64,24 @@ def validate_increment(before, after):
                              f"found {'.'.join(map(str, after))}")
 
 
+def validate_push(base, head):
+    before = version_at(base, historical=True)
+    current = version_at(head)
+    # Main can catch up with a numeric release already published on a release
+    # branch. Every intermediate version must be present and in ancestry order.
+    if before[0] == current[0]:
+        for minor in range(before[1] + 1, current[1]):
+            step = (current[0], minor)
+            tag = f"refs/tags/{step[0]}.{minor}"
+            if (git("merge-base", "--is-ancestor", base, tag).returncode or
+                    git("merge-base", "--is-ancestor", tag, head).returncode or
+                    version_at(tag) != step):
+                raise ValueError(f"Missing intermediate release in this commit history: {tag}")
+            validate_increment(before, step)
+            before, base = step, tag
+    validate_increment(before, current)
+
+
 def validate_title(title, version):
     prefix = ".".join(map(str, version)) + " "
     if not title.startswith(prefix) or not re.search(r"[\u4e00-\u9fff]", title):
@@ -79,7 +97,7 @@ def main():
     try:
         current = version_at(args.head)
         if args.base and set(args.base) != {"0"}:
-            validate_increment(version_at(args.base, historical=True), current)
+            validate_push(args.base, args.head)
         if args.check_title:
             result = git("log", "-1", "--format=%s", args.head)
             if result.returncode:

@@ -45,7 +45,13 @@ def _birth_material():
     inward = .08 * np.sin(np.pi * lanes)
     # Some moving outer grains continue along the lip before drifting inward.
     # The centre and outermost lane keep their original positions.
-    lip_shift = .40 * np.sign(lanes) * np.maximum(0., np.abs(lanes) - .40) * (1. - np.abs(lanes))
+    # A packed cross-section carries grains up to both walls. Map the
+    # centre-biased free-stream lanes to equal shares of the mouth, then fade
+    # that offset downstream on the very same persistent grains.
+    order = np.argsort(lanes)
+    packed_lanes = np.empty_like(lanes)
+    packed_lanes[order] = (np.arange(BLOCK) + .5) * (2. / BLOCK) - 1.
+    lip_shift = packed_lanes - lanes
     outer = np.clip((np.abs(lanes) - .48) / .46, 0., 1.) ** 1.3
     radius += .13 * np.maximum(0., 1. - (lanes / .68)**2)
     return offsets, lanes, jitter, tone, radius, drift, slip, inward, outer, lip_shift
@@ -73,7 +79,12 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     birth = (serial + offsets[slot]) / rate
     lane = lanes[ids]
     age = np.maximum(0., time - birth)
-    depth = age * B13_TEXTURE_SPEED * slip[ids]
+    # Integrate a bounded acceleration. At the lip the texture matches the
+    # packed material; downstream it approaches 1.36 times that speed.
+    travel_time = age * slip[ids]
+    relax = 1.7
+    depth = B13_TEXTURE_SPEED * (travel_time + .36 * (
+        travel_time + relax * np.expm1(-travel_time / relax)))
     lip_time = time - transit.age_at(depth) / transit.lane_factor(lane, jitter[ids])
     keep = (birth <= time) & (lip_time >= 0.) & (lip_time < end) & (depth <= limit)
     # The neck mask contracts during its last .85 mouth radii of packed
@@ -86,9 +97,9 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     narrow = 1. - .13 * (1. - np.exp(-released / 54.))
     settle = np.clip((released - 24.) / 145., 0., 1.)
     lateral = lane - inward[ids] * settle
-    near_lip = np.clip(1. - released / max(1., 1.10 * half), 0., 1.)
+    near_lip = np.clip(1. - released / max(12., 3.0 * half), 0., 1.)
     lateral += lip_shift[ids] * near_lip**2 * (3. - 2. * near_lip)
-    x = lateral * max(0., half - .9 * grain_scale) * narrow
+    x = lateral * max(0., half - .40 * grain_scale) * narrow
     travel = 1. - np.exp(-np.maximum(0., depth - 12.) / 53.)
     contact = np.clip((gap - depth) / 21., 0., 1.)
     # Let individual edge grains fan out without a whole band swaying together.

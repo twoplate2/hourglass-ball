@@ -1,4 +1,4 @@
-"""Travel of the B14 leading edge, calibrated in the 540 × 924 reference glass."""
+"""Travel of the leading edge, calibrated in the 540 × 924 reference glass."""
 
 from bisect import bisect_right
 from functools import lru_cache
@@ -66,14 +66,14 @@ def _interpolate(value, xs, ys, final_slope):
     return ys[lo] + u * (ys[hi] - ys[lo])
 
 
-class B14Transit:
-    """Reference leading edge for 20 seconds and up, joined to the short-clock curve."""
+class OpeningTransit:
+    """Blend the capacity-limited short clocks into the measured reference drop."""
 
     # Both paths use the same dated volumes for collision and catch-up ticks.
     cohorts = B13Transit.cohorts
 
     def __init__(self, duration, short_transit):
-        blend = min(1., max(0., (duration - 5.) / 15.))
+        blend = min(1., max(0., (duration - 5.) / 25.))
         self.blend = blend**2 * (3. - 2. * blend)
         self.short_transit = short_transit
         self.times, self.depths, self.speeds = [], [], []

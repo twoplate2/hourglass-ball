@@ -138,12 +138,15 @@ def capture(args):
                     if i==0:im.save(args.output/"overview.png")
                     im=im.crop(crop)
                 name="%04d.png"%i;im.save(args.output/name)
-                geo=dict(cx=float(w._cx)-crop[0],outlet_y=args.height-(2*w._neck_y-w._taper["y_bot"])-crop[1],
+                geo=dict(cx=float(w._cx)-crop[0],crown_y=args.height-w._upper_y_c-w._R_inner-crop[1],
+                         outlet_y=args.height-(2*w._neck_y-w._taper["y_bot"])-crop[1],
                          surface_y=args.height-w.get_mound_top_y()-crop[1],half_width=w._taper["t_in"],
                          radius=w._R_inner,background_rgb=[c*255 for c in game.hex_rgb(game.GLASS_FILL)])
                 report["frames"].append(dict(time=t,file=name,geometry=geo,native_hidden=hidden,
                     sha256=hashlib.sha256((args.output/name).read_bytes()).hexdigest(),elapsed=w.elapsed,
                     draw_state=dict(getattr(w,"_short_flow_state",{}))))
+                if hasattr(w, "sand_transfer_state"):
+                    report["frames"][-1]["transfer"] = w.sand_transfer_state()
                 if stream_fbo is not None:
                     stream_fbo.add(w._short_flow_context)
                     try:stream_fbo.draw();stream_raw=bytes(stream_fbo.pixels)

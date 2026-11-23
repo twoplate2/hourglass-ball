@@ -38,6 +38,21 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.validate_increment(before, version)
 
+    def test_pushed_main_may_include_only_already_tagged_intermediate_versions(self):
+        versions = {"base": (3, 35), "refs/tags/3.36": (3, 36), "head": (3, 37)}
+        with patch.object(release, "version_at", side_effect=lambda r, **kw: versions[r]):
+            with patch.object(release, "git", return_value=SimpleNamespace(returncode=0)) as git:
+                release.validate_push("base", "head")
+                self.assertEqual([call.args[-2:] for call in git.call_args_list],
+                                 [("base", "refs/tags/3.36"), ("refs/tags/3.36", "head")])
+                versions["refs/tags/3.36"] = (3, 35)
+                with self.assertRaises(ValueError):
+                    release.validate_push("base", "head")
+            versions["refs/tags/3.36"] = (3, 36)
+            with patch.object(release, "git", return_value=SimpleNamespace(returncode=1)):
+                with self.assertRaises(ValueError):
+                    release.validate_push("base", "head")
+
     def test_chinese_version_title(self):
         release.validate_title("3.29 修复沙流衔接", (3, 29))
         for title in ("3.29.1 修复沙流衔接", "3.28 修复沙流衔接", "3.29 Fix flow", "修复沙流衔接"):

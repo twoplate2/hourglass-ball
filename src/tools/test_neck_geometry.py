@@ -11,8 +11,8 @@ import neck_geometry as geometry
 class NeckGeometryTests(unittest.TestCase):
     def test_short_periods_have_visibly_distinct_apertures(self):
         widths = [geometry.inner_width(period, 400) for period in (1, 2, 3, 4, 5)]
-        self.assertAlmostEqual(widths[0], 110.)
-        self.assertAlmostEqual(widths[-1], 60.)
+        self.assertAlmostEqual(widths[0], 156.)
+        self.assertAlmostEqual(widths[-1], 112.)
         self.assertTrue(all(a > b for a, b in zip(widths, widths[1:])))
 
     def test_long_period_halves_previous_minimum(self):
@@ -21,7 +21,7 @@ class NeckGeometryTests(unittest.TestCase):
 
     def test_period_mapping_is_monotonic_and_bounded(self):
         values=[geometry.inner_width(math.exp(i/20),300) for i in range(260)]
-        self.assertTrue(all(4.5<=v<=82.5 for v in values))
+        self.assertTrue(all(4.5<=v<=117. for v in values))
         self.assertTrue(all(b<=a for a,b in zip(values,values[1:])))
 
     def test_period_mapping_is_nonlinear(self):
@@ -30,7 +30,7 @@ class NeckGeometryTests(unittest.TestCase):
         self.assertLess(geometry.inner_width(midpoint,400),linear_width/2)
 
     def test_reference_middle(self):
-        self.assertAlmostEqual(geometry.inner_width(50,400)/400,.08257427054279469)
+        self.assertAlmostEqual(geometry.inner_width(50,400)/400,.24 * math.sqrt(20. / 50.))
 
     def test_scales_with_body_not_window_width(self):
         for period in (1,5,50,36000,360000):
@@ -39,10 +39,10 @@ class NeckGeometryTests(unittest.TestCase):
                                        geometry.inner_width(period,400)*diameter/400)
 
     def test_outer_half_includes_wall_once(self):
-        self.assertEqual(geometry.outer_half(5,400,6),36)
+        self.assertAlmostEqual(geometry.outer_half(5,400,6),62)
         narrow, wide = geometry.half_limits(400,6)
         self.assertAlmostEqual(narrow, 9.)
-        self.assertAlmostEqual(wide, 61.)
+        self.assertAlmostEqual(wide, 84.)
 
     def test_invalid_geometry_rejected(self):
         for value in (0,-1,float('nan'),float('inf')):

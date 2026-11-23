@@ -8,6 +8,38 @@ except ImportError:
     np = None
 
 
+def follow_rising_impact(w, rise, dt, heights, inv):
+    """Carry a shallow outward rebound with a rapidly rising impact surface."""
+    radius = w._R_inner
+    if rise <= .20 * radius * dt or np is None:
+        return
+    n = w._sn
+    x, y = w.sx[:n], w.sy[:n]
+    local = (x - w._cx + radius) * inv
+    bed = w._lower_sand_bot + np.interp(local, np.arange(len(heights)), heights)
+    clearance = y - (bed - rise)
+    half = w._taper['t_in']
+    outward = w.svx[:n] * (x - w._cx) > 0.
+    # Resting grains stay buried. Only a thin layer around the real impacts
+    # follows the surface, with a bounded displacement on a stalled UI tick.
+    active = ((w.srest[:n] == 0.) & (w.shas[:n] == 0.) & outward
+              & (abs(x - w._cx) > .42 * half) & (clearance >= -w.shh[:n])
+              & (clearance < .095 * radius))
+    # Rebounds already carry a permanent gravity multiplier. Light grains
+    # follow the rising surface further; separate arcs do not form a rim.
+    carried = np.clip(1.60 - .70 * w.sgd[:n][active], .42, 1.15)
+    shift = min(rise - .20 * radius * dt, .035 * radius) * carried
+    # The growing impact patch displaces grains out along both shoulders.
+    # Clip the displacement to the actual inner circle at the grain's height.
+    radial = x[active] - w._cx
+    wall = np.sqrt(np.maximum(0., radius**2 - (y[active] - w._lower_y_c)**2))
+    outward_step = np.minimum(.32 * shift, np.maximum(0., wall - abs(radial) - w.shw[:n][active]))
+    radial += np.sign(radial) * outward_step
+    x[active] = w._cx + radial
+    roof = w._lower_y_c + np.sqrt(np.maximum(0., radius**2 - radial**2))
+    y[active] += np.minimum(shift, np.maximum(0., roof - y[active] - w.shh[:n][active]))
+
+
 def step(w, table, radius, inv, bottom, center, gravity, scale, pixel, jet,
          scalar=False):
     if scalar or np is None:

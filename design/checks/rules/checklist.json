@@ -3,6 +3,7 @@
   "visual_case_file": "design/checks/rules/sand-flow-cases.json",
   "core": ["layout", "version", "gate", "static", "design-pages"],
   "tests": [
+    {"id": "recorded-flow", "command": ["src/tools/test_recorded_flow.py"], "timeout": 60, "unittest_min": 7},
     {"id": "layout", "command": ["src/tools/test_repository_layout.py"], "timeout": 60, "unittest_min": 10},
     {"id": "version", "command": ["src/tools/test_release_version.py"], "timeout": 60, "unittest_min": 5},
     {"id": "gate", "command": ["src/tools/test_regression_gate.py"], "timeout": 60, "unittest_min": 23},

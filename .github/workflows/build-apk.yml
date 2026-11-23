@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main, master, trial/b14-3.36]
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -37,13 +37,6 @@ jobs:
             BASE_SHA=$(git merge-base origin/main "$HEAD_SHA")
           fi
           python src/tools/check_release_version.py --base "$BASE_SHA" --head "$HEAD_SHA" --check-title
-
-      - name: 核对试用分支与 APK 版本
-        if: github.ref == 'refs/heads/trial/b14-3.36'
-        run: |
-          version=$(python -c 'from src.app.app_version import APP_VERSION; print(APP_VERSION)')
-          [[ "$GITHUB_REF_NAME" == "trial/b14-$version" ]]
-          echo "TRIAL_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: 验证 APK 版本来源一致
         run: python src/tools/test_release_version.py
@@ -92,14 +85,6 @@ jobs:
             .buildozer
           key: buildozer-v1-${{ runner.os }}-${{ hashFiles('buildozer.spec', 'src/build/recipes/**') }}
 
-      - name: 准备并检查试用包实际使用的 B14 配置
-        if: github.ref == 'refs/heads/trial/b14-3.36'
-        run: |
-          test ! -e src/app/b14_trial_build.py
-          printf '%s\n' 'B14_TRIAL = True' > src/app/b14_trial_build.py
-          python -m pip install numpy pillow
-          python -B src/tools/check_b14_trial_build.py
-
       - name: Build APK (debug)
         run: |
           # ⚠️ **不要加 `set -o pipefail`**: `yes` 会以 141(SIGPIPE) 收尾, pipefail 会把
@@ -112,32 +97,12 @@ jobs:
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
 
-      - name: 核对实际打进 APK 的沙流配置
-        run: |
-          python - <<'PY'
-          import os
-          from pathlib import Path, PurePosixPath
-          import tarfile
-          import zipfile
-
-          (apk,) = Path("bin").glob("*.apk")
-          trial = bool(os.environ.get("TRIAL_VERSION"))
-          with zipfile.ZipFile(apk) as package, package.open("assets/private.tar") as payload:
-              with tarfile.open(fileobj=payload, mode="r|*") as files:
-                  markers = [m.name for m in files if m.isfile() and
-                             PurePosixPath(m.name) in (PurePosixPath("src/app/b14_trial_build.pyc"),
-                                                       PurePosixPath("src/app/b14_trial_build.py"))]
-          if bool(markers) != trial:
-              raise SystemExit(f"APK B14 build markers: {markers!r}, expected trial={trial}")
-          print(f"{apk.name}: trial={trial}, markers={markers!r}")
-          PY
-
       # 🔴 **2026-10-11: 构建日志必须"我自己读得到"。**
       #    run 378(2.59) 构建失败, 而 Actions 的日志**要登录才能看**, api.github.com
       #    在本机 IP 又是 403 ⇒ 我盯着一个**读不到的失败**空等了 30 分钟, 只能空猜。
       #    这条把 `build.log` 发到 Release(`ci-log` tag, 资产**公开可下**) ⇒ 失败也能自诊。
       #    成功也发(体积小, 且方便回溯"某次构建到底跑了什么")。
-      #    ⚠️ 用**独立 tag**, 不能混进 `latest` —— 那是给用户下 APK 的, 别塞日志。
+      #    ⚠️ 构建日志使用独立标签，GitHub 最新发布入口留给 APK。
       - name: Publish build log
         if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         env:
@@ -145,7 +110,7 @@ jobs:
         run: |
           set -e
           [ -f build.log ] || { echo "no build.log"; exit 0; }
-          gh release view ci-log >/dev/null 2>&1 || gh release create ci-log --title "CI build log" --notes "最近一次构建的完整日志(滚动覆盖, 供诊断)"
+          gh release view ci-log >/dev/null 2>&1 || gh release create ci-log --latest=false --title "CI build log" --notes "最近一次构建的完整日志(滚动覆盖, 供诊断)"
           gh release view ci-log --json assets -q '.assets[].name' 2>/dev/null | while read -r old; do [ -n "$old" ] && gh release delete-asset ci-log "$old" --yes || true; done
           gh release upload ci-log build.log --clobber
           gh release edit ci-log --notes "commit ${GITHUB_SHA:0:12} · $(date -u +%FT%TZ)"
@@ -161,41 +126,33 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      # 🔴 **2026-10-11: 把 APK 发到 Release —— 这是"闭环"的关键一步。**
-      #    `actions/upload-artifact` 的产物**必须登录才能下**(GitHub 的硬规矩),
-      #    所以「让 Claude 自己下包 → 装包 → 测包」那条闭环一直断在这里。
-      #    **Release 的资产是公开可下的** ⇒ 之后 `curl -L` 就能拿到, 不需要任何 token。
-      #    每次 push 覆盖同一个 `latest` tag(滚动发布), 只保留最新一版。
-      - name: Publish APK to Release
+      - name: 发布数字版本 APK
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -e
-          APK=$(ls bin/*.apk | head -1)
-          echo "publishing $APK"
-          gh release view latest >/dev/null 2>&1 ||             gh release create latest --title "hourglass latest"                --notes "滚动发布: 每次 push 覆盖(资产=最新一次构建的 debug APK)"
-          # ⚠️ `--clobber` 只覆盖**同名**文件 ⇒ 换版本号时旧 APK 会一直累积
-          #    (实测 latest 里同时躺着 2.54 与 2.55) ⇒ 上传前先把旧资产清掉。
-          gh release view latest --json assets -q '.assets[].name' 2>/dev/null |             while read -r old; do [ -n "$old" ] && gh release delete-asset latest "$old" --yes || true; done
-          gh release upload latest "$APK" --clobber
-          gh release edit latest --notes "commit ${GITHUB_SHA:0:12} · $(basename "$APK") · $(date -u +%FT%TZ)"
-
-      - name: 发布 B14 试用 APK
-        if: github.ref == 'refs/heads/trial/b14-3.36'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="trial-$TRIAL_VERSION"
+          set -o pipefail
+          version=$(python -c 'from src.app.app_version import APP_VERSION; print(APP_VERSION)')
+          [[ "$version" =~ ^[0-9]+[.][0-9]+$ ]]
           apks=(bin/*.apk)
           [[ ${#apks[@]} == 1 && -f "${apks[0]}" ]]
-          # A release retry may encounter a tag left by an earlier interrupted run.
-          git push origin "$GITHUB_SHA:refs/tags/$tag"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            [[ "$(gh release view "$tag" --json isPrerelease --jq .isPrerelease)" == true ]]
-            gh release upload "$tag" "${apks[0]}" --clobber
+          name=$(basename "${apks[0]}")
+          [[ "$name" == "hourglass-$version-arm64-v8a-debug.apk" ]]
+
+          # 非强制创建标签。已有标签指向其他提交时，Git 会拒绝本次发布。
+          git push origin "$GITHUB_SHA:refs/tags/$version"
+          latest=true
+          newest=$({ printf '%s\n' "$version"; gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'; } |
+                   sed -nE '/^[0-9]+[.][0-9]+$/p' | sort -V | tail -n 1)
+          if [[ "$newest" != "$version" ]]; then latest=false; fi
+
+          if gh release view "$version" >/dev/null 2>&1; then
+            assets=$(gh release view "$version" --json assets --jq '.assets[].name')
+            if ! grep -Fxq "$name" <<< "$assets"; then
+              gh release upload "$version" "${apks[0]}"
+            fi
+            gh release edit "$version" --title "$version" --draft=false --prerelease=false --latest="$latest"
           else
-            gh release create "$tag" "${apks[0]}" --target "$GITHUB_SHA" --verify-tag --prerelease --latest=false \
-              --title "沙漏 $TRIAL_VERSION · B14 首落试用版" \
-              --notes "原速 PC 画面按轮廓估算，首落时 20 秒档缺少满杯的 6.52 个百分点，50 秒档缺少 2.37 个百分点。本次运行验证在 PC 上完成。提交 ${GITHUB_SHA:0:12}。"
+            gh release create "$version" "${apks[0]}" --verify-tag --title "$version" --latest="$latest" \
+              --notes "提交 ${GITHUB_SHA:0:12}。"
           fi

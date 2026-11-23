@@ -106,9 +106,10 @@ class Splash33ImpulseTests(unittest.TestCase):
     def test_bulk_front_fits_the_charge_while_splash_speed_stays_comfortable(self):
         samples = list(opening_capacity_samples(self.current))
         arrivals = [arrival for _, arrival, _, _ in samples]
-        self.assertLess(max(arrivals) - min(arrivals), .045)
-        self.assertLess(max(arrivals[1:]) - min(arrivals[1:]), .002)
-        self.assertLess(arrivals[1], .175)
+        self.assertGreater(arrivals[0], .145)
+        self.assertTrue(.32 < arrivals[1] < .60)
+        self.assertGreater(min(arrivals[2:]), 1.2)
+        self.assertLess(max(arrivals[2:]) - min(arrivals[2:]), .23)
         splash_scale = samples[0][0]._particle_motion_scale
         for glass, arrival, released, capacity in samples:
             with self.subTest(duration=glass.duration):

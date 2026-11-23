@@ -120,10 +120,10 @@ class B13StreamTests(unittest.TestCase):
                 b = sample_grains(t + .02, duration, half, 433.)
                 _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
                 speeds = (b.depth[j] - a.depth[i]) / .02
-                for z in (3, 100, 390):
+                for z, low, high in ((3, 76., 83.), (100, 89., 97.), (390, 99., 109.)):
                     band = (abs(a.depth[i]-z) < 3) & (abs(a.x[i]) < .7*half)
                     self.assertGreater(band.sum(), 10)
-                    self.assertTrue(76. <= np.median(speeds[band]) <= 81.,
+                    self.assertTrue(low <= np.median(speeds[band]) <= high,
                                     (z, np.median(speeds[band])))
 
     def test_line_fallback_keeps_grain_identity_and_short_strokes(self):

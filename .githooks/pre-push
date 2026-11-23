@@ -20,7 +20,8 @@ src/tools/test_splash33_impulse.py
 src/tools/test_short_grain.py
 src/tools/test_grain_style.py
 src/tools/test_outlet_flow.py
-src/tools/test_b14_transit.py
+src/tools/test_opening_transit.py
+src/tools/test_recorded_flow.py
 src/tools/test_mound_blend.py
 src/tools/test_ui_polish.py
 src/tools/test_keep_awake.py
@@ -35,7 +36,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         exit 1
     fi
     if [ "$checked" = 0 ]; then
-        git diff --quiet HEAD -- main.py buildozer.spec src/app src/build .githooks .github src/tools/check_release_version.py src/tools/android_hook.py src/tools/check_visible_sand_volume.py $tests || {
+        git diff --quiet HEAD -- main.py buildozer.spec src/app src/build .githooks .github src/tools/check_release_version.py src/tools/android_hook.py src/tools/check_visible_sand_volume.py src/tools/check_recorded_flow.py $tests || {
             echo "Release sources must match the pushed commit."
             exit 1
         }

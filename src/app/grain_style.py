@@ -4,14 +4,6 @@ import math
 from functools import lru_cache
 from typing import NamedTuple
 
-try:
-    from b14_trial_build import B14_TRIAL
-except ModuleNotFoundError as error:
-    if error.name != 'b14_trial_build':
-        raise
-    B14_TRIAL = False
-
-
 B13_REFERENCE_RADIUS = 208.845
 B13_LIP_SPEED = 21.0
 B13_SPEED_SCATTER = 3.0
@@ -56,41 +48,31 @@ class B13Transit(NamedTuple):
 
     Coordinates use the reference glass. The occupied section falls from a
     nearly filled mouth to a narrower porous stream over the first 54 pixels.
-    The integral of its relative area is .60*z + .40*z/(1 + z/54).
+    The integral of its relative area is .72*z + .28*z/(1 + z/54).
     """
 
     seconds_per_pixel: float
 
     @classmethod
     @lru_cache(maxsize=32)
-    def for_glass(cls, duration, half, *, opening='capacity'):
-        from neck_geometry import FIVE_SECOND_RATIO, WIDE_PERIOD
+    def for_glass(cls, duration, half):
         radius = B13_REFERENCE_RADIUS
-        # Use the five-second front for the same drop, even where the visible
-        # throat has a readability floor. Only the widest, very short timers
-        # can release more sand than fits in that front before first contact.
-        packed = duration * (half / radius)**2
-        reference = WIDE_PERIOD * FIVE_SECOND_RATIO**2
-        transit = cls(.90 * .75 / radius * min(packed, reference))
-        if opening == 'b14' and duration > WIDE_PERIOD:
-            from b14_transit import B14Transit
-            return B14Transit(duration, transit)
-        return transit
+        return cls(.96 * .75 / radius * duration * (half / radius)**2)
 
     @staticmethod
     def lane_factor(lane, jitter):
         return 1. - .08 * lane**2 + .02 * jitter
 
     def age_at(self, depth):
-        return self.seconds_per_pixel * depth * (.60 + .40 / (1. + depth / 54.))
+        return self.seconds_per_pixel * depth * (.72 + .28 / (1. + depth / 54.))
 
     def depth_at(self, age):
         x = age / (54. * self.seconds_per_pixel)
-        return 54. * (x - 1. + ((1. - x)**2 + 2.4*x)**.5) / 1.2
+        return 54. * (x - 1. + ((1. - x)**2 + 2.88*x)**.5) / 1.44
 
     @staticmethod
     def relative_area(depth):
-        return .60 + .40 / (1. + depth / 54.)**2
+        return .72 + .28 / (1. + depth / 54.)**2
 
     def motion(self, age, lane, jitter, outlet, scale):
         factor = self.lane_factor(lane, jitter)
@@ -114,12 +96,17 @@ class B13Transit(NamedTuple):
                 yield start + (i + .5) * step, step / duration
 
 
+@lru_cache(maxsize=32)
+def _opening_transit(duration, half):
+    from opening_transit import OpeningTransit
+    capacity = B13Transit.for_glass(duration, half)
+    return OpeningTransit(duration, capacity) if duration > 5. else capacity
+
+
 def hourglass_transit(duration, half, clock=0.):
-    """Use the same calibrated front for the visible jet and landing collisions."""
-    if not B14_TRIAL:
-        return B13Transit.for_glass(duration, half)
-    transit = B13Transit.for_glass(duration, half, opening='b14')
-    return transit.at_clock(clock) if duration > 5. else transit
+    """One shipping profile for the screen, contact physics and all APK builds."""
+    opening = _opening_transit(duration, half)
+    return opening.at_clock(clock) if duration > 5. else opening
 
 
 def b13_neck_ratio(height, half):
