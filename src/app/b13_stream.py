@@ -95,6 +95,10 @@ def _opening_pattern(seed):
     return int(rng.integers(BLOCK)), phase_a, phase_b
 
 
+def _jet_slenderness(half):
+    return min(1., max(0., (REFERENCE_RADIUS/half - 4.)/2.))
+
+
 def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1, inlet_lift=0.,
                   *, opening_seed=0):
     """Carry the first material with the nose; advect packed pigment behind it."""
@@ -139,12 +143,15 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     # A jet only a few grains across already has separated leaders.
     spread_room = min(1., max(0., (half/grain_scale - 6.)/10.))
     extra_span = spread_room * min(1.6*half, .24*free_run)
+    # A long, resolved jet has room for transverse motion relative to its
+    # width. Short, wide jets and nearly single-file jets need less spread.
+    packet_spread = spread_room * _jet_slenderness(half)
     stretch = 1. + .08*opened + extra_span/head_length
     stagger = .80*half*opened + .55*extra_span
     moving_length = stretch*head_length
     width = .23*moving_length
     pigment_count = len(serial)
-    if leading_depth <= limit + 4.*head_length + 3.*half:
+    if leading_depth*(1.-.54*packet_spread) <= limit + 4.*head_length + 3.*half:
         # Match each patch of interior pigment onto its advancing carrier
         # continuously where the packed first batch opens into the free jet.
         empty_flight = hourglass_transit(end, half).age_at(2.*REFERENCE_RADIUS)
@@ -152,6 +159,7 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         join = moving_length * (.48 + .52 * offsets[ids]) + stagger * first_lag[ids]
         join += .38*release_span*opened
         edge = transit.depth_at(time * lane_speed)
+        join += .52*packet_spread*np.maximum(0., edge-2.*half)*(.4+.6*offsets[ids])
         remaining = edge - join - depth
         blend = np.clip(.5 + .5 * remaining / width, 0., 1.)
         depth -= width * (1. - blend)**2 + np.maximum(-width - remaining, 0.)
@@ -201,6 +209,10 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         free = np.maximum(front-12., 0.)
         opened_grain = free/(free + .30*half + .35*extra_lag)
         front -= extra_lag*opened_grain**2
+        # A fixed speed difference belongs to the grain. As its own travel
+        # grows the gaps grow too, without pulling any grain backwards.
+        free_travel = np.maximum(0., front-2.*half)
+        front -= .54*packet_spread*np.sqrt(order)*(.40+.60*spacing)*free_travel
         fraction = np.clip((head_length - lag) / (.52*head_length), 0., 1.)
         active = ((front >= 0.) & (front <= limit) & (offsets[(keys+193) % BLOCK] < fraction))
         pigment = serial[visible]
@@ -217,7 +229,13 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         # Each early grain keeps its sideways drift, including grains born
         # near the centre. The exposed layers open up first.
         drift = 2.*offsets[(keys+347) % BLOCK] - 1.
-        front_lane += .38*(extra_span/half)*drift*np.exp(-(.43*behind)**2)
+        # Neighbours leave with different transverse velocities. Let that
+        # displacement accumulate through the bulk of the leading packet.
+        # Fade by release order so its rear still meets the following jet.
+        lateral_spread = .38 * (extra_span/half) * np.exp(-(.43*behind)**2)
+        lateral_spread += (1.9 * packet_spread * (1.-order**2) * np.exp(-(.15*behind)**2)
+                           * (-np.expm1(-free_travel/(3.5*half))))
+        front_lane += lateral_spread * drift
         lane = np.concatenate((lane[visible], front_lane[active]))
         lane_speed = np.concatenate((lane_speed[visible], front_speed[active]))
     flight_age = transit.age_at(depth)
@@ -351,7 +369,9 @@ class StreamArea:
     def __init__(self, widget):
         scale = widget._R_inner / REFERENCE_RADIUS
         outlet = 2. * widget._neck_y - widget._taper["y_bot"]
-        extent = widget._taper["t_in"] + 8. * scale
+        mouth = widget._taper["t_in"]
+        # The offscreen image must include the airborne grains on either side.
+        extent = mouth * (1.65 + 1.9*_jet_slenderness(mouth/scale)) + 8. * scale
         left = math.floor(widget._cx - extent)
         bottom = math.floor(widget._lower_sand_bot - 2. * scale)
         size = (math.ceil(widget._cx + extent) - left, math.ceil(outlet + 9. * scale) - bottom)

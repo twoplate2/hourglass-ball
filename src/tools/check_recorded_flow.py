@@ -142,6 +142,44 @@ def leading_profile(rgb, geometry):
             for u in np.linspace(-.60, .60, 13)]
 
 
+def head_area_samples(mask, geometry):
+    """Follow the bulk leading edge. Isolated outriders cannot move the window."""
+    half = geometry["half_width"]
+    cx, lip, floor = (round(geometry[k]) for k in ("cx", "outlet_y", "surface_y"))
+    span = round(2.8 * half)
+    strip = mask[lip:floor, cx-span:cx+span+1]
+    core = abs(np.arange(-span, span+1)) < .65 * half
+    coverage = strip[:, core].mean(axis=1)
+    leading = np.flatnonzero(np.convolve(coverage, np.ones(5)/5, "same") >= .30)
+    if not len(leading):
+        return None
+    front = leading[-1]
+    if not .40 < front / (floor-lip) < .90:
+        return None
+    widths, filled = [], []
+    for lo, hi in ((0., .4), (.4, .8), (.8, 1.2), (2.7, 3.2)):
+        band = strip[front-round(hi*half):front-round(lo*half)+1]
+        xs = np.nonzero(band)[1]
+        if len(xs) < 15:
+            raise ValueError("无法辨认首落头部的连续沙粒")
+        widths.append(np.ptp(np.percentile(xs, (5, 95))))
+        filled.append([cell.mean() for cell in np.array_split(band[:, core], 5, axis=1)])
+    return (front / (floor-lip), np.asarray(widths[:3]) / max(1., widths[3]),
+            np.asarray(filled[:3]))
+
+
+def check_head_area(samples):
+    for lo, hi in ((.40, .66), (.66, .90)):
+        window = [(widths, filled) for depth, widths, filled in samples if lo < depth <= hi]
+        if len(window) < 3:
+            raise ValueError("缺少 50 秒档半程和触底前的连续头部画面")
+        # Require visible sand and visible gaps in most cells of every row.
+        passed = [np.all((((f > .08) & (f < .85)).sum(axis=1)) >= 3)
+                  and np.median(w) >= 1.08 for w, f in window]
+        if np.mean(passed) < .70:
+            raise ValueError(f"50 秒档头部大部分区域未散开，落距 {lo:.0%}–{hi:.0%} 仅 {np.mean(passed):.0%} 的帧满足")
+
+
 def central_head_transition(rgb, geometry):
     """Depth of the visible breakup inside the nose, excluding isolated leaders."""
     xs, opacity = leading_opacity(rgb, geometry)
@@ -467,6 +505,7 @@ def review(folder, opening_only=False):
     tail_fringe, cutoff_samples = [], []
     head_frames, head_tips, front_fringe, shoulders = [], [], [], []
     central_transitions = []
+    head_areas = []
     profile_tips, profiles, airborne_sections, head_widths, shoulder_samples = [], [], [], [], []
     for frame in frames:
         t = frame["time"]
@@ -500,6 +539,10 @@ def review(folder, opening_only=False):
                         shoulder_samples.append(shoulder)
                 central = mask[lip:floor, cx-2:cx+3]
                 tip = floor-1 - int(np.median(np.argmax(central[::-1], axis=0)))
+                if period == 50:
+                    area = head_area_samples(mask, geo)
+                    if area is not None:
+                        head_areas.append(area)
                 if period == 50 and .60 < (tip-lip)/(floor-lip) < .95:
                     central_transitions.append(central_head_transition(rgb, geo))
                 if period != 50 and lip+.18*(floor-lip) < tip < lip+.85*(floor-lip):
@@ -554,6 +597,7 @@ def review(folder, opening_only=False):
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
     deformation = spike_travel = airborne_head = None
     if period == 50:
+        check_head_area(head_areas)
         if len(central_transitions) < 3:
             raise ValueError("缺少 50 秒档触底前的连续头部画面")
         transition = float(np.median(central_transitions))
