@@ -191,6 +191,16 @@ class RecordedFlowTests(unittest.TestCase):
         moving = rigid + 8.*np.sin(6.*x + travel[:, None]/45.)
         self.assertGreater(leading_deformation(travel, moving, 200.), 3.)
 
+    def test_landing_height_cannot_change_the_stream_far_above_the_pile(self):
+        half, flow = glass(50.)
+        t = flow.age_at(435.)
+        low_pile = sample_grains(t, 50., half, 500.)
+        high_pile = sample_grains(t, 50., half, 330.)
+        _, i, j = np.intersect1d(low_pile.serial, high_pile.serial, return_indices=True)
+        middle = (low_pile.depth[i] > 100.) & (low_pile.depth[i] < 280.)
+        self.assertGreater(middle.sum(), 100)
+        np.testing.assert_array_equal(low_pile.x[i[middle]], high_pile.x[j[middle]])
+
     def test_first_grains_thin_out_towards_the_leading_edge(self):
         for period in (5., 15., 50.):
             half, flow = glass(period)

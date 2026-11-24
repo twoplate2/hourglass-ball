@@ -245,14 +245,14 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     lateral = lane - inward[ids] * settle
     near_lip = np.clip(1. - released / max(12., 3.0 * half), 0., 1.)
     packed = near_lip**2 * (3. - 2.*near_lip)
-    after_contact = max(0., (leading_depth-gap)/(3.4*half))
-    if after_contact < 1.:
-        # The sand feeding the free face still occupies the mouth's lanes.
-        # Blend into that existing distribution as one goes up the column.
-        behind = np.clip((carrier_tip-depth-inlet_lift)/(2.*half), 0., 1.)
-        behind *= behind*(3.-2.*behind)
-        recovery = (1.-after_contact)**2*(1.+2.*after_contact)
-        packed += .48*(1.-packed)*behind*recovery
+    # Only the grains following the free face still share its wider lanes.
+    # Fade this local shoulder as the front moves away from each grain.
+    if carrier_tip - limit < 5.*half:
+        distance = (carrier_tip-depth-inlet_lift)/half
+        shoulder = np.clip(distance / 2., 0., 1.)
+        shoulder *= shoulder*(3.-2.*shoulder)
+        fade = np.clip((5.-distance)/3., 0., 1.)
+        packed += .48*(1.-packed)*shoulder*fade**2*(3.-2.*fade)
     lateral += lip_shift[ids] * packed
     x = lateral * max(0., half - .40 * grain_scale) * narrow
     travel = 1. - np.exp(-np.maximum(0., depth - 12.) / 53.)
