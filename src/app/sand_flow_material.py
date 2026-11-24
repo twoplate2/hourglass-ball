@@ -1517,8 +1517,9 @@ class MoundSurfaceFlowContext(SandFlowContext):
             before = cols[max(0, i - 1)]
             after = cols[min(len(cols) - 1, i + 1)]
             slope = (after[1] - before[1]) / max(1e-6, after[0] - before[0])
-            radius=self['sand_geometry'][1]
-            roof=self['sand_geometry'][2]+radius+math.sqrt(max(0.0,radius*radius-(x-cx)**2))
+            radius = self['sand_geometry'][1]
+            sphere_roof = radius + math.sqrt(max(0.0, radius*radius - (x-cx)**2))
+            roof = self['sand_geometry'][2] + sphere_roof
             depth, dx, dy = receiving_surface_profile(
                 x - cx, diameter, thick, slope, max(0.0,roof-y))
             coverage = 1.0 if depth > 0.0 else 0.0

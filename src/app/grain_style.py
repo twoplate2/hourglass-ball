@@ -109,12 +109,6 @@ def hourglass_transit(duration, half, clock=0.):
     return opening.at_clock(clock) if duration > 5. else opening
 
 
-def b13_neck_ratio(height, half):
-    # For the last shallow layer, width and height shrink together. With both
-    # scaled by this cube root the remaining volume still follows the ledger.
-    return min(1., (max(0., height) / max(1., .85 * half)) ** (1. / 3.))
-
-
 def first_pile_height(height, age, mouth):
     """Ease the shared visible and contact surface after the first real impact."""
     if height <= 0 or age >= .45:

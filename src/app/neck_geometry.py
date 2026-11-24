@@ -1,5 +1,6 @@
 """Period-to-aperture geometry, measured inside the glass wall."""
 import math
+from bisect import bisect_right
 
 MAX_RATIO=.39
 FIVE_SECOND_RATIO=.28
@@ -40,3 +41,85 @@ def outer_half(period,diameter,wall):
 
 def half_limits(diameter,wall):
     return diameter*MIN_RATIO*.5+wall,diameter*MAX_RATIO*.5+wall
+
+
+class SandNeck:
+    """Account for the spherical cap and the charge that fills the open neck."""
+
+    def __init__(self, radius, pole, taper, transit, scale):
+        self.radius = radius
+        self.pole = pole
+        self.outlet = taper[-1][1]
+        self.heights = tuple(y for _, y in reversed(taper))
+        self.radii = tuple(x for x, _ in reversed(taper))
+        self.volumes = [0.]
+        for a, b, h, k in zip(self.radii, self.radii[1:], self.heights, self.heights[1:]):
+            self.volumes.append(self.volumes[-1] + (k-h)*(a*a+a*b+b*b)/3.)
+        self.capacity = 4.*radius**3/3.
+        cap_height = self.heights[-1] - pole
+        self.cap_fraction = cap_height**2*(radius-cap_height/3.) / self.capacity
+        self.full_fraction = self.volumes[-1] / self.capacity
+        self.gap = max(0., pole-self.outlet)
+        self.transit = transit
+        self.scale = scale
+        self.lane = transit.lane_factor(0., 1.)
+        # The entire opening fits behind the moving round nose by this depth.
+        self.open_depth = max(2.*self.gap, self.sag(self.radii[0]), 1.)
+        self.open_time = transit.age_at(self.open_depth/scale) / self.lane
+        self.full = (self.full_fraction, None, 0.)
+        self._last_time = None
+        self._last_state = None
+
+    def sag(self, x):
+        return x*x / (self.radius + math.sqrt(max(0., self.radius**2-x*x)))
+
+    def opening(self, elapsed):
+        """Return the packed volume, neck outline and launch offset at this time."""
+        if elapsed >= self.open_time:
+            return self.full
+        if elapsed <= 0.:
+            return self.cap_fraction, (), self.gap
+        if elapsed == self._last_time:
+            return self._last_state
+        travel = self.scale * self.transit.depth_at(elapsed*self.lane)
+        u = min(1., travel/self.open_depth)
+        lift = self.gap * (1.-u*u*(3.-2.*u))
+        tip = self.outlet + lift - travel
+        bottom = max(tip, self.outlet)
+        # Intersect the advancing spherical cap with the real wall. Sampling
+        # the arc by radius keeps its tip round even in the wide one-second cup.
+        levels = {bottom, self.heights[-1]}
+        levels.update(y for y in self.heights if y > bottom)
+        for i in range(1, 17):
+            y = tip + self.sag(self.radii[-1]*i/16.)
+            if bottom < y < self.heights[-1]:
+                levels.add(y)
+        rows = []
+        for y in sorted(levels, reverse=True):
+            i = max(0, min(len(self.radii)-2, bisect_right(self.heights, y)-1))
+            ratio = (y-self.heights[i]) / (self.heights[i+1]-self.heights[i])
+            wall = self.radii[i] + ratio*(self.radii[i+1]-self.radii[i])
+            h = max(0., y-tip)
+            rows.append((min(wall, math.sqrt(max(0., h*(2.*self.radius-h)))), y))
+        volume = sum((h-k)*(a*a+a*b+b*b)/3. for (a,h),(b,k) in zip(rows,rows[1:]))
+        self._last_time = elapsed
+        self._last_state = (volume/self.capacity, rows, lift)
+        return self._last_state
+
+    def upper_layer(self, remaining):
+        """Drain the last packed sand across the actual width at each height."""
+        volume = remaining * self.capacity
+        i = max(0, min(bisect_right(self.volumes, volume)-1, len(self.radii)-2))
+        a, b = self.radii[i:i+2]
+        h = self.heights[i+1]-self.heights[i]
+        lo, hi = 0., 1.
+        for _ in range(16):
+            u = .5*(lo+hi)
+            r = a+(b-a)*u
+            if self.volumes[i]+h*u*(a*a+a*r+r*r)/3. < volume:
+                lo = u
+            else:
+                hi = u
+        u = .5*(lo+hi)
+        return [(a+(b-a)*u, self.heights[i]+h*u)] + [
+            (self.radii[j], self.heights[j]) for j in range(i, -1, -1)]

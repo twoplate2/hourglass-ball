@@ -76,7 +76,8 @@ class OutletFlowControls(unittest.TestCase):
 
 class ApplicationOutletFlowTests(unittest.TestCase):
     def test_selected_timer_drives_the_actual_b13_release_curve(self):
-        from grain_style import B13_REFERENCE_RADIUS
+        from grain_style import B13_REFERENCE_RADIUS, hourglass_transit
+        from neck_geometry import SandNeck
 
         # Exercise the same widget methods that select the supply clock and
         # debit the reservoir. No Kivy window or capture files are needed in CI.
@@ -95,11 +96,13 @@ class ApplicationOutletFlowTests(unittest.TestCase):
         for duration, half in ((1., 31.), (5., 31.), (20., 22.), (50., 17.), (6000., 5.)):
             with self.subTest(duration=duration):
                 model.duration, model._sand_timing = duration, None
-                model._neck_volume = half**2 * 35.
+                model._sand_neck = SandNeck(radius, 99., [(half+15., 109.), (half, 80.)],
+                                            hourglass_transit(duration, half), 1.)
                 model._taper = {"t_in": half, "y_bot": 432.}
                 start, cutoff, reserve = model._transfer_timing()
                 self.assertEqual((start, cutoff), (0., duration))
-                self.assertAlmostEqual(model._upper_sand_fraction(0.), 1. - reserve)
+                self.assertEqual(reserve, model._sand_neck.full_fraction)
+                self.assertAlmostEqual(model._upper_sand_fraction(0.), 1.-model._sand_neck.cap_fraction)
                 times = np.arange(0., duration + 1., .125)
                 values = [model._released_fraction_at(t) for t in times]
                 model.elapsed = duration

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src/app"))
 from b13_stream import sample_grains
 from grain_style import B13_REFERENCE_RADIUS as R, hourglass_transit
-from neck_geometry import inner_width
+from neck_geometry import SandNeck, inner_width
 
 
 def glass(period):
@@ -19,6 +19,63 @@ def glass(period):
 
 
 class RecordedFlowTests(unittest.TestCase):
+    def test_leading_grains_travel_with_the_first_visible_front(self):
+        for period in (1., 5., 15., 50., 6000.):
+            half, flow = glass(period)
+            t0, t1 = (flow.age_at(z) for z in (155., 225.))
+            a = sample_grains(t0, period, half, 460.)
+            b = sample_grains(t1, period, half, 460.)
+            _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+            behind = a.depth.max() - a.depth[i]
+            band = (behind < max(7., .30*half)) & (abs(a.x[i]) < .7*half)
+            with self.subTest(period=period):
+                self.assertGreater(band.sum(), 8)
+                movement = np.median(b.depth[j[band]] - a.depth[i[band]])
+                self.assertAlmostEqual(movement / (b.depth.max() - a.depth.max()), 1., delta=.24)
+
+    def test_stable_acceleration_remains_visible_in_the_lower_half(self):
+        half, _ = glass(15.)
+        a = sample_grains(3., 15., half, 433.)
+        b = sample_grains(3.04, 15., half, 433.)
+        _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+        speeds = (b.depth[j] - a.depth[i]) / .04
+        values = [np.median(speeds[(abs(a.depth[i]-z) < 4) & (abs(a.x[i]) < .4*half)])
+                  for z in (10., 73., 136., 199.)]
+        increments = np.diff(values)
+        self.assertGreater(increments.min(), .55 * increments.max(), values)
+
+    def test_flat_last_layer_and_contact_follow_the_inner_wall(self):
+        from check_recorded_flow import closing_surface, shoulder_gap
+        mask = np.zeros((100,100), dtype=bool)
+        mask[51:] = True
+        mask[38:51,40:61] = True
+        with self.assertRaisesRegex(ValueError, "台阶"):
+            closing_surface(mask, 50, 50, 24)
+        mask[38:51] = False
+        mask[50, 48:58] = True
+        closing_surface(mask, 50, 50, 24)
+        with_slot = mask.copy()
+        with_slot[52:69, 69:79] = False
+        with self.assertRaisesRegex(ValueError, "空槽"):
+            shoulder_gap(with_slot, mask, 50, 50, 24, 100)
+        shoulder_gap(mask, mask, 50, 50, 24, 100)
+
+    def test_resting_bulbs_are_mirrored_circles_with_an_empty_neck(self):
+        from check_recorded_flow import sphere_endpoint
+        y, x = np.ogrid[:240, :120]
+        geometry = dict(cx=60., radius=50., crown_y=5., surface_y=235., outlet_y=120.)
+        for upper, cy in ((True, 55.), (False, 185.)):
+            mask = (x+.5-60.)**2 + (y+.5-cy)**2 <= 50.**2
+            def image():
+                return np.where(mask[:,:,None], [217,166,96], [234,243,248]).astype(np.uint8)
+            self.assertLessEqual(sphere_endpoint(image(), geometry, upper), 1.)
+            if upper:
+                mask[97:117, 52:69] = True
+            else:
+                mask[123:143, 52:69] = True
+            with self.assertRaisesRegex(ValueError, "偏离圆弧"):
+                sphere_endpoint(image(), geometry, upper)
+
     def test_initial_sand_reaches_the_crown_and_discharges_from_the_first_step(self):
         from test_splash33_impulse import method
         source = (ROOT / 'main.py').read_text(encoding='utf-8')
@@ -32,8 +89,11 @@ class RecordedFlowTests(unittest.TestCase):
         w._geom_ready, w._R_inner, w._raw_height_ratio = True, R, lambda volume: volume
         for period in (1., 5., 15., 20., 50., 6000.):
             w.duration, w._sand_timing, w.elapsed = period, None, 0.
-            half, _ = glass(period)
-            w._neck_volume = half**2 * 35.
+            half, transit = glass(period)
+            shoulder = half + 30.
+            join_y = 99. + R - np.sqrt(R**2-shoulder**2)
+            w._sand_neck = SandNeck(R, 99., [(shoulder, join_y), (half, 89.), (half, 80.)],
+                                    transit, 1.)
             self.assertAlmostEqual(w._upper_sand_height_px(), 2 * R)
             self.assertLess(w._upper_sand_fraction(1/120), w._upper_sand_fraction(0))
             w.elapsed = period

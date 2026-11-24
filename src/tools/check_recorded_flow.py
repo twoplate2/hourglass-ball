@@ -25,6 +25,93 @@ def crown_gap(rgb, geometry):
     return int(rows[0]) if len(rows) else len(column)
 
 
+def sphere_endpoint(rgb, geometry, upper):
+    """Measure the neck-facing arc of a full sphere across both shoulders."""
+    mask = gold(rgb)
+    cx, radius = geometry["cx"], geometry["radius"]
+    cy = geometry["crown_y"] + radius if upper else geometry["surface_y"] - radius
+    lip = round(geometry["outlet_y"])
+    # Both sides of the lip are visible at rest. Include the full neck so that
+    # a cap or a flat plug attached to an otherwise round bulb is detected.
+    region = mask[:lip+1] if upper else mask[lip:]
+    x = np.arange(round(cx-.80*radius), round(cx+.80*radius)+1)
+    opposite = mask[lip+1:] if upper else mask[:lip]
+    if opposite[:, x].any():
+        raise ValueError("静止端点在应当留空的一侧仍有沙粒")
+    heights = (lip - region[::-1, x].argmax(axis=0) if upper
+               else lip + region[:, x].argmax(axis=0))
+    arc = np.sqrt(np.maximum(0., radius**2-(x+.5-cx)**2))
+    error = np.abs(heights+.5 - (cy+arc if upper else cy-arc))
+    if (not np.all(region[:,x].any(axis=0)) or error.max() > max(3., .014*radius)):
+        where = "开场上杯" if upper else "落定下杯"
+        raise ValueError(f"{where}偏离圆弧 {error.max():.1f} 像素")
+    return float(error.max())
+
+
+def closing_surface(mask, cx, lip, half):
+    """Measure the exposed last layer across the opening, including both edges."""
+    low = max(0, int(lip - 1.2*half))
+    heights = []
+    for x in range(round(cx-.91*half), round(cx+.91*half)+1):
+        rows = np.flatnonzero(np.convolve(mask[low:, x], np.ones(4), mode="valid") == 4)
+        if not len(rows):
+            raise ValueError("末段颈口缺少连续的沙面")
+        heights.append(low + rows[0])
+    span = np.percentile(heights, 95) - np.percentile(heights, 5)
+    if span > max(3., .055*half):
+        raise ValueError(f"归零前沙面在颈口有 {span:.1f} 像素的高低台阶")
+
+
+def shoulder_gap(mask, settled, cx, lip, half, radius):
+    """Find a notch between the bed and a shoulder, excluding open air above the cap."""
+    reach = min(.84*radius, 1.8*half)
+    left, right = max(0, round(cx-reach)), min(mask.shape[1], round(cx+reach)+1)
+    widths = []
+    for y in range(lip+1, min(mask.shape[0], lip+max(3, round(.23*radius)))):
+        row = mask[y, left:right].astype(int)
+        packed = np.flatnonzero(np.convolve(row, np.ones(3), mode="valid") == 3) + left
+        width = 0
+        for i in np.flatnonzero(np.diff(packed) > 3):
+            start, stop = packed[i]+3, packed[i+1]
+            offset = abs((start + stop) * .5 - cx)
+            if .79*half <= offset <= 1.5*half and settled[y, start:stop].all():
+                width = max(width, stop-start)
+        widths.append(width)
+    worst = np.percentile(widths, 95)
+    if worst > max(3., .11*half):
+        raise ValueError(f"归零前杯肩与沙层之间仍有 {worst:.1f} 像素的空槽")
+
+
+def leading_motion(images, tips, cx, half, radius):
+    """Track the same small near-tip patch when the visible front advances."""
+    ratios = []
+    width = max(2, round(min(.17*half, .03*radius)))
+    height = max(3, round(.023*radius))
+    for i, (first, start) in enumerate(zip(images, tips)):
+        j = next((k for k in range(i+1, len(tips)) if tips[k]-start >= .14*radius), None)
+        if j is None:
+            continue
+        travel = tips[j]-start
+        row = start - height - max(3, round(.13*half))
+        cols = slice(cx-width, cx+width+1)
+        template = first[row-height:row+height+1, cols].astype(float)
+        template -= template.mean()
+        norm = np.linalg.norm(template)
+        if norm < 1.e-6:
+            continue
+        scores = []
+        for shift in range(round(travel*1.35)+2):
+            patch = images[j][row-height+shift:row+height+1+shift, cols].astype(float)
+            patch -= patch.mean()
+            scores.append((template*patch).sum() / max(1.e-8, norm*np.linalg.norm(patch)))
+        best = int(np.argmax(scores))
+        if scores[best] >= .4:
+            ratios.append(best/travel)
+    if len(ratios) < 2 or not .70 <= np.median(ratios) <= 1.30:
+        raise ValueError(f"首落前端和紧随纹理的位移不同步，可信样本 {np.round(ratios,2)}")
+    return round(float(np.median(ratios)), 3)
+
+
 def motion_speed(a, b, dt, cx, row, half, radius):
     """Downward displacement from the best local normalized brightness match."""
     width = max(1, round(.30 * half))
@@ -63,7 +150,7 @@ def splash_pixels(mask, lip, cx, half, radius):
     return int(count)
 
 
-def review(folder):
+def review(folder, opening_only=False):
     meta = json.loads((folder / "motion.json").read_text(encoding="utf-8"))
     frames = meta["frames"]
     if (not meta["completed"] or meta.get("crop_box") or meta["color"] != 0 or
@@ -74,15 +161,31 @@ def review(folder):
     radius, half = geo["radius"], geo["half_width"]
     cx, lip, floor = [round(geo[key]) for key in ("cx","outlet_y","surface_y")]
     period = meta["period"]
-    gap = crown_gap(frame_image(folder, frames[0]), geo)
+    if not opening_only and (frames[-1]["time"] < period + .25
+                             or frames[-1]["transfer"]["landed"] < 1. - 1e-8):
+        raise ValueError("完整复查须覆盖归零、在途颗粒落定及归零后至少四分之一秒")
+    settled = None
+    if frames[-1]["transfer"]["landed"] >= 1. - 1e-8:
+        final_image = frame_image(folder, frames[-1])
+        sphere_endpoint(final_image, geo, upper=False)
+        settled = gold(final_image)
+    initial_image = frame_image(folder, frames[0])
+    sphere_endpoint(initial_image, geo, upper=True)
+    gap = crown_gap(initial_image, geo)
     if gap > max(2., .007*radius):
         raise ValueError(f"待机上杯顶部可见 {gap} 像素空隙")
 
     contact = None
     above, times, masks, luminance, spray = [], [], [], [], []
+    head_frames, head_tips = [], []
     for frame in frames:
         t = frame["time"]
-        if contact is None or (.24*period < t < .60*period) or (3 <= t <= 4.5):
+        if t >= period + .25 and frame["transfer"]["landed"] >= 1. - 1e-8:
+            sphere_endpoint(frame_image(folder, frame), geo, upper=False)
+            continue
+        layer = (1. - t/period) * (4.*radius**3/3.) / half**3
+        closing = 0. < layer < .65
+        if contact is None or closing or (.24*period < t < .60*period) or (3 <= t <= 4.5):
             rgb = frame_image(folder, frame)
             mask = gold(rgb)
         else:
@@ -91,6 +194,16 @@ def review(folder):
             bottom = mask[floor-max(2,round(.009*radius)):floor+1, cx-round(half):cx+round(half)+1]
             if bottom.any():
                 contact = t
+            elif period in (1,5,15):
+                central = mask[lip:floor, cx-2:cx+3]
+                tip = floor-1 - int(np.median(np.argmax(central[::-1], axis=0)))
+                if lip+.18*(floor-lip) < tip < lip+.85*(floor-lip):
+                    head_frames.append(rgb[:,:,1])
+                    head_tips.append(tip)
+        if closing:
+            closing_surface(mask, cx, lip, half)
+            if layer <= .30 and settled is not None:
+                shoulder_gap(mask, settled, cx, lip, half, radius)
         if period <= 15 and .24*period < t < .60*period:
             spray.append(splash_pixels(mask, lip, cx, half, radius))
         if period >= 5 and 3 <= t <= 4.5 and frame["geometry"]["surface_y"]-lip > 1.04*radius:
@@ -111,6 +224,9 @@ def review(folder):
         low, high = windows[period]
         if not low <= contact <= high + 1/meta["sample_rate"]:
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
+    if opening_only:
+        return dict(period=period, crown_gap_px=gap, contact_seconds=contact)
+    lead_ratio = leading_motion(head_frames, head_tips, cx, half, radius) if period in (1,5,15) else None
     width_ratio = None
     if masks:
         occupied = np.mean(masks, axis=0) >= .95
@@ -123,21 +239,26 @@ def review(folder):
         raise ValueError("中段落点两侧持续看不到可分辨的飞溅")
     speed = []
     if period == 15:
-        hop = max(1, round(.09 * meta["sample_rate"]))
-        for depth in (.045, .47, .93):
+        hops = sorted({max(1, round(t * meta["sample_rate"])) for t in (.09, .125, .15)})
+        for depth in (.045, .34, .635, .93):
             values = []
-            for i in range(len(times)-hop):
-                dt = times[i+hop] - times[i]
-                v = motion_speed(luminance[i], luminance[i+hop], dt, cx,
-                                 lip+round(depth*radius), half, radius)
-                if v is not None:
-                    values.append(v)
-            if len(values) < 5:
-                raise ValueError("纹理追踪缺少连续、可信的位移")
+            for hop in hops:
+                matches = []
+                for i in range(len(times)-hop):
+                    dt = times[i+hop] - times[i]
+                    v = motion_speed(luminance[i], luminance[i+hop], dt, cx,
+                                     lip+round(depth*radius), half, radius)
+                    if v is not None:
+                        matches.append(v)
+                if len(matches) < 5:
+                    raise ValueError("纹理追踪缺少连续、可信的位移")
+                values.append(np.median(matches))
             speed.append(round(float(np.median(values)), 2))
-        if not (speed[0] < speed[1] < speed[2] and 1.10 < speed[2]/speed[0] < 1.47):
-            raise ValueError(f"柱内三处纹理速度 {speed} 像素/秒")
+        increments = np.diff(speed)
+        if not (min(increments) >= .50*max(increments) > 0 and 1.10 < speed[-1]/speed[0] < 1.47):
+            raise ValueError(f"柱内四处纹理速度 {speed} 像素/秒")
     return dict(period=period, crown_gap_px=gap, contact_seconds=contact,
+                tip_texture_travel_ratio=lead_ratio,
                 dense_width_ratio=width_ratio, speeds_px_per_second=speed,
                 splash_pixels_median=float(np.median(spray)) if spray else None)
 
@@ -145,7 +266,9 @@ def review(folder):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("capture", type=Path)
+    parser.add_argument("--opening-only", action="store_true", help="仅检查从开场到首次触地")
+    args = parser.parse_args()
     try:
-        print(json.dumps(review(parser.parse_args().capture), ensure_ascii=False))
+        print(json.dumps(review(args.capture, args.opening_only), ensure_ascii=False))
     except ValueError as error:
         parser.exit(1, f"{error}\n")

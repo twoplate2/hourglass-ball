@@ -64,8 +64,8 @@ def check(samples):
     if abs(worst[1] + worst[2] - 1.) > VISIBLE_VOLUME_ERROR:
         raise ValueError(f"{worst[0]:.2f} 秒，可见沙量占初始量的 {worst[1]+worst[2]:.1%}，"
                          f"出口以上 {worst[1]:.1%}，出口以下 {worst[2]:.1%}")
-    if samples[-1][1] > .001 or samples[-1][2] < .975:
-        raise ValueError("最后一帧尚未完成上下杯转移")
+    if samples[-1][1] > .001 or abs(samples[-1][2] - 1.) > .005:
+        raise ValueError(f"落定后下杯为开场沙量的 {samples[-1][2]:.2%}，初末允差为半个百分点")
     return worst
 
 

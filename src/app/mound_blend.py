@@ -21,9 +21,11 @@ class VolumeColumns:
             half=math.sqrt(max(0.,radius*radius-x*x))
             bottom.append(radius-half);top.append(radius+half)
             weights.append((right*abs(right)-left*abs(left))*.5)
+        self.round_cap = tuple(-min(.14*radius, y) for y in bottom[::2])
         self.bottom=bottom;self.top=top;self.weights=weights
         if np is not None:
             self.bottom=np.asarray(bottom);self.top=np.asarray(top);self.weights=np.asarray(weights)
+
 
 
 class BlendedArea:
@@ -78,8 +80,8 @@ class BlendedArea:
         raise ArithmeticError('Continuous mound volume inverse did not converge')
 
 
-def blend_profile(low,high,weight,columns,inclination=1.):
-    if inclination == 1.:
+def blend_profile(low,high,weight,columns,inclination=1.,closing=0.):
+    if inclination == 1. and not closing:
         if weight<=0.:return low
         if weight>=1.:return high
     # The original profile methods continue to own every contact/render path.
@@ -88,6 +90,10 @@ def blend_profile(low,high,weight,columns,inclination=1.):
     result.shape=tuple(a+(b-a)*weight for a,b in zip(low.shape,high.shape))
     if inclination != 1.:
         result.shape = tuple(value * inclination for value in result.shape)
+    if closing:
+        # Only the exposed top becomes round. The outer shoulders still meet
+        # the glass, and the same inverse solves both the contact and draw height.
+        result.shape = tuple(a + closing*(b-a) for a,b in zip(result.shape,columns.round_cap))
     result.xs=low.xs;result.flat=low.flat
     result.slope_l=abs(result.shape[0])/result.radius
     result.slope_r=abs(result.shape[-1])/result.radius

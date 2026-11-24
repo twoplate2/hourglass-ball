@@ -14,6 +14,7 @@ import verify_short_grain_runtime as harness
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--renderer', choices=('texture', 'native'), default='texture')
     args=p.parse_args();out=args.output.resolve();out.parent.mkdir(parents=True,exist_ok=True)
     cases=out.parent/(out.name+'-cases.json')
     cases.write_text(json.dumps([dict(name='initial',period=50,elapsed=0,state='initial',frame_offsets=[0])]),encoding='utf-8')
@@ -24,9 +25,23 @@ def main():
         from kivy.graphics import Fbo,ClearColor,ClearBuffers
         from kivy.graphics.transformation import Matrix
         game=sys.modules[w.__class__.__module__]
-        advance(49);w.redraw()
+        # Observe the real surface while its material is still moving.
+        for step in range(61):
+            advance(w.duration - 1. + step/60.)
+            w.redraw()
+            center_free = bool(w._mound_profile.column(0, w._mound_apex())[1])
+            headroom = w._lower_sand_top - w.get_mound_top_y()
+            if (0. < headroom < .04*w._R_inner if args.renderer == 'native' else not center_free):
+                break
+        else:
+            raise ValueError('未找到落点表层仍在运动的近满杯画面')
         ctx=w._mound_surface_flow
         if not ctx or not ctx._node_count:raise ValueError('Receiving mesh is absent')
+        lower_rect = w._sand_chords[1][1]
+        tex_bottom, tex_height = ctx['sand_geometry'][2:]
+        if (abs(tex_bottom - lower_rect.pos[1]) > .01
+                or abs(tex_height - lower_rect.size[1]) > .01):
+            raise ValueError('落点表层与下杯沙体使用不同的纹理高度，杯颈会出现拉纹')
         width,height=int(w.width),int(w.height)
         saved_mix,saved_phase=ctx['sand_mix'],ctx['surface_phase']
         saved_indices=list(ctx._mesh.indices)
@@ -52,15 +67,14 @@ def main():
         measured=require_receiving_arrays(images)
         report=dict(completed=True,elapsed=w.elapsed,hidden=hidden_check(),
             method='fixed geometry and all other clocks; receiving phases 0 and .25; disabled-mesh negative',
-            center_free=bool(w._mound_profile.column(0,w._mound_apex())[1]),
+            center_free=center_free, headroom_px=headroom,
             images=hashes,**measured)
-        if report['center_free']:raise ValueError('Not a confined near-full surface')
         (dest/'receiving.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
         return report
 
     record_short_grain.record=record
     sys.argv=['verify_short_grain_runtime.py','--runtime',str(ROOT),'--output',str(out),
-              '--width','540','--height','924','--cases',str(cases),'--video']
+              '--width','540','--height','924','--cases',str(cases),'--video','--renderer',args.renderer]
     harness.main()
 
 

@@ -4203,6 +4203,9 @@ class HourglassWidget(Widget):
         y_knee_o = y_out - (w_out - t_out) * w_out / math.sqrt(max(1e-6, R * R - w_out * w_out))
         y_knee_i = y_in - (w_in - t_in) * w_in / math.sqrt(max(1e-6, Ri * Ri - w_in * w_in))
         y_bot = max(min(y_bot, y_knee_o - 2.0, y_knee_i - 2.0), neck_y + 2.0)
+        if FLOW_RENDERER == "b13":
+            # Both inner tapers meet tangentially at the narrowest plane.
+            y_bot = neck_y
         self._taper = {
             'y_bot': y_bot, 't_out': t_out, 't_in': t_in,
             'in_control_y': y_knee_i,
@@ -4213,8 +4216,15 @@ class HourglassWidget(Widget):
         # B13 uses the reference glass's launch speed for first impact and splash.
         release_length = 0. if FLOW_RENDERER == "b13" else 2. * (y_bot - neck_y)
         self._neck_release = neck_release_motion(t_in, release_length)
-        self._build_neck_mass_table()
-        if not self._sand_active:
+        self._sand_neck = None
+        if FLOW_RENDERER == "b13":
+            from grain_style import B13_REFERENCE_RADIUS
+            from neck_geometry import SandNeck
+            self._sand_neck = SandNeck(Ri, self._upper_sand_bot, self._taper["in_pts"],
+                                       self._b13_transit_at(0.), Ri/B13_REFERENCE_RADIUS)
+        else:
+            self._build_neck_mass_table()
+        if self._sand_neck is not None or not self._sand_active:
             self._sand_timing = None
         # 下球沙堆的形状解: **几何一变就重建**(专家 §2.2/§2.6)
         #   轮廓是 65 点固定数组(微不对称尖堆 + 受限微粗糙), **与沙量无关** ⇒
@@ -4347,7 +4357,7 @@ class HourglassWidget(Widget):
     @property
     def _neck_fill_time(self):
         if FLOW_RENDERER == "b13":
-            return 0.  # The initial charge already fills the neck down to the lip.
+            return 0.  # Supply starts with the first grains in the round upper bulb.
         return max(1e-6, min(NECK_FILL, self.duration * 0.15))
 
     @property
@@ -4418,12 +4428,15 @@ class HourglassWidget(Widget):
         k = int(phase) % nf
         blend = phase - int(phase)
         inclination = 1.
+        closing = 0.
         if FLOW_RENDERER == "b13":
             # The stream first lays down a shallow patch. Open its slopes as
             # sand accumulates, solving the same deposited volume each time.
             opening = 3. * (self._taper["t_in"] / self._R_inner)**2
             inclination = .22 + .78 * _smoothstep(0., opening, self._sand_landed)
-        key = (k, blend, inclination)
+            inclination *= 1. - .965 * _smoothstep(.86, .995, self._sand_landed)
+            closing = _smoothstep(.88, .995, self._sand_landed)
+        key = (k, blend, inclination, closing)
         if getattr(self, "_mound_frame_k", None) == key:
             return
         from mound_blend import VolumeColumns, blend_profile
@@ -4431,7 +4444,8 @@ class HourglassWidget(Widget):
         if getattr(self, "_mound_blend_columns", None) is None:
             self._mound_blend_columns = VolumeColumns(low.radius, low.xs)
         self._mound_frame_k = key
-        self._mound_profile = blend_profile(low, high, blend, self._mound_blend_columns, inclination)
+        self._mound_profile = blend_profile(low, high, blend, self._mound_blend_columns,
+                                            inclination, closing)
         self._mound_shape = self._mound_profile.shape
         self._mound_shape_cache = self._mound_curve_cache = None
 
@@ -4451,11 +4465,8 @@ class HourglassWidget(Widget):
     def _upper_sand_height_px(self):
         """上球、颈部、在途与落地共用一份归一化沙量。"""
         fraction = self._upper_sand_fraction()
-        if FLOW_RENDERER == "b13" and self._geom_ready:
-            # The initial charge fills BOTH the sphere and the packed neck.
-            # The ledger reports shares of that charge; the height table
-            # expects a share of the sphere alone.
-            fraction /= 1. - self._transfer_timing()[2]
+        if FLOW_RENDERER == "b13" and self._geom_ready and fraction > 0.:
+            fraction += self._sand_neck.cap_fraction
         return self._raw_height_ratio(min(1., fraction)) * 2 * self._R_inner
 
     def _transfer_timing(self):
@@ -4473,12 +4484,12 @@ class HourglassWidget(Widget):
             #    ⇒ 去掉这一项: **上球恰好在计时结束时才空**, 全程"堆在长的时候一定有沙在落"。
             #    ⚠️ 代价: 最后几粒在 `duration` 之后才落地 ⇒ 终态沙堆差约 0.4%(肉眼不可辨),
             #      换来"整个计时期间流动与堆积同进同止"。
-            sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
-            reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
             if FLOW_RENDERER == "b13":
-                reserve = self._neck_volume / (sphere_volume + self._neck_volume)
+                reserve = self._sand_neck.full_fraction
                 end = self.duration
             else:
+                sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
+                reserve = min(0.45, max(1e-9, self._neck_volume / sphere_volume))
                 from grain_style import tail_duration
                 end = max(start + 1e-6, self.duration - 1.0 / 60.0)
                 outlet = 2 * self._neck_y - self._taper["y_bot"]
@@ -4506,6 +4517,8 @@ class HourglassWidget(Widget):
         if elapsed is None:
             elapsed = self._supply_elapsed
         remaining = 1.0 - self._released_fraction_at(elapsed)
+        if FLOW_RENDERER == "b13":
+            reserve = self._sand_neck.opening(elapsed)[0]
         filled = min(1.0, max(0.0, elapsed / start)) if start > 0. else 1.
         neck = min(remaining, reserve * filled)
         return max(0.0, remaining - neck)
@@ -4648,7 +4661,8 @@ class HourglassWidget(Widget):
             age = self.elapsed + self._stream_settle_age
             transit = self._b13_transit
             depth = transit.depth_at(age * transit.lane_factor(0., 1.))
-            return max(y_end - depth * self._R_inner / B13_REFERENCE_RADIUS, self._lower_sand_bot)
+            lift = self._sand_neck.opening(age)[2]
+            return max(y_end + lift - depth * self._R_inner / B13_REFERENCE_RADIUS, self._lower_sand_bot)
         ms = self._particle_motion_scale
         tau = self.elapsed - self._neck_fill_time       # 第一颗沙离口的时刻
         if tau <= 0.0:
@@ -4808,6 +4822,15 @@ class HourglassWidget(Widget):
         y_top, y_end = pts[0][1], 2 * self._neck_y - tp['y_bot']
         start, _end, reserve = self._transfer_timing()
         elapsed = self._supply_elapsed
+        if FLOW_RENDERER == "b13":
+            remaining = 1.-self._released_fraction_at(elapsed)
+            if remaining <= 0.:
+                return []
+            if remaining <= reserve:
+                return self._sand_neck.upper_layer(remaining)
+            opening_rows = self._sand_neck.opening(elapsed)[1]
+            if opening_rows is not None:
+                return list(opening_rows)
         if elapsed <= 0 and start > 0.:
             return []
         if elapsed < start:
@@ -4835,15 +4858,8 @@ class HourglassWidget(Widget):
         side = [(self._neck_width_at(top), top)]
         side.extend((x, y) for x, y in pts if bottom < y < top)
         side.append((self._neck_width_at(bottom), bottom))
-        if FLOW_RENDERER == "b13" and elapsed >= start and upper <= 0.:
-            from grain_style import b13_neck_ratio
-            ratio = b13_neck_ratio(top - bottom, tp["t_in"])
-            if 0. < ratio < 1.:
-                height = (top - bottom) / ratio**2
-                width = tp["t_in"] * ratio
-                cap = .22 * height * (1. - ratio)
-                side = [(width * (.35 + .65 * ratio), bottom + height),
-                        (width, bottom + height - cap), (width, bottom)]
+        if FLOW_RENDERER == "b13":
+            return side
         # 🔴 **2026-10-09: 沙柱的下沿不许钉在玻璃线上。**
         #    用户原话:「管子里的沙的处理有问题, 完全不符合直觉」「不可能是让沙堆涨上去吧?
         #    而是自己落下来」。病根在**形状的来源**: 这根沙柱的轮廓是照抄**玻璃内壁**
@@ -5981,8 +5997,9 @@ class HourglassWidget(Widget):
         Clock.schedule_once(fire, COMPLETION_POPUP_DELAY)
 
     def _spawn_dust(self):
-        if FLOW_RENDERER == "b13" and (self._first_impact_clock is None
-                                       or self._supply_elapsed < self._transfer_timing()[1]):
+        # The active jet already ejects grains on impact. A second burst at
+        # the clock deadline would throw sand back up through the empty neck.
+        if FLOW_RENDERER == "b13":
             return
         mound_top = self.get_mound_top_y()
         # A full bulb has no exposed free surface to eject sand back into the empty neck.
@@ -6579,6 +6596,8 @@ class HourglassWidget(Widget):
         transit = self._b13_transit if b13 else None
         glass_scale = self._R_inner / B13_REFERENCE_RADIUS
         flow_clock = self.elapsed + self._stream_settle_age if b13 else self.elapsed
+        if b13:
+            gen_y += self._sand_neck.opening(flow_clock)[2]
         sprite_pitch=stream_pitch(self._R_inner,SAND_MATERIAL_COARSE,self._taper['t_in'])
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
@@ -7992,7 +8011,7 @@ class HourglassWidget(Widget):
             return
         cx = self._cx
         bottom = self._lower_sand_bot
-        top = bottom + 2.0 * self._R_inner + MOUND_CREST_MARGIN   # == redraw 里矩形的顶
+        top = self._mound_draw_top()
         apex = self._mound_apex()
         _mb = SAND_SURFACE_ALPHA * min(1.0, max(0.0, h_mound / SAND_SURFACE_FADE))
         if MOUND_BAND_NECK_FADE:
@@ -8059,6 +8078,9 @@ class HourglassWidget(Widget):
                                 (self.sand_base, self.sand_dark, self.sand_light),
                                 cols, flow_diameter, strength)
 
+    def _mound_draw_top(self):
+        return self._lower_sand_top + MOUND_CREST_MARGIN
+
     def _build_dynamic_canvas(self):
         """保留真圆/Stencil/Line 画法,只在几何变化时重建固定指令。"""
         self.canvas.clear()
@@ -8103,7 +8125,7 @@ class HourglassWidget(Widget):
                 from sand_flow_material import MoundSurfaceFlowContext
                 mound_nodes = max(1, len(self._mound_knots()) - 1 + 4) + 1
                 self._mound_surface_flow = MoundSurfaceFlowContext(
-                    (cx, Ri, self._lower_y_c - Ri, 2.0 * Ri + MOUND_CREST_MARGIN),
+                    (cx, Ri, self._lower_sand_bot, self._mound_draw_top() - self._lower_sand_bot),
                     mound_nodes, material.texture)
                 if not getattr(self, "_mound_flow_logged", False):
                     print("GPU mound contact flow active")
@@ -8517,7 +8539,7 @@ class HourglassWidget(Widget):
         #   ① 放开"虚拟锥顶高于球顶"之后, 再按高度截 UV 会把颗粒**纵向拉伸**;
         #   ② 轮廓以上的沙由 carve 抠掉, 所以矩形只管"铺满", 上沿永远取球内顶 + 余量。
         #   ⇒ 与 `_draw_mound_shape` 里 carve 的上沿是**同一个值**。
-        mound_draw = (2.0 * self._R_inner + MOUND_CREST_MARGIN) if h_mound > 0 else 0.0
+        mound_draw = (self._mound_draw_top() - self._lower_sand_bot) if h_mound > 0 else 0.0
         if NECK_MOUND_OFF:      # 消融: 判"行468以下那一列"是不是下球沙体矩形画的
             mound_draw = 0.0
         for index, ((_color, rect), height) in enumerate(
@@ -8594,12 +8616,14 @@ class HourglassWidget(Widget):
         tail_front = (0.0, 0.0, 1.0)
         neck_fill = 1.0
         if (side and self._sand_flow_contexts and self._sand_material is not None
-                and self._upper_sand_fraction() <= 0.0):
+                and upper_height <= 0.0):
             mean_top = side[0][1]
             grain_px = max(1.0, diameter / SAND_MATERIAL_SIZE * SAND_MATERIAL_COARSE)
             neck_fill = min(1.0, max(0.0, (mean_top - outlet) / (3.0 * grain_px)))
             amplitude = max(0.0, min(max(1.6 * grain_px, .20 * self._taper["t_in"]), 0.45 * (mean_top - outlet),
                                      0.45 * (inlet - mean_top)))
+            if FLOW_RENDERER == "b13":
+                amplitude = min(1.6 * grain_px, .35 * (mean_top-outlet))
             if amplitude > 0.0:
                 # Enlarge only the draw bound; the shader cuts a zero-mean grain front.
                 tail_front = (mean_top, amplitude, self._taper["t_in"])
@@ -9231,7 +9255,7 @@ class HourglassWidget(Widget):
         apex, profile = self._mound_apex(), self._mound_profile
         outlet = 2.0 * self._neck_y - self._taper["y_bot"]
         diameter = 2.0 * self._R_inner
-        uv_height = diameter + MOUND_CREST_MARGIN
+        uv_height = self._mound_draw_top() - self._lower_sand_bot
         self._contact_grain_color.rgb = (1, 1, 1) if self._sand_material else self.sand_base
         cols = []
         for i in range(9):

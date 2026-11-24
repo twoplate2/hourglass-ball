@@ -90,6 +90,7 @@ class B13StreamTests(unittest.TestCase):
             w = Widget()
             w._cx, w._R_inner, w._neck_y, w._lower_sand_bot = 200., REFERENCE_RADIUS, 450., 10.
             w._taper = {'t_in': REFERENCE_HALF, 'y_bot': 460.}
+            w._sand_neck = SimpleNamespace(opening=lambda t: (0., None, 0.))
             w.get_mound_top_y = lambda: 10.
             w.duration = duration
             w.elapsed, w._stream_settle_age = min(at, duration), max(0., at - duration)
@@ -326,6 +327,7 @@ class B13StreamTests(unittest.TestCase):
                 install(TestWidget)
                 widget._cx, widget._R_inner, widget._neck_y = 200., REFERENCE_RADIUS, 450.
                 widget._taper = {'t_in': 30., 'y_bot': 460.}
+                widget._sand_neck = SimpleNamespace(opening=lambda t: (0., None, 0.))
                 widget._lower_sand_bot = 10.
                 widget.get_mound_top_y = lambda: 10.
                 widget._particle_motion_scale, widget._neck_fill_time = 1., .25

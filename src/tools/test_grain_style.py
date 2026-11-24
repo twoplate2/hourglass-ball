@@ -110,6 +110,7 @@ class CoarseFlowTests(unittest.TestCase):
             column=lambda dx, apex: (surface(dx), True, 20.)), _last_impact_clock=1.,
             _mound_flow_clock=1., _contact_grains=band, _taper={"t_in":62., "y_bot":400.},
             _R_inner=419., _neck_y=450., _mound_apex=lambda:100., _cx=0., _lower_sand_bot=0.,
+            _mound_draw_top=lambda: 900.,
             _contact_grain_color=SimpleNamespace(), _sand_material=None, sand_base=(1.,.5,.2))
         ns[method.name](w)
         self.assertAlmostEqual(segments[0][7], surface(segments[0][0]))
@@ -168,13 +169,31 @@ class CoarseFlowTests(unittest.TestCase):
             self.assertAlmostEqual(arrivals[1], arrivals[-1])
             self.assertGreater(min(arrivals), 0.)
 
-    def test_last_packed_sand_narrows_before_the_throat_empties(self):
-        ratio = style_function("b13_neck_ratio")
-        widths = [ratio(h, 40.) for h in (0., .25, 2., 12., 60.)]
-        self.assertEqual(widths[0], 0.)
-        self.assertLess(widths[1], .30)
-        self.assertEqual(widths, sorted(widths))
-        self.assertEqual(widths[-1], 1.)
+    def test_last_layer_touches_the_wall_and_descends_at_its_actual_volume(self):
+        from grain_style import hourglass_transit
+        from neck_geometry import SandNeck
+        waist = 225.
+        taper = [(67., 250.), (46., 234.), (40., waist)]
+        neck = SandNeck(110., 230., taper, hourglass_transit(15., 40.), 1.)
+        packed, start_rows, lift = neck.opening(0.)
+        self.assertAlmostEqual(packed, 20.**2*(110.-20./3.) / neck.capacity)
+        self.assertEqual(start_rows, ())
+        self.assertEqual(lift, 5.)
+        previous = packed
+        for step in range(1, 21):
+            packed, _, lift = neck.opening(neck.open_time * step/20.)
+            self.assertGreaterEqual(packed+1.e-8, previous)
+            previous = packed
+        self.assertEqual(neck.opening(neck.open_time), (neck.full_fraction, None, 0.))
+        last = 260.
+        for remaining in (.01, .006, .003, .001, .0001):
+            rows = neck.upper_layer(remaining)
+            self.assertLess(rows[0][1], last)
+            self.assertGreaterEqual(rows[0][0], 40.)
+            self.assertEqual(rows[-1], (40., waist))
+            volume = sum((h-k)*(a*a+a*b+b*b)/3. for (a,h),(b,k) in zip(rows,rows[1:]))
+            self.assertAlmostEqual(volume/neck.capacity, remaining, delta=2.e-7)
+            last = rows[0][1]
 
     def test_tail_births_remain_ordered_across_the_rate_transition(self):
         budget = style_function("tail_emission_time")
@@ -316,12 +335,13 @@ class UpperSurfaceStyleTests(unittest.TestCase):
         names = {'_upper_sand_fraction', '_reservoir_flow_state'}
         methods = [deepcopy(n) for n in widget.body if getattr(n, 'name', '') in names]
         self.assertEqual({n.name for n in methods}, names)
-        env = {}
+        env = {'FLOW_RENDERER': 'b13'}
         exec(compile(ast.Module(methods, []), 'main.py', 'exec'), env)
         model = type('Reservoir', (), {name: env[name] for name in names})()
         model.duration, model._geom_ready, model._supply_elapsed = 50., True, 2.
         model._R_inner = 200.
         model._transfer_timing = lambda: (.25, model.duration, .012)
+        model._sand_neck = SimpleNamespace(opening=lambda t: (.012, None, 0.))
         model._released_fraction_at = lambda t: max(0., t - .25) / model.duration
         model._upper_level_for = lambda h: h + 2.
         model._upper_funnel_params = lambda p, h: (4., 160.)
