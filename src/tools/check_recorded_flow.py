@@ -185,6 +185,18 @@ def check_head_area(samples):
             raise ValueError(f"50 秒档头部持续向外张开，宽度达到后方沙柱的 {flare:.2f} 倍")
 
 
+def opening_seam_contrast(mask, cx, lip, half):
+    """Excess glass visible in a horizontal band between two dense layers."""
+    reach = max(1, round(.72*half))
+    step = max(1, round(.35*half))
+    smooth = 2*max(1, round(.10*half)) + 1
+    strip = mask[lip:lip+round(3.5*half)+smooth, cx-reach:cx+reach+1]
+    holes = np.convolve(1. - strip.mean(axis=1), np.ones(smooth)/smooth, "same")
+    rows = np.arange(max(step, round(.48*half)), min(len(holes)-step, round(2.85*half)))
+    neighbours = np.maximum(holes[rows-step], holes[rows+step])
+    return float(np.max(np.where(neighbours < .035, holes[rows]-neighbours, 0.), initial=0.))
+
+
 def landing_bulk_gap(folder, frames, contact, sample_rate):
     """Compare the visible half-density front with the receiving surface at first landing."""
     window = [f for f in frames if 1/30-1e-9 <= f["time"]-contact <= .10+1e-9]
@@ -533,6 +545,7 @@ def review(folder, opening_only=False):
     head_frames, head_tips, front_fringe, shoulders = [], [], [], []
     central_transitions = []
     head_areas = []
+    seam_contrasts = []
     profile_tips, profiles, airborne_sections, head_widths, shoulder_samples = [], [], [], [], []
     for frame in frames:
         t = frame["time"]
@@ -567,6 +580,8 @@ def review(folder, opening_only=False):
                 central = mask[lip:floor, cx-2:cx+3]
                 tip = floor-1 - int(np.median(np.argmax(central[::-1], axis=0)))
                 if period == 50:
+                    if .80-1e-9 <= t <= 1.+1e-9:
+                        seam_contrasts.append(opening_seam_contrast(mask, cx, lip, half))
                     area = head_area_samples(mask, geo)
                     if area is not None:
                         head_areas.append(area)
@@ -624,6 +639,11 @@ def review(folder, opening_only=False):
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
     deformation = spike_travel = airborne_head = None
     if period == 50:
+        if len(seam_contrasts) < 3:
+            raise ValueError("缺少 50 秒档 0.8～1.0 秒出口下方的连续画面")
+        seam = float(np.median(seam_contrasts))
+        if seam > .012:
+            raise ValueError(f"首批沙粒和后续沙流之间有持续浅带，露底比例高出两侧 {100*seam:.2f} 个百分点")
         bulk_gap = landing_bulk_gap(folder, frames, contact, meta["sample_rate"])
         check_head_area(head_areas)
         if len(central_transitions) < 3:
@@ -631,7 +651,8 @@ def review(folder, opening_only=False):
         transition = float(np.median(central_transitions))
         if transition < .70 * half:
             raise ValueError(f"50 秒档首落中央仍是密实圆头，过渡仅 {transition:.1f} 像素")
-        airborne_head = dict(central_transition_px=round(transition, 1), landing_bulk_gap_px=bulk_gap)
+        airborne_head = dict(central_transition_px=round(transition, 1), landing_bulk_gap_px=bulk_gap,
+                             opening_seam_pp=round(100*seam, 2))
     if period in (5,15):
         mid = np.asarray(profile_tips) < lip+.85*(floor-lip)
         deformation = leading_deformation(np.asarray(profile_tips)[mid], np.asarray(profiles)[mid], radius)

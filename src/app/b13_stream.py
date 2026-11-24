@@ -160,7 +160,8 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         join = moving_length * (.48 + .52 * offsets[ids]) + stagger * first_lag[ids]
         join += .38*release_span*opened
         edge = transit.depth_at(time * lane_speed)
-        join += .45*release_depth * (-np.expm1(-np.maximum(0., edge-2.*half)/(2.*half))) * (.4+.6*offsets[ids])
+        # Head grains stretch longitudinally. The following grains keep the
+        # original overlap so a second setback cannot open a seam behind them.
         remaining = edge - join - depth
         blend = np.clip(.5 + .5 * remaining / width, 0., 1.)
         depth -= width * (1. - blend)**2 + np.maximum(-width - remaining, 0.)
