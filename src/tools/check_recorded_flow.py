@@ -197,6 +197,21 @@ def opening_seam_contrast(mask, cx, lip, half):
     return float(np.max(np.where(neighbours < .035, holes[rows]-neighbours, 0.), initial=0.))
 
 
+def opening_edge_reversal(mask, cx, lip, half, tip):
+    """Largest local increase in sand coverage going down either shoulder."""
+    width = max(1, round(.73*half))
+    rows = np.arange(round(1.2*half), min(round(.59*(tip-lip)), round(3.5*half)))
+    if not rows.size:
+        raise ValueError("首落边缘未覆盖两段相邻的沙流")
+    x = (np.arange(mask.shape[1]) + .5-cx) / half
+    differences = []
+    for side in (-x, x):
+        holes = 1. - mask[lip:rows[-1]+lip+2*width, (.60 < side) & (side < .81)].mean(axis=1)
+        bands = np.convolve(holes, np.ones(width)/width, "valid")
+        differences.append(np.max(bands[rows]-bands[rows+width]))
+    return max(differences)
+
+
 def landing_bulk_gap(folder, frames, contact, sample_rate):
     """Compare the visible half-density front with the receiving surface at first landing."""
     window = [f for f in frames if 1/30-1e-9 <= f["time"]-contact <= .10+1e-9]
@@ -546,6 +561,7 @@ def review(folder, opening_only=False):
     central_transitions = []
     head_areas = []
     seam_contrasts = []
+    edge_reversals = []
     profile_tips, profiles, airborne_sections, head_widths, shoulder_samples = [], [], [], [], []
     for frame in frames:
         t = frame["time"]
@@ -582,6 +598,8 @@ def review(folder, opening_only=False):
                 if period == 50:
                     if .80-1e-9 <= t <= 1.+1e-9:
                         seam_contrasts.append(opening_seam_contrast(mask, cx, lip, half))
+                    if 1.-1e-9 <= t <= 1.17:
+                        edge_reversals.append(opening_edge_reversal(mask, cx, lip, half, tip))
                     area = head_area_samples(mask, geo)
                     if area is not None:
                         head_areas.append(area)
@@ -644,6 +662,10 @@ def review(folder, opening_only=False):
         seam = float(np.median(seam_contrasts))
         if seam > .012:
             raise ValueError(f"首批沙粒和后续沙流之间有持续浅带，露底比例高出两侧 {100*seam:.2f} 个百分点")
+        if len(edge_reversals) < 3:
+            raise ValueError("缺少 50 秒档 1.00～1.17 秒两侧边缘的连续画面")
+        if np.median(edge_reversals) > .04:
+            raise ValueError(f"沙柱中段边缘先松开，下方反而更密，相邻段露底倒差 {np.median(edge_reversals):.1%}")
         bulk_gap = landing_bulk_gap(folder, frames, contact, meta["sample_rate"])
         check_head_area(head_areas)
         if len(central_transitions) < 3:
