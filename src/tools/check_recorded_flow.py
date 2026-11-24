@@ -123,7 +123,7 @@ def motion_speed(a, b, dt, cx, row, half, radius):
     if norm < 1e-6:
         return None
     scores = []
-    for dy in range(int(np.ceil(dt * .68 * radius)) + 2):
+    for dy in range(int(np.ceil(dt * .92 * radius)) + 2):
         moved = b[row-height+dy:row+height+dy+1, x].astype(float)
         moved -= moved.mean()
         scores.append(float((template*moved).sum() / max(1e-9, norm*np.linalg.norm(moved))))
@@ -133,6 +133,41 @@ def motion_speed(a, b, dt, cx, row, half, radius):
     left, peak, right = scores[best-1:best+2]
     shift = .5 * (left-right) / (left+right-2*peak) if left+right != 2*peak else 0.
     return (best + shift) / dt
+
+
+def closing_core_ratio(rgb, geometry):
+    """Compare pigment above the pile while the last packed layer still feeds the lip."""
+    cx, lip = round(geometry["cx"]), round(geometry["outlet_y"])
+    gap = geometry["surface_y"] - lip
+    half = round(.55 * geometry["half_width"])
+    if gap < 18 or half < 5:
+        return None
+    core = rgb[:, cx-half:cx+half+1].astype(float)
+    background = geometry["background_rgb"]
+    pigment = core[:,:,0] - core[:,:,2] - (background[0]-background[2])
+    upper = pigment[lip-3:lip]
+    if np.percentile(upper, 10) < 80:
+        return None  # The trailing surface has already entered this strip.
+    middle = pigment[lip+round(.14*gap):lip+round(.41*gap)].mean()
+    lower = pigment[lip+round(.55*gap):lip+round(.74*gap)].mean()
+    return float(middle / min(upper.mean(), lower)) if lower > 0 else None
+
+
+def closing_step_ratio(samples, end):
+    """Compare the fastest post-cutoff loss of sand colour with the incoming surface."""
+    before, after = [], []
+    for (t0, a), (t1, b) in zip(samples, samples[1:]):
+        speed = (a-b) / (t1-t0)
+        if end-.068 <= t0 and t1 <= end+1.e-8:
+            before.append(speed)
+        elif t1 > end+1.e-8 and t0 < end+.05-1.e-8:
+            after.append(speed)
+    if not before or not after or np.median(before) <= 0.:
+        raise ValueError("缺少跨过归零时刻的连续末层画面")
+    ratio = float(max(after) / np.median(before))
+    if ratio > 1.8:
+        raise ValueError(f"归零相邻帧沙柱退去速度突然变为先前的 {ratio:.2f} 倍")
+    return ratio
 
 
 def splash_pixels(mask, lip, cx, half, radius):
@@ -176,7 +211,8 @@ def review(folder, opening_only=False):
         raise ValueError(f"待机上杯顶部可见 {gap} 像素空隙")
 
     contact = None
-    above, times, masks, luminance, spray = [], [], [], [], []
+    above, times, masks, luminance, spray, closing_ratios = [], [], [], [], [], []
+    tail_fringe, cutoff_samples = [], []
     head_frames, head_tips = [], []
     for frame in frames:
         t = frame["time"]
@@ -185,11 +221,19 @@ def review(folder, opening_only=False):
             continue
         layer = (1. - t/period) * (4.*radius**3/3.) / half**3
         closing = 0. < layer < .65
-        if contact is None or closing or (.24*period < t < .60*period) or (3 <= t <= 4.5):
+        released_tail = period == 15 and 0. < t-period <= .05 and frame["transfer"]["flight"] > 1e-9
+        cutoff = period in (5,15) and abs(t-period) < .12
+        if contact is None or closing or cutoff or (.24*period < t < .60*period) or (3 <= t <= 4.5):
             rgb = frame_image(folder, frame)
             mask = gold(rgb)
         else:
             continue
+        if cutoff:
+            width = round(.78*half)
+            strip = rgb[lip-round(.95*half):lip+round(1.3*half), cx-width:cx+width+1].astype(float)
+            bg = geo["background_rgb"]
+            pigment = strip[:,:,0] - strip[:,:,2] - (bg[0]-bg[2])
+            cutoff_samples.append((t, pigment.mean()))
         if contact is None:
             bottom = mask[floor-max(2,round(.009*radius)):floor+1, cx-round(half):cx+round(half)+1]
             if bottom.any():
@@ -202,8 +246,20 @@ def review(folder, opening_only=False):
                     head_tips.append(tip)
         if closing:
             closing_surface(mask, cx, lip, half)
+            ratio = closing_core_ratio(rgb, frame["geometry"])
+            if ratio is not None:
+                closing_ratios.append(ratio)
+                if ratio < .94:
+                    raise ValueError(f"{t:.3f} 秒仍在供沙，空中的沙柱出现横向浅带，柱心相对浓度 {ratio:.3f}")
             if layer <= .30 and settled is not None:
                 shoulder_gap(mask, settled, cx, lip, half, radius)
+        if released_tail:
+            width = round(.44*half)
+            core = mask[lip:, cx-width:cx+width+1].mean(axis=1)
+            solid = np.flatnonzero(core >= .90)
+            if solid.size:
+                exposed = core[:solid[0]]
+                tail_fringe.append(np.count_nonzero((exposed > .025) & (exposed < .85)))
         if period <= 15 and .24*period < t < .60*period:
             spray.append(splash_pixels(mask, lip, cx, half, radius))
         if period >= 5 and 3 <= t <= 4.5 and frame["geometry"]["surface_y"]-lip > 1.04*radius:
@@ -226,6 +282,7 @@ def review(folder, opening_only=False):
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
     if opening_only:
         return dict(period=period, crown_gap_px=gap, contact_seconds=contact)
+    cutoff_ratio = closing_step_ratio(cutoff_samples, period) if period in (5,15) else None
     lead_ratio = leading_motion(head_frames, head_tips, cx, half, radius) if period in (1,5,15) else None
     width_ratio = None
     if masks:
@@ -239,6 +296,10 @@ def review(folder, opening_only=False):
         raise ValueError("中段落点两侧持续看不到可分辨的飞溅")
     speed = []
     if period == 15:
+        if not closing_ratios:
+            raise ValueError("没有可比较的末段杯口、在途沙和堆顶上方三段纹理")
+        if not tail_fringe or max(tail_fringe) < max(3, .022*radius):
+            raise ValueError(f"停供后尾端仍然太整齐，可辨散粒的行数为 {tail_fringe}")
         hops = sorted({max(1, round(t * meta["sample_rate"])) for t in (.09, .125, .15)})
         for depth in (.045, .34, .635, .93):
             values = []
@@ -255,11 +316,14 @@ def review(folder, opening_only=False):
                 values.append(np.median(matches))
             speed.append(round(float(np.median(values)), 2))
         increments = np.diff(speed)
-        if not (min(increments) >= .50*max(increments) > 0 and 1.10 < speed[-1]/speed[0] < 1.47):
+        if not (min(increments) >= .50*max(increments) > 0 and speed[1] > 1.17*speed[0]
+                and 1.55 < speed[-1]/speed[0] < 1.85):
             raise ValueError(f"柱内四处纹理速度 {speed} 像素/秒")
     return dict(period=period, crown_gap_px=gap, contact_seconds=contact,
                 tip_texture_travel_ratio=lead_ratio,
                 dense_width_ratio=width_ratio, speeds_px_per_second=speed,
+                min_closing_core_ratio=min(closing_ratios) if closing_ratios else None,
+                cutoff_step_ratio=cutoff_ratio,
                 splash_pixels_median=float(np.median(spray)) if spray else None)
 
 

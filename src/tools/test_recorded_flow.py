@@ -1,4 +1,4 @@
-"""Regressions from the 3.36 recording, in reference-glass pixels."""
+"""Recorded hourglass regressions in reference-glass pixels."""
 import ast
 from pathlib import Path
 import sys
@@ -43,6 +43,10 @@ class RecordedFlowTests(unittest.TestCase):
                   for z in (10., 73., 136., 199.)]
         increments = np.diff(values)
         self.assertGreater(increments.min(), .55 * increments.max(), values)
+        # Check the fall distance the viewer actually has before the pile rises.
+        # 3.38 kept its increments even, but only gained 21% across these rows.
+        self.assertGreater(values[1] / values[0], 1.17, values)
+        self.assertGreater(values[3] / values[0], 1.55, values)
 
     def test_flat_last_layer_and_contact_follow_the_inner_wall(self):
         from check_recorded_flow import closing_surface, shoulder_gap
@@ -113,7 +117,7 @@ class RecordedFlowTests(unittest.TestCase):
                     self.assertLess(flow.age_at(depth), hit)
                     self.assertAlmostEqual(flow.depth_at(flow.age_at(depth)), depth, delta=.05)
 
-    def test_pigment_accelerates_gently_after_the_lip(self):
+    def test_pigment_has_a_common_entry_and_bounded_downstream_speed(self):
         for period in (1., 5., 15., 50., 6000.):
             half, _ = glass(period)
             t = min(.7 * period, 3.)
@@ -129,7 +133,61 @@ class RecordedFlowTests(unittest.TestCase):
             top, middle, bottom = medians
             self.assertTrue(76. <= top <= 83., medians)
             self.assertTrue(1.08 * top < middle < bottom, medians)
-            self.assertTrue(1.20 * top < bottom < 1.47 * top, medians)
+            low, high = (1.20, 1.47) if period == 1. else (1.75, 2.20)
+            self.assertTrue(low * top < bottom < high * top, (period, medians))
+
+    def test_first_ten_pixels_keep_the_previous_release_motion(self):
+        from b13_stream import _pigment_depth
+        age = np.arange(8) / 60.
+        expected = 80.*age + .5*9.25*age**2
+        for period in (1., 2., 5., 15., 50., 6000.):
+            np.testing.assert_allclose(_pigment_depth(age, period), expected, rtol=0., atol=1.e-10)
+
+    def test_final_flow_stays_connected_while_the_mouth_is_still_supplied(self):
+        half, _ = glass(15.)
+        grains = sample_grains(15.-1/60., 15., half, 32.)
+        central = abs(grains.x) < .55*half
+
+        def coverage(lo, hi):
+            band = central & (grains.depth >= lo) & (grains.depth < hi)
+            return np.sum(grains.radius[band]**2) / (hi-lo)
+
+        # Both bands are still airborne. The 3.38 breakup left a pale stripe
+        # above a second dense patch in the frame at 14.983 s.
+        self.assertGreater(coverage(4., 13.), .85*coverage(17., 24.))
+
+    def test_last_airborne_grains_survive_the_first_frame_after_zero(self):
+        half, _ = glass(15.)
+        at_zero = sample_grains(15., 15., half, 32.)
+        next_frame = sample_grains(15. + 1/60., 15., half, 32.)
+        _, i, j = np.intersect1d(at_zero.serial, next_frame.serial, return_indices=True)
+        near_lip = (at_zero.depth < 6.) & (abs(at_zero.x) < .65*half)
+        self.assertGreater(near_lip.sum(), 100)
+        self.assertEqual(near_lip[i].sum(), near_lip.sum())
+        self.assertTrue(np.isin(next_frame.serial, at_zero.serial).all())
+        np.testing.assert_array_equal(at_zero.radius[i], next_frame.radius[j])
+        advance = next_frame.depth[j[near_lip[i]]] - at_zero.depth[i[near_lip[i]]]
+        self.assertTrue(np.all(advance > 0.))
+        self.assertLess(np.median(advance), 9.)
+        previous = at_zero
+        for elapsed in np.arange(1, 13)/120.:
+            frame = sample_grains(15.+elapsed, 15., half, max(25., 32.-75.*elapsed))
+            _, old, new = np.intersect1d(previous.serial, frame.serial, return_indices=True)
+            self.assertEqual(len(new), len(frame.serial))
+            self.assertTrue(np.all(frame.depth[new] > previous.depth[old]))
+            np.testing.assert_array_equal(frame.radius[new], previous.radius[old])
+            previous = frame
+        self.assertFalse(len(previous.serial))
+
+    def test_cutoff_check_detects_a_jump_on_either_of_the_first_two_frames(self):
+        from check_recorded_flow import closing_step_ratio
+        times = 15. + np.arange(-6, 6)/60.
+        packed = (times[-1]-times)*240.
+        self.assertAlmostEqual(closing_step_ratio(list(zip(times, packed)), 15.), 1.)
+        for start in (1/60., 2/60.):
+            jumped = packed - np.where(times >= 15.+start, 11., 0.)
+            with self.assertRaisesRegex(ValueError, "相邻帧"):
+                closing_step_ratio(list(zip(times, jumped)), 15.)
 
     def test_dense_flow_reaches_both_edges_immediately_below_the_lip(self):
         for period in (1., 5., 15., 50.):
@@ -203,7 +261,7 @@ class RecordedFlowTests(unittest.TestCase):
         rgb[4:15] = (215, 172, 107)
         self.assertEqual(crown_gap(rgb, dict(cx=25, crown_y=4)), 0)
         a = rng.integers(90, 170, (120,90), dtype=np.uint8)
-        for distance in (3, 5):
+        for distance in (3, 5, 8):
             speed = motion_speed(a, np.roll(a, distance, axis=0), .1, 45, 30, 10, 100)
             self.assertAlmostEqual(speed, distance/.1, delta=.8)
         flat = np.ones_like(a)

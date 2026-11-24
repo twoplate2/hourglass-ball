@@ -58,16 +58,28 @@ def _birth_material():
     return offsets, lanes, jitter, tone, radius, drift, slip, inward, outer, lip_shift
 
 
-def _pigment_depth(age):
-    """Integrate gentle acceleration, then approach the existing terminal speed."""
-    ramp, acceleration = 2.4, 9.25
+def _pigment_depth(age, duration):
+    """Distance of visible grains in reference pixels, measured from the lip."""
     base = B13_TEXTURE_SPEED
-    terminal = 1.36 * base
-    knee_speed = base + acceleration * ramp
+    # The first ~12 px use the same wall-matched motion as the packed neck.
+    lip_time, lip_acceleration = .15, 9.25
+    lip_age = np.minimum(age, lip_time)
+    lip_distance = lip_age * (base + .5 * lip_acceleration * lip_age)
+    exit_speed = base + lip_acceleration * lip_time
+
+    # Keep the one-second setting gentle. Longer settings share the same
+    # visible gravity and limiting speed regardless of their aperture.
+    u = min(1., max(0., (duration - 1.) / 4.))
+    blend = u*u*(3. - 2.*u)
+    acceleration = lip_acceleration + (36. - lip_acceleration) * blend
+    terminal = base * (1.36 + .79 * blend)
+    ramp = 2.4 - lip_time
+    knee_speed = exit_speed + acceleration * ramp
     relax = (terminal - knee_speed) / acceleration
-    early = np.minimum(age, ramp)
-    later = age - early
-    return (base * early + .5 * acceleration * early**2 + terminal * later
+    free_age = age - lip_age
+    early = np.minimum(free_age, ramp)
+    later = free_age - early
+    return (lip_distance + exit_speed * early + .5 * acceleration * early**2 + terminal * later
             + (terminal-knee_speed) * relax * np.expm1(-later/relax))
 
 
@@ -76,6 +88,8 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     (offsets, lanes, jitter, tones, radii, edge_drift, slip,
      inward, outer, lip_shift) = _birth_material()
     width_ratio = half / REFERENCE_HALF
+    settling = max(0., time - end)
+    time = min(time, end)
     transit = hourglass_transit(end, half, time)
     # At a shared speed a wider mouth emits more visible grains per second.
     rate = 100. * B13_TEXTURE_SPEED * width_ratio / grain_scale**2
@@ -93,7 +107,7 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     birth = (serial + offsets[slot]) / rate
     lane = lanes[ids]
     age = np.maximum(0., time - birth)
-    depth = _pigment_depth(age * slip[ids])
+    depth = _pigment_depth(age * slip[ids], end)
     # A short packet crosses the lip in longitudinal order. A lag is a
     # distance behind the first grain on its lane, not a new random draw per frame.
     head_length = 16. + .85 * half
@@ -120,9 +134,31 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         ids = np.concatenate((ids[visible], keys[active]))
         depth = np.concatenate((depth[visible], front[active]))
         lane = lanes[ids]
-    lip_time = time - transit.age_at(depth) / transit.lane_factor(lane, jitter[ids])
+    lane_speed = transit.lane_factor(lane, jitter[ids])
+    flight_age = transit.age_at(depth)
+    lip_time = time - flight_age / lane_speed
     keep = (depth > inlet_lift) & (lip_time >= -1.e-9) & (lip_time < end) & (depth <= limit)
     serial, ids, lane, depth = (v[keep] for v in (serial, ids, lane, depth))
+    if settling > 0. and depth.size:
+        # Continue the exact grains that were in flight at cutoff. Their depth
+        # at that instant fixes their place on the existing bulk trajectory.
+        advance = transit.depth_at(flight_age[keep] + settling*lane_speed[keep]) - depth
+        # The receding surface crosses the lip at the packed volume rate Q/A.
+        # Ease onto free travel over the first fraction of a mouth radius.
+        packed_travel = settling * (4.*REFERENCE_RADIUS**3 / (3.*end*half**2))
+        advance -= np.maximum(0., advance-packed_travel) * np.exp(-advance / (.38*half))
+        distance = advance / (.34*half + 2.*grain_scale)
+        spread = -.50 * half * np.expm1(-distance**2)
+        # The shoulders of the rear surface separate ahead of its centre.
+        # Use each grain's fixed lane at the packed lip, also on coarse sand.
+        radial = np.abs(lane + lip_shift[ids])
+        scatter = .47*jitter[ids] + .35*(2.*offsets[ids]-1.) + .90*(radial*(2.-radial) - .10)
+        # Only the last packed layer has this extra lag. Let its slow grains
+        # catch the established flow as they travel beyond the lip.
+        lag_limit = .50 * np.exp(-(.60 * distance)**4)
+        depth += advance + spread * np.maximum(scatter, -lag_limit)
+        visible = depth <= limit
+        serial, ids, lane, depth = (v[visible] for v in (serial, ids, lane, depth))
     depth -= inlet_lift
     released = np.maximum(depth, 0.)
     narrow = 1. - .13 * (1. - np.exp(-released / 54.))
@@ -136,19 +172,6 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     # Let individual edge grains fan out without a whole band swaying together.
     x += (edge_drift[ids] * width_ratio * 1.6 + jitter[ids] * 2.6) * outer[ids] * travel * contact
     size = radii[ids] * grain_scale
-    # When the final layer leaves the mouth, its outer grains separate first.
-    # Use their individual passage times so that the trailing edge breaks up
-    # while it travels, even when the clock crosses zero between two frames.
-    release_span = min(.30, transit.age_at(.85 * half))
-    if time > end - release_span:
-        tail = np.clip(1. - (end - lip_time[keep]) / release_span, 0., 1.)
-        tail *= tail * (3. - 2. * tail)
-        free = np.clip(released / max(2. * grain_scale, .14 * half), 0., 1.)
-        loose = tail * free
-        edge = np.abs(lane)
-        depth += loose * (2. + 10. * offsets[ids] + .36 * half * edge**2)
-        x *= 1. - .24 * loose * edge
-        size *= 1. - loose * (.48 + .30 * edge)
     return Grains(serial, x, depth, size, tones[ids])
 
 

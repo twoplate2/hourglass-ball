@@ -113,6 +113,7 @@ class B13StreamTests(unittest.TestCase):
         from b13_stream import REFERENCE_RADIUS, sample_grains
         from neck_geometry import inner_width
 
+        profiles = {}
         for duration in (1., 2., 5., 20., 50., 6000., 360000.):
             with self.subTest(duration=duration):
                 half = inner_width(duration, 2.*REFERENCE_RADIUS) / 2.
@@ -121,11 +122,19 @@ class B13StreamTests(unittest.TestCase):
                 b = sample_grains(t + .02, duration, half, 433.)
                 _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
                 speeds = (b.depth[j] - a.depth[i]) / .02
-                for z, low, high in ((3, 76., 83.), (100, 89., 97.), (390, 99., 109.)):
+                profile = []
+                for z in (3, 100, 390):
                     band = (abs(a.depth[i]-z) < 3) & (abs(a.x[i]) < .7*half)
                     self.assertGreater(band.sum(), 10)
-                    self.assertTrue(low <= np.median(speeds[band]) <= high,
-                                    (z, np.median(speeds[band])))
+                    profile.append(np.median(speeds[band]))
+                self.assertTrue(76. <= profile[0] <= 83., profile)
+                profiles[duration] = np.array(profile)
+        np.testing.assert_array_less([89., 99.], profiles[1.][1:])
+        np.testing.assert_array_less(profiles[1.][1:], [97., 109.])
+        np.testing.assert_array_less(profiles[1.][1:], profiles[2.][1:])
+        np.testing.assert_array_less(profiles[2.][1:], profiles[5.][1:])
+        for duration in (20., 50., 6000., 360000.):
+            np.testing.assert_allclose(profiles[duration], profiles[5.], atol=3., rtol=0.)
 
     def test_line_fallback_keeps_grain_identity_and_short_strokes(self):
         from types import SimpleNamespace
