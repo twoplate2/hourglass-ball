@@ -225,7 +225,11 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         free_fraction = -np.expm1(-free_travel/(2.*half))
         # Leading grains share more of their lane's motion. The rear of the
         # packet takes up the release spacing and meets the following stream.
-        front += (lane_tip-front)*(.36 + .48*packet_spread)*(1.-order)**2*free_fraction
+        front += (lane_tip-front)*(.36 + .48*packet_spread)*front_weight*free_fraction
+        # Apply the local slip after the common forward motion. This includes
+        # the leaders with almost zero release lag, so neighbours can pass them.
+        nose = np.maximum(0., 1. - 2.*order)**2
+        front -= half*packet_spread*nose*free_fraction*np.maximum(0., .12 + shift)
         front -= release_depth * np.sqrt(order) * (.60+.40*spacing) * free_fraction
         fraction = np.clip((head_length - lag) / (.52*head_length), 0., 1.)
         active = ((front >= 0.) & (front <= limit) & (offsets[(keys+193) % BLOCK] < fraction))

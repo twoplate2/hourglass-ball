@@ -155,6 +155,20 @@ class RecordedFlowTests(unittest.TestCase):
                 self.assertGreater(motion.min(), 0.)
                 self.assertGreater(np.ptp(np.percentile(motion, (10, 90))), .105*half)
 
+    def test_fifty_second_free_face_changes_inside_the_leading_tuft(self):
+        half, flow = glass(50.)
+        for seed in (54, 97, 271):
+            for reach in (190., 240., 290.):
+                with self.subTest(seed=seed, reach=reach):
+                    a, b = (sample_grains(flow.age_at(z), 50., half, 455., opening_seed=seed)
+                            for z in (reach, reach+75.))
+                    _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+                    near = (a.depth.max()-a.depth[i] < .72*half) & (abs(a.x[i]) < .60*half)
+                    movement = b.depth[j[near]] - a.depth[i[near]]
+                    self.assertGreater(len(movement), 40)
+                    # Several grain diameters of slip across the bulk of the tuft.
+                    self.assertGreater(np.ptp(np.percentile(movement, (10, 90))), .16*half)
+
     def test_first_grain_stays_visible_after_crossing_the_lip(self):
         from b13_stream import HEAD_ID_START
         half, _ = glass(15.)
