@@ -175,9 +175,36 @@ def check_head_area(samples):
             raise ValueError("缺少 50 秒档半程和触底前的连续头部画面")
         # Require visible sand and visible gaps in most cells of every row.
         passed = [np.all((((f > .08) & (f < .85)).sum(axis=1)) >= 3)
-                  and np.median(w) >= 1.08 for w, f in window]
+                  for _, f in window]
         if np.mean(passed) < .70:
             raise ValueError(f"50 秒档头部大部分区域未散开，落距 {lo:.0%}–{hi:.0%} 仅 {np.mean(passed):.0%} 的帧满足")
+        flare = np.percentile([np.median(w) for w, _ in window], 90)
+        # Use the same visible bulge tolerance as for the 5 s and 15 s heads.
+        # Longitudinal gaps need no minimum transverse expansion.
+        if flare > 1.12:
+            raise ValueError(f"50 秒档头部持续向外张开，宽度达到后方沙柱的 {flare:.2f} 倍")
+
+
+def landing_bulk_gap(folder, frames, contact, sample_rate):
+    """Compare the visible half-density front with the receiving surface at first landing."""
+    window = [f for f in frames if 1/30-1e-9 <= f["time"]-contact <= .10+1e-9]
+    if not window or frames[-1]["time"] < contact+.10-1/sample_rate-1e-9:
+        raise ValueError("缺少首次接堆后的连续画面")
+    gaps = []
+    for frame in window:
+        geo = frame["geometry"]
+        cx, lip, bed = (round(geo[k]) for k in ("cx", "outlet_y", "surface_y"))
+        half = geo["half_width"]
+        reach = max(1, int(.5*half))
+        # Exclude the heap itself and measure the centre of each five-row window.
+        mask = gold(frame_image(folder, frame))
+        coverage = mask[lip:bed-3, cx-reach:cx+reach+1].mean(axis=1)
+        dense = np.flatnonzero(np.convolve(coverage, np.ones(5)/5, "valid") >= .50)
+        gap = bed - (lip + dense[-1] + 2) if dense.size else bed-lip
+        if gap > .63*half:
+            raise ValueError(f"{frame['time']:.3f} 秒首堆已出现，沙柱主体距堆顶仍有 {gap} 像素")
+        gaps.append(int(gap))
+    return max(gaps)
 
 
 def central_head_transition(rgb, geometry):
@@ -597,13 +624,14 @@ def review(folder, opening_only=False):
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
     deformation = spike_travel = airborne_head = None
     if period == 50:
+        bulk_gap = landing_bulk_gap(folder, frames, contact, meta["sample_rate"])
         check_head_area(head_areas)
         if len(central_transitions) < 3:
             raise ValueError("缺少 50 秒档触底前的连续头部画面")
         transition = float(np.median(central_transitions))
         if transition < .70 * half:
             raise ValueError(f"50 秒档首落中央仍是密实圆头，过渡仅 {transition:.1f} 像素")
-        airborne_head = dict(central_transition_px=round(transition, 1))
+        airborne_head = dict(central_transition_px=round(transition, 1), landing_bulk_gap_px=bulk_gap)
     if period in (5,15):
         mid = np.asarray(profile_tips) < lip+.85*(floor-lip)
         deformation = leading_deformation(np.asarray(profile_tips)[mid], np.asarray(profiles)[mid], radius)
