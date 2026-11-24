@@ -8,14 +8,51 @@ import ast
 from copy import deepcopy
 import importlib.util
 import math
+import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src/app"))
+
+
+class RenderOptionsTests(unittest.TestCase):
+    def test_numeric_override_precedence_and_zero(self):
+        from render_options import float_option
+        option = "HG_TEST_RENDER_VALUE"
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {option: ""}):
+            marker = Path(directory, "override")
+            def read():
+                return float_option(directory, option, marker.name, 0.87)
+            self.assertEqual(read(), 0.87)
+            marker.write_text("0")
+            self.assertEqual(read(), 0.0)
+            os.environ[option] = "broken"
+            self.assertEqual(read(), 0.0)
+            marker.write_text("bad")
+            self.assertEqual(read(), 0.87)
+            os.environ[option] = "1.6"
+            marker.write_text("0.7")
+            self.assertEqual(read(), 1.6)
+
+    def test_flag_presence_and_marker_contents_have_distinct_meanings(self):
+        from render_options import flag_present, marker_text
+        option = "HG_TEST_RENDER_FLAG"
+        with TemporaryDirectory() as app, TemporaryDirectory() as material, patch.dict(os.environ, {option: ""}):
+            marker = Path(app, "override")
+            marker.touch()
+            self.assertTrue(flag_present(app, option, marker.name))
+            self.assertIsNone(marker_text(app, marker.name))
+            self.assertFalse(flag_present(material, option, marker.name))
+            marker.write_text(" 0\n")
+            self.assertEqual(marker_text(app, marker.name), "0")
+            os.environ[option] = "0"
+            self.assertTrue(flag_present(material, option, marker.name))
 
 
 def style_function(name):

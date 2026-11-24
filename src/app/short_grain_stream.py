@@ -314,27 +314,41 @@ def mound_surface_at(xs, carve_vertices, floor):
     return np.interp(xs, surface[:, 0], surface[:, 1]).astype(np.float32)
 
 
+def _scalar_mound_surface(carve_vertices, floor):
+    """按沙堆裁切网格的横坐标插值，接缝重合时取后一个顶点。"""
+    from bisect import bisect_right
+
+    heights = {}
+    for i in range(0, len(carve_vertices) - 15, 16):
+        left, right = carve_vertices[i], carve_vertices[i + 4]
+        if right > left:
+            heights[left] = carve_vertices[i + 1]
+            heights[right] = carve_vertices[i + 5]
+    axis = sorted(heights)
+
+    def surface(x):
+        if not axis:
+            return floor
+        i = bisect_right(axis, x)
+        if i == 0:
+            return heights[axis[0]]
+        if i == len(axis):
+            return heights[axis[-1]]
+        left, right = axis[i - 1], axis[i]
+        return heights[left] + (heights[right] - heights[left]) * (x - left) / (right - left)
+
+    return surface
+
+
 def visible_splash_sizes(count,xs,ys,hws,hhs,carve_vertices,floor,*,draw_scale=1.0):
     """Hide fully buried decals using the drawn surface; keep physical arrays intact."""
     if not count:return hws,hhs
     try:
         import numpy as np
     except ImportError:
-        from bisect import bisect_right
         hws = [hw * draw_scale for hw in hws[:count]]
         hhs = [hh * draw_scale for hh in hhs[:count]]
-        points=[]
-        for i in range(0,len(carve_vertices),16):
-            q=carve_vertices[i:i+16]
-            if len(q)==16 and q[4]>q[0]:points.extend(((q[0],q[1]),(q[4],q[5])))
-        nodes=sorted(dict(points).items());axis=[p[0] for p in nodes]
-        def surface(x):
-            if not nodes:return floor
-            i=bisect_right(axis,x)
-            if i==0:return nodes[0][1]
-            if i==len(nodes):return nodes[-1][1]
-            a,b=nodes[i-1],nodes[i]
-            return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])
+        surface = _scalar_mound_surface(carve_vertices, floor)
         visible=[ys[i]+hhs[i]>=min(surface(xs[i]-hws[i]),surface(xs[i]),surface(xs[i]+hws[i]))
                  for i in range(count)]
         return ([hws[i] if visible[i] else 0.0 for i in range(count)],
@@ -364,19 +378,7 @@ def splash_colours(count,xs,ys,vys,rests,stills,seeds,half_heights,
     try:
         import numpy as np
     except ImportError:
-        from bisect import bisect_right
-        nodes=[]
-        for i in range(0,len(carve_vertices),16):
-            q=carve_vertices[i:i+16]
-            if len(q)==16 and q[4]>q[0]:nodes.extend(((q[0],q[1]),(q[4],q[5])))
-        nodes=sorted(dict(nodes).items());axis=[p[0] for p in nodes]
-        def surface(x):
-            if not nodes:return floor
-            i=bisect_right(axis,x)
-            if i==0:return nodes[0][1]
-            if i==len(nodes):return nodes[-1][1]
-            a,b=nodes[i-1],nodes[i]
-            return a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])
+        surface = _scalar_mound_surface(carve_vertices, floor)
         result=[]
         for i in range(count):
             gap=max(0.0,ys[i]-surface(xs[i]))

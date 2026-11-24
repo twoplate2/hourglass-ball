@@ -1,10 +1,11 @@
 """Review original gold-sand frames from capture_stream_motion.py on a hidden PC."""
 import argparse
 import json
+import math
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 def gold(rgb):
@@ -80,6 +81,218 @@ def shoulder_gap(mask, settled, cx, lip, half, radius):
     worst = np.percentile(widths, 95)
     if worst > max(3., .11*half):
         raise ValueError(f"归零前杯肩与沙层之间仍有 {worst:.1f} 像素的空槽")
+
+
+def exposed_shoulder_drop(mask, cx, lip, radius):
+    """Follow the bed on both sides before the last short column clears the neck."""
+    def height(x):
+        x = round(x)
+        # Ignore sparse splash pixels above the connected bed.
+        rows = mask[lip:lip+round(.85*radius), x-2:x+3].mean(axis=1)
+        solid = np.flatnonzero(np.convolve(rows, np.full(5, .2), mode="valid") >= .80)
+        if not len(solid):
+            raise ValueError("末段堆肩没有可测的连续沙面")
+        return solid[0]
+
+    return min(height(cx+side*.61*radius) - height(cx+side*.53*radius) for side in (-1, 1))
+
+
+def leading_fringe(rgb, geometry):
+    """Measure from the first grain to the dense body separately in each central column."""
+    cx, lip = round(geometry["cx"]), round(geometry["outlet_y"])
+    half = max(3, round(.45*geometry["half_width"]))
+    strip = rgb[lip-3:, cx-half-1:cx+half+2].astype(float)
+    bg = geometry["background_rgb"]
+    pigment = strip[:,:,0] - strip[:,:,2] - (bg[0]-bg[2])
+    packed = np.median(pigment[:3,1:-1])
+    first = pigment[3:-1,1:-1] > .40*packed
+    # Average a 3 x 3 patch for the dense boundary; both arrays start at the lip.
+    rows = sum(pigment[2+i:2+i+len(first)] for i in range(3))
+    dense = (rows[:,:-2]+rows[:,1:-1]+rows[:,2:]) > (9.*.86*packed)
+    if packed <= 0 or not (first.any(axis=0) & dense.any(axis=0)).all():
+        raise ValueError("无法在首落前缘辨认颗粒和后方的连续沙柱")
+    return float(np.median(dense[::-1].argmax(axis=0) - first[::-1].argmax(axis=0)))
+
+
+def leading_opacity(rgb, geometry):
+    """Smooth grain-scale variation while keeping holes within the advancing head."""
+    cx, half = geometry["cx"], geometry["half_width"]
+    lip, floor = round(geometry["outlet_y"]), round(geometry["surface_y"])
+    xs = np.arange(round(cx-.70*half), round(cx+.70*half)+1)
+    strip = rgb[lip-3:floor, xs].astype(np.int16)
+    background = geometry["background_rgb"]
+    pigment = strip[:,:,0] - strip[:,:,2] - (background[0]-background[2])
+    packed = np.median(pigment[:3, abs(xs-cx) < .3*half])
+    if packed <= 0:
+        raise ValueError("无法识别首批沙粒的颜色")
+    opacity = np.uint8(np.clip(pigment[3:] * (255./packed), 0, 255))
+    smooth = Image.fromarray(opacity).filter(ImageFilter.GaussianBlur(max(.85, .045*half)))
+    return xs, np.asarray(smooth)
+
+
+def leading_profile(rgb, geometry):
+    """Trace half-density sand across the moving nose, ignoring isolated grains."""
+    cx, half, floor = geometry["cx"], geometry["half_width"], round(geometry["surface_y"])
+    xs, opacity = leading_opacity(rgb, geometry)
+    dense = opacity > .58*255
+    if not dense.any(axis=0).all():
+        raise ValueError("无法在首落前缘的各横向位置追踪沙柱")
+    heights = floor-1 - dense[::-1].argmax(axis=0)
+    return [np.median(heights[abs(xs-(cx+u*half)) < max(1.1, .05*half)])
+            for u in np.linspace(-.60, .60, 13)]
+
+
+def airborne_head_section(rgb, geometry):
+    """Width of the porous layer and centre-to-shoulder bow, in original pixels."""
+    xs, opacity = leading_opacity(rgb, geometry)
+    x = (xs-geometry["cx"]) / geometry["half_width"]
+    inner = abs(x) < .60
+    # Work up from open air. One detached grain should not stand in for a
+    # porous layer across the nose. Measure both boundaries in the same lane.
+    def from_below(level):
+        mask = opacity[::-1] > level*255
+        if not mask[:, inner].any(axis=0).all():
+            raise ValueError("首落头部缺少可辨认的颗粒层次")
+        return mask.argmax(axis=0)
+
+    loose, middle, packed = (from_below(level) for level in (.18, .58, .86))
+    layer = np.percentile((packed-loose)[inner], 25)
+    shoulders = (np.median(middle[(-.60 < x) & (x < -.42)]) +
+                 np.median(middle[(.42 < x) & (x < .60)])) / 2.
+    return layer, shoulders - np.median(middle[abs(x) < .12])
+
+
+def head_width_ratio(rgb, geometry, tip):
+    """Compare the rear of the moving head to the following free stream."""
+    cx, half = geometry["cx"], geometry["half_width"]
+    lip = round(geometry["outlet_y"])
+    reach = round(1.25*half)
+    strip = rgb[lip-3:tip+1, round(cx)-reach:round(cx)+reach+1].astype(np.int16)
+    bg = geometry["background_rgb"]
+    pigment = strip[:,:,0] - strip[:,:,2] - (bg[0]-bg[2])
+    packed = np.median(pigment[:3, reach-2:reach+3])
+    if packed <= 0:
+        raise ValueError("首落头部宽度缺少颈口沙色参照")
+    widths = (pigment[3:] > .48*packed).sum(axis=1)
+    distance = tip-lip-np.arange(len(widths))
+    head = widths[(.90*half <= distance) & (distance <= 1.70*half)]
+    body = widths[(2.2*half <= distance) & (distance <= 3.1*half)]
+    if not len(body) or np.median(body) < 1:
+        raise ValueError("首落头部后方缺少可比较的沙流")
+    return float(np.percentile(head, 75) / np.median(body))
+
+
+def head_shoulder_density(mask, geometry):
+    """Measure both shoulders up from the first few visible grains in a free jet."""
+    half, cx = geometry["half_width"], geometry["cx"]
+    lip, floor = round(geometry["outlet_y"]), round(geometry["surface_y"])
+    span = round(1.1*half)
+    center = round(cx)
+    strip = mask[lip:floor, center-span:center+span+1]
+    occupied = np.flatnonzero(strip.sum(axis=1) >= 3)
+    if not len(occupied):
+        return None
+    depth = occupied[-1]
+    if not 2.7*half <= depth <= .93*(floor-lip):
+        return None
+    x = (np.arange(center-span, center+span+1) + .5-cx) / half
+    # Start above the outermost dust. It can hide a dense band just behind it.
+    behind = (depth-np.arange(depth+1)) / half
+    bands = [(.42, .94), (.99, 1.53), (1.60, 2.20)]
+    coverage = []
+    sections = [(.55 <= side) & (side < .94) for side in (-x, x)]
+    for section in [*sections, abs(x) < .38]:
+        rows = strip[:depth+1, section].mean(axis=1)
+        coverage.append([rows[(lo < behind) & (behind <= hi)].mean() for lo, hi in bands])
+    return depth, np.array(coverage)
+
+
+def check_head_release_order(samples, half):
+    if len(samples) < 3:
+        raise ValueError("缺少首落头部和后方两侧的连续画面")
+    depths, bands = zip(*samples)
+    bands = np.asarray(bands)
+    # A light patch on either shoulder followed by a denser head is visible
+    # even if the average over the full jet or the full opening looks right.
+    shoulders = bands[:,:2]
+    difference = shoulders[:,:,0] - shoulders[:,:,1:].min(axis=2)
+    for side in difference.T:
+        start = None
+        for depth, excess in zip(depths, side):
+            if excess <= .065:
+                start = None
+            elif start is None:
+                start = depth
+            elif depth-start >= .32*half:
+                raise ValueError("首落头部下方重新变密，上方两侧先露出空隙")
+    median = float(np.median(shoulders[:,:,1] - shoulders[:,:,0]))
+    if median < .025:
+        raise ValueError("首落头部下方未先松开，与后方相比缺少可见的疏密过渡")
+    # Squeezing the lower outline would also expose the background at its
+    # sides. Verify that the inner grains have actually separated early on.
+    early = bands[np.asarray(depths) <= 4.3*half, 2]
+    if not len(early) or np.median(early[:,1] - early[:,0]) < .12:
+        raise ValueError("首落初段只收窄了边缘，前端内部仍挤在一起")
+    return round(100*median, 1)
+
+
+def check_airborne_head(sections, half):
+    if len(sections) < 3:
+        raise ValueError("缺少首次触地前的连续头部画面")
+    layer, bow = np.median(sections, axis=0)
+    if layer < .33*half or bow > .24*half:
+        raise ValueError(f"首落头部持续像一个实心圆帽，颗粒过渡 {layer:.1f} 像素，中央下凸 {bow:.1f} 像素")
+    if layer > .95*half:
+        raise ValueError(f"首落头部散成雾，颗粒过渡长达 {layer:.1f} 像素")
+    return dict(porous_layer_px=round(float(layer), 2), bow_px=round(float(bow), 2))
+
+
+def leading_deformation(tips, profiles, radius):
+    """Compare local changes after removing translation, tilt and overall rounding."""
+    tips, shapes = np.asarray(tips), np.asarray(profiles)
+    if len(shapes) < 3:
+        raise ValueError("首落前缘轮廓样本不足")
+    x = np.linspace(-1., 1., shapes.shape[1])
+    basis = np.column_stack((np.ones_like(x), x, x*x))
+    residual = shapes - (basis @ np.linalg.lstsq(basis, shapes.T, rcond=None)[0]).T
+
+    def change(distance):
+        values = []
+        for i, tip in enumerate(tips):
+            ahead = np.flatnonzero(tips[i+1:]-tip >= distance)
+            if ahead.size:
+                difference = residual[i+1+ahead[0]]-residual[i]
+                values.append(np.sqrt(np.mean(difference**2)))
+        if len(values) < 3:
+            raise ValueError("首落前缘的连续帧没有覆盖足够的下落距离")
+        return float(np.median(values))
+
+    local, far = change(.07*radius), change(.35*radius)
+    if far < .012*radius:
+        raise ValueError(f"首落头部近似整块平移，扣除整体运动后局部轮廓只变 {far:.2f} 像素")
+    if far < 1.6*local:
+        raise ValueError(f"前缘的形变集中在短间隔，近距与远距分别为 {local:.2f}、{far:.2f} 像素")
+    return round(far, 2)
+
+
+def persistent_leading_spike(tips, profiles, half, radius):
+    """How far a narrow protrusion travels while leading both of its shoulders."""
+    shape = np.asarray(profiles)
+    if len(shape) < 3:
+        raise ValueError("首落前缘轮廓样本不足")
+    prominence = shape[:,3:-3] - np.maximum(shape[:,:-6], shape[:,6:])
+    raised = prominence > .26*half
+    # Allow the same tuft to drift one sample sideways as it falls.
+    nearby = raised[:,:-1] | raised[:,1:]
+    start = np.full(nearby.shape[1], np.nan)
+    longest = 0.
+    for tip, active in zip(tips, nearby):
+        start = np.where(active, np.where(np.isnan(start), tip, start), np.nan)
+        if active.any():
+            longest = max(longest, float(tip-np.min(start[active])))
+    if longest > .26*radius:
+        raise ValueError(f"首落有一束沙持续成尖，下落 {longest:.1f} 像素后仍领先两侧")
+    return round(longest, 2)
 
 
 def leading_motion(images, tips, cx, half, radius):
@@ -185,6 +398,33 @@ def splash_pixels(mask, lip, cx, half, radius):
     return int(count)
 
 
+def first_deposit(frames, contact, period, sample_rate):
+    """Compare the floor pixels with the first credited mass and the rise of the bed."""
+    if not math.isfinite(sample_rate) or sample_rate <= 0 or any(
+            not math.isclose(f["time"], i / sample_rate, abs_tol=1e-7, rel_tol=0.)
+            for i, f in enumerate(frames)):
+        raise ValueError("首堆复查需要从开场按采样率连续记录的帧")
+    first = next((i for i, f in enumerate(frames) if f["transfer"]["landed"] > 1e-12), None)
+    if first is None or abs(frames[first]["time"] - contact) > 1. / sample_rate + 1e-8:
+        raise ValueError("杯底首次见沙与首批沙计入下杯相差超过一帧")
+    if period > 5.:
+        return
+    # A jump can also occur on the frame after a token first deposit. Compare
+    # complete 1/60 s intervals through the first 0.08 s, at native glass scale.
+    hop = max(1, round(sample_rate / 60.))
+    if first == 0 or frames[-1]["time"] < contact + .08 - 1e-8:
+        raise ValueError("缺少首批着地前后连续的堆面")
+    mouth = 2. * frames[0]["geometry"]["half_width"]
+    for i in range(first, len(frames)):
+        if frames[i]["time"] > contact + .08 + 1e-8:
+            break
+        a, b = frames[max(0, i-hop)], frames[i]
+        dt = b["time"] - a["time"]
+        rise = a["geometry"]["surface_y"] - b["geometry"]["surface_y"]
+        if rise > max(2., .20 * mouth) * max(1., 60.*dt) + 1e-6:
+            raise ValueError(f"{b['time']:.3f} 秒首堆突然升高 {rise:.1f} 像素，口径 {mouth:.1f} 像素")
+
+
 def review(folder, opening_only=False):
     meta = json.loads((folder / "motion.json").read_text(encoding="utf-8"))
     frames = meta["frames"]
@@ -213,7 +453,8 @@ def review(folder, opening_only=False):
     contact = None
     above, times, masks, luminance, spray, closing_ratios = [], [], [], [], [], []
     tail_fringe, cutoff_samples = [], []
-    head_frames, head_tips = [], []
+    head_frames, head_tips, front_fringe, shoulders = [], [], [], []
+    profile_tips, profiles, airborne_sections, head_widths, shoulder_samples = [], [], [], [], []
     for frame in frames:
         t = frame["time"]
         if t >= period + .25 and frame["transfer"]["landed"] >= 1. - 1e-8:
@@ -223,7 +464,8 @@ def review(folder, opening_only=False):
         closing = 0. < layer < .65
         released_tail = period == 15 and 0. < t-period <= .05 and frame["transfer"]["flight"] > 1e-9
         cutoff = period in (5,15) and abs(t-period) < .12
-        if contact is None or closing or cutoff or (.24*period < t < .60*period) or (3 <= t <= 4.5):
+        near_full = period == 15 and .970 <= frame["transfer"]["landed"] <= .978
+        if contact is None or closing or cutoff or near_full or (.24*period < t < .60*period) or (3 <= t <= 4.5):
             rgb = frame_image(folder, frame)
             mask = gold(rgb)
         else:
@@ -239,11 +481,25 @@ def review(folder, opening_only=False):
             if bottom.any():
                 contact = t
             elif period in (1,5,15):
+                if period in (5,15):
+                    shoulder = head_shoulder_density(mask, geo)
+                    if shoulder is not None:
+                        shoulder_samples.append(shoulder)
                 central = mask[lip:floor, cx-2:cx+3]
                 tip = floor-1 - int(np.median(np.argmax(central[::-1], axis=0)))
                 if lip+.18*(floor-lip) < tip < lip+.85*(floor-lip):
                     head_frames.append(rgb[:,:,1])
                     head_tips.append(tip)
+                    if period in (5,15) and .36 < (tip-lip)/(floor-lip) < .75:
+                        front_fringe.append(leading_fringe(rgb, geo))
+                if period in (5,15) and lip+.26*(floor-lip) < tip < lip+.96*(floor-lip):
+                    profile_tips.append(tip)
+                    profiles.append(leading_profile(rgb, geo))
+                    if lip+.45*(floor-lip) < tip < lip+.93*(floor-lip):
+                        airborne_sections.append(airborne_head_section(rgb, geo))
+                        head_widths.append(head_width_ratio(rgb, geo, tip))
+        if near_full:
+            shoulders.append(exposed_shoulder_drop(mask, cx, lip, radius))
         if closing:
             closing_surface(mask, cx, lip, half)
             ratio = closing_core_ratio(rgb, frame["geometry"])
@@ -276,12 +532,29 @@ def review(folder, opening_only=False):
                50:(1.20,1.65), 6000:(1.20,1.65)}
     if contact is None:
         raise ValueError("连续帧未覆盖首次可见触底")
+    first_deposit(frames, contact, period, meta["sample_rate"])
     if period in windows:
         low, high = windows[period]
         if not low <= contact <= high + 1/meta["sample_rate"]:
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
+    deformation = spike_travel = airborne_head = None
+    if period in (5,15):
+        mid = np.asarray(profile_tips) < lip+.85*(floor-lip)
+        deformation = leading_deformation(np.asarray(profile_tips)[mid], np.asarray(profiles)[mid], radius)
+        spike_travel = persistent_leading_spike(profile_tips, profiles, half, radius)
+        airborne_head = check_airborne_head(airborne_sections, half)
+        airborne_head["shoulder_coverage_drop_pp"] = check_head_release_order(shoulder_samples, half)
+        width = float(np.median(head_widths))
+        if width > 1.12:
+            raise ValueError(f"首批散粒后方形成鼓包，宽度是相邻沙柱的 {width:.2f} 倍")
+        airborne_head["width_ratio"] = round(width, 3)
     if opening_only:
-        return dict(period=period, crown_gap_px=gap, contact_seconds=contact)
+        return dict(period=period, crown_gap_px=gap, contact_seconds=contact, leading_deformation_px=deformation,
+                    persistent_spike_travel_px=spike_travel, airborne_head=airborne_head)
+    if period in (5,15) and (not front_fringe or np.median(front_fringe) < max(3., .09*half)):
+        raise ValueError(f"首落前缘近似实心圆头，散粒到致密层的距离为 {front_fringe} 像素")
+    if period == 15 and (not shoulders or np.median(shoulders) < max(1.5, .009*radius)):
+        raise ValueError(f"临近装满时沙堆两侧出现水平肩部，外侧落差为 {shoulders} 像素")
     cutoff_ratio = closing_step_ratio(cutoff_samples, period) if period in (5,15) else None
     lead_ratio = leading_motion(head_frames, head_tips, cx, half, radius) if period in (1,5,15) else None
     width_ratio = None
@@ -321,6 +594,10 @@ def review(folder, opening_only=False):
             raise ValueError(f"柱内四处纹理速度 {speed} 像素/秒")
     return dict(period=period, crown_gap_px=gap, contact_seconds=contact,
                 tip_texture_travel_ratio=lead_ratio,
+                leading_deformation_px=deformation, airborne_head=airborne_head,
+                persistent_spike_travel_px=spike_travel,
+                leading_fringe_px=float(np.median(front_fringe)) if front_fringe else None,
+                shoulder_drop_px=float(np.median(shoulders)) if shoulders else None,
                 dense_width_ratio=width_ratio, speeds_px_per_second=speed,
                 min_closing_core_ratio=min(closing_ratios) if closing_ratios else None,
                 cutoff_step_ratio=cutoff_ratio,

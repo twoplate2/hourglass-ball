@@ -19,6 +19,192 @@ def glass(period):
 
 
 class RecordedFlowTests(unittest.TestCase):
+    def test_first_deposit_follows_visible_contact_and_spreads_the_initial_rise(self):
+        from check_recorded_flow import first_deposit
+
+        def frames(heights, landed_at=2):
+            return [dict(time=i/60., geometry=dict(surface_y=900.-height, half_width=80.),
+                         transfer=dict(landed=max(0., (i-landed_at+1)/1000.)))
+                    for i, height in enumerate(heights)]
+
+        contact = 2/60.
+        gradual = [0, 0, 8, 29, 50, 63, 70, 75, 80]
+        first_deposit(frames(gradual), contact, 1., 60)
+        for abrupt in ([0, 0, 50, 69], [0, 0, 2, 52]):
+            with self.assertRaisesRegex(ValueError, "首堆突然升高"):
+                first_deposit(frames(abrupt + gradual[4:]), contact, 1., 60)
+        with self.assertRaisesRegex(ValueError, "相差超过一帧"):
+            first_deposit(frames(gradual, landed_at=5), contact, 1., 60)
+
+    def test_free_head_is_porous_across_its_width_and_has_no_persistent_round_cap(self):
+        from check_recorded_flow import airborne_head_section, check_airborne_head
+        y, x = np.ogrid[:160, -55:56]
+        geo = dict(cx=55, outlet_y=10, surface_y=158, half_width=40, background_rgb=[234,243,248])
+        bg = np.array(geo["background_rgb"])
+        sand = np.array([216,162,96])
+
+        def section(length, curvature):
+            edge = 115 - curvature*(x/40.)**2
+            opacity = np.clip((edge-y)/length, 0., 1.)
+            opacity[132,55] = 1.   # An extra grain in front cannot open up the head.
+            return airborne_head_section(np.uint8(bg + opacity[:,:,None]*(sand-bg)), geo)
+
+        loose = section(30, 4)
+        for cap in (section(4, 45), section(32, 54)):
+            with self.assertRaisesRegex(ValueError, "实心圆帽"):
+                check_airborne_head([cap]*5 + [loose], 40)
+        check_airborne_head([loose]*5 + [section(4, 45)], 40)
+        with self.assertRaisesRegex(ValueError, "散成雾"):
+            check_airborne_head([section(68, 0)]*5, 40)
+
+    def test_width_behind_the_loose_grains_is_compared_to_the_same_jet(self):
+        from check_recorded_flow import head_width_ratio
+        y, x = np.ogrid[:220, -65:66]
+        geo = dict(cx=65, outlet_y=8, half_width=40, background_rgb=[234,243,248])
+        normal = (abs(x) < 30) & (y < 190)
+        bulge = (abs(x) < 38) & (y > 121) & (y < 158)
+        for mask, expected in ((normal, 1.), (normal | bulge, 75/59)):
+            rgb = np.uint8(np.where(mask[:,:,None], [216,162,96], geo["background_rgb"]))
+            self.assertAlmostEqual(head_width_ratio(rgb, geo, 190), expected)
+
+    def test_first_gaps_open_at_the_lower_face_on_both_sides(self):
+        from check_recorded_flow import head_shoulder_density, check_head_release_order
+        geo = dict(cx=85., half_width=40., outlet_y=8., surface_y=260.)
+        y, x = np.ogrid[:270, -85:86]
+        forward, reversed_right, single_frame, narrow_only = [], [], [], []
+        for tip in (155, 161, 168, 175, 182, 189):
+            behind = (tip-y)/40.
+            normal = (abs(x) < 36) & (behind >= 0)
+            shoulder = abs(x) >= 22
+            pores = (abs(x)*7 + (tip-y)*3) % 11 < 5
+            loose_face = normal & ~(pores & (behind < 1.))
+            bad = np.where(x < 0, loose_face,
+                           normal & ~(shoulder & pores & ((behind < .30) | ((1 < behind) & (behind < 1.55)))))
+            forward.append(head_shoulder_density(loose_face, geo))
+            reversed_right.append(head_shoulder_density(bad, geo))
+            single_frame.append(reversed_right[-1] if tip == 175 else forward[-1])
+            narrow_only.append(head_shoulder_density(normal & ~(shoulder & (behind < 1.)), geo))
+        self.assertGreater(check_head_release_order(forward, 40.), 25.)
+        check_head_release_order(single_frame, 40.)
+        with self.assertRaisesRegex(ValueError, "上方两侧先露出空隙"):
+            check_head_release_order(reversed_right, 40.)
+        with self.assertRaisesRegex(ValueError, "前端内部仍挤在一起"):
+            check_head_release_order(narrow_only, 40.)
+
+    def test_timer_draws_one_seed_per_new_run_including_after_completion(self):
+        from types import MethodType
+        from unittest.mock import Mock
+        from test_ui_polish import method
+
+        entropy = Mock()
+        entropy.urandom.side_effect = [n.to_bytes(8, "little") for n in (17, 94, 271)]
+        clock = Mock()
+        clock.perf_counter.return_value = 3.
+        toggle = method("HourglassWidget", "toggle", {"os": entropy, "time": clock})
+        reset = method("HourglassWidget", "reset")
+        state_reset = method("HourglassWidget", "_reset_run_state", {"gc": Mock()})
+        w = Mock(duration=15., elapsed=0., running=False, _geom_ready=False, _opening_seed=None,
+                 _splash_stats={}, _completion_token=0)
+        w._reset_run_state = MethodType(state_reset, w)
+        toggle(w)
+        self.assertEqual(w._opening_seed, 17)
+        toggle(w)  # Pause and resume the same round.
+        toggle(w)
+        self.assertEqual(w._opening_seed, 17)
+        reset(w)
+        toggle(w)
+        self.assertEqual(w._opening_seed, 94)
+        w.elapsed, w.running = w.duration, False
+        toggle(w)
+        self.assertEqual(w._opening_seed, 271)
+        self.assertEqual(entropy.urandom.call_count, 3)
+
+    def test_opening_seed_varies_the_first_packet_and_replays_it_exactly(self):
+        half, flow = glass(15.)
+        t = flow.age_at(305.)
+        def grains(time, seed):
+            return sample_grains(time, 15., half, 433., opening_seed=seed)
+
+        first = grains(t, 17)
+        second = grains(t, 94)
+        self.assertFalse(np.array_equal(first.x, second.x) and np.array_equal(first.depth, second.depth))
+        for a, b in zip(first, grains(t, 17)):
+            np.testing.assert_array_equal(a, b)
+        for a, b in zip(grains(4., 17), grains(4., 94)):
+            np.testing.assert_array_equal(a, b)
+
+    def test_a_narrow_leading_tuft_must_give_way_during_the_drop(self):
+        from check_recorded_flow import persistent_leading_spike
+        tips = np.arange(165., 310., 4.)
+        shapes = np.tile(np.zeros(13), (len(tips), 1))
+        shapes[:, 5:7] = 19.
+        with self.assertRaisesRegex(ValueError, "持续成尖"):
+            persistent_leading_spike(tips, shapes+tips[:, None], 50., 205.)
+        shapes[6:] = 0.
+        persistent_leading_spike(tips, shapes+tips[:, None], 50., 205.)
+
+    def test_nearby_leading_grains_slip_past_one_another_during_the_fall(self):
+        half, flow = glass(15.)
+        for reach in (240., 290.):
+            a, b = (sample_grains(flow.age_at(z), 15., half, 455.) for z in (reach, reach+75.))
+            _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+            leading = (a.depth.max()-a.depth[i] < .72*half) & (abs(a.x[i]) < .60*half)
+            motion = b.depth[j[leading]] - a.depth[i[leading]]
+            with self.subTest(reach=reach):
+                self.assertGreater(len(motion), 100)
+                self.assertGreater(motion.min(), 0.)
+                self.assertGreater(np.ptp(np.percentile(motion, (10, 90))), .105*half)
+
+    def test_first_grain_stays_visible_after_crossing_the_lip(self):
+        from b13_stream import HEAD_ID_START
+        half, _ = glass(15.)
+        heights = []
+        for tick in (11, 12, 13):
+            grains = sample_grains(tick/120., 15., half, 450., opening_seed=33)
+            first = grains.depth[grains.serial == HEAD_ID_START]
+            self.assertEqual(len(first), 1, f"首粒在第 {tick} 步消失")
+            heights.append(first[0])
+        self.assertTrue(np.all(np.diff(heights) > 0))
+
+    def test_opening_gaps_preserve_downward_motion_in_the_head_and_following_grains(self):
+        for period in (1., 5., 15.):
+            half, flow = glass(period)
+            for depth in (100., 165., 240., 330.):
+                t = flow.age_at(depth)
+                a, b = (sample_grains(t+dt, period, half, 450., opening_seed=33)
+                        for dt in (0., 1/120.))
+                _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
+                with self.subTest(period=period, depth=depth):
+                    self.assertGreater(len(i), 100)
+                    self.assertGreaterEqual((b.depth[j] - a.depth[i]).min(), -1.e-8)
+
+    def test_tip_profile_rejects_both_a_rigid_cap_and_frame_to_frame_noise(self):
+        from check_recorded_flow import leading_deformation
+        x = np.linspace(-1., 1., 13)
+        travel = np.arange(0., 240., 3.)
+        rigid = travel[:, None] + 8.*np.cos(3.*x)
+        with self.assertRaisesRegex(ValueError, "整块平移"):
+            leading_deformation(travel, rigid, 200.)
+        noise = np.random.default_rng(17).normal(0., 7., rigid.shape)
+        with self.assertRaisesRegex(ValueError, "短间隔"):
+            leading_deformation(travel, rigid + noise, 200.)
+        moving = rigid + 8.*np.sin(6.*x + travel[:, None]/45.)
+        self.assertGreater(leading_deformation(travel, moving, 200.), 3.)
+
+    def test_first_grains_thin_out_towards_the_leading_edge(self):
+        for period in (5., 15., 50.):
+            half, flow = glass(period)
+            for reach in (180., 275., 355.):
+                grains = sample_grains(flow.age_at(reach), period, half, 455.)
+                core = grains.depth[abs(grains.x) < .40*half]
+                behind = (core.max()-core)/half
+                # Compare equal-length bands, following the moving front.
+                edge = np.count_nonzero((behind >= .10) & (behind < .35))
+                body = np.count_nonzero((behind >= .85) & (behind < 1.35)) / 2.
+                with self.subTest(period=period, reach=reach):
+                    self.assertGreater(edge, 0)
+                    self.assertLess(edge, .85*body)
+
     def test_leading_grains_travel_with_the_first_visible_front(self):
         for period in (1., 5., 15., 50., 6000.):
             half, flow = glass(period)

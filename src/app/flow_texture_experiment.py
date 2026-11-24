@@ -1,32 +1,15 @@
 """Opt-in endpoint texture batching; cap geometry and palette order are retained."""
 
-import bisect
 from array import array
-import math
+import bisect
 import os
+from struct import Struct
 import sys
-# ---------------------------------------------------------------------------
-# 诊断开关一律用**标记文件**(不是环境变量)!
-#   🔴 **安卓上的 app 读不到宿主 shell 的环境变量** —— `HG_*` 那一整套开关在桌面有效,
-#      在设备上**一律取默认值**。2026-10-07 我拿 `HG_NO_BLIT=1 bash src/tools/_one_bench.sh`
-#      量了半天"砍光纹理上传能省多少", 量出来的差 (2.89→2.83ms) **全是噪声** ——
-#      那次上传**根本没被跳过**(变量只存在于 Windows 的 shell 里)。
-#      要在设备上做单变量对照, 只能写**标记文件**(app 私有目录, 与 `prof.on` 同一套):
-#          adb shell touch /data/data/org.shalou.hourglass/files/app/blit.off   # 开(要重启)
-#          adb shell rm    /data/data/org.shalou.hourglass/files/app/blit.off   # 关
-#   ⚠️ 桌面**两种都认**(环境变量优先), 免得改一次桌面流程。
+
+from render_options import flag_present
+
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
-def _flag(env_name, file_name):
-    if os.environ.get(env_name):
-        return True
-    try:
-        return os.path.exists(os.path.join(_APP_DIR, file_name))
-    except Exception:
-        return False
-
-from struct import Struct
 
 try:
     import numpy as np
@@ -105,7 +88,7 @@ FUSE_BUCKETS = True if _FUSE_PROBE is None else (_FUSE_PROBE != "0")
 # 诊断旋钮(A/B 用, 默认关): 恢复"`TextureFlowBatch.update` 开头无条件读那四个惰性
 # list 快照"的旧行为。四个都是 `_FlowView` 的**惰性属性**, 第一次读就 `tolist()`
 # 一整份(n≈1500), 而**安卓走的 numpy 分支一个都不读**。设备单变量对照要用**标记文件**。
-LAZY_VIEW_OFF = _flag("HG_LAZY_VIEW_OFF", "lazyview.off")
+LAZY_VIEW_OFF = flag_present(_APP_DIR, "HG_LAZY_VIEW_OFF", "lazyview.off")
 
 
 def stats_reset():

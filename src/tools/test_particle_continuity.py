@@ -274,20 +274,26 @@ def snapshot(widget):
     cx, cy, x0, scale, n1 = widget._mound_contact_curve()
     app = sys.modules[widget.__class__.__module__]
     b13 = None
+    outlet = float(2 * widget._neck_y - widget._taper["y_bot"])
+    launch_y = outlet
+    neck = getattr(widget, '_sand_neck', None)
     if app.FLOW_RENDERER == 'b13':
         b13 = (widget.elapsed + widget._stream_settle_age, widget._b13_transit)
+        if neck is not None:
+            launch_y += neck.opening(b13[0])[2]
     return {
         "particles": rows,
         "curve": (list(cx), list(cy)),
         "top": float(widget.get_mound_top_y()),
-        "outlet": float(2 * widget._neck_y - widget._taper["y_bot"]),
+        "outlet": outlet,
+        "neck": neck,
         "scale": float(widget._particle_motion_scale),
         "tube_height": float(widget._tube_h),
         "aperture_half":float(widget._taper['t_in']),
         "appearance":appearance,
         "birth_material":birth_material,
         "b13":b13,
-        "motion":dict(cx=widget._cx,cut=2*widget._neck_y-widget._taper['y_bot'],
+        "motion":dict(cx=widget._cx,cut=outlet,launch_y=launch_y,
             top=widget._lower_sand_top,center=widget._lower_y_c,radius=widget._R_inner,
             coarse_width=hasattr(widget, '_coarse_width_parameters') and app._TWOIMPL >= 3,
             half=widget._taper['t_in'],pitch=renderer.stream_pitch(widget._R_inner,
@@ -321,7 +327,7 @@ def _predicted_x(before, key, predicted, gravity):
         target=max(lower,(1.+depth/(2.25*diameter))**-.25)
         ramp=min(ramp,.55*diameter)
     shrink=1 if predicted>m['cut'] else 1+(target-1)*min(1,depth/ramp)
-    fallen=max(0,m['cut']-predicted)
+    fallen=max(0,m.get('launch_y',m['cut'])-predicted)
     raw=off*shrink+math.sin(fallen*.07+key[0])*amp*(1-shrink*.4)
     lim=m['half']
     if predicted<m['top']:
@@ -350,19 +356,25 @@ class ContinuityTrace:
             from grain_style import B13_REFERENCE_RADIUS
             clock, transit = b13
             glass_scale = after['motion']['radius'] / B13_REFERENCE_RADIUS
+            launch_y = after['motion']['launch_y']
+            previous_launch_y = before['outlet']
+            if before['neck'] is not None:
+                previous_launch_y += before['neck'].opening(max(0., clock-dt))[2]
         for key, (x, y, vy) in previous.items():
             if b13 is None:
                 predicted = y + vy * dt + 0.5 * gravity * dt * dt
                 speed_y = vy + gravity * dt
             else:
-                age = clock - before['birth_material'][key][0]
+                birth = before['birth_material'][key][0]
+                release = {"birth": birth} if getattr(transit, "slip_spread", 0.) else {}
+                age = clock - birth
                 lane = before['appearance'][key][0] / before['aperture_half']
-                factor = transit.lane_factor(lane, key[0] / math.pi - 1.)
-                start = transit.age_at((before['outlet'] - y) / glass_scale) / factor
+                factor = transit.lane_factor(lane, key[0] / math.pi - 1., **release)
+                start = transit.age_at((previous_launch_y - y) / glass_scale) / factor
                 if abs(age - dt - start) > tolerance:
                     raise AssertionError("同一批过口沙的飞行时钟不连续")
                 predicted, speed_y = transit.motion(age, lane, key[0] / math.pi - 1.,
-                                                     before['outlet'], glass_scale)
+                                                     launch_y, glass_scale, **release)
             if key in current:
                 if 'birth_material' in before:
                     if after.get('birth_material',{}).get(key)!=before['birth_material'][key]:
@@ -406,9 +418,10 @@ class ContinuityTrace:
                 raise AssertionError('新粒子的横向出生位置越过出口')
             if b13 is not None:
                 birth = after['birth_material'][key][0]
+                release = {"birth": birth} if getattr(transit, "slip_spread", 0.) else {}
                 lane = after['appearance'][key][0] / half
                 expected, _ = transit.motion(clock - birth, lane, key[0] / math.pi - 1.,
-                                             outlet, glass_scale)
+                                             launch_y, glass_scale, **release)
                 if not -tolerance <= clock - birth <= dt + tolerance or abs(y - expected) > tolerance:
                     raise AssertionError("新粒子没有沿杯口的速度出生")
             elif not lowest - tolerance <= y <= outlet + tolerance:

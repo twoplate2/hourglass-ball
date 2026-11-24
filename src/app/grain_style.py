@@ -52,16 +52,23 @@ class B13Transit(NamedTuple):
     """
 
     seconds_per_pixel: float
+    slip_spread: float = 0.
 
     @classmethod
     @lru_cache(maxsize=32)
     def for_glass(cls, duration, half):
         radius = B13_REFERENCE_RADIUS
-        return cls(.96 * .75 / radius * duration * (half / radius)**2)
+        short = _unit_interval((5. - duration) / 4.)
+        return cls(.96 * .75 / radius * duration * (half / radius)**2, .235 * short**2)
 
-    @staticmethod
-    def lane_factor(lane, jitter):
-        return 1. - .08 * lane**2 + .02 * jitter
+    def lane_factor(self, lane, jitter, *, birth=None):
+        factor = 1. - .08 * lane**2 + .02 * jitter
+        if self.slip_spread and birth is not None:
+            # Visible grains already spread at the front. Give their bulk
+            # collision samples an arrival spread without moving the first grain.
+            first_batch = _unit_interval(1. - birth / self.age_at(2. * B13_REFERENCE_RADIUS))
+            factor -= self.slip_spread * first_batch**2 * (.5 - .5*jitter)
+        return factor
 
     def age_at(self, depth):
         return self.seconds_per_pixel * depth * (.72 + .28 / (1. + depth / 54.))
@@ -74,8 +81,8 @@ class B13Transit(NamedTuple):
     def relative_area(depth):
         return .72 + .28 / (1. + depth / 54.)**2
 
-    def motion(self, age, lane, jitter, outlet, scale):
-        factor = self.lane_factor(lane, jitter)
+    def motion(self, age, lane, jitter, outlet, scale, *, birth=None):
+        factor = self.lane_factor(lane, jitter, birth=birth)
         depth = self.depth_at(age * factor)
         speed = factor / (self.seconds_per_pixel * self.relative_area(depth))
         return outlet - scale * depth, -scale * speed
@@ -84,7 +91,7 @@ class B13Transit(NamedTuple):
         """Group the volume released in [start, end] into dated collision samples."""
         # A late UI tick can cover minutes. Group already floor-reaching sand
         # separately, preserving normal sampling of the part still in flight.
-        oldest_live = clock - self.age_at(floor_depth + 2.) / self.lane_factor(1., -1.)
+        oldest_live = clock - self.age_at(floor_depth + 2.) / self.lane_factor(1., -1., birth=0.)
         if end - start > .25 and oldest_live > start:
             stop = min(oldest_live, end)
             yield .5 * (start + stop), (stop - start) / duration

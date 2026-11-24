@@ -1,27 +1,11 @@
 # -*- coding: utf-8 -*-
-"""设备端末段自检: 「最后 x 秒没有沙子流下, 但下面的沙子体积在增加」。
-
-**为什么要在设备上跑**: 用户 2026-10-10 明确要求「必须在安卓上通过测试才行」。
-墙钟截图追一个 0.2~0.4 秒的窗口, 我连试 5 次都没成(采样太粗) ⇒ 换成**确定性的自检**:
-只推进 `elapsed` 与物理, 不渲染, 把四栏打出来。判据与桌面探针**逐字相同**。
-
-触发: app 私有目录存在标记文件 `tailcheck`(与 `shrinkmin`/`twoimpl` 同一套)。
-  adb shell "echo 50 > /data/data/org.shalou.hourglass/files/app/tailcheck"
-  (文件内容 = 周期秒数, 缺省 50)
-结果写 `<app>/tailcheck.out` 并 `print` 到 logcat。
-"""
+"""按 tailcheck 指定的周期推进物理，末段沙量和流量的自检结果写入 tailcheck.out。"""
 import os
 import time
 
 
 def _app_dir():
-    """**与 `main.py` 的 `_shrink_min_probe` 同一个目录**(= main.py 所在目录)。
-
-    🔴 2026-10-10 踩过: 原来用 `getFilesDir()` ⇒ 拿到的是 `<pkg>/files`,
-    而**所有标记文件(`shrinkmin`/`twoimpl`/`seamband`…)都在 `<pkg>/files/app`**
-    ⇒ 自检钩子**永远不触发**, 而且一行报错都没有(静默失效)。
-    本模块在 `<app>/tools/` 下 ⇒ **上一级**就是 main.py 所在目录。
-    """
+    """标记文件位于 main.py 所在目录。"""
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 

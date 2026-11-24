@@ -93,6 +93,7 @@ class B13StreamTests(unittest.TestCase):
             w._sand_neck = SimpleNamespace(opening=lambda t: (0., None, 0.))
             w.get_mound_top_y = lambda: 10.
             w.duration = duration
+            w._opening_seed = 17
             w.elapsed, w._stream_settle_age = min(at, duration), max(0., at - duration)
             w._sand_active, w.pn, w.sand_base = True, 50, (.84, .64, .38)
             w._mound_carve = SimpleNamespace(_v=[])
@@ -342,7 +343,7 @@ class B13StreamTests(unittest.TestCase):
                 widget._particle_motion_scale, widget._neck_fill_time = 1., .25
                 widget.elapsed, widget.duration, widget._stream_settle_age = .6, 20., 0.
                 widget._transfer_timing = lambda: (.25, 20. - 1./60., .02)
-                widget.pn, widget._sand_active = 987, True
+                widget.pn, widget._sand_active, widget._opening_seed = 987, True, 17
                 widget.sand_base = (.84, .64, .38)
                 widget._mound_carve = SimpleNamespace(_v=[])
                 widget._reserve_stream_lines, widget.drawn_with_lines = Mock(), []

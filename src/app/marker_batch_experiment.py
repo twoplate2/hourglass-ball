@@ -52,10 +52,9 @@ except ImportError:                      # 逐颗 pack_into 兜底
     np = None
 
 import flow_batch_experiment
-from flow_splash_experiment import (
-    CHUNK, TEXELS_PER_SPLASH, TEXEL_STEP, TEXEL_STEP_UNIFORM, PAD)
+from flow_splash_experiment import CHUNK, TEXEL_STEP, TEXEL_STEP_UNIFORM
 
-from kivy.graphics import BindTexture, Color, InstructionGroup, Mesh, RenderContext
+from kivy.graphics import BindTexture, InstructionGroup, Mesh, RenderContext
 from kivy.graphics.opengl import glGetIntegerv, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS
 from kivy.graphics.texture import Texture
 

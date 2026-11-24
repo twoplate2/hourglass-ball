@@ -51,6 +51,28 @@ class OpeningTests(unittest.TestCase):
             for depth in (2., 15., 216., 435.):
                 self.assertEqual(transit_for(duration).age_at(depth), previous.age_at(depth))
 
+    def test_short_glass_spreads_the_first_arrivals_and_recovers_steady_flow(self):
+        for duration in (1., 2., 5., 15.):
+            half = inner_width(duration, 2 * B13_REFERENCE_RADIUS) / 2
+            bulk = hourglass_transit(duration, half)
+            clear = bulk.age_at(2. * B13_REFERENCE_RADIUS)
+            age = .75 * clear
+            lanes = np.array([0., -.35, .50])
+            jitter = np.array([1., -.70, .25])
+            expected, _ = bulk.motion(age, lanes, jitter, 500., 1.)
+            early, _ = bulk.motion(age, lanes, jitter, 500., 1., birth=0.)
+            steady, _ = bulk.motion(age, lanes, jitter, 500., 1., birth=clear)
+            np.testing.assert_array_equal(steady, expected)
+            self.assertEqual(early[0], expected[0])
+            if duration < 5.:
+                self.assertTrue(np.all(early[1:] > expected[1:]))
+            else:
+                np.testing.assert_array_equal(early, expected)
+            births = np.array([0., .5*clear, clear])
+            batch = bulk.motion(age, lanes, jitter, 500., 1., birth=births)
+            single = [bulk.motion(age, x, j, 500., 1., birth=b) for x, j, b in zip(lanes, jitter, births)]
+            np.testing.assert_allclose(batch, np.transpose(single), rtol=0., atol=1e-9)
+
     def test_user_selected_intermediate_periods_join_both_ends_continuously(self):
         periods = (5., 5.000001, 6., 10., 15., 20., 29.999999, 30., 50.)
         for depth in (2., 130., 435.):

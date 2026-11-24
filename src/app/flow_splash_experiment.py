@@ -1,65 +1,13 @@
-"""飞溅层的**批处理渲染器** —— 外部评审 youhua1.md §3.1 的方案(2026-10-07)。
+"""按槽位批量绘制飞溅颗粒，每个槽位占用四个顶点与四个边界纹素。"""
 
-## 为什么
-
-设备实测(临时把飞溅数封顶 400 跑同一轮 benchmark): 飞溅层值 **4.01ms/帧**
-(物理 −1.35 / 图元 −1.04 / Canvas −1.62), 是当前最大的单点。
-现状是 **1800~2600 个独立 `Rectangle`**, 每个每帧都要走
-属性写入 → `flag_data_update` → `build()` → 顶点上传。
-
-## 方案(与沙流同源的"参数纹理 + 静态网格")
-
-飞溅是**同色、轴对齐的小矩形**, 只是尺寸不同 ⇒ 完全可以批处理:
-
-- **静态顶点**: 每槽 4 顶点 / 6 索引, 顶点的 `(x, y)` 直接就是角点选择子
-  `(ax, ay) ∈ {0,1}²` —— 拿去 `mix` 左右/上下边界。**索引和顶点都只建一次**。
-- **动态数据**: 每颗 4 个 float(`left, bottom, right, top`), **16 字节**,
-  **直接写 IEEE754 float32 的原始字节** —— 纹理是 RGBA8, 一个 float32 正好一个纹素。
-  Python 侧**不需要编码器**(沙流就是这么做的: `astype('<f4').tobytes()`)。
-- **着色器**: 从一个槽的 4 个纹素里还原四个边界, 再按 `vPosition` 选角。
-- **分块**: 复用沙流的 `CHUNK = 512`。512 槽 × 4 纹素 = **2048×1** 的纹理。
-
-## 与沙流方案的差异
-
-| | 沙流 | 飞溅 |
-|---|---|---|
-| 每颗粒参数 | 3 个(`x, bottom, top`) | 4 个(`left, bottom, right, top`) |
-| 顶点数/颗 | 20 / 54 索引(宽线圆头帽) | **4 / 6 索引** |
-| 每颗动态字节 | 12 | 16 |
-
-## 安全
-
-- **默认不启用**。`HG_SPLASH_RENDERER=batch` 才装, 装不上/编译失败**自动退回**原 `Rectangle` 路径
-  (与沙流渲染器的回退同理: 报错发生在**画布构建时**, 外面包不住, 所以先探测能力)。
-- ⚠️ 设 uniform 必须用 `context["名字"] = 值` —— `context.shader[...]` 是 Kivy **2.3.1** 才有的,
-  设备上是 **2.3.0**, 写了会在画布构建时 TypeError, 表现为 app 一启动就死。
-"""
-
-import math
+from array import array
 import os
-# ---------------------------------------------------------------------------
-# 诊断开关一律用**标记文件**(不是环境变量)!
-#   🔴 **安卓上的 app 读不到宿主 shell 的环境变量** —— `HG_*` 那一整套开关在桌面有效,
-#      在设备上**一律取默认值**。2026-10-07 我拿 `HG_NO_BLIT=1 bash src/tools/_one_bench.sh`
-#      量了半天"砍光纹理上传能省多少", 量出来的差 (2.89→2.83ms) **全是噪声** ——
-#      那次上传**根本没被跳过**(变量只存在于 Windows 的 shell 里)。
-#      要在设备上做单变量对照, 只能写**标记文件**(app 私有目录, 与 `prof.on` 同一套):
-#          adb shell touch /data/data/org.shalou.hourglass/files/app/blit.off   # 开(要重启)
-#          adb shell rm    /data/data/org.shalou.hourglass/files/app/blit.off   # 关
-#   ⚠️ 桌面**两种都认**(环境变量优先), 免得改一次桌面流程。
+import sys
+
+from render_options import flag_present
+
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
-def _flag(env_name, file_name):
-    if os.environ.get(env_name):
-        return True
-    try:
-        return os.path.exists(os.path.join(_APP_DIR, file_name))
-    except Exception:
-        return False
-
-import sys
-from array import array
 
 try:
     import numpy as _np
@@ -234,11 +182,7 @@ class SplashBatch:
                 count = CHUNK
             part = self._ensure_part(chunk)
             mesh, _vertices, indices, texture, data, previous = part
-            # ★ **单一尺寸时把半宽提到循环外**(2026-10-07 性能, 设备实测本层共 **0.85ms**)。
-            #   `uniform_half` 由**调用方按配置**给出(main.py 的 `_splash_uniform_half`),
-            #   不在这里逐颗验证 —— 实测过: 逐颗验一遍的代价**正好等于省下的**, 白干。
-            #   ⇒ `len(SPLASH_SIZE_MIX) == 1` 时按构造**每颗尺寸必然相同**, O(1) 即可判定。
-            #   混合尺寸(该常量支持多项)时传 None, 自动退回逐颗读 `size`。
+            # 尺寸统一时可由调用方一次传入半宽、半高；混合尺寸逐粒读取。
             offset = 0
             if uniform_half is not None:
                 hw, hh = uniform_half
@@ -337,46 +281,8 @@ class SplashBatch:
                 part[0].indices = array("H")
                 part[5] = 0
 
-    def update_bounds_np(self, count, l, b, r, t):
-        """与 `update_bounds` 同语义, 但四个边界是 **numpy 数组** —— 打包也走 numpy。
-
-        颈部颗粒用(`update_arrays` 那套是"读数组算边界", 这里是"边界已经是数组")。
-        分块/索引只增不减/`PAD` 中性化/局部上传全部与 `update_bounds` 一致。
-        """
-        n = count if count <= CHUNK else CHUNK
-        if not self.parts and n == 0:
-            return
-        part = self._ensure_part(0)
-        mesh, _vertices, indices, texture, data, previous = part
-        if n == 0 and previous == 0:
-            return
-        if n:
-            blk = _np.empty((n, 4), dtype="<f4")
-            blk[:, 0] = l[:n]
-            blk[:, 1] = b[:n]
-            blk[:, 2] = r[:n]
-            blk[:, 3] = t[:n]
-            data[:n * 16] = blk.tobytes()
-        _upload = n
-        if n > previous:
-            mesh.indices = indices[:n * len(_INDICES)]
-            part[5] = n
-        elif n < previous:
-            data[n * 16:previous * 16] = PAD * (previous - n)
-            _upload = previous
-        if _upload:
-            # 上传走共用助手(`blit.rep`/`blit.wide` 两个量具旋钮; 默认等价于老写法)
-            flow_batch_experiment.blit_texture(
-                texture, data, _upload * TEXELS_PER_SPLASH)
-
     def write_bounds_raw(self, raw, off, count):
-        """把**已经算好**的边界字节(`raw`, 每条 16 字节)从第 `off` 条起写 `count` 条。
-
-        与 `update_bounds_np` 同语义, 只是四个边界由调用方**一次算完**。
-        理由与沙流那边一样: 颈部每帧有 ~11 个非空色调桶, 逐桶各建一个 `(n,4)` 数组、
-        各做 4 次列赋值、各 `tobytes()` 一遍 —— 而这四列本来就是同一次算出来的。
-        实测(桌面)这一段的省下量见 `_neck_sink` 的注释。
-        """
+        """写入从 off 开始的 count 组预计算边界，每组四个 float32。复用现有分块并清除上帧多出的图元。"""
         n = count if count <= CHUNK else CHUNK
         if not self.parts and n == 0:
             return
@@ -759,7 +665,6 @@ def install_neck(widget_class):
         pool = self._neck_grain_pool
         buckets = {}
         if count:
-            append = None
             for i in range(count):
                 color, line = pool[i]
                 pts = line.points
@@ -838,7 +743,7 @@ FLARE_SELECTORS = (0.0, 1.0, 3.0, 2.0)
 # 兜底路径不自己走出来对一遍, 就不知道它到底还能不能画(2026-10-07 自查发现:
 # 回滚时漏把 `_flare_group` 放回画布 ⇒ 闪光**无声消失**, 不崩不报错)。
 #     HG_SPLASH_RENDERER=batch HG_FLARE_RENDERER=batch HG_FLARE_FORCE_FAIL=1 #         python src/tools/inspect_flow.py --label fb --steady-period 15 --steady-frames 30
-FLARE_FORCE_FAIL = _flag("HG_FLARE_FORCE_FAIL", "flare_fail.on")
+FLARE_FORCE_FAIL = flag_present(_APP_DIR, "HG_FLARE_FORCE_FAIL", "flare_fail.on")
 _FLARE_ACTIVE_LOGGED = False
 
 # 诊断: **砍掉本模块所有"每帧上传"**(颈部批 / 飞溅 / 闪光)。只用来量"上传一共值多少毫秒",

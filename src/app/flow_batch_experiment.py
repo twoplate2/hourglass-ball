@@ -1,4 +1,4 @@
-"""Opt-in benchmark experiment; production keeps the original Line pools."""
+"""沙流批量绘制及纹理上传基准选项。"""
 
 from array import array
 import math
@@ -6,40 +6,10 @@ import os
 
 from kivy.graphics import Mesh
 
+from render_options import flag_present
 
-# ---------------------------------------------------------------------------
-# 纹理上传的诊断旋钮 —— **只给量具用, 出货路径一字不动**。
-#
-# 2026-10-07 那次 `blit.off` 消融把**整条 `blit_buffer` 调用**(调用 + 字节)一起摘掉了,
-# 所以手上只有"上传总共值 0.12~0.31ms" —— **分不开"每次调用的固定开销"与"每字节带宽"**。
-# 而这两者的结论**相反**, 决定要不要做纹理图集:
-#   per-call  ⇒ 把 13 次调用并成 ~4 次能拿到这笔钱 ⇒ 图集值得做;
-#   per-byte  ⇒ 图集要传整行 padding, **反而更慢** ⇒ 原地不动。
-# 先量清楚再动手。
-#
-#   blit.rep  = N    同一次上传**重复 N 遍**(载荷一字不变) ⇒ 与 rep=1 的差 / (N-1)
-#                    = **每次调用的价**。N 放大是必要的: 单次可能只有 10~20µs,
-#                    落在本机 ±0.2~0.4ms 的噪声里, 不放大根本读不出来。
-#   blit.wide = 1    每次上传都传**满整条纹理**(CHUNK*4 纹素) ⇒ 与 rep=1 比,
-#                   差 = **每字节的价**。两次调用次数完全相同 ⇒ 干净的单变量。
-#   blit.off  = 1    完全不传(= rep 0), 老开关, 语义不变。
-#
-# ⚠️ 三个旋钮都**只影响画面的新鲜度**(纹理停在上一帧), 不动帧循环的其余部分 ——
-#    与 `blit.off` 同理, **只能用来量钱, 不许当出货配置**。
+# blit.off 禁用上传，blit.rep 控制重复次数，blit.wide 上传整行纹理。
 _APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-
-def _flag(env_name, file_name):
-    """环境变量优先(桌面方便), 其次标记文件(**设备上唯一能用的那条**)。
-
-    🔴 安卓 app 读不到宿主 shell 的环境变量 —— 设备单变量对照只能写标记文件。
-    """
-    if os.environ.get(env_name):
-        return True
-    try:
-        return os.path.exists(os.path.join(_APP_DIR, file_name))
-    except Exception:
-        return False
 
 
 def _read_int(path, default):
@@ -52,7 +22,7 @@ def _read_int(path, default):
 
 
 def _blit_rep():
-    if _flag("HG_NO_BLIT", "blit.off"):
+    if flag_present(_APP_DIR, "HG_NO_BLIT", "blit.off"):
         return 0
     env = os.environ.get("HG_BLIT_REP")
     if env is not None:
@@ -64,7 +34,7 @@ def _blit_rep():
 
 
 BLIT_REP = _blit_rep()
-BLIT_WIDE = _flag("HG_BLIT_WIDE", "blit.wide")
+BLIT_WIDE = flag_present(_APP_DIR, "HG_BLIT_WIDE", "blit.wide")
 
 
 def blit_texture(texture, data, texels):

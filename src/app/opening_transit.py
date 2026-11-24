@@ -101,8 +101,8 @@ class OpeningTransit:
         lead_rate = self.steady_lead * 6. * u * (1. - u) / self.warm_span
         return FlowingTransit(self, lead, lead_rate)
 
-    def lane_factor(self, lane, jitter):
-        short = B13Transit.lane_factor(lane, jitter)
+    def lane_factor(self, lane, jitter, *, birth=None):
+        short = self.short_transit.lane_factor(lane, jitter)
         reference = 1. - .03 * lane**2 - .005 * (1. - jitter)
         return short + self.blend * (reference - short)
 
@@ -124,7 +124,7 @@ class OpeningTransit:
     def speed_at(self, age):
         return _interpolate(age, self.times, self.speeds, 0.)
 
-    def motion(self, age, lane, jitter, outlet, scale):
+    def motion(self, age, lane, jitter, outlet, scale, *, birth=None):
         factor = self.lane_factor(lane, jitter)
         t = age * factor
         return outlet - scale * self.depth_at(t), -scale * factor * self.speed_at(t)
@@ -141,7 +141,7 @@ class FlowingTransit:
         self.start_depth = curve.depth_at(lead)
         self.start_speed = curve.speed_at(lead)
 
-    def lane_factor(self, lane, jitter):
+    def lane_factor(self, lane, jitter, *, birth=None):
         return self.curve.lane_factor(lane, jitter)
 
     def age_at(self, depth):
@@ -150,7 +150,7 @@ class FlowingTransit:
     def depth_at(self, age):
         return self.curve.depth_at(self.lead + age) - self.start_depth
 
-    def motion(self, age, lane, jitter, outlet, scale):
+    def motion(self, age, lane, jitter, outlet, scale, *, birth=None):
         factor = self.lane_factor(lane, jitter)
         scaled_age = age * factor
         v = self.curve.speed_at(self.lead + scaled_age)

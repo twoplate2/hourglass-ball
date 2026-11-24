@@ -53,9 +53,14 @@ def _birth_material():
     packed_lanes = np.empty_like(lanes)
     packed_lanes[order] = (np.arange(BLOCK) + .5) * (2. / BLOCK) - 1.
     lip_shift = packed_lanes - lanes
+    # Neighbouring grains can start together, with individual grains leading
+    # their neighbours. Keep those offsets attached to the material as it falls.
+    release = np.roll(offsets, -541)
+    patch = np.interp(packed_lanes, np.linspace(-1., 1., 9), offsets[:9])
+    first_lag = (.70*release + .30*patch*np.minimum(1., 6.*release)) * (1. - .55*np.abs(packed_lanes))
     outer = np.clip((np.abs(lanes) - .48) / .46, 0., 1.) ** 1.3
     radius += .13 * np.maximum(0., 1. - (lanes / .68)**2)
-    return offsets, lanes, jitter, tone, radius, drift, slip, inward, outer, lip_shift
+    return offsets, lanes, jitter, tone, radius, drift, slip, inward, outer, lip_shift, first_lag
 
 
 def _pigment_depth(age, duration):
@@ -83,10 +88,18 @@ def _pigment_depth(age, duration):
             + (terminal-knee_speed) * relax * np.expm1(-later/relax))
 
 
-def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1, inlet_lift=0.):
+@lru_cache(maxsize=8)
+def _opening_pattern(seed):
+    rng = np.random.default_rng(seed)
+    phase_a, phase_b = rng.uniform(0., 2.*np.pi, 2)
+    return int(rng.integers(BLOCK)), phase_a, phase_b
+
+
+def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1, inlet_lift=0.,
+                  *, opening_seed=0):
     """Carry the first material with the nose; advect packed pigment behind it."""
     (offsets, lanes, jitter, tones, radii, edge_drift, slip,
-     inward, outer, lip_shift) = _birth_material()
+     inward, outer, lip_shift, first_lag) = _birth_material()
     width_ratio = half / REFERENCE_HALF
     settling = max(0., time - end)
     time = min(time, end)
@@ -94,7 +107,8 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     # At a shared speed a wider mouth emits more visible grains per second.
     rate = 100. * B13_TEXTURE_SPEED * width_ratio / grain_scale**2
     limit = max(0., gap if max_depth is None else max_depth) + inlet_lift + 2. * grain_scale
-    limit = min(limit, transit.depth_at(time * transit.lane_factor(0., 1.)) + grain_scale)
+    carrier_tip = transit.depth_at(time * transit.lane_factor(0., 1.))
+    limit = min(limit, carrier_tip + grain_scale)
     lifetime = (limit + 3.) / (B13_TEXTURE_SPEED * (1. - .09 - .012))
     # These are material coordinates of the established texture. Each also
     # has a moving carrier constraint, so it cannot enter ahead of the first batch.
@@ -106,38 +120,103 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     ids = (slot + block * 24317) % BLOCK
     birth = (serial + offsets[slot]) / rate
     lane = lanes[ids]
+    lane_speed = transit.lane_factor(lane, jitter[ids])
     age = np.maximum(0., time - birth)
     depth = _pigment_depth(age * slip[ids], end)
     # A short packet crosses the lip in longitudinal order. A lag is a
     # distance behind the first grain on its lane, not a new random draw per frame.
     head_length = 16. + .85 * half
-    width = .23 * head_length
-    if transit.depth_at(time * transit.lane_factor(1., -1.)) <= limit + head_length + width:
+    leading_depth = transit.depth_at(time * transit.lane_factor(1., -1.))
+    # Separate the first grains gradually after they leave the packed lip.
+    # The first packet and the following pigment share the same handover.
+    opened = min(1., max(0., (leading_depth-12.)/(2.5*head_length+half)))
+    opened *= opened * (3. - 2.*opened)
+    # Local slip below already opens gaps at the nose. Keep the rest of the
+    # packet closer together so the falling column carries its visible volume.
+    stretch = 1. + .08*opened
+    stagger = .80*half*opened
+    moving_length = stretch*head_length
+    width = .23*moving_length
+    pigment_count = len(serial)
+    if leading_depth <= limit + 4.*head_length + 3.*half:
         # Match each patch of interior pigment onto its advancing carrier
         # continuously where the packed first batch opens into the free jet.
-        join = head_length * (.48 + .52 * offsets[ids])
-        edge = transit.depth_at(time * transit.lane_factor(lane, jitter[ids]))
+        empty_flight = hourglass_transit(end, half).age_at(2.*REFERENCE_RADIUS)
+        release_span = min(head_length, 1.2*half) * min(1., empty_flight/.55)
+        join = moving_length * (.48 + .52 * offsets[ids]) + stagger * first_lag[ids]
+        join += .38*release_span*opened
+        edge = transit.depth_at(time * lane_speed)
         remaining = edge - join - depth
         blend = np.clip(.5 + .5 * remaining / width, 0., 1.)
         depth -= width * (1. - blend)**2 + np.maximum(-width - remaining, 0.)
         visible = offsets[(ids+127) % BLOCK] < blend
 
         density = rate / B13_TEXTURE_SPEED
-        front_ids = np.arange((-HEAD_ID_START) % stride, math.ceil(head_length*density),
-                              stride, dtype=np.int64)
-        keys = (front_ids + 14717) % BLOCK
+        packet_size = math.ceil(head_length*density)
+        front_ids = np.arange((-HEAD_ID_START) % stride, packet_size, stride, dtype=np.int64)
+        first_slot, phase_a, phase_b = _opening_pattern(opening_seed)
+        # Change the release order of the same material. A new round has the
+        # same number, sizes and lane distribution of available grains.
+        keys = ((front_ids + first_slot) % max(1, packet_size) + 14717) % BLOCK
         lag = (front_ids + offsets[keys]) / density
-        front = transit.depth_at(time * transit.lane_factor(lanes[keys], jitter[keys])) - lag
+        # Nearby leading grains share some slip but can overtake each other.
+        # Travel sets their phase continuously, including on dropped frames.
+        phase = max(0., leading_depth - 12.) / (12. + .34*half)
+        across = lanes[keys] + lip_shift[keys]
+        scatter = jitter[keys]
+        shift = (.16*np.sin(7.4*across + 1.30*scatter + phase + phase_a)
+                 + .10*np.sin(12.3*across - 1.10*scatter - .83*phase + phase_b)
+                 + .12*across*np.sin(.58*phase + phase_b))
+        # Give the first layers room to separate in free flight. Material
+        # spacing is independent of lane speed; nearby grains share some slip.
+        spacing = offsets[(keys+919) % BLOCK]
+        order = np.clip(lag/head_length, 0., 1.)
+        front_weight = (1.-order)**2
+        radial = abs(across)
+        release_lag = first_lag[keys] * (1. - .30*(1.-order)*radial)
+        release_lag += front_weight*((1.40 - 1.32*radial)*spacing + .11*radial**2)
+        delay = release_lag + front_weight*shift*np.where(shift > 0., 1., np.minimum(1.1, 1.8*release_lag))
+        interval = .60*min(head_length, 1.2*half)*(np.sqrt(order)-order)
+        separation = (1. - .80*radial)*opened*interval
+        front_lane = lanes[keys]
+        front_speed = transit.lane_factor(front_lane, jitter[keys])
+        # The earliest grains already have open space ahead of them. Let their
+        # neighbours fall progressively behind, without delaying first contact.
+        neighbours = np.minimum(1., lag/(grain_scale*(1.5 - .4*spacing)))
+        front = transit.depth_at(time*front_speed) - stretch*lag - neighbours*(separation + stagger*delay)
+        # Each grain keeps its place in the initial release. After it clears
+        # the lip the leading neighbours pull apart before those behind them.
+        material_lag = lag + neighbours*(.80*half*release_lag + interval)
+        face_weight = np.maximum(0., 1.-(material_lag/(3.8*half))**2)**3
+        spread = .35 + .48*radial + .20*offsets[(keys+143) % BLOCK]
+        extra_lag = material_lag*face_weight*spread + .82*release_span*order
+        # A monotone function of this grain's own travel keeps it falling
+        # forward even when the leading surface is much faster than the texture.
+        free = np.maximum(front-12., 0.)
+        opened_grain = free/(free + .30*half + .35*extra_lag)
+        front -= extra_lag*opened_grain**2
         fraction = np.clip((head_length - lag) / (.52*head_length), 0., 1.)
         active = ((front >= 0.) & (front <= limit) & (offsets[(keys+193) % BLOCK] < fraction))
-        serial = np.concatenate((serial[visible], HEAD_ID_START + front_ids[active]))
+        pigment = serial[visible]
+        pigment_count = len(pigment)
+        serial = np.concatenate((pigment, HEAD_ID_START + front_ids[active]))
         ids = np.concatenate((ids[visible], keys[active]))
         depth = np.concatenate((depth[visible], front[active]))
-        lane = lanes[ids]
-    lane_speed = transit.lane_factor(lane, jitter[ids])
+        # Only grains at the exposed face can fan out. Those behind them merge
+        # back into the jet rather than piling into a wider head as they overlap.
+        behind = (carrier_tip - front) / max(2.*grain_scale, .95*half)
+        exposed = np.exp(-behind**2)
+        splay = .28*np.sin(np.pi*front_lane) + .18*front_lane
+        front_lane = front_lane + opened*(1.-order**2)*(exposed*splay - .075*(1.-exposed)*front_lane)
+        lane = np.concatenate((lane[visible], front_lane[active]))
+        lane_speed = np.concatenate((lane_speed[visible], front_speed[active]))
     flight_age = transit.age_at(depth)
     lip_time = time - flight_age / lane_speed
-    keep = (depth > inlet_lift) & (lip_time >= -1.e-9) & (lip_time < end) & (depth <= limit)
+    released = lip_time >= -1.e-9
+    # The first packet already crossed its forward trajectory's lip test.
+    # Inverting an interpolated clock here can hide its very first grain for a frame.
+    released[pigment_count:] = True
+    keep = (depth > inlet_lift) & released & (lip_time < end) & (depth <= limit)
     serial, ids, lane, depth = (v[keep] for v in (serial, ids, lane, depth))
     if settling > 0. and depth.size:
         # Continue the exact grains that were in flight at cutoff. Their depth
@@ -165,7 +244,16 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     settle = np.clip((released - 24.) / 145., 0., 1.)
     lateral = lane - inward[ids] * settle
     near_lip = np.clip(1. - released / max(12., 3.0 * half), 0., 1.)
-    lateral += lip_shift[ids] * near_lip**2 * (3. - 2. * near_lip)
+    packed = near_lip**2 * (3. - 2.*near_lip)
+    after_contact = max(0., (leading_depth-gap)/(3.4*half))
+    if after_contact < 1.:
+        # The sand feeding the free face still occupies the mouth's lanes.
+        # Blend into that existing distribution as one goes up the column.
+        behind = np.clip((carrier_tip-depth-inlet_lift)/(2.*half), 0., 1.)
+        behind *= behind*(3.-2.*behind)
+        recovery = (1.-after_contact)**2*(1.+2.*after_contact)
+        packed += .48*(1.-packed)*behind*recovery
+    lateral += lip_shift[ids] * packed
     x = lateral * max(0., half - .40 * grain_scale) * narrow
     travel = 1. - np.exp(-np.maximum(0., depth - 12.) / 53.)
     contact = np.clip((gap - depth) / 21., 0., 1.)
@@ -501,7 +589,7 @@ def install(widget_class):
         deepest = (outlet - surface_y.min()) / scale
         _, opening, lift = w._sand_neck.opening(time)
         grains = sample_grains(time, end, half, gap, grain_scale, deepest,
-                               getattr(stream, "stride", 1), lift/scale)
+                               getattr(stream, "stride", 1), lift/scale, opening_seed=w._opening_seed)
         if opening and opening[-1][0] < w._taper["t_in"]:
             inside = np.abs(grains.x) <= opening[-1][0]/scale
             grains = Grains(*(values[inside] for values in grains))

@@ -33,6 +33,21 @@ def model():
 
 
 class MoundBlendTests(unittest.TestCase):
+    def test_nearly_full_shoulders_keep_sloping_out_to_the_glass(self):
+        ns, w = model()
+        for landed in (.95, .97, .985):
+            w._sand_landed = landed
+            ns['_sync_mound_frame'](w)
+            profile = w._mound_profile
+            for side in (-1., 1.):
+                r = side * profile.radius
+                inner_drop = profile.shape_at(.43*r) - profile.shape_at(.51*r)
+                shoulder_drop = profile.shape_at(.53*r) - profile.shape_at(.61*r)
+                with self.subTest(landed=landed, side=side):
+                    self.assertGreater(inner_drop, 0.)
+                    self.assertGreater(shoulder_drop, .30*inner_drop)
+                    self.assertLess(shoulder_drop, 1.8*inner_drop)
+
     def test_first_deposits_have_shallow_slopes_and_keep_their_volume(self):
         ns, w = model()
         slopes = []

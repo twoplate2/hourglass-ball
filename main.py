@@ -16,10 +16,9 @@ import math
 import os
 import random
 import struct
-from array import array
 from collections import deque
 from bisect import bisect_left as _bisect_left
-from bisect import bisect_right, insort as _insort   # 面积表求逆 / 沙堆节点插入
+from bisect import bisect_right
 import sys
 import time
 import wave
@@ -113,7 +112,8 @@ class _FlowView:
         return self._lazy("_wp", self.nwp)
 
 
-_SRC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_SRC_DIR = os.path.join(_APP_DIR, "src")
 _RUNTIME_DIR = os.path.join(_SRC_DIR, "app")
 for _module_dir in (_SRC_DIR, _RUNTIME_DIR):
     if _module_dir not in sys.path:
@@ -129,23 +129,12 @@ except Exception as _exc:                    # 别静默: 退回标量循环时�
 import gc
 
 from app.app_version import APP_VERSION
+from render_options import float_option, marker_text
 from app.stream_rendering import trail_length
 from app.keep_awake import KeepAwake
 
-# ---- 生产: 关掉 Kivy Clock 的软件节拍(仅 Android) ----
-# kivy/clock.py `ClockBaseBehavior.idle()` + `_check_ready`(实测 resolution = 1/(3*fps)):
-#   done = (sleeptime - 4/5*min_sleep <= min_sleep),  sleeptime = 1/fps - 本帧已耗时
-#   => 本帧耗时 W >= 0.4/fps 才不睡; W < 0.4/fps 时帧间隔被顶到 (11/15)/fps, 与 W 无关。
-#      maxfps=60  -> 悬崖 6.667ms, 台阶 12.222ms(逐帧直方图实测 12.1~12.6)
-#      maxfps=120 -> 悬崖 3.333ms, 台阶  6.111ms(实测 6.0~6.3) —— 只是把台阶挪近, 没取消
-#   台阶是"算得越快被顶得越死"; 且 6.111ms 在 165Hz 面板(vblank 6.06ms)上会掉一整帧。
-# maxfps=0 => idle() 整段跳过, 完全不休眠, 节拍交给 vsync。安卓的 buffer swap 必然等
-#   SurfaceFlinger 的 vblank, 所以 0 不会空转; 120Hz 机上 120 与 0 等价, 165Hz 机上 0 更好。
-# 只在 Android 生效: 桌面无 vblank 兜底, 设 0 会纯烧 CPU, 也会改掉测量工具的节拍。
+# Android 由垂直同步控制节拍，桌面沿用 Kivy 的帧率设置。
 from kivy.config import Config          # ⚠️ 必须在下面那个 if **之前**！
-# (2026-10-03 事故: 改这段注释时把这行 import 删了 ⇒ 1.40~1.46 七个版本在 Android 上
-#  启动即死 NameError: name 'Config' is not defined。桌面测不出来 —— 这行只在
-#  Android 分支执行, 而 ast.parse 只查语法不查名字。见 README 经验教训。)
 
 def _maxfps_path():
     """`maxfps` 标记文件的路径(**与 main.py 同目录**)。
@@ -197,7 +186,7 @@ if "P4A_BOOTSTRAP" in os.environ or "ANDROID_ARGUMENT" in os.environ:
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.text import LabelBase, Label as CoreLabel
+from kivy.core.text import LabelBase
 from kivy.core.window import Window
 from kivy.graphics.texture import Texture           # 沙体材质要用(见 _SandMaterial)
 from kivy.graphics import (BindTexture, Color, Mesh, Rectangle, Line, Ellipse, Quad,
@@ -213,12 +202,11 @@ from kivy.uix.image import Image
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.slider import Slider
-from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import platform
 from app.frame_benchmark import (BenchmarkHoldArea, BenchmarkRunner, PERIODS,
                              BenchmarkFrameChart,
-                             format_benchmark_result, format_benchmark_report,
+                             format_benchmark_result,
                              benchmark_log_text, save_benchmark_log)
 
 
@@ -242,15 +230,7 @@ SAND_PRESETS = [
     ("黑沙", "#4a4540", "#2a2520", "#6a6560"),
 ]
 BG_COLOR = os.environ.get("HG_BG_COLOR", "#fdf6e3")
-# 🔴 **2026-10-10: 这两个改成读环境, 只为 `tools/_probe_column_alpha.py` 的"双背景差分"服务。**
-#    背景(为什么): 旧那把 α 尺把像素投影到 (背景→纯沙色) 连线上, 而 `sand_light` 的投影恰 = **0.854**
-#    —— 正好等于它当时当作 p10 目标的 0.855 ⇒ **它分不开"亮色不透明"与"真半透明"**
-#    ("把柱子调亮"就能让读数达标)。AP 两名专家各自按调色板算出 0.854 独立复现。
-#    新尺: 同一场景渲**两次**, 只改**柱背后那一层**(= 玻璃内腔填充), 解
-#        α = 1 − (P₁ − P₂)/(B₁ − B₂)      ← 沙色 S 被完整消掉
-#    **默认值逐字不变** ⇒ 出货行为零变化, 金标准基线不受影响。
-#    ⚠️ `GLASS_FILL` 在 5588 行被**捕获进局部**(玻璃壳烘焙) ⇒ 覆盖必须在**模块加载时**生效
-#      ⇒ 只能走环境变量(桌面探针能传), 不能在 redraw 里改。
+# 背景与玻璃填色可分别覆盖，便于双背景测量沙粒透明度。
 GLASS_FILL = os.environ.get("HG_GLASS_FILL", "#eaf3f8")
 GLASS_OUTLINE = "#5f6b70"
 
@@ -286,35 +266,12 @@ def _sand_material_probe():
         return "grain", False
 
 
-# 🔴 **`SAND_MATERIAL_FORCED` 不是装饰**: 启动时那段"从配置恢复材质"的守卫**只挡了环境变量**
-#    ⇒ 只写标记文件的话, 它在 `build()` 里被 `apply_sand_style(cfg['sand_mode'])` 覆盖回 grain,
-#    而**日志照样会打印出的 'flat'** —— 臂空转、看起来像"没差别"(2026-10-10 实际栽了一次,
-#    靠 `_build_dynamic_canvas` 那句 "GPU sand flow active" 仍然出现才发现)。
-#    现在: 环境变量**或**标记文件任一存在 ⇒ 一律不读配置。
+# 环境变量和标记文件指定的材质优先于已保存的设置。
 SAND_MATERIAL, SAND_MATERIAL_FORCED = _sand_material_probe()   # grain | flat(退回旧平色)
 
 
 def _neck_marker(name):
-    """`<app>/<name>` 标记文件非空 ⇒ True。⚠️ 目录是 `dirname(main.py)` = `<app>/`。
-
-    🔴 **只在 import 时调一次**(见下面几个缓存的常量) —— 它每调一次就是一次 `open()`,
-       而 `_neck_log_on()` / `_neck_nouv_on()` 都在 `redraw` 的**热路径**上。每帧开一次文件
-       是白扔几十微秒。
-    """
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               name), "r") as fh:
-            return fh.read().strip() not in ("", "0")
-    except Exception:
-        return False
-
-
-NECK_LOG_ON = _neck_marker("necklog")
-
-
-def _neck_log_on():
-    """诊断开关: `<app>/necklog` 非空 ⇒ 每秒打一行颈部节点表。**import 时读一次就缓存。**"""
-    return NECK_LOG_ON
+    return marker_text(_APP_DIR, name) not in (None, "0")
 
 
 NECK_NOUV_ON = _neck_marker("necknouv")
@@ -324,56 +281,19 @@ NECK_MOUNDSHAPE_OFF = _neck_marker("neckmshape")
 NECK_CARVE_OFF = _neck_marker("neckcarve")
 NECK_RECTS_OFF = _neck_marker("neckrects")
 NECK_MISC_OFF = _neck_marker("neckmisc")
-NECK_DUMP_ON = _neck_marker("neckdump")
-NECK_GEOM_ON = _neck_marker("neckgeom")
 NECK_FREE_OFF = _neck_marker("neckfree")
 NECK_MARKER_OFF = _neck_marker("markeroff")
 NECK_ABL5_OFF = _neck_marker("abl5")
 NECK_POOL_OFF = _neck_marker("pooloff")
 NECK_FREE_ONTOP = _neck_marker("freeontop")
 MAT_OVER_ALPHA = 0.62   # 材质铺层的透明度(见 _mat_over_rect)
-# 🔴 **2026-10-10: 出货默认关。** 用户判词「你tmd直接把沙柱下落的间隙/沙子给删了」——
-#    这一层把粒子流整个盖住, 等于删掉"看得见沙在落"这件事(项目红线)。
-#    要试仍可显式打开: `matover` 标记文件。
-#    (上面那行"出货默认开"是 2.33 当天的注释, 已被 2.34 的回退取代。另: `nomatover`
-#     这个名字**全仓库没有任何代码读它**, 别再照它写脚本。)
 NECK_MAT_OVER = _neck_marker("matover")
 
-# 🔴 **2026-10-10: 出口以下的沙柱是否单独画在 context 外面。**
-#    默认 **False = 不分开** ⇒ 整条沙柱(上球 → 颈部 → 出口以下 → 在途沙前沿)全部走
-#    **同一个 `SandFlowContext` 沙流着色器** —— 用户要的「沙柱 + 颈部 + 上面都用
-#    一套渲染, 只是有所区别」。
-#
-#    原来为什么分开(2.32 / `96fe150`): 量到"出口以下只有 27.4% 实心", 读成
-#    "那几段根本没被画出来", 于是搬出 context 换普通纹理四边形(89.4%)。
-#    🔴 **2026-10-10 重测推翻了那条结论**: 真清空 `_neck_free_band`(标记 `neckfree`)
-#    ⇒ 出口以下那一段从 **57/57 沙色像素掉到 0/57**(PC 400×875 / 10s / t=7.40),
-#    它**画满了整条出口以下的柱子**; 记录里"净贡献 1px / 出不了像素"是无效测量。
-#    而 27.4% 是**二值洞与渐入都还没加**时的旧数(见 `sand_hole_ramp` 的注释)。
-#
-#    回退: 标记 `outsplit` ⇒ 恢复 2.34 的行为(出口以下走普通纹理四边形)。
+# 独立绘制出口下方的材质带时，要与颈内段在出口处对齐。
 NECK_OUT_SPLIT = _neck_marker("outsplit")
 
 
-def _neck_nouv_on():
-    """**只切颈部四边形 uv 支路**(材质照旧在场) —— 用来把"uv 写错了"与"纹理没绑上"劈开。
-
-    结论(2026-10-10 实测): **关掉它没有任何变化**(出口以下仍是 2~9px 的碎段)。
-    ⇒ 颈部沙柱四边形在材质路径下**根本不是用普通纹理画的** —— 它们被建在
-    `neck_flow`(一个 `RenderContext`)里面, 走的是**沙流着色器**。
-    ⚠️ 但**别把结论写成"是 coverage 把它抹掉的"**: 随后把着色器里的打散
-    (`sandedgemul=0`)与二值洞(`holeth=-1`)**两项一起关掉, 出口以下还是 27%**
-    ⇒ 那几段**根本没被画出来**。真正的判据是 `neckout=1`(整条移出 context):
-    出口以下 **27.4% → 89.4%**(= 材质关掉的对照值)。修法见 `_neck_free_band`。
-    留着这个开关只作以后排查用。
-    """
-    return NECK_NOUV_ON
-
-
-# 出口以下"打散"的渐入长度, 单位 = **颈管高的倍数**(用户口径: 「不用超过瓶颈高度的 2 倍,
-# 或者 1 倍」)。0 = 旧行为(出口那条横向分界线原样在)。
-#     adb shell "echo 1.0 > /data/data/org.shalou.hourglass/files/app/freeramptubes"
-#     adb shell rm  /data/data/org.shalou.hourglass/files/app/freeramptubes
+# 出口以下颗粒逐渐散开的距离，以颈管高度为单位。
 def _neck_free_ramp_tubes():
     _v = os.environ.get("HG_FREE_RAMP_TUBES")
     if _v:
@@ -386,12 +306,6 @@ def _neck_free_ramp_tubes():
                                "freeramptubes"), "r") as fh:
             return max(0.0, float(fh.read().strip() or 0))
     except Exception:
-        # 🔴 **2026-10-10 出货默认 0.0 → 1.0**(= 1× 直筒高; 用户口径「不超过瓶颈高度的 2 倍」)。
-        #    设备实测(1080×1920 / MuMu / 同一状态, 柱内高频 std 中位):
-        #        2.34(出口以下是普通纹理)      **2.53**   边缘硬、实心, 但词汇与上球不同
-        #        2.36(走着色器, ramp=0)         **5.81**   两边糊出白毛、出口处一团糊
-        #        2.36 + ramp=1.0 + core=0.85    **4.34**   边缘干净 + 上球那套细颗粒  ← 选定
-        #    ⇒ 打散**必须按深度渐入**, 否则出口那一行瞬间满功率 ⇒ 糊。
         return 1.0
 
 
@@ -400,46 +314,13 @@ NECK_FREE_RAMP_TUBES = _neck_free_ramp_tubes()
 SAND_MATERIAL_SIZE = 512        # 512² ⇒ 球内径 800px 时约 1.56 px/纹素
 SAND_MATERIAL_GRAIN = float(os.environ.get("HG_SAND_GRAIN", "0.35"))   # 颗粒强度(浓度)
 
-# ---- 「沙体颗粒」六档 (A-F) ----------------------------------------------
-# **2026-10-05 用户在对照图里逐档比过、选定 D 为默认**(隐藏菜单可改)。
-#   (标签, 竖向明暗强度, 颗粒粗度倍数)
-#   对照图: `_shot/sandmat/sandmat_full.png` / `sandmat_upper_1to1.png`
-#   ⚠️ 与「沙子浓度」滑杆是**两个不同的旋钮**: 滑杆调 `SAND_MATERIAL_GRAIN`(强弱),
-#      这里调的是**明暗落差**(grad)与**颗粒粗细**(coarse)。用户 2026-10-05 的原话:
-#      "第一个没有任何意义吧, 因为我可以在设置中设置啊" —— 那句是把两者当成同一个了,
-#      实测滑杆到不了这里的任何一档 ⇒ 故单独做成档位。
-#   ⚠️ 标签用**数字 1-6**(用户 2026-10-05: "你的选择应该是用数字, 而不是 abcd")。
-#   ⚠️ **2026-10-05 重定**: 原表 1/2/3 只差"明暗落差(grad)" —— r17-1号 在设备上逐档整幅差分,
-#      查出「1 vs 2」「2 vs 3」在沙体区域 **0 个像素 > 15 级**, 「4 vs 6」整幅只有 1 个像素 > 8 级
-#      ⇒ **六档实际只有三种画面, 三个按钮是摆设, 标签还在骗人**。
-#      主持人事后用 `tools/verify_grain_levels.py` 复现并获得决定性结论:
-#      **grad 这条维度根本走不通** —— 加到 1.0/2.0/3.0(已饱和) 可见占比也只有 0.06%/0.84%/0.00%,
-#      因为沙色调色板 base→light 只有十几级, 再大的渐变也翻不出可见差。
-#      ⇒ 改成**只有"颗粒粗细"一条维度**的梯子(1 最细 → 6 最粗), 每个相邻对都实测可见。
+# 沙体颗粒档位依次给出标签、纹理浓度与颗粒尺寸。
 SAND_GRAIN_LEVELS = (
     ("1", 0.10, 1.0), ("2", 0.10, 1.4), ("3", 0.10, 1.8),
     ("4", 0.10, 2.2), ("5", 0.10, 2.6), ("6", 0.10, 3.0),
 )
-# 🔴 **2026-10-06 用户实测反馈: 「本来还凑合 … 新版本的很奇怪, 好像需要很低的数值
-#    才能达到之前比较高数值的效果」** —— 说的是**准的**, 原因在版本史里:
-#      1.99  引入六档: 粗度 = 1,1,1,2,3,2 (最高 3 倍), 另有一维"明暗落差" grad
-#      1.100 判定 grad 是**假档**(1/2/3 三档画出来一样) ⇒ 删掉那一维,
-#            顺手把粗度铺成 1..6 ⇒ **上限从 3 倍变成 6 倍**
-#    ⇒ 同一个"4", 旧版 = 粗 2, 新版 = 粗 4 ⇒ 想要旧的样子只能选很低的数字。
-#    **修法: 六档保持六个不同的档(不回到假档), 但把粗度区间压回 1→3**,
-#    这样"4"≈ 旧的"4"(2.2 vs 2)、"6"≈ 旧的"5"(3.0 vs 3) —— 手感回到"还凑合"那版。
-#    ⚠️ 粗度在 `_coarsen_noise` 里是**除数**(`size / coarse`) ⇒ 小数合法。
-# ⚠️ **「沙体颗粒」表的版本号** —— 这张表的"含义"改过一次(2026-10-05 grad→只看粗细),
-#    同号的档已经不是同一个东西 ⇒ 对不上就回落默认, 免得用户存的"3"被静默换成另一种颗粒。
-# ⚠️⚠️ **只锁这一张表!** 第一版把它做成了"两把锁共用一把"(`levels_rev` 同时管 grain 与 rough),
-#    而 **rough 表的含义从来没变过** ⇒ **用户明确选过的 rough=4 被一起作废、静默降到 3(降 33%)**。
-#    这是 r18-1号 2026-10-05 在设备上查出来的 —— **静默改用户设置**, 比不改还糟。
+# 调档表时递增修订号，以便识别旧存档中的档位。
 SAND_GRAIN_REV = 3
-# 🔴 **2026-10-07 用户要求: 出厂默认改成 3**(此前是 1)。
-#    「新增改动2: 默认沙子颗粒和起伏 都默认选择档次3」—— 这是**用户明确指定**的, 与下面
-#    rough 表那条"静默改用户设置"的教训**不是一回事**(那条是主持人顺手改、没告知)。
-#    ⚠️ 表意提醒: 本表 1.100 之后把粗度区间压回了 1→3, 所以 "3" = 粗度 1.8(不是 6 档里的中值 2.2)。
-#    ⚠️ **改出厂默认 ≠ 改用户已存的档**: 配置里已有值时**以配置为准**, 老装机不会被动改变。
 SAND_GRAIN_LEVEL_DEFAULT = "3"
 #   ⚠️ 档号变了: 用户 2026-10-05 说的 "C(=3)" 在原表里是"细颗粒", 新表里**细颗粒 = 1**。
 #      观感保持不变, 只是号码从 3 挪到 1 —— 已在给用户的汇报里写明。
@@ -454,13 +335,6 @@ SURFACE_ROUGH_LEVELS = (
     ("1", 0.0014), ("2", 0.0025), ("3", 0.0040),
     ("4", 0.0060), ("5", 0.0080), ("6", 0.0120),
 )
-# ⚠️ **默认曾经 = 4**(设备 ≈5.35px) —— 那是**用户 2026-10-05 亲口选的那一档**。
-#    1.100 里被主持人在"改颗粒表"的同一次编辑中**顺手改成了 3**, 提交说明里没提,
-#    表头上方注释还写着"≈5.35px" —— 代码与注释互相矛盾, 而且静默改了用户的值。
-#    r18-1号 在设备上逐条比对 git 才查出来。**当时改回了 4。**
-# 🔴 **2026-10-07 用户明确要求: 出厂默认改成 3**(「默认沙子颗粒和起伏 都默认选择档次3」)。
-#    ⇒ 规则**不是"不能改", 是"不许静默改"**: 用户开口了就照办, 并在这里写明是谁在何时要的。
-#    ⚠️ 改出厂默认 ≠ 改用户已存的档 —— 配置里已有值时**以配置为准**, 老装机不会被动变。
 SURFACE_ROUGH_LEVEL_DEFAULT = "3"
 
 
@@ -521,11 +395,6 @@ SAND_MATERIAL_GRAD = float(os.environ.get("HG_SAND_GRAD", str(SAND_MATERIAL_GRAD
 SAND_MATERIAL_COARSE = float(os.environ.get(
     "HG_SAND_COARSE", str(SAND_MATERIAL_COARSE)))
 SAND_MATERIAL_SHADE = 1.0       # 宏观明暗强度
-# 🔴 **2026-10-11 新增: 「沙流断续」档位(用户要求「把这个搞个参数, 写入设定」)。**
-#    档位表与覆盖逻辑在材质模块里(`tools/sand_flow_material.py` 的 `CLUMP_LEVELS`),
-#    这里只做**惰性转发** —— `sand_flow_material` 是运行时才 import 的(与 `flow_numpy` 同一套)。
-#    ⚠️ 优先级: **环境变量/标记文件 > 设置项档位 > 内置默认**(在材质模块的 `_flag_float` 那条链上),
-#      所以设备上的单变量对照臂不会被用户在菜单里点过的档位搅乱。
 CLUMP_LEVEL_DEFAULT = "自然"
 
 
@@ -561,29 +430,6 @@ def clump_level_labels():
         return _sfm.clump_level_labels()
     except Exception:
         return (CLUMP_LEVEL_DEFAULT,)
-
-
-# 档位说明(菜单那行右边的灰字): 量出来的面积占比, 不是形容词。
-_CLUMP_LEVEL_HINT = {"实柱": "缝 0%", "自然": "缝 2~5%", "断续明显": "缝 7~11%"}
-
-
-def _clump_level_hint(label):
-    return _CLUMP_LEVEL_HINT.get(label, "")
-
-
-def _clump_level_pairs(label):
-    """切档时写进 live uniform 的 `[(uniform, 值)]`。
-
-    ⚠️ **必须写整组**(见材质模块 `_CLUMP_KNOBS` 那段 bug 记录): 只写"该档覆盖的几项"时,
-    从「断续明显」切回「自然」(空覆盖表)会什么都不写, uniform 残留在上一档。
-    ⚠️ **有环境变量/标记文件覆盖的旋钮会被跳过**(`live_clump_knobs`): 否则在设备上
-    点一下档位就盖掉了正在跑的对照臂 —— 独立验证查出的运行期洞。
-    """
-    try:
-        import sand_flow_material as _sfm
-    except Exception:
-        return ()
-    return tuple(_sfm.live_clump_knobs(label))
 
 
 def _up_scroll_mode():
@@ -630,80 +476,16 @@ SAND_SURFACE_FADE = 14.0    # 沙体薄于这个厚度就按比例减弱
 #    沙面一离开球顶就恢复: 高度跌 6px 只要 t≈0.0014(1s 档 1.4ms), 观感上是瞬间的。
 SAND_BAND_APEX_FADE = 6.0
 
-# ---- 沙面塑形: **已回退**(2026-10-04 用户裁决) ------------------------------------
-# 试过"静态粗糙度 + 排水漏斗"(1.60/1.61), 依据是对抗评审的"位移是相对量、沙面下落时
-# 每个凹凸跟着走 ⇒ 是可被追踪的特征"。**实测正相反**: 形状固定不变、只是整体平移,
-# 读成"一张图在平移"; 用户原话"完全没有变化, 每次都是这样, 还不如平面"。
-# ⚠️ 评审看的是**单帧裁图**, 而这个问题只有**跨时间**才看得出来 —— 同模型 panel 的共享
-#    盲区, 也是"知觉判断只能由用户裁"的又一个实例。
-# ⚠️ 下球的靠壁裙边(见下)保留: 它只在靠壁抬起、且不加粗糙度。
-# 下球沙堆的形状: **休止角锥面(堆)**, 不是平顶的"水位线" —— 2026-10-04 用户实拍
-# 「下面的这个沙子的形状完全不符合物理学吧」「简化版本的也不符合」。
-#
-# 球内局部坐标(x=0 中轴, y=0 球内底, R=内半径, D=2R):
-#     B(x) = R - sqrt(R²-x²)                  圆内底
-#     U(x) = R + sqrt(R²-x²)                  圆内顶
-#     P(x) = a - m·max(0, |x| - b)            未裁剪堆面(**a 是虚拟锥顶高度**)
-#     H(x) = clamp(P(x), B(x), U(x))          该列**接触高度**(粒子/尘埃判定用)
-#
-# ⚠️ 下面这六个坑是第一版实现踩的, 由外部专家 2026-10-04 逐条定位(`xingzhuang2.md` §2):
-#   ① a 是**虚拟**高度, 可以高于球顶(可见部分由球裁剪) ⇒ 二分上界不能写 2R;
-#   ② 平台半宽 b **不许**跟着"旧平顶弓形在该高度的弦宽"收缩 —— 那会在末期缩到 0.5px,
-#      沙堆反而变尖、结束时会"倒退缩水"; b 由**落束覆盖范围**定, 随几何一起重建;
-#   ③ 目标面积与候选面积必须**同一套离散口径**(解析圆弓 vs 25 列采样差 ~0.9%,
-#      最后一小条永远填不上) ⇒ 都用同一张面积表算;
-#   ④ 绘制折线必须**经过 ±b 转折点**, 且与碰撞/装饰共用同一份定义(不许三处各写一遍);
-#   ⑤ 放开 a>D 之后 UV 不能按高度截取, 否则颗粒被纵向拉伸 ⇒ 下球改成固定 D×D 全 UV + carve;
-#   ⑥ 形状缓存不能只认 elapsed(暂停时改尺寸/换周期 → 几何变了而时间没变)。
-#
-# ⚠️ **平台是碰撞接口的约束, 不是审美**: 粒子主流用的碰撞面是**一个标量**
-#    `get_mound_top_y()`(见 update_particles / flow_numpy 的 `mound_top`)。只要落点满足
-#       |x| ≤ b  且  B(x) ≤ a ≤ U(x)
-#    标量就与可见面严格重合。**第三条在接近满球时必然失效**(圆顶各点高度不同) ⇒
-#    专家 §5.2 摆了两条路: A=保平台钉住落束(末期满球时是近似), B=主流也按 H(x) 取接触高度。
-#    **2026-10-04 起改走 B**(用户裁决平台不合理 + 专家 dingbu.md §7):
-#      只画尖顶而碰撞仍用 `y <= mound_top`, 会出现"颗粒在斜坡上方消失 / 钻进沙堆还可见"。
-#      A 是"用外观迁就旧接口", 现在接口跟着外观走。B 是碰撞接口变更 ⇒ 标量路径、
-#      numpy 路径、命中回放三处必须同公式(见 tools/test_physics_equiv.py)。
-MOUND_REPOSE_SLOPE = 0.60   # 休止角 tanθ ≈ 0.60 (≈31°); 专家: 只是当前风格的初值, 不是定律
-# ---- 沙面形状: 取消平台, 改"微不对称尖堆 + 受限微粗糙"(外部专家 dingbu.md §3) ----------
-# 用户裁决:「下面的沙子顶部是一个平台 这个绝对不合理, 哪怕是一个不太规则的随机锥形都不比
-# 这个合理」。原先的平台半宽 = 1.8 × 管内壁半宽(≈120px @手机), 是为了让**标量碰撞面**
-# `get_mound_top_y()` 与可见面严格重合才引进的折中 —— 现在形状优先, 碰撞改成按 x 查 H(x)。
+# 堆面采用略不对称的双坡，绘制和碰撞按同一横坐标取高度。
 MOUND_SLOPE_L = 0.58        # 左坡斜率(专家 §3.1 建议 0.58/0.62 —— 故意不对称, 破镜像)
 MOUND_SLOPE_R = 0.62
 MOUND_SHAPE_NODES = 65      # 表面轮廓控制点数(奇数 ⇒ 第 32 点正好在中心轴上, 画得出尖顶)
 # 🔴 沙堆**接触高度查找表**的采样数(见 `update_particles` 的飞溅段, 2026-10-06 性能)。
 #   257 ≈ 4× 控制点数 ⇒ 线性插值的误差远小于 1px; 表本身每帧只建一次。
 CONTACT_TABLE_N = 257
-# ⚠️ **两个旋钮必须一起抬**(2026-10-05 dingbu2.md §4 取证): 幅度 = min(FRAC·2R, 限坡)。
-#    限坡 = `SMOOTH × min(斜率) × Δx`, 而 Δx = R/32 ⇒ 限坡 ∝ R, 与 FRAC·2R 同量纲。
-#    令两者相等得 `SMOOTH_crit = 103.2 × FRAC`:
-#      FRAC=0.003 ⇒ crit=0.310; 而旧的 SMOOTH=0.25 < crit ⇒ **限坡恒生效**,
-#      幅度被钉成 `R × 0.01938 × SMOOTH`, **与 FRAC 完全无关**。
-#    实测(取证 AI 在 R=445.5 上跑): FRAC = 0.0025/0.003/0.004/0.006/0.01/0.05
-#      ⇒ 幅度**全部** 2.1588px, 数组逐位相同, 渲染**逐像素 0 差异**。
-#    ⇒ **FRAC 是个死旋钮**, 过去任何"把粗糙度调大"的尝试都静默无效。
-#    现在: FRAC 提到 0.004(设备 0.004×891 = 3.56px), SMOOTH 提到 0.45 > crit=0.413
-#    ⇒ 限坡**退出约束**, 幅度直接由 FRAC 决定 = 可预测、不依赖 seed 的 peak/dif 比。
-#    幅度档位(设备 px, 总偏移 / 单点局部鼓包): 旧 2.16/0.98(A 档, 1:1 看成一条直线)
-#      → 新 3.56/1.62(介于评审的 B 与 C 之间); 评审的 C(4.32/1.97) 已"读起来是波浪",
-#      D(6.48/2.95) 是"明显锯齿山" —— 他自己划的红线, 不越。
 MOUND_ROUGH_FRAC = 0.004    # 粗糙幅度 = 0.004 × 直径
 MOUND_ROUGH_SEED = 20261004 # **固定** seed: 整轮不重抽(逐帧重抽 = 1.60/1.61 的"原地闪现"教训)
-MOUND_ROUGH_SMOOTH = 0.45   # 相邻差上限系数; 必须 > 103.2×FRAC 否则 FRAC 失效(见上)
-# 背景飞溅(用户 2026-10-05: "下面的沙子…飞溅效果现在还是没有…只有沙柱和沙堆尖头那一块")。
-# 实测: 在途飞溅 85~119 颗, 但 |dx| 中位只有 ±6px 而沙堆半宽 137px ⇒ **96% 挤在落点**。
-# 不是 splash 不工作, 是**它只在一个点上工作** —— 沙流落在一个点, 斜坡上没有生成源。
-# 这一层按"离落点越远越稀"补, 是**纯装饰**(不反向影响 elapsed)。
-# ⚠️ 会改变随机数调用序列 ⇒ 旧的"同 seed 逐像素对照"基线作废(有意的视觉改动)。
-# ★ 与周期无关的**水位**(用户 2026-10-06: 「和周期没有关系」)—— 这就是唯一那个数。
-#   520 = 用户说"有点少了"时的量; 现取 **700(+35%)**。要更多/更少只改这一个数。
-# 🔴 **2026-10-07 性能: 700 → 480**(用户 /goal: 「甚至可以牺牲少量表现」)。
-#   设备分段实测 `物理` 3.77ms 里的大头是**飞溅循环**(~1700 颗 × 纯 Python dict 读写),
-#   而飞溅的**在世数 = 生成率 × 寿命** ⇒ 直接按比例换时间。
-#   480/700 = −31% 的背景层(背景层约占生成量的一半) ⇒ 总颗数约 −15%。
-#   ⚠️ 这是**观感取舍**: 觉得稀了就把这个数调回去(一行)。
+# 背景飞溅和直接命中的飞溅分别计量。
 SPLASH_BG_RATE = float(os.environ.get("HG_SPLASH_BG", "600"))
 SPLASH_HIT_CHANCE = 0.50
 # 同口径仍用同一水位; 超细颈部按有效内宽缩放, 不按上球剩余量减弱。
@@ -757,33 +539,7 @@ def _splash_max():
 # 生效值(启动时定一次; 设备侧改它要重启 app —— 标记文件与 `flowrate` 同一套)。
 SPLASH_MAX = _splash_max()
 
-# ================== 飞溅的**弹道模型** —— 参数逐字取自 PC v4 ==================
-# 🔴 **依据**: `pc/hourglass_v4.py:1109-1118`(项目自定的"唯一真理")。v4 里飞溅**只有一种**,
-#   而且是**从落点向上弹出、走抛物线**:
-#       'x': p['x'](命中处),  'y': mound_top_y - 2,
-#       'vx': U(-35, 35),     'vy': U(-110, -55)      ← tkinter y 向下 ⇒ **负 = 向上**
-#   ⚠️ **v4 里根本没有"背景飞溅层"** —— `_draw_mound_surface` 是死代码, `draw()` 从不调用它。
-#     安卓版历史上加了那一层, 同时把命中层的 `vy` 改成了**朝下**(见 `_replay_hits` 里的旧注释)
-#     ⇒ 抛物线没了 + 一层沿整个坡撒的颗粒 = 用户 2026-10-06 的判词
-#     「**像打农药一样**」「**实际它是一个先喷射再抛物线**」。
-#   ⇒ 现在**两层共用同一个模型**(`_eject_splash`), 只有数量不同。
-#
-# `SPLASH_GAIN` = **唯一的夸张旋钮**。用户 2026-10-06:「有**适度的夸张表演性质**,
-#   看起来**凑合合理**即可, 不是做一个**极端的合理**, 否则这个玩具**完全没有尽头**」。
-#   同时乘在 vx/vy 上 ⇒ **弧高 ∝ GAIN²、射程 ∝ GAIN²**:
-#       1.0 = 逐字 v4(弧高 13px / 射程 17px) | 1.6 = 34 / 44 | 2.4 = 77 / 100
-#   ⚠️ "改前/改后要交回用户判"的那一类(观感决定) —— 出并排图用
-#      `HG_SPLASH_GAIN=1.0 / 1.6 / 2.4`。
-# ⚠️ **要移植的是"比例", 不是 v4 的绝对值** —— 闸门有一条
-#   `rebound cannot gain energy over the incoming grain`(飞溅速度必须 < 0.30 × 入射速度)。
-#   把 v4 的 `vx ±35 / vy 55~110` 换算到它自己的入射速度(≈400~600)正是 **0.09~0.28**
-#   —— 所以比例区间取 `U(0.10, 0.28)`。
-#   旧版真正输在两个地方: ① `vy` 是**朝下**的(抛物线没了); ② `min(110*motion_scale, ...)`
-#   那个**硬上限**(实测 94% 的颗粒被它钳住 ⇒ 不管砸得多狠, 飞溅永远是同一撮)。
-# ⚠️ **2026-10-06 用户裁决上调**: 「范围太窄…你范围提高就好了」「不要**全部靠下滑**,
-#   下滑距离小就行」 ⇒ **铺开必须来自发射本身**, 不能靠沿坡长滑。
-#   旧区间 0.10~0.28 实测只有 **11%** 的颗粒越过沙堆半宽的中点(用户看到的就是"只有一点点地方")。
-#   提到 **0.12~0.42** —— 仍**远低于物理界 1.0**(入射速度), 能量守恒不受影响。
+# 飞溅以局部撞击速度发射，角度、速度和重力控制各粒的弹道。
 SPLASH_SPEED_LO = float(os.environ.get("HG_SPLASH_SPD_LO", "0.12"))   # × 入射速度
 SPLASH_SPEED_HI = float(os.environ.get("HG_SPLASH_SPD_HI", "0.42"))
 # `SPLASH_GAIN` = **唯一**的夸张旋钮(乘在比例上)。⚠️ 拉到 ~1.07 以上会越过 0.30 的物理界、
@@ -795,46 +551,19 @@ SPLASH_ANGLE_MIN = float(os.environ.get("HG_SPLASH_ANG_LO", str(math.radians(30)
 SPLASH_ANGLE_MAX = float(os.environ.get("HG_SPLASH_ANGLE", str(math.radians(89.99))))
 SPLASH_HORIZONTAL_ANGLE_LIMIT = math.radians(60)
 SPLASH_LIFT_PX = float(os.environ.get("HG_SPLASH_LIFT_PX", "2"))  # 粗沙柱保留 2.9 的起点偏移。
-# ★ **每颗飞溅各有各的重力倍率** —— 用户 2026-10-06:「不同沙子的**轨迹是略有不同的**…
-#   可以重复, 但是**不要都是一个曲线**」。
-#   只靠角度/初速不同, 出来的仍是**一族标准抛物线**, 读起来同构。
-#   给每颗一个 `gd ~ U(LO,HI)` 当等效阻力(轻的飘、重的沉) ⇒ 每条曲线形状都不一样。
-#   ⚠️ 它**不改变出射速度**, 所以闸门那条"飞溅不能比入射快"不受影响。
 SPLASH_GRAV_LO = float(os.environ.get("HG_SPLASH_GRAV_LO", "0.62"))
 SPLASH_GRAV_HI = float(os.environ.get("HG_SPLASH_GRAV_HI", "1.55"))
-# ★ **飞溅颗粒的尺寸**(用户 2026-10-06:「颗粒度从 1x1 改成 2x2? 或者随机, 有 1x1 又有 1x2
-#   还有 2x2 的…现在感觉太密集、太细了」)。
-#   ⚠️ **两个独立的毛病, 一起修**:
-#     ① **尺寸没跟屏幕缩放** —— 专家实测: 同一份 1~2px 的颗粒, 桌面占球半径 0.92~1.85%,
-#        设备只有 **0.22~0.45%**(**桌面是设备的 3.3 倍**) ⇒ 设备上细到几乎看不见。
-#        现在按 `_R_inner / 140`(桌面参考半径) 缩放。
-#     ② **尺寸单一** —— 全是 1x1(67%)/2x2(33%), 读起来像一层均匀点阵 ⇒ 按用户说的做成混合。
-#   `SPLASH_SIZE_MIX` 里每个条目是 (宽, 高) 的**相对倍数**, 乘上缩放后的基准。
-# ⚠️ **2026-10-06 用户裁定: 只用一种尺寸 —— 最小的那个(1x1)**。
-#   「下面的沙子的尺寸**就不用做成有 1x1、1x2、1x4**, 就做成**一种尺寸**就行了,
-#     做成**最小的那个 1x1**。**缩放还是要有的**。」
-#   保留成"表"是为了以后想再试混合时只改这一行(取单元素表 = 单一尺寸)。
+# 飞溅尺寸按设备比例缩放。
 SPLASH_SIZE_MIX = ((1, 1),)
 SPLASH_PX_BASE = float(os.environ.get("HG_SPLASH_PX", "1.0"))   # 基准像素(再乘屏幕缩放)
 
-# 飞溅**射程下限**(= 最细颈那档的射程 / 最粗颈那档的射程)。2026-10-09 由用户从 1/3 定为 1/4。
-# ⚠️ 射程 ∝ 速度² ⇒ 实际用的是 `sqrt(下限 + (1−下限)·blend)`, 所以改这里会同时改
-#    `_splash_speed_scale` —— **是个观感量, 出货前必须出并排图交用户判**。
 SPLASH_RANGE_FLOOR = float(os.environ.get("HG_SPLASH_RANGE_FLOOR", "0.25"))
 
 # 颈部颗粒的**标量兜底路径**开关 —— **只为对照**。`HG_NECK_SCALAR=1` 强制走老的单颗循环:
 # 向量化那版必须与它在 `random.seed(23)` 下**逐像素 0 差异**(否则量出来的加速是拿画面对错的)。
 NECK_SCALAR = os.environ.get("HG_NECK_SCALAR") == "1"
 
-# **区间打点**钩子 —— 由 `tools/prof_android.py` 在装上时填一个 callable, 平时是 `None`。
-# 用来把 `update_particles` 这个整体拆成"主粒子 / 飞溅"两段(它内部没有可单独包的方法)。
-# ⚠️ 读它的写法是 `_pm = _PROF_MARK` 一次 + `if _pm:` —— **别直接 `if _PROF_MARK:`**,
-#    那会在热路径上多一次全局查表。
-# 🔴 **局部名要挑没被占用的** —— 2026-10-07 我在 `_draw_neck_grains` 里照抄了 `_m`,
-#    而那个函数**下面**有 `_m = (0.06 + 0.20 * _t + ...) * 0.85`(向量化分支的色调混合数组)
-#    ⇒ 打点函数被数组覆盖, 随后 `if _m:` 变成"数组的真值"
-#    ⇒ `ValueError: truth value of an array with more than one element is ambiguous`。
-#    代价: 应用一跑到那帧就崩。**加打点前先在该函数里 grep 一遍你要用的名字。**
+# 可选的性能探针分别记录主沙流与飞溅耗时，每个热路径只取一次钩子。
 _PROF_MARK = None
 
 
@@ -877,33 +606,9 @@ class _MarkCollector:
 # ⚠️ 钩子必须负责**清掉它所有的批**, 包括 `cnt == 0`(颈部隐藏)时。
 _NECK_SINK = None
 
-# 落点处的横向尺度 —— 只跟**落点**走, 与沙堆有多宽无关(v4 也是只从命中点出)。
-# ⚠️ 它**不是**"铺满沙堆"的那个尺度 —— 那是 2026-10-06 被用户判为"打农药"的做法。
-SPLASH_BG_SPRAY_FRAC = float(os.environ.get("HG_SPLASH_SPRAY", "0.045"))
-SPLASH_BG_EDGE_SIGMA = float(os.environ.get("HG_SPLASH_SIGMA", "1.5"))   # 外沿 = 1.5σ
 # splash 重力对 `motion_scale` 的指数 —— **只给对照实验用, 默认 1.0 = 现状逐位不变**。
 SPLASH_G_SCALE = float(os.environ.get("HG_SPLASH_G", "1.0"))
-# ★ **落到沙面上之后** —— 用户 2026-10-06 选定「**贴坡面滑一段再没**」(不是 v4 的"落回即删")。
-#   ⚠️ 这是**有意的偏离**, 不是抄错 v4。贴 y 到面 + `vy` 归零(重力下一帧又把它按回面上
-#      ⇒ 自然沿坡走) + 横向按摩擦衰减, **停住后原地留一会儿**才消失。
-#
-# 🔴 **2026-10-06 第二次调(用户): 「沙子的向下流动应该是流动一会会就不动了(因为有阻力),
-#    否则全部向下流动, 但是下面没有堆积, 这个不合理」**。
-#    上一版是「沿坡重力 `g·sinα·0.5` + 摩擦只有 1.5/s」⇒ 颗粒**越滑越快**,
-#    终端速度 `a/k = 112/1.5 ≈ 75px/s`, 一路滑到 `REST_LIFE` 计时器把它**半路砍掉**。
-#    三处一起改:
-#      ① `SLOPE_GAIN → 0`  —— 不让重力再给颗粒加速, 摩擦说了算;
-#      ② `SLIDE_DAMP 1.5 → 4.0` —— 落地 |vx| 中位 57px/s(专家团实测) ⇒
-#         **滑行距离 `(57-4)/4 ≈ 13px`、刹停耗时 0.66s**, 即"流动一会会就停";
-#      ③ **"停住"不再等于"立刻删除"** —— 旧版 `|vx| < MIN_VX` 直接 `continue`(删除),
-#         于是**永远看不到"停住"那一刻**, 只看到它滑到底然后被抹掉。
-#         现在停住后原地留 `SPLASH_STILL_LIFE` 秒 ⇒ 任一时刻坡面上都撒着一层**已停稳**的
-#         颗粒, **覆盖面积反而更大**(也正是用户此前要的「表面大部分地方都有沙子在流动」)。
-# 🔴 **2026-10-06 性能**: 4.0 → **7.0**。飞溅的**在世数 = 生成率 × 寿命**, 而设备实测
-#   `物理` +3.15ms / `Canvas` +3.83ms 全是飞溅数量(431 → 2657)推上去的 ——
-#   今天"溅到沙子上才开始掉"那一轮把寿命从"落地即删"拉到 ~1.06s, 代价就在这里。
-#   摩擦 7.0 ⇒ 滑行距离 `(57-4)/7 ≈ 7.6px`、刹停 **0.37s**(原 0.66s)
-#   ⇒ 一条命从 ~1.06s 收到 ~0.65s(**−39% 在世数**), 而**观感仍是"流动一会会就停"**。
+# 触坡后沿坡滑动，减速停稳后再回收。
 SPLASH_SLIDE_DAMP = float(os.environ.get("HG_SPLASH_SLIDE", "7.0"))   # 坡面摩擦(1/秒)
 # ⚠️ 必须 > 刹停耗时(摩擦 7.0 时 0.37s), 否则又变成"滑到一半被抹掉"。
 SPLASH_REST_LIFE = float(os.environ.get("HG_SPLASH_REST", "0.50"))     # 滑动阶段最久多久(s)
@@ -960,99 +665,9 @@ def _autofit_font(btn, base_size, pad=6.0, floor=0.6):
     _fit()
 
 
-def _inv_norm(p):
-    """标准正态的**逆 CDF**(Acklam 有理逼近, |绝对误差| < 1.15e-9)。
-
-    ⚠️ **为什么不用 `random.gauss` / `normalvariate`**:
-       · `random.gauss` 内部**缓存第二个样本** ⇒ 每次调用消耗的均匀数是 1 或 2, 在跳;
-       · `random.normalvariate` 是**拒绝采样** ⇒ 消耗量不定。
-       本工程大量取证工具靠「同 seed 逐像素对照」(`tools/inspect_flow.py` 等),
-       要求**每帧随机数调用次数可复现** ⇒ 这里用「1 个均匀数 → 1 个样本」的定长写法。
-    """
-    if p <= 0.0:
-        p = 1e-12
-    elif p >= 1.0:
-        p = 1.0 - 1e-12
-    a = (-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
-         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00)
-    b = (-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
-         6.680131188771972e+01, -1.328068155288572e+01)
-    c = (-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
-         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00)
-    d = (7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
-         3.754408661907416e+00)
-    if p < 0.02425:                                   # 左尾
-        q = math.sqrt(-2.0 * math.log(p))
-        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
-               ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
-    if p > 1.0 - 0.02425:                             # 右尾
-        q = math.sqrt(-2.0 * math.log(1.0 - p))
-        return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
-                ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
-    q = p - 0.5                                       # 中段
-    r = q * q
-    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / \
-           (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
-
-# 流量守恒的**收缩下限** —— 粒子加速下落时横向按 A·v=常数收缩, 这是它的地板。
-# ⚠️ **本移植与 PC v4 不一致, 而且这一条压在"铁律: PC v4 是唯一真理, 参数不变"上**:
-#      pc/hourglass_v4.py:1090     `max(0.5, ...)`
-#      本文件(标量路径)             硬钳位 0.70
-#      tools/flow_numpy.py:103      硬钳位 0.70      ← 两条路径**互相一致**, 一起偏离 v4
-#    文档(《CLAUDE.md》两处)记着这件事, 写着"有意/无意地偏离了参数不变, **要改这个数得两边一起决定**",
-#    但**没有记原因** —— 从没人问过用户。
-#    ⇒ 做成开关(默认 0.70 = **零行为改动**), 好让"0.70 vs 0.50 看起来差多少"变成可判的。
-#    ⚠️ 值通过 `consts` 传给 numpy 路径, 两条路径**不可能**再各写各的。
-def _shrink_min_probe():
-    """`HG_FLOW_SHRINK_MIN` 环境变量优先(桌面), 其次与 main.py 同目录的 `shrinkmin` 标记文件。
-
-    🔴 **环境变量到不了安卓 app**(项目已记录: `main.py` 里那一整套 `HG_*` 在设备上一律取默认值)
-    ⇒ 要在设备上做"收多细"的单变量对照, 只能写标记文件(app 私有目录, 与 `flowrate` /
-    `maxfps` / `seamband` 同一套):
-        adb shell "echo 0.50 > /data/data/org.shalou.hourglass/files/app/shrinkmin"
-        adb shell rm  /data/data/org.shalou.hourglass/files/app/shrinkmin   # 回默认
-    两个都没有 ⇒ None ⇒ 走出货默认值。
-    """
-    env = os.environ.get("HG_FLOW_SHRINK_MIN")
-    if env:
-        try:
-            return float(env)
-        except ValueError:
-            pass
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "shrinkmin"), "r") as fh:
-            text = fh.read().strip()
-        return float(text) if text else None
-    except Exception:
-        return None
-
-
-_sm = _shrink_min_probe()
-
-
 def _twoimpl_probe():
-    """柱/云两套实现的**对齐档位**(0/1/2), 桌面走 `HG_TWOIMPL`, 设备走同目录 `twoimpl` 标记文件。
-
-      **0 = 出货行为(与今天逐位一致)** —— 柱: 提前 return + ramp; 零点 = 出口
-      **1** —— 柱改成「先钳 target 再 ramp」(= 粒子那条路径的钳位序, 连续, 无早退断点)
-      **2** —— 在 1 之上, 再把柱的**零点**从"出口"挪到 `_lower_ball_cut`(= 粒子那套的原点)
-
-    为什么要有它: AP 两名攻击手独立测得 `_free_width_ratio` 的 docstring「update_particles
-    里每颗粒子用的就是它」**是假的** —— 两条路径在**零点**(差 shift px)与**钳位顺序**上都不同,
-    实测最大差 0.2866·t_in(桌面 2.27px / 平板 8.3px)。要让它们口径一致必须先能**分别**开这两味,
-    否则分不清是哪一味造成画面变化。
-    默认 0 ⇒ **不动出货**; 视觉改动要并排图交用户判(项目红线)。
-    """
-    env = os.environ.get("HG_TWOIMPL")
-    text = env if env else ""
-    if not text:
-        try:
-            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                   "twoimpl"), "r") as fh:
-                text = fh.read().strip()
-        except Exception:
-            return _TWOIMPL_DEFAULT
+    """读取颈部与粒子收缩曲线的对照模式。环境变量优先，合法值为 0 至 3。"""
+    text = os.environ.get("HG_TWOIMPL") or marker_text(_APP_DIR, "twoimpl")
     try:
         n = int(text)
     except (TypeError, ValueError):
@@ -1060,80 +675,14 @@ def _twoimpl_probe():
     return n if n in (0, 1, 2, 3) else _TWOIMPL_DEFAULT
 
 
-# 🔴 **2026-10-09: 出厂默认 = 3**(把"柱与粒子同一条式子"这条 docstring 声明兑现)。
-#    换掉出货行为要能一句话回退 ⇒ 写 `twoimpl` 文件内容 `0`(或 `HG_TWOIMPL=0`)即可。
-#    依据(全部实测, 详见 shazhu_cuxi_plan.md F6 与 A4 闸门):
-#      · 收益: 柱/云在同一深度的半宽差 0.205·t_in ⇒ 桌面 2.27 / 模拟器 4 / 平板 12.8px 归零。
-#      · 代价: `poke = 柱半宽 − 云外缘` 最坏 +2.603 → +2.935px(深段, 两档都有, 属既有);
-#              0–40px 近场由"藏在云内 −1.300"变为"冒出 **+0.254px**"(亚像素, 低于像素栅格)。
-#      · ⇒ 用"≤0.33px 的 poke"换掉"4~13px 的柱云错位"。
-#    ⚠️ 两套实现之所以能长期漂移, 正因为漂移让柱子留在云里面 —— 所以**任何**让两者一致的
-#      修法都会让 poke 变大; 这不是本档的缺陷, 是这个几何的固有代价。
 _TWOIMPL_DEFAULT = 3
 _TWOIMPL = _twoimpl_probe()
-# 🔴 **2026-10-09: 下限 0.70 → 0.20。** 用户报「目前的沙珠是一个规整的直线」。
-#    量出来: 设备 1080×1920 柱子从出口往下 431 行, 左/右缘对**直线**的残差只有 2.49/2.73px。
-#    **两个成因, 缺一不可**(单独修任一个都无效, 都实测过):
-#      ① 节点分布 —— 自由段只有 4 个节点挤在出口下 40px, 之后是一条直线弦(见
-#         `NECK_FREE_EXTRA_SEGS`)。单改节点: 当前律在 40px 后恒 0.70 ⇒ 多打的点仍共线。
-#      ② **平台的来源就是这个 0.70 下限** —— `target` 在 d≈12.7px 处就跌到 0.70, 之后
-#         恒等于它。单改下限三臂(0.70/0.35/0.10)实测直度残差几乎不动(2.49→2.29→2.26),
-#         只是那条**直线变陡**(底宽 37→22→20)。
-#    ⇒ 两件一起做才出曲线。取证: `shrinkmin=0.10` 臂里 `b_sat = 4(m⁻⁴−1) ≈ 4·10⁴ px`
-#      远超落程 ⇒ **提前饱和短路永不触发, 走的就是无钳位的 A·v 律**。
-#    ⚠️ **一个常数同时管两条路**(`_free_width_ratio` 的柱 + `update_particles`/`flow_numpy`
-#      的粒子), 所以柱与云仍然**同一条式子**、不会重新分叉 —— 这正是 2.19 立下的约束。
-#    ⚠️ 0.20 是**安全底**: 本式在整段落程上的渐近值约 **0.32~0.33**(desktop span≈317px →
-#       (1/(1+317/4))^0.25 = 0.334; 平板 span≈390 → 0.317), 所以 0.20 **在可见范围内永不咬合**,
-#       它只在病态几何下兜底。
-# 🔴 **2026-10-09 (2.23): 0.20 → 0.50 —— 用户判「减少的幅度太大了，统一缩小一些」。**
-#    2.22 把下限放到 0.20(等于无钳位)后, 底宽 37 → **19px**, 收得过头。
-#    0.50 是**折中**: 本式的渐近值约 0.32, 所以 0.50 会在 d = 4·(0.50⁻⁴−1) = **60px** 处咬合
-#    ⇒ 前 60px 仍是曲线(节点已按 N1 加密, 曲率画得出来), 60px 之后是 0.50 的斜直线段。
-#    底宽预计 37 → **~26px**(= 37 × 0.50/0.70), 正好是 19 与 37 的中间。
-#    ⚠️ 这会把下段重新变成直线(N1 修的"曲率"只剩前 60px)。若要**又缓又全程有曲率**,
-#      需要引入第二个常数(把整个收缩强度统一乘一个 <1 的系数), 那要同时改
-#      `_free_width_ratio` / `update_particles` 标量 / `flow_numpy` 三处 + 饱和点 `b_sat`。
-#      本轮**不做**(用户只要"幅度小一点")。
-# 🔴 **2026-10-09 (2.24): 收缩摊开的长度(px)。原来是写死的 40px。**
-#    **2026-10-09 (2.25) 用户看 2.24 再判: 「应该是**在前 1/4 的距离变窄之后后面不再变窄**
-#    (力量被摩擦力等抵消了)」** ⇒ ramp 200 → **110px**
-#    (设备上柱子 431 行, 1/4 = 108px; 桌面落程 ~317px 下占 35%—— 要对齐口径得让它跟几何走, 见下)。
-#    **2026-10-09 (2.25) 同一条判词还有第二个条件: 「变窄的幅度很小, 可能只有 85%-90%」**
-#    ⇒ `FLOW_SHRINK_MIN` 0.50 → **0.87**。
-#    两个条件合起来给出的形状正是用户描述的那一条:
-#      · `target` 在 d = 4·(0.87⁻⁴−1) ≈ **3px** 处就跌到 0.87 ⇒ 下限不参与"何时收完"的决定;
-#      · 于是 **ramp 决定一切**: 1.0 → 0.87 均匀摊在前 110px(= 柱长 1/4), 之后**恒定 0.87**。
-#      · 底宽预计 ≈ 46px(管腔 ~48px) —— "几乎和孔一样宽, 只收一点点"。
-#    ⚠️ 0.87 落在用户给的 85%~90% 中点; 想微调就改这一个数(柱/粒子共读, 不会分叉)。
-#    原判词(2.23): 「应该是**逐渐收窄, 然后几乎不变**, 现在还是**突然变窄**, 不太合理」。
-#    根因: 收缩是三段拼的, **全挤在前 60px** —— d=0 起 40px 的线性 ramp 到 0.549,
-#    d=60 下限 0.50 咬合, 之后恒定 ⇒ **90% 的收窄发生在最上面 10% 的长度里**。
-#    改法: 把 ramp 从 40px 摊到 **200px** ⇒ d=40 只收到 0.910、d=100 到 0.754、
-#    d=200 才到 0.50, 之后恒定 —— 正好是"逐渐收窄, 然后几乎不变"。
-#    ⚠️ **三处必须同值**(柱 `_free_width_ratio` / 粒子标量 / `flow_numpy`), 否则柱云分叉。
-#    ⚠️ 这是**观感尺度常数**, 不是物理量 —— 想更缓/更急就改这一个数。
+# 自由段半宽按下落距离平滑收缩，标量和 NumPy 路径要使用同一组参数。
 FLOW_SHRINK_RAMP = 92.0
-FLOW_SHRINK_MIN = float(os.environ.get("HG_FLOW_SHRINK_MIN", "0.87")) if _sm is None else _sm
+FLOW_SHRINK_MIN = float_option(_APP_DIR, "HG_FLOW_SHRINK_MIN", "shrinkmin", 0.87)
 MOUND_CREST_MARGIN = 2.0    # 沙体矩形比球内顶再高一点的余量(carve 上沿)
-# ⛔ 2026-10-12 **实测无效, 默认 0** —— 这条假设被自己的量否掉了, 留着当下次实验的入口:
-#   假设"粒子跨过销毁线那一帧被移除且不画 ⇒ 最后一笔停在面上方 v·dt"。
-#   实测(末段 9 帧窗口, 平板口径): 旋钮 12 vs 0 ⇒ 整行空仍是 **5/9 帧**(与改前逐帧几乎相同),
-#   落点带(1520-1620 行 ±45)沙像素中位 **7937 vs 7928**(噪声内) ⇒ **一个像素都没挪动**。
-#   逐像素查过那一条空带: 它横贯整幅、5 行、**100% 背景**; 它上面那 6 行沙是**逐渐收窄**
-#   (70→31 px/行)后停住的 —— 那不像"被销毁", 更像**另一层**(颈部材质的排空下沿 / 前沿)
-#   在那一行截断。⇒ 下一步该做的是"逐层消融"(关材质 context / 关颈部颗粒层), 看谁画了
-#   1544 行以上那段尾巴, 而不是再动销毁线。
-#   0 = 与改动前逐像素一致(实测 0 px 差异)。标量路径、numpy 路径共用这一个值。
 KILL_INSET = float(os.environ.get("HG_KILL_INSET", "0.0"))
-# ---- 上球漏斗: 取消"0度水平面"(外部专家 dingbu.md §4, 2026-10-05 用户点名) ----------
-# 用户投诉:「顶部的沙子还是一个绝对的平面」; r3-2号 实测: 七列采样 y 全等、跨 920px 零偏差,
-# 而**同一帧里**下球沙堆是 30.1°/31.7° 的标准休止角 ⇒ 同一种沙两个角度, 实现内部不自洽。
-# 真沙漏的上球沙面必然以休止角朝颈口下凹成漏斗(靠壁一圈高于中心)。
-# ⚠️ **宽深比按 dingbu2.md §3 重设**(2026-10-05)。原参数(0.03D 深 / 0.10~0.14D 半宽)被
-#    外部评审判为"两段长平肩之间压出一个集中凹口", 不是用户要的"斜率很小的宽浅坑";
-#    他**主动认领这是自己上一稿把造型范围设窄了**。实测原参数坡度 18.3°~23.8°,
-#    新参数 2.5°~2.7°(与他的 0.045 rad ≈ 2.6° 自洽)。
+# 上球沙面中央形成宽浅的漏斗，深度受剩余沙厚约束。
 UPPER_FUNNEL_DEPTH = 0.030  # 正常尺寸可辨的宽浅下陷；仍受当前沙厚上限约束
 #   ⚠️ 0.010 是 dingbu2.md §3 给的"美术起点"(他明说"不是物理定律、待视觉确认")。
 #   用户实测后说"坑还是太小" ⇒ 加深到 0.018。**宽度已顶到护栏**(见下), 只能靠深度。
@@ -1146,36 +695,7 @@ UPPER_FUNNEL_DEPTH = 0.030  # 正常尺寸可辨的宽浅下陷；仍受当前�
 UPPER_FUNNEL_WIDTH = 0.50   # 下陷**半宽** = 0.50 × 可见全宽 C = 1.00 × 半弦宽
 UPPER_FUNNEL_MAXH = 0.25    # 下陷深度上限 = 0.25 × 当前沙层厚度
 UPPER_FUNNEL_MAXB = 1.00    # 下陷半宽上限(0.80 -> 1.00: 用户要的 100% 宽度需要它)
-# ---- §3 公式里的上球微粗糙 r_upper(x)(dingbu2.md §4.2 / §3) ----
-# ⚠️ **这一项 1.83~1.88 一直是漏做的**: 评审的公式写的是 `P_upper = a - d·F(x) + r_upper(x)`,
-#    并单独给了上球的幅度上限 `A_upper = min(0.0025×D, 1.25/g)`、还要求"独立 seed"。
-#    但代码里上球沙面**从来没有粗糙项**(审计 2026-10-05 查出)。
-#    幅度按他给的上限折算成占直径比 = 0.0025(他那条 1.25/g 在 g=1 时是 1.25px,
-#    设备 D=891 时 0.0025D=2.23px 更大, 取小的那个 ⇒ 用 0.0014 更保守)。
-# 上球沙面**图案演化周期**(秒) —— 2026-10-05 用户: "所谓沙面起伏, 目前是沙面粘合剂
-# (完全没有起伏, 是静止不动的)"。实测确认: 图案按固定节点号取值 ⇒ 钉死在固定 x 上,
-# 相邻帧相关系数 r=0.98(完全没动)。**但绝不能逐帧重抽** —— 那是 1.60/1.61 被用户
-# 判死("颗粒原地闪现 + 整条轮廓颤动")的路。这里做的是**平滑演化**: 预烘多帧、
-# 相邻帧之间在时间上做过环形平滑, 每帧只做节点数次线性插值。
-# ⚠️ r18-1号 2026-10-05 查出: 原来是"**8 秒一轮回**"（`ph=(t/8)%1`）—— 53 秒档会看 6 圈同样的花纹。
-#    "循环"和"演化"是两回事。改法: **周期拉长到 48 秒, 同时把谐波次数按比例提高**
-#    ⇒ 肉眼看到的运动快慢**不变**（最快的分量周期仍是 ~3.7 秒）, 但一轮回变成 48 秒
-#    （53 秒档只看 1.1 圈）。帧数跟着提到 128: 最高谐波 13 ⇒ 每周期至少 8 帧采样。
-#    ⚠️ 周期拉长也会把下球 `_sync_mound_frame` 的步进从 7.9Hz 放慢到 2.7Hz
-#    （它按整数帧号取, 不插值）。**不做插值**是有意的: `_MoundProfile` 的面积表就是
-#    "预烘帧"存在的原因, 逐帧重建会重新制造它 docstring 明令避免的"求解读 A、绘制读 B"裂缝;
-#    而 r18-1号 自己判这一步"大概率看不出来"。
-#
-# ⚠️ **1.108 曾把这三行回退, 理由是"1.107 引入了 `neck texture stays inside the
-#    straight conduit` 回归"。那个归因 2026-10-05 被推翻 —— 别照抄它。**
-#    `tools/_bisect_rough.py` 实测(重建已自证生效, frames 64→128 可见):
-#      五个配置(基线 / 只改 PERIOD / 只改 FRAMES / 只改 HARM / 全改)下
-#      `_neck_sand_side()` 的端点**逐位相同** ⇒ 这三个参数**根本不进**那条链。
-#    真因是**那条旧断言本身不判别**: 它的余量 `y_bot - points[1]` 是**亚像素**的,
-#      同一份代码只换 widget 尺寸: 400×800 +0.58 / 480×800 +0.24 / 760×1460 +0.10  PASS,
-#      而 **1096×2214 −0.09 / 800×480 −1.68 FAIL** ⇒ 它守的是"某个尺度下 top_y
-#      恰好落在哪"的巧合。断言已重写成真不变量(颗粒落在 `_neck_sand_side()` 里,
-#      且检查**全部**已画颗粒而非只看 pool[1]), 负对照 8/8 能抓到越界。
+# 沿时间插值上球的粗糙轮廓，同时保持相邻节点平滑。
 UPPER_ROUGH_PERIOD = float(os.environ.get("HG_ROUGH_PERIOD", "48.0"))
 UPPER_ROUGH_FRAMES = 128
 UPPER_ROUGH_HARMONICS = (5, 8, 13)   # 谐波次数(整数 ⇒ 整轮严格闭合, 插值不会跳)
@@ -1284,13 +804,7 @@ def _surface_roughness(radius, amp_frac, seed, limit):
     """
     n = MOUND_SHAPE_NODES
     rng = random.Random(seed)
-    # 🔴 **带限噪声**(2026-10-06 用户实测: 「起伏调到最大的时候会出现**锐角的、三角形的、
-    #   尖尖的**」)。
-    #   旧版 = **白噪声 + 一次 3 抽头平滑**, 而 `shape_at` 是**线性插值**
-    #   ⇒ 相邻两个控制点之间就是一个**折角**, 幅度一大(档 6)整条沙面就读成一排**锯齿**。
-    #   改成 **最低 K 个谐波之和**: 波长 ≥ n/K 个节点 ⇒ 转折天生是**圆滑**的,
-    #   幅度再大也只是"起伏更强", 不会变成三角形。
-    #   ⚠️ **别再退回白噪声** —— 那条路 2026-10-06 被用户实拍判死。
+    # 限制空间频率，减少沙面折线上的尖角。
     K = 5
     sm = [0.0] * n
     for h in range(1, K + 1):
@@ -1325,23 +839,7 @@ def _build_rough_frames(radius, amp_frac, seed, frames=UPPER_ROUGH_FRAMES,
     n = MOUND_SHAPE_NODES
     rng = np.random.default_rng((seed or 721) + 991)
     hz = tuple(harmonics) if hasattr(harmonics, "__len__") else tuple(range(1, harmonics + 1))
-    # 🔴🔴 **空间也必须带限**(2026-10-06 用户实测: 「起伏放到最大**还是有一个锐角**」)。
-    #    旧版 `psis[j] = rng.uniform(0, 2π, size=n)` 是**逐节点独立**的随机相位
-    #    ⇒ **时间上平滑, 空间上是白噪声** ⇒ 相邻节点可以差很多, 被 `shape_at` 的
-    #    **线性插值**连起来就是**锯齿 / 锐角**。
-    #    ⚠️ 1.163 只修了**下球**那条(`_surface_roughness`), **上球这条路没改到** ——
-    #       这是本轮的真实教训: **两条独立的生成路, 修了一条不等于修了两条**。
-    #    改成 **2 维带限**: 空间频率 `p`(整数 1..P) × 时间频率 `m`(整数, 取 `harmonics`)
-    #    的正弦积之和 ⇒ **空间、时间两边都连续**; `m` 取整数 ⇒ **整轮闭合**。
-    #    空间基用 `sin(2πp·(i-c)/n)`(`c` = 中心节点) ⇒ **天生在中心为 0**,
-    #    与"堆尖保持在入沙轴线上"那条约束**不打架**, 也就**不需要**最后再硬把中心点置 0
-    #    —— 那个硬置 0 本身就是一个折角源(邻居有余量、中心被摁到 0)。
-    # ⚠️ `P` 只到 4 时空间过于"完美" —— 用户 2026-10-06:「**太光滑了, 就是一个完美的曲线**,
-    #    应该有点**不均匀的随机点**什么的」。分成两段:
-    #      · **主体**(p=1..4): 振幅 ~`1/p` —— 负责"起伏"的形
-    #      · **细节**(p=5..16): 振幅 ~`0.30/p` —— 只占主体的两三成, 波长 ≥4 个节点
-    #    ⇒ 既不是完美正弦, **折角也仍是亚像素级**(幅度小 ⇒ 读作纹理, 不读作尖角)。
-    #    ⚠️ **不要再往上加更高频/更大振幅** —— 那会退回 1.165 修掉的锯齿。
+    # 相邻节点的相位保持相关，波形才能连续移动。
     P_MAIN, P_DETAIL = 4, 16
     _idx = np.arange(n) - (n - 1) // 2
     comps = []
@@ -1497,17 +995,6 @@ class _MoundProfile:
         x = min(max(dx, -r), r)
         half = math.sqrt(max(0.0, r * r - x * x))
         return r - half, r + half
-
-    def _parts(self, dx, apex):
-        """一列的 `(球底, 球顶, 未裁剪堆面高度)` —— **三个判定共用的一次求值**。
-
-        ★ 2026-10-07(外部评审 §5.1): 原来 `contact` / `has_sand` / `free_surface`
-        **各自**都算一遍 `bounds`(一次 `sqrt`)与 `raw`(一次 65 点插值),
-        而绘制时一列里三个都要用 ⇒ 一列 3 次 `bounds` + 2 次 `shape_at`。
-        把求值收进这里, 三个判定都走它 —— **算式一个字没改, 只是不再重复求**。
-        """
-        floor, roof = self.bounds(dx)
-        return floor, roof, apex + self.shape_at(dx)
 
     def contact_np(self, dxs, apex):
         """`contact()` 的**向量版** —— 对一批 `dx` 一次算完, 算式逐字照抄。
@@ -1665,27 +1152,7 @@ class _MoundProfile:
         return offs, floors, roofs
 
     def fill_contact_table(self, table, x_offset, inv, apex):
-        """一次性把整条接触曲线填进 `table` —— **`contact()` 的保序内联**, 逐位等价。
-
-        ## 为什么要单独来一份(而不是循环调 `contact()`)
-
-        设备实测: 每帧重建 257 点, **循环调 `contact()` 要 0.40ms**(峰值帧, 占
-        `update_particles` 的 10.6%)。拆开看, 1.56µs/点里绝大部分是**四层 Python 调用**
-        (`contact → _parts → bounds` + `shape_at`) —— 而这条曲线一帧只要一条。
-        桌面计时对照(257 点, 300 轮): **0.182ms(调) vs 0.082ms(内联)**, 2.2×。
-
-        ## 🔴 它与 `contact()` 的关系: **同一份公式, 两次抄写**
-
-        项目原本的规矩是"定义只有 `contact` 一份, 建表就是调它"。这里是**有意的例外**,
-        代价必须用守卫抵掉:
-          - `tools/_probe_ctab_equiv.py`: 多组随机 (radius, shape, apex) 下逐位比对
-            内联结果与 `contact()` 的结果;
-          - `tools/_splash_golden.py`: 表值一旦差 1 ULP, 贴坡时的 `y = _surf`
-            会**直接**写进被记录的轨迹 ⇒ 金标准轨迹必然翻红。
-        ⚠️ **改 `contact` / `_parts` / `bounds` / `shape_at` 任何一个, 必须同步改这里,
-        并重跑上面两个守卫。** 四个内联的算子次序全部照抄, 不许"化简":
-        `(dx+r)/(2r)*(n-1)` 不能写成 `(dx+r)*(n-1)/(2r)`, `p < floor` 必须先判。
-        """
+        """按 contact 的运算顺序建表。每列复用几何边界，只更新峰高并依次裁到底面和顶面。"""
         offs, floors, roofs = self.contact_table_axes(len(table), x_offset, inv)
         for k in range(len(table)):
             # 每帧真正变的只有 `apex +` 这一项, 其余全是几何常数(见 `contact_table_axes`)
@@ -1707,17 +1174,7 @@ class _MoundProfile:
         return floor < p < roof
 
 
-# ---- 玻璃反光: **已删除**(2026-10-04, 用户实拍裁决「有害无益, 全删了」) -------------
-# 1.57 按外部美术规格 meishu2.md §5.1/§5.2 加的"左上主反光(两段留断口) + 右下弱反光 +
-# 局部内缘压暗"。它骑在玻璃内缘上(一半压在 6px 深色玻璃环里、一半压在沙体边缘), 末端是
-# 硬切的等 alpha 弧段 —— 在深色环上读成"贴在边框上的一块浅灰碎片", 放大后尤其像异物
-# (用户 9~11 点钟实拍点名)。我试过把它改成两端羽化, 用户裁决不要救、整块删。
-# 删掉的东西: GLASS_HL_* 全部常量 / `set_glass_hl` / `_rebuild_glass_highlights` /
-# `_glass_hl_group` / 存档键 `glass_hl` / 隐藏菜单里的"玻璃反光"滑块。
-# 保留: `FLOW_HILITE_T`(那是沙流新生颗粒的颜色, 与玻璃无关)。
-# 新生颗粒("高光组", 刚出孔口那批)的亮度上限 = lerp(sand_base, sand_light, 这个系数)。
-# 1.0 = 原样用 sand_light —— 它比出口正上方的颈部沙柱(材质色)亮 15 级, 见
-# `_rebuild_color_table` 的注释。0.32 = 与材质自身的亮端上限对齐。
+# 新生亮颗粒的颜色上限与沙体材质对齐。
 FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
 # 🔴 **色调抖动的中点**(`_flow_table` 下标; 5 == `sand_base`)。
 #   **不是 5** —— 这一点反直觉, 但是设备实测出来的:
@@ -1729,200 +1186,29 @@ FLOW_HILITE_T = float(os.environ.get("HG_FLOW_HILITE", "0.32"))
 #   把中点下移到 2 恰好抵消这个可见性偏差(每档 ≈ +2.5R/+3.5G/+3.6B)。
 #   ⚠️ 改它之前先重量一次直方图 —— 这个数是**量出来的**, 不是推出来的。
 FLOW_TONE_CENTER = 2
-# 🔴 **2026-10-10: 开关(也是回退口)**: `0` = 退回"出生相位 → 色调档"的老取色。
-#    **出货默认 0** —— 这条路径**试过、量过、没帮上忙**, 留着只作以后排查:
-#      · 自证过它真的执行(`HG_GRAIN_TONE=0` vs `=1` ⇒ 9352 px 不同);
-#      · 但柱内高频 std 反而从 1.79 掉到 0.97、均值从 170 抬到 181(偏亮偏平)
-#        —— 因为"亮度就近取 `_flow_table` 档"会在色表两端截断(色表只有 ±10 R 级,
-#        而材质纹理的亮度偏离更大) ⇒ 颗粒挤向最亮那一档。
-#    真正解决「精细度不够」的是 **`FLOW_WIDTH_CAP = 1` + `TRAIL_SCALE = 0.5`**
-#    (把墨块从 2px×(5~8)px 变成 1px×(2~3)px), 与取色无关。
-#
-# ⚠️⚠️ **2026-10-13 更正(N1, 对抗审查查出): 上面那两条"量过没帮上忙"的结论,
-#    量的是坏实现。** `_stream_grain_idx` 里 `tgt`(0..255)与 `_flow_lum`(0..1)尺度不一致
-#    ⇒ `searchsorted` 恒过界 ⇒ **每一颗粒都被顶到最亮那一档** ——
-#    "std 掉到 0.97 / 均值抬到 181 / GAIN 换三档画面相同" 全部是**那个饱和**的症状,
-#    不是取色路径的固有性质。修掉尺度之后直方图从 `{12: 2874}` 变成 `0..9` 的连续分布、
-#    均值回到 base 档(见 `_stream_grain_idx` 的注释)。**这条开关该怎么定, 要重新测。**
-def _grain_tone_probe():
-    """`HG_GRAIN_TONE` 环境变量优先(桌面), 其次与 main.py 同目录的 `graintone` 标记文件。
-
-    ⚠️ 安卓 app **读不到宿主环境变量** ⇒ 设备上做单变量对照只能写标记文件
-    (app 私有目录 = `<app>/graintone`, 与 `flowrate`/`outletoverlap` 同一套)。
-    两个都没有 ⇒ None ⇒ 走出货默认(现在是关)。
-    """
-    env = os.environ.get("HG_GRAIN_TONE")
-    if env:
-        return env
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "graintone"), "r") as fh:
-            text = fh.read().strip()
-        return text or None
-    except Exception:
-        return None
-
-
-_GRAIN_TONE_PROBE = _grain_tone_probe()
-FLOW_GRAIN_TONE = (False if _GRAIN_TONE_PROBE is None
-                   else (_GRAIN_TONE_PROBE != "0"))
-# 🔴 **2026-10-10: 色调档的量化步长。**
-#    `3` = 旧行为: `idx -= idx % 3` 把可达档磨成 **{0, 3, 6} 三档**
-#          (桶数 22→8, 是 2026-10-07 的性能优化)。
-#    `1` = 不量化。
-#    默认值**跟随取色路径**: 走材质颗粒场时必须不量化(否则细颗粒被磨成 3 档,
-#    `HG_GRAIN_GAIN` 也就测不出差别 —— 2026-10-10 实测过这个坑)。
+FLOW_GRAIN_TONE = (os.environ.get("HG_GRAIN_TONE") or marker_text(_APP_DIR, "graintone") or "0") != "0"
 _TQ = os.environ.get("HG_TONE_QUANT")
 FLOW_TONE_QUANT = (max(1, int(float(_TQ))) if _TQ
                    else (1 if FLOW_GRAIN_TONE else 3))
-# 🔴 **2026-10-10: 沙流颗粒"从材质颗粒场取色"时的放大系数。**
-#    1.0 = 原样用材质纹理的亮度偏离; 更大 ⇒ 颗粒对比更强(但会与底下的材质面对不上)。
-#    调它的判据是 `tools/_accept_check.py` 的 A1(柱内颗粒量 / 上球 ∈[0.6,1.5])
-#    与 A2(连续平填行 ≤2), 外加并排图。
-FLOW_GRAIN_GAIN = float(os.environ.get("HG_GRAIN_GAIN", "1.0"))
-
-
-def _grain_gain_probe():
-    """`HG_GRAIN_GAIN` 环境变量优先, 其次与 main.py 同目录的 `graingain` 标记文件。
-
-    ⚠️ 与 `_grain_tone_probe` 同一条理由: **安卓读不到宿主环境变量** ⇒ 设备上要试
-    "材质取色 + 放大对比"这一档(判据见 `_stream_grain_idx` 的注释)只能写标记文件
-    (`<app>/graingain`, 内容如 `2.5`)。文件缺失/坏掉 ⇒ 恒等 1.0(旧行为)。
-    """
-    env = os.environ.get("HG_GRAIN_GAIN")
-    if env:
-        return env
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "graingain"), "r") as fh:
-            text = fh.read().strip()
-        return text or None
-    except Exception:
-        return None
-
-
-_GAIN_PROBE = _grain_gain_probe()
-if _GAIN_PROBE is not None:
-    try:
-        FLOW_GRAIN_GAIN = float(_GAIN_PROBE)
-    except ValueError:
-        pass
-# 🔴 **2026-10-10: 出口以下那段沙柱的**几何**要加宽, 让它的硬边退到看不见的地方。**
-#    病(用户判词): 「整个边缘非常奇怪, 说不规整吧, **他额外带了一层直线**」。
-#    实测: 把材质关掉(平色四边形)、把粒子抽掉, 柱子就是一个**边缘笔直的矩形**
-#    ⇒ 那条直线是**几何轮廓**; 而"毛"的那层是着色器在轮廓**里面**腐蚀出来的
-#    ⇒ 外面永远留一条直边。可见边缘改由着色器里那条**噪声门槛**决定(见
-#    `sand_edge_lo/hi`), 几何只负责"够宽, 别露头"。1.0 = 旧行为。
+FLOW_GRAIN_GAIN = float_option(_APP_DIR, "HG_GRAIN_GAIN", "graingain", 1.0)
 FLOW_FREE_MARGIN = float(os.environ.get("HG_FREE_MARGIN", "1.35"))
-# 🔴 **2026-10-12: 末段出生带的两个形状参数 —— 现已「不改」为出厂(用户设计约束)。**
-#    `FLOW_TAIL_NARROW`: 颈管快空时出生带收到原来的几成宽(1.0 = 不收窄)。
-#    `FLOW_TAIL_TAPER` : 同时把横向分布从 uniform 收成 `|u|^p`(1.0 = 不变)。
-#
-#    **用户判词(2026-10-12, 附截图)**:「这个可以重现, 这个是不合理的, 我们的**设计约束**是:
-#      **沙子的初始流速是固定的**, 但是这里沙子**越流, 沙柱越细**。需要改, **都改为初始的那个就行**」。
-#    ⇒ 沙柱的**宽度**必须全程与初始一致; 原先这两个旋钮(2026-10-10 那次为了「不是一个矩形」
-#      加的)**恰恰在做"越流越细"**, 属于违反设计约束 ⇒ **默认关**。
-#
-#    实测(平板口径 1904×2890 / 50s, 出口以下的【连续沙色宽度】):
-#      | 臂 | t=47 | t=48 | t=49 | t=49.5 |
-#      |---|---|---|---|---|
-#      | 收窄 0.25(2.83) | 37 | 33 | 34 | 34 |
-#      | 收窄 0.45(2026-10-10) | 82 | 82 | 65 | 55 |
-#      | **不收窄(本版)** | **82** | **82** | **82** | **82** |   ← 管径 = 82px
-#    ⇒ 不收窄时**从 t=47 到 49.5 一模一样**, 且与管径相等(= 初始那根) ✓
-#    ⚠️ "不收窄 ⇒ 会变成一块没纹理的实心板"这条**实测不成立**: 末段柱内仍有竖向颗粒/材质纹理
-#       (并排图 `benchmark_logs/_refs/tail50/AB_nonarrow.png`) —— 板感来自**墨水饱和**,
-#       而饱和是"粒子挤进更短的落差"造成的, 与宽度无关。
-#    要复现旧观感做 A/B: `HG_TAIL_NARROW=0.45 HG_TAIL_TAPER=2.6`(或 `0.25`)。
+# 时间和净空对出生带宽度的影响可分别调节。
 FLOW_TAIL_NARROW = float(os.environ.get("HG_TAIL_NARROW", "1.0"))
 FLOW_TAIL_TAPER = float(os.environ.get("HG_TAIL_TAPER", "1.0"))
 # 收尾段占**整个计时**的比例(0.04 = 最后 4%)。见 `update_particles` 里那一段。
 FLOW_TAIL_SPAN = float(os.environ.get("HG_TAIL_SPAN", "0.04"))
-# 🔴 **2026-10-12(2.85): 本触发已默认关(= 0)。** 它不是错的, 而是**与用户的设计约束冲突**:
-#    用户 2026-10-12 定「沙子的初始流速固定 ⇒ **沙柱宽度全程与初始一致**」, 而"净空触发"
-#    的本质就是"越接近结束、柱越细"(0.25×管径) ⇒ 判为违反约束。
-#    留着它 + 它的两个旋钮是为了以后要复现"末段收窄"的观感做 A/B:
-#    `HG_TAIL_GAP=0.30 HG_TAIL_GAP_NARROW=0.25` 即 2.83/2.84 的行为。
-#    下面是它当初的推导(仍有参考价值: 末段的"实心色条"确实是落差被压缩造成的):
-# 🔴 **2026-10-12: 末段收窄的第二个触发器 —— 净空(出口到底面堆面)/ 球径。**
-#    为什么需要(用户判词: 「沙柱的颜色纯色化」+「造型不合理」): 旧的触发是
-#    **剩余沙量**(`_released_fraction_at`) ⇒ 只在最后 4% 计时起效, 而**物理压缩**
-#    (堆面升到出口附近 ⇒ 同一流量挤进更短的落差)从 ~6-8s(50s 档)前就开始了。
-#    平板 50s 实测: t=47 时净空只剩 **75px**(球径 1239), 而 `_tail` 还是 1.0
-#    ⇒ 收窄一点没生效, 出口以下每行沙色覆盖仍 **84~94%**(= 一条实心色条)。
-#    0.30 ⇒ 净空 < 30% 球径(约 372px @平板 / 270px @1080) 开始收窄, 落到底收到最窄。
-#    0 = 关(逐位回到旧行为)。
 FLOW_TAIL_GAP = float(os.environ.get("HG_TAIL_GAP", "0.0"))
 # 净空那一路**自己的**收窄下限(占出生带宽的比例) —— 与 `FLOW_TAIL_NARROW`(时间那一路)
 # 分开, 是为了**不动** 2026-10-10 已定的那条曲线。实测(平板 50s, t=47, 出口以下
 # 每行沙色覆盖): 基线 **86%** / 下限 0.45 ⇒ **65%** / 下限 0.25 ⇒ **39%**
 # —— 0.25 那一档读出来是"一股细流落到堆上", 0.45 那档仍是"一根窄条"。
 FLOW_TAIL_GAP_NARROW = float(os.environ.get("HG_TAIL_GAP_NARROW", "0.25"))
-# 🔴 **2026-10-12(2.86): 末段"墨量"触发 —— 按净空把线宽 2px → 1px。**
-#    用户判词:「再看看这个沙柱是不是太纯色了 2.85 版本」。宽度已在 2.85 回到管径(设计约束),
-#    剩下的"纯色"是**墨水饱和**(末段落程只剩几十 px ⇒ 2px 墨块重叠成一块板)。
-#    ⚠️ **只动线宽、不动位置** ⇒ 柱宽不变; 复用同一次 `random.random()` 只换阈值 ⇒ 不新增随机数。
-#    取值 = 净空 / 球径 的阈值: 0.30 ⇒ 净空 < 30% 球径(约 372px @平板 / 270px @1080,
-#    即 50s 档最后 ~7 秒)开始压细。0 = 关(逐位回 2.85)。
 INK_HEADROOM = float(os.environ.get("HG_INK_HEADROOM", "0.30"))
-# 🔴 **2026-10-13: 墨量**覆盖率闸** —— 小窗口上把线宽压薄, 让各口径的相对墨量一致。**
-#    用户判词(MuMu 1080×1920 截图): 「这个沙子变成了**半纯色+实心**了?」
-#    实测归因: 柱内墨量 ≈ `rate × 拖尾 × 线宽 ÷ 柱宽` —— **柱宽随窗口缩放, 线宽不随**
-#    ⇒ 1080 口径 1.85px 线时墨量 = **161%**(饱和) ⇒ 一块板; 连 2.78 那套"先0后更多"
-#    的深度筛都咬不动(实测 `HG_STREAM_OPEN=0` vs 默认 = **0 像素差**)。
-#    两个口径的标定(预测 vs 实测): 平板 1904 柱宽 82px ⇒ 85% vs 实测 **87%**(用户没骂过,
-#    当基准); 手机 1080 柱宽 43px ⇒ 161% vs 实测 **100%(饱和)**。
-#    ⇒ 目标取平板那个档, 各口径统一; `>= 1.0` 或柱子够宽 ⇒ `q = 1.0` ⇒ **逐位旧行为**。
-def _ink_cover_probe():
-    """`HG_INK_COVER` 环境变量优先(桌面), 其次与 main.py 同目录的 `inkcover` 标记文件。
-
-    ⚠️ 安卓 app **读不到宿主环境变量** ⇒ 设备上做单变量对照只能写标记文件
-    (app 私有目录 = `<app>/inkcover`, 与 `flowrate`/`outletoverlap` 同一套)。
-    两个都没有/内容坏掉 ⇒ None ⇒ 走出货默认。写 `0` 即可**逐位回到加闸之前**。
-    """
-    env = os.environ.get("HG_INK_COVER")
-    if env:
-        return env
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "inkcover"), "r") as fh:
-            text = fh.read().strip()
-        return text or None
-    except Exception:
-        return None
-
-
-_INK_COVER_PROBE = _ink_cover_probe()
-try:
-    INK_COVER_TARGET = (0.87 if _INK_COVER_PROBE is None
-                        else float(_INK_COVER_PROBE))
-except ValueError:
-    INK_COVER_TARGET = 0.87
+INK_COVER_TARGET = float_option(_APP_DIR, "HG_INK_COVER", "inkcover", 0.87)
 INK_TRAIL_MEAN = 0.025      # `random.uniform(0.018, 0.032)` 的均值(覆盖率算式里的拖尾项)
-# 🔴 **2026-10-12(2.87): 柱子不许超出瓶颈 —— 出生带按"半个线宽"内缩。**
-#    用户问(附 50 分钟档截图): 「你算下沙柱的宽度, pc 50分钟 是不是远比瓶颈宽?
-#    这个是否需要调整到**不超过瓶颈所决定的数值**?」
-#    实测(桌面 400×875, 同帧): 瓶颈内孔 `2·t_in` 在 50 分钟档只有 **7.9px**、柱子 **10px**;
-#    15 秒档 19.9 vs 20~22 ⇒ **差恒为 ~2px** —— 那 2px 是**粒子线的自身粗细**
-#    (85% 的粒子宽 2px, 圆心到边缘时线还伸出去半个线宽), 不是物理。
-#    ⇒ 出生时把横向位置**等比缩到 `(内孔 − 半个线宽)`**, 使**画出来的外缘 = 内孔**。
-#    ⚠️ 只缩位置: 粒子数/速度/随机数一字不动(那次 `random.uniform` 照抽, 只缩抽到的值)。
-#    0 = 关(逐位回旧行为)。
+# 绘制带向内留出半个线宽，使边缘颗粒贴壁。
 LIM_INSET = float(os.environ.get("HG_LIM_INSET", "1.0"))
-# 🔴 **2026-10-10: 沙流颗粒的线宽上限。0 = 不限制(出货行为: 85% 是 2px)。**
-#    为什么要它: 出口以下的**可见面就是粒子层**(覆盖柱宽 89%), 而它的墨是
-#    `2px 宽 × 5~8px 高` 的块 ⇒ 读起来是"块"不是"颗粒"(用户判词「精细度都不够」)。
-#    ⚠️ 只盖结果, **不挪随机数流** —— 位置/相位/寿命一字不变。
-# 🔴🔴 **2026-10-12 默认 1 → 2(= 1.244 的取值)**: 材质带撤掉之后出口以下**只剩粒子**,
-#    墨量全由粒子出。实测(1080 口径同一帧, 每行沙色像素中位): 宽 1 + 拖尾 1.0 = **19**;
-#    **宽 2 + 拖尾 1.0 = 62**, 而 1.244 = **56** ⇒ 宽度这一项值 3 倍墨。
-#    (1.244 的原始分布就是 `85% 2px / 15% 1px`, 上限设 2 = 原样放行。)
 FLOW_WIDTH_CAP = int(float(os.environ.get("HG_FLOW_WIDTH", "2")))
-# 🔴 **设备可达通路**: `FLOW_WIDTH_CAP` 原来是**只读环境变量**的, 而环境变量到不了安卓 app
-#    ⇒ 设备上根本没法做这个单变量对照(本项目的老坑)。这里补一个与 `main.py` 同目录的
-#    标记文件 `flowwidth`(内容 = 线宽上限, `0` = 不限):
-#        adb shell "echo 2 > /data/data/org.shalou.hourglass/files/app/flowwidth"
-#        adb shell rm  /data/data/org.shalou.hourglass/files/app/flowwidth     # 回出货默认 1
 try:
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "flowwidth"), "r") as _fh:
@@ -1935,286 +1221,20 @@ except Exception:
 # 2.0 ⇒ 跨 20 级; 配合中点 2 之后实际用到第 0~6 档 = **R 207~219**,
 # 与**沙堆实测的 208~219** 基本重合(这是"不发黑"的判据)。
 FLOW_TONE_STEP = 2.0
-# 🔴 **2026-10-10: 沙流的"随深度变亮"斜率**(档/整条柱高)。默认 0 = 保持 10-06 的"以 base 居中"。
-#    来历: 2026-10-06 用户报「沙子流和沙层颜色差异过大」⇒ 当时把这条斜率**删掉**了
-#    (注释原文:「不再有'越往下越亮'的深度斜率 —— 沙堆没有那条斜率, 沙流也不该有」),
-#    实测依据是沙流底部比沙堆亮 13R/21G/20B。
-#    **但现在(1080 口径 = 真机物理像素)量到的东西相反**:
-#        v1.2(用户说好看的旧版)  柱心−沙体 = **+11.3 级**, 且沿柱身四段 171.5→184.7(**+13.2**)
-#        2.31(现在)              柱心−沙体 = **+1.6 级**, 沿柱身四段 168.9→173.0(**+4.1**)
-#    ⇒ **两次用户判词在这一根轴上相反**。所以做成梯度臂, 不悄悄改默认值。
 _flow_slope = os.environ.get("HG_FLOW_SLOPE")
 try:
     FLOW_TONE_SLOPE = 0.0 if _flow_slope is None else float(_flow_slope)
 except ValueError:
     FLOW_TONE_SLOPE = 0.0
 
-# 🔴 沙流的**基础生成率**(颗/秒) —— **与周期无关**(2026-10-06, 用户报「沙流和沙堆差距过大」)。
-#
-# 历史: 原来是 `600 * speed_factor` = `600 * clamp(60/duration, 0.5, 2.5)`,
-# 即 1500/s(≤24s) 一路降到 300/s(≥120s)。文档给的理由是"抵消孔径随周期收窄,
-# 使**面密度**持平" —— 但那条理由成立于 `neck_w` 还是 `10*(60/d)**0.4`、
-# 从 22px 收到 8px(**2.75×**)的年代。现在 `neck_w` 是 **log 插值**,
-# 只从 17px 收到 13px(**1.31×**) ⇒ 补偿超了约 **3.8 倍**。
-#
-# 设备实测(1080x2400, 量具 `tools/_probe_stream_ink.py`; 覆盖率 = 自由落体段
-# 每行沙色像素 / 该行沙流宽度):
 
-# | 周期 | rate/s | 线密度 颗/px | 沙流每行覆盖率 |
-# |---|---|---|---|
-# | 50s  | 720 | 2.80 | **100%** |
-# | 600s | 300 | 1.16 | **72%**  ← 28% 的像素透出背景 |
-#
-# 沙堆是由 carve 抠出的**不透明实心**多边形 ⇒ 覆盖率恒 100%。600s 档沙流于是
-# 读成"一串断续小珠", 与沙堆"差距巨大"(用户原话)。这也正合用户早就说过的
-# 心智模型: 「下落的沙子的速度是固定的, **理论上在大部分飞行时间中沙子的情况
-# 都是近似固定的**」。
-#
-# 取 1500 = 原公式在 ≤24s 档的取值 ⇒ **那些档一点没动**(1s 档还要再乘
-# `_particle_motion_scale`, 同样不变), 只有 >24s 的档变密。
-# ⚠️ **不要再按孔径去调它** —— 那会把"孔径↔周期"的约束用第二次(过定),
-#    且会把已经修掉的"长周期虚线"重新做回来。
-#
-# ⚠️ 但**它可以为了帧率整体调低** —— 见下面 `_flow_rate_probe()`:
-#    在途粒子数 = rate × 飞行时间, 而 `物理` 与 `图元` **两栏都正比于在途粒子数**
-#    (实测 15s 档峰值 2755 颗)。这是**唯一能把两栏一起按百分比压下去**的旋钮。
-#    代价是沙流线密度(颗/px)同比例下降 —— 那是**观感**, 由用户裁决。
-def _flow_rate_probe():
-    """`HG_FLOW_RATE` 环境变量优先(桌面), 其次与 main.py 同目录的 `flowrate` 标记文件。
-
-    🔴 安卓 app **读不到宿主 shell 的环境变量** ⇒ 设备上做"改 rate"的单变量对照只能
-    写标记文件(app 私有目录, 与 `prof.on` / `blit.off` 同一套):
-        adb shell "echo 1000 > /data/data/org.shalou.hourglass/files/app/flowrate"
-    两个都没有 ⇒ 返回 None ⇒ 走出货默认值。
-    """
-    env = os.environ.get("HG_FLOW_RATE")
-    if env:
-        try:
-            return float(env)
-        except ValueError:
-            pass
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "flowrate"), "r") as fh:
-            text = fh.read().strip()
-        return float(text) if text else None
-    except Exception:
-        return None
-
-
-FLOW_RATE_PROBE = _flow_rate_probe()
-# ⛔ **2026-10-12(2.92): 2.91 的 `1500 → 760` 已回退 —— 那条推理用错了判据。**
-#    **用户判词(2.91 上)**:「下落的沙柱**突然会改变形态**」+「好像是沙柱最低点距离沙面
-#    越低, 越密集」+「而且有个**突变点** 不合理吧」。
-#
-#    错在哪: 我拿 `_probe_stream_ink.py` 的**线密度** `lin = rate×T/L`(颗/px) 去对 1.244
-#    的标定档 —— **那个量不预测"柱内有没有孔"**。孔由**画出来的覆盖率**决定:
-#        `覆盖率 ≈ rate × trail_time × 线宽(2px) / 柱宽`
-#    (每颗粒画成"2px 宽 × |vy|·tl 长"的竖条 ⇒ 每行被穿过的颗数 = rate × tl, 与速度无关)。
-#    2.91 的柱宽 ≈ 40px(设备口径)、tl ≈ 25ms ⇒
-#        1500 ⇒ 1.87 (饱和) ⇒ **孔 1~2%**;
-#        760  ⇒ 0.95      ⇒ **孔 10~11%** ← 用户看到的"稀疏/形态会变"。
-#
-#    **设备单变量 A/B(E1, MuMu 1080×1920, 只改标记文件 `flowrate`, 同一版代码、同刻对齐)**:
-#      | rate | 柱宽 | 柱内墨/行 | 柱内孔 |
-#      |---|---|---|---|
-#      | **760(2.91 出货)** | 40.2 | 35.6 | **10.3 / 11.4 / 9.0 / 11.1 / 10.3 %** |
-#      | **1500**            | 42.0 | 41.3 | **1.0 / 1.5 / 1.4 / 2.1 / 1.9 %** |
-#    并排图 `benchmark_logs/_dev/rate_zoom_ab.png`(4x, 左 760 满是小孔 / 右 1500 基本实心)。
-#    ⇒ **"孔"这一族判据必须用覆盖率, 不能用线密度** —— 已记进 CLAUDE.md。
-#
-#    ⚠️ 用户 2.90 那条「粒子移动没有 1.244 明显」的**真因是上球材质**(相位 b 的位移式子,
-#    2.91 已修并逐像素对齐 1.244) ⇒ 降 rate 这一半是**多余的**, 且引入了新缺陷。
-#    (想复现 2.91 的稀疏观感: `HG_FLOW_RATE=760` 或设备标记 `flowrate`。)
-FLOW_BASE_RATE = FLOW_RATE_PROBE if FLOW_RATE_PROBE else 1500.0
-
-
-def _trail_scale_probe():
-    """`HG_TRAIL_SCALE` 环境变量优先(桌面), 其次与 main.py 同目录的 `trailscale` 标记文件。
-
-    🔴 **2026-10-10 (A5): 用来证伪/证实"纤维感来自线太长"这条。**
-    可见的粒子墨迹是 `Line`，高度 `trail = max(2, |vy|·trail_time/motion_scale)`
-    （`trail_time ∈ [0.018, 0.032]`）⇒ 柱中 vy≈500 时 **9~16px 高、2px 宽**，
-    实测柱区纹理的"竖/横自相关比"= **2.00~2.50**，而上球沙体是 **1.00**。
-    把这个系数调小，线就变短、词汇由"竖条纹"变"颗粒"。
-    **若把它调到 0.2 而自相关比纹丝不动 ⇒ "线太长"这条被直接证伪**
-    （那就说明纤维感来自"缝被那块板填了"——见 `sand_hole_th`）。
-
-    安卓读不到环境变量 ⇒ 设备单变量走标记文件:
-        adb shell "echo 0.2 > /data/data/org.shalou.hourglass/files/app/trailscale"
-    """
-    env = os.environ.get("HG_TRAIL_SCALE")
-    if env:
-        try:
-            return float(env)
-        except ValueError:
-            pass
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "trailscale"), "r") as fh:
-            text = fh.read().strip()
-        return float(text) if text else None
-    except Exception:
-        return None
-
-
-def _stream_spread_probe():
-    """粒子**出生点沿 y 摊开的范围**(设备像素)。`HG_STREAM_SPREAD` 环境变量优先,
-    其次与 main.py 同目录的 `streamspread` 标记文件。默认 0 = 逐字旧行为。
-
-    为什么要有它: 所有粒子都在同一条 y(`gen_y`)上出生 ⇒ 粒子层的**上边缘是一条几何直线**,
-    而出口以上只有材质面 ⇒ 用户看到一条"死横线"(实测: 柱心高通 std 在出口由 2.1 跳到 3.9,
-    再往下 9.5~23)。摊开之后那条边缘变成一条有范围的随机带。
-    """
-    env = os.environ.get("HG_STREAM_SPREAD")
-    if env:
-        try:
-            return float(env)
-        except ValueError:
-            pass
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "streamspread"), "r") as fh:
-            text = fh.read().strip()
-        return float(text) if text else None
-    except Exception:
-        return None
-
-
-_SPREAD = _stream_spread_probe()
-# 🔴 **2026-10-10 定为出货默认 2.0 × 直筒高度**(瓶颈 = `_tube_h = h*0.055`)。
-#    用户:「过渡层不用太高, 不超过瓶颈高度的 2 倍吧。或者 1 倍」(1× / 2× 都行, 我定)
-#    标定(桌面 1904×2890, tube_h=159px; 柱心 ±25px 高通std, 出口以上 1.83 为基准):
-#        spread 0   → 刚过出口 3.93  (阶跃 2.15×)
-#        spread 140 = 0.88×tube    → 3.23  (1.76×)   ← 1× 基本没用
-#        spread 320 = 2.0×tube     → 2.72  (1.49×)   ← **选定**
-#        spread 700 = 4.4×tube     → 1.65  (0.90×)   ← 线没了, 但柱子明显变稀
-#    ⇒ 取用户给的上限 2×: 1× 实测几乎无效, 再大就开始牺牲密度。
-#    ⚠️ 是**比例的**不是像素 —— 写死像素会在平板/手机上差好几倍。
-# 🔴 **2026-10-10 补: 上面写的"出货默认"此前**从没落到代码里**(代码是 `0.0 if None`),
-#    于是这个已标定的解药一直没生效。现已改成默认 **2.0**。
-#    为什么它是"一套渲染"那件事的一半: 出口以下那一段的**可见面是粒子层**
-#    (实测覆盖柱宽 **89%**, 材质被压在下面), 而所有粒子都在**同一条 y** 上出生
-#    ⇒ 粒子的上边缘是一条几何直线 ⇒ 出口那一行"从材质面硬切成粒子面"。
-#    实测(PC 400×875 / 10s / t=7.40, 柱内高频 std 中位):
-#        改前 1.01  →  出生点摊开 2.0×直筒高  **1.79**  (材质面自身 = 2.73)
-#    回退: 环境变量 `HG_STREAM_SPREAD=0` 或标记文件 `streamspread` 写 `0`。
-# 🔴 **2026-10-10 二次裁定: 回到 0.0(关)。**
-#    2.35 把它当"出口那条死横线"的解药打开, **但它在开局是错的**: 它把新生粒子放到
-#    `gen_y` **以下**最多 `2×tube_h`(设备上 ~200px) —— 那些沙**还没落到那儿**。
-#    用户判词:「前60帧还tmd一堆bug」。逐帧实拍(蓝沙, 前 1s):
-#        t=0.26 柱子下沿还在上面, 底下已经散着一片粒子  ← 凭空出现
-#        t=0.34~0.68 柱子下方炸开一团弥散粒子云, 柱子本身在一条硬横线上截断
-#    它当初要解决的"出口硬线"现在由**材质那一层**解决了(芯部实心 + 边缘按深度渐入)
-#    ⇒ 这剂药已经没有适应症, 而副作用是"沙在半空出现"。
-#    (留 `HG_STREAM_SPREAD` / 标记 `streamspread` 作以后的实验旋钮。)
-STREAM_SPREAD_RATIO = 0.0 if _SPREAD is None else max(0.0, _SPREAD)
-
-# 🔴🔴 **2026-10-12 默认 0.2 → 1.0(= 1.244 的取值, 即"不缩")**。
-#    用户指着并排图判「**明显是 1.244 的好啊**」+「**去掉那个材质带**」, 而材质带一撤,
-#    出口以下的墨量**全归粒子** ⇒ 拖尾就是那条柱子的**全部**可见内容。
-#    实测(1080 口径同一帧, `max_trail_px` / 每行沙色像素中位):
-#        1.244(无 TRAIL_SCALE) **27.0 px** · 每行 **56**
-#        现在默认 0.2          **5.5 px** · 每行 **6**
-#        `=1.0`(本次)          **27.5 px** · 每行 **62**(配 `FLOW_WIDTH_CAP=2`)
-#    ⇒ 柱子的观感差 5 倍全在这里。阶梯图 `_dl/265/ink_ladder.png`。
-#    🔴 前面的 0.5/0.2 是**材质带还在**的年代定的("修纤维感"、以及 2.59 用户
-#      「太稀疏了」之后改回材质层扛墨量) —— 材质带一撤, 那套前提整体消失。
-#    (留 `HG_TRAIL_SCALE` / 标记 `trailscale` 作单变量对照旋钮。)
-TRAIL_SCALE = _trail_scale_probe()
-# 🔴 **2026-10-10 定为出货默认 0.5**(此前是 0.8)。
-#    为什么改: 用户对 2.35 的判词是**「精细度都不够」**。实测(PC 400×875 / 10s / t=7.40,
-#    柱内高频 std 中位, 材质面自身 = 2.73; 配合下面 `FLOW_WIDTH_CAP=1`):
-#        拖尾 0.8(=2.35) → 1.79      拖尾 0.5 → **2.93**      拖尾 0.25 → 2.85
-#    0.5 与 0.25 差在噪声内, 取更保守的 0.5。
-#    ⚠️ 旧记录里"拖尾 0.2/0.4 ⇒ 太稀疏"是在**底下那层材质只有 28% 不透明**的年代量的
-#      (见 `sand_flow_material.py` 里 `coverage = solid` 那一段); 现在底层是 98~100%
-#      实心的颗粒面, 实测 1px 墨 + 拖尾 0.5 时柱内**背景色 0.0%、沙色 99.8%** ⇒ 不会稀。
-#    旧标定(供参考): 1.0 → 背景 0.0% / 各向异性 2.34~2.51; 0.8 → 9.4% / 1.88~2.23;
-#    「最右边 2 个的沙子更真实，不过太稀疏了」⇒ 要那两格的质感、但更密）。
-#    标定（固定 `holeth=0.10`、只改这一个旋钮，柱内露出背景占比 / 柱区竖横自相关比）：
-#        1.0 → 0.0% / 2.34~2.51     0.8 → **9.4%** / 1.88~2.23（选定）
-#        0.6 → 18.5% / 1.31~1.44    0.2 → 26.5% / 1.16~1.35
-#        v1.2(用户说好看) 参照 = 16.7% / 1.54~1.70
-#    ⚠️ **密度与各向同性由这一个旋钮反向拉扯** —— 越密越"竖"。0.6 是同时复刻 v1.2 的那一档；
-#      0.8 是"比 v1.2 更密"的那一档。改它之前先回去看那张梯子图。
-# 🔴 **2026-10-10: 出货默认 0.5 → 0.2。** 用户判词: 「柱子内部仍是**竖条纤维**」。
-#    **归因(消融, 平板口径 1904×2890 / t=7.40)**:
-#      · 材质单独量(`pooloff`) 柱区 竖/横 = **1.02 / 1.10 / 1.15** —— 与上球同档, **各向同性**;
-#      · 把粒子加回来 ⇒ **1.7~2.2**(且 `flowvy=0` / `jumpy=0` 两臂**完全不动**)
-#      ⇒ **"纤维"是粒子的速度拖尾画的**(每颗 `trail ≈ 6px` 的竖线), 不是材质。
-#    改法: 拖尾缩到 **0.2** ⇒ 除最快那批(16px×0.2=3.2px)外都落到 `max(2.0, …)` 地板
-#    ⇒ 每颗读成**一颗沙**, 而不是一道竖线 —— 正是用户点名的 1.2 那版的样子
-#    (1.2 的前沿是**一堆离散圆颗粒**)。
-#    梯子图 `benchmark_logs/_vid/trail_ladder.png`(0.6 | 0.5 | 0.35 | 0.15, 同一帧同一裁图)。
-#    ⚠️ **别再拿"柱区竖/横"这一个数定值** —— 它对窗口极敏感(同一张图 ±40 与 ±45 会给出
-#      2.16 与 1.09), 只能当**同一次比对里**的相对量用。
-#    ⚠️ 上面那张老梯子表(0.6≈v1.2 / 0.8 选定)是**另一套几何**下标的, 与今天不可直接比;
-#      但它与人眼在这张梯子上看到的**方向**一致: 拖尾越短越不"竖"。
-# ⛔ **2026-10-11: 0.35 已撤回(2.59)** —— 用户的判词是「**太稀疏了**」, 要的是
-#    「颈部和沙柱和上层的沙子**没有明显的区别**」 ⇒ 材质层留下(与上层同一套), 墨量不需要靠粒子撑。
-# ⛔⛔ **2026-10-12: 那套前提整个作废** —— 用户要求**去掉材质带**, 于是"墨量不需要靠粒子撑"
-#    这句话反过来成立: **墨量只能靠粒子撑**。默认 0.2 → **1.0**(= 1.244 的取值, 见上面那段)。
-#    (当时那段推理保留作记录: "QA 说的对: 2.55 那次这个改动是**空转的** —— 因为当时
-#      **材质层还在**(每行 100% 填满), 没有'虚线'要防。**现在几何真的撤了**(柱区沙色覆盖
-#      35%→5%), 墨量全靠粒子 ⇒ 才需要它。")
-TRAIL_SCALE = 1.0 if TRAIL_SCALE is None else max(0.0, TRAIL_SCALE)
-
-
-def _stream_open_probe(name, fname, dflt):
-    """`HG_<name>` 环境变量优先(桌面), 其次与 `main.py` 同目录的 `<fname>` 标记文件。
-
-    与 `_trail_scale_probe` 同一套(安卓读不到环境变量 ⇒ 设备单变量走标记文件)。
-    """
-    env = os.environ.get(name)
-    if env is not None:
-        try:
-            return float(env)
-        except ValueError:
-            pass
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               fname), "r") as fh:
-            return float(fh.read().strip())
-    except Exception:
-        return dflt
-
-
-# 🔴🔴 **2026-10-12: 沙流的"深度筛" —— 空隙先 0 后越来越多(用户点名的形状)。**
-#
-# 用户原话: 「**沙子的空隙的多少 可以做到先0后很多吗？越来越多**」+「无非就是沙子随着重力
-#   下落的时候, **的形状绘制**」。
-#
-# 实测靶(1:1 渲染, 出口以下柱带内"真背景=空隙"占比; 这是全项目唯一贴脸的标定资料):
-#     0-25px **1.1%** · 25-60px 3.8% · 60-120px 5.0% · 120-200px 8.2% · 200-300px **12.0%**
-#     · 300px 以下平在 9~11%   ⇒ **起点不是 0, 而且 200px 之后不再增长**。
-#
-# 做法(只动**绘制**; 粒子物理/守恒/随机数流一字不动):
-#     每颗粒子按"它当前的下落距离 d"算一个门槛 `open(d)`(顶部 0 → 底部 STREAM_OPEN),
-#     再用一张**柱坐标锚定**的平滑噪声查表: `噪声(x, d) >= open(d)` 才画。
-#     · `open=0` 段 ⇒ 一颗不筛 ⇒ 顶部实心;
-#     · 越往下门槛越高 ⇒ 被筛掉的越多 ⇒ 空隙越来越多。
-#     · 纯函数(不含时间项、不抽随机数)⇒ **静止帧逐位稳定**(暂停盯着看不会闪);
-#       粒子寿命只有几十毫秒, 若按"粒子 id"随机会每帧换一批洞 —— 那是这个需求最大的坑。
-#     · 查表坐标用 `(x−cx, d)`(柱坐标, 不随窗口/相机动) ⇒ 免疫屏幕空间抖动。
-#
-# 驱动量的**形式**取自自由落体颗粒流的"拉伸年龄" τ=√(1+2gd/v0²)−1
-#   (Royer/Waitukaitis, arXiv:1203.1532) —— 它给"顶部为什么该是实心"一个物理身份
-#   (τ 小的时候拉伸把扰动压住)。⚠️ **但文献阈值 τ≈8 反推的起振深度 109~320px 比我们
-#   实测的起点(25~60px)晚 2~5 倍** ⇒ 只借形式,**门槛曲线用我们自己的剖面标定**
-#   (`STREAM_OPEN_START` / `STREAM_OPEN_RAMP` 就是那两个标定常数)。
-#
-# 四路联网调研点名的坑(已避开): 别做成"串珠/肠节"(1.39 翻过车) · 柱宽不许变 ·
-#   绘制期不许抽随机数(2.11 翻过车) · 移动端别用 `discard`(tile GPU 破坏 early-Z) ——
-#   本实现**一个片元都不丢**, 只是在 CPU 侧少喂一颗粒子进桶。
-# 🔴🔴 2026-10-12 用户裁决后**默认关**(0.42 → 0.0): 用户看完设备截图判「断成虚线」,
-#   并且它违反了三条已标定的结构性判据(S1 整宽横断 16 行 / S2 图案钉在空间 J=0.388 /
-#   S3 墨量 −25%) —— 历史判据见 design/checks/notes/old-acceptance.html；当前用例见 design/checks/rules/sand-flow.html。
-#   旋钮保留: 想再试"空隙"这条方向时把它打开即可(或按 2.78 的提交回查)。
-STREAM_OPEN = _stream_open_probe("HG_STREAM_OPEN", "streamopen", 0.0)
-STREAM_OPEN_START = _stream_open_probe("HG_STREAM_OPEN_START", "openstart", 0.06)
-STREAM_OPEN_RAMP = _stream_open_probe("HG_STREAM_OPEN_RAMP", "openramp", 0.42)
-STREAM_OPEN_CELL = _stream_open_probe("HG_STREAM_OPEN_CELL", "opencell", 7.0)
+FLOW_BASE_RATE = float_option(_APP_DIR, "HG_FLOW_RATE", "flowrate") or 1500.0
+TRAIL_SCALE = max(0.0, float_option(_APP_DIR, "HG_TRAIL_SCALE", "trailscale", 1.0))
+STREAM_SPREAD_RATIO = max(0.0, float_option(_APP_DIR, "HG_STREAM_SPREAD", "streamspread", 0.0))
+STREAM_OPEN = float_option(_APP_DIR, "HG_STREAM_OPEN", "streamopen", 0.0)
+STREAM_OPEN_START = float_option(_APP_DIR, "HG_STREAM_OPEN_START", "openstart", 0.06)
+STREAM_OPEN_RAMP = float_option(_APP_DIR, "HG_STREAM_OPEN_RAMP", "openramp", 0.42)
+STREAM_OPEN_CELL = float_option(_APP_DIR, "HG_STREAM_OPEN_CELL", "opencell", 7.0)
 _STREAM_OPEN_TABLE = None
 
 
@@ -2664,21 +1684,7 @@ NECK_FILL = 0.25     # 颈部沙柱注满耗时(秒), 避免起跑瞬间"啪"地
 WARM_COST_FLOW = 6.0
 WARM_COST_SMALL = 1.5
 WARM_BUDGET_MS = 12.0     # 一帧最多建 2 块沙流(见下: 预热深度按几何算, 12ms 才赶得完)
-# 🔴 **每个沙流桶要预热几块, 现在是按几何算出来的, 不是一个常数**(2026-10-07 晚)。
-#    历史: 先 1 块 → 用户平板复测发现 3 个桶超 512 ⇒ 改 2 块 → 仍被抓到。
-#    1.221 的平板 log 里每档**必然有一帧** `图元` 9.2~12.5ms(稳态 2.0), 同帧
-#    `ia=1 / vrb=160 KiB` —— 就是"运行期现建一块沙流"(512 槽 × 20 顶点 × 4 float × 4B
-#    = 160 KiB, 设备 ~7.7ms)。落在 t=0.38 / 1.81 / 1.83s。
-#    ⚠️ **本机一直复现不出来**: 桶里有多少颗 ∝ 粒子的下落路程 ∝ 窗口高度。
-#       把桌面窗口调成平板的 1904×2890 之后**一次就复现**(`tools/_chunkneed*.py`):
-#       最热的桶峰值 **1525 颗** ⇒ 要 **3 块**, 而只预热了 2 块。
-#       ⇒ 这就是"桌面测不出来"的又一处: **不是慢, 是几何不够大**。
-#    ⇒ 判据改成"**在途粒子数上界 × 最热桶占比 / 块容量**":
-#       `在途 ≈ rate × 飞行时间 = (FLOW_BASE_RATE × motion_scale) × (natural / motion_scale)`
-#       = **FLOW_BASE_RATE × `_natural_flight_time`** —— 与 motion_scale 无关(两项正好抵消),
-#       所以 1s 档和 15s 档拿到同一个上界(与实测一致: 平板两档峰值都在 3100 附近)。
-#    ⚠️ 桶占比 0.55 是**实测的**: 色调合并后 5/9 的档落进最热的桶(`idx -= idx % 3` 前
-#       在 0 处被 clip), 其中 85% 是 size=2 ⇒ 0.556×0.85 ≈ 0.47, 再留 1.2× 余量。
+# 按几何估算粒子桶容量，以最拥挤的桶预热。
 WARM_FLOW_CHUNKS = 2          # **下限**(短周期/小窗口时的值, 与原行为一致)
 WARM_FLOW_BUCKET_SHARE = 0.55  # 最热那个桶占在途粒子的比例上界(实测 0.49)
 WARM_FLOW_CHUNKS_MAX = 8      # 上限, 防病态几何把预热队列撑爆
@@ -2687,143 +1693,23 @@ WARM_FLOW_CHUNKS_MAX = 8      # 上限, 防病态几何把预热队列撑爆
 #    **用户看完并排图后定的就是这一版**(并排图 benchmark_logs/_vid/seam/ZOOM49b.png)。
 #    关掉它用 `HG_NECK_JOIN=0`(回退到"下沿钉在玻璃线上"的老行为), 便于 A/B 与取证。
 NECK_JOIN = os.environ.get("HG_NECK_JOIN", "1") == "1"
-# 🔴 2026-10-09: 颈部沙柱往下长到**在途沙的前沿**为止, 不是长到沙堆面为止。
-#    **用户当场指出的**: 「你tmd自己能不能用50s这个周期去跑下模拟, 搞个截图, 看看前2秒
-#    是否合理?」—— 实测(50s 档, 平板口径)前 2 秒里, 柱子**从出口一路插到球内底**、且
-#    **一个粒子都没有**(沙还在半路), 是一根贯穿整个下球的棍子。这正是 1.238 的死因:
-#    下沿钉在 `get_mound_top_y()` 上, 而开局那几秒沙堆还在球底 ⇒ 那个标量 ≈ **球内底**。
-#    前沿 = `min(self.py[:self.pn])` = **沙真的落到了哪儿** ⇒ 开局只有一小截, 沙落到底
-#    自然与沙堆接上。关掉用 `HG_NECK_FRONT=0`(回退成"长到沙堆面", 即 2.13 的行为)。
 NECK_FRONT = os.environ.get("HG_NECK_FRONT", "1") == "1"
 
 
-def _outlet_overlap_probe():
-    """`HG_OUTLET_OVERLAP` 环境变量优先(桌面), 其次与 main.py 同目录的 `outletoverlap` 标记文件。
-
-    ⚠️ 安卓 app **读不到宿主环境变量** ⇒ 设备上做单变量对照只能写标记文件
-    (app 私有目录 = `<app>/outletoverlap`, 与 `flowrate` 同一套)。
-    两个都没有 ⇒ None ⇒ 走出货默认。
-    """
-    env = os.environ.get("HG_OUTLET_OVERLAP")
-    if env:
-        try:
-            return float(env)
-        except ValueError:
-            pass
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "outletoverlap"), "r") as fh:
-            text = fh.read().strip()
-        return float(text) if text else None
-    except Exception:
-        return None
-
-
-# 🔴 **2026-10-13(2.93): 出口那一行的"亮玻璃缝"** —— 把材质柱的下端往下补 `OUTLET_OVERLAP` 像素。
-#
-# **用户判词**(真机 1602x2560 / 165Hz / 50 秒档末段): 「快满的时候，沙柱的比较纯色。
-#   **隐约还有一个缝隙** 你看看」。
-#
-# **对抗审查的四腿闭环**(跨模型 2 专家 × CP2+AP3 轮; 记在
-#   `benchmark_logs/_vid/real22/synthesis_293.md`):
-#   1. 出口以下**没有任何材质** —— `flowrate=1`(粒子 1 颗/秒)一臂实测: 出口(y≈1050)以下
-#      整段变成**玻璃色**(`GLASS_FILL`, 73/73 px) ⇒ 出口那一行**只由新生粒子盖**;
-#   2. 新生粒子 `vy≈35~60` ⇒ 拖尾触 `max(trail, 2.0)` 地板 ⇒ **该行覆盖率只由线宽决定**;
-#   3. 而 2.86 的 `_stream_ink_q` 把末段线宽 2px→1px ⇒ 那一行盖不严;
-#   4. 底下的 `GLASS_FILL` 比沙**亮 ~45 级** ⇒ 露出一点就是一条**亮**缝("隐约"的来源)。
-#
-# **实测(同一 harness、同状态, 出口行柱心 73px 窗内的玻璃像素)**:
-#   2.92 出货 **11/73** · 2.92+`INK_HEADROOM=0`(关 2.86 压线宽) **1/73** ·
-#   1.244 参照 **0/73** · 中段 t=25 **0/73** ⇒ 主因是压线宽, 位置在出口那一行。
-#
-# **几何上它是一处亚像素漏盖**: 沙柱的切面在出口线(Kivy y)`y_end`, 而出口那一行的
-#   **像素中心**落在它下方 **0.34px** ⇒ 按像素中心规则**盖不到那一行**。
-# ⇒ 把下端再往下补几像素即可(**只在下端就是出口切口时补**)。
-#   ⚠️ 下端若已跟着**前沿/堆面**走(`NECK_FRONT`/`NECK_JOIN` 生效的那支), 那里本来就是
-#     沙的边界, **不许补** —— 补了会画出"还没落到的沙"。判据 = `|side[-1].y − y_end| < 3px`。
-#   ⚠️ 只动**几何末端**: 粒子数/物理/随机数/材质/线宽 一律未动。
-# 关掉: `HG_OUTLET_OVERLAP=0` 或设备标记 `outletoverlap=0`(逐位回退)。
-_OUTLET_OVERLAP_PROBE = _outlet_overlap_probe()
-OUTLET_OVERLAP = (2.0 if _OUTLET_OVERLAP_PROBE is None
-                  else max(0.0, float(_OUTLET_OVERLAP_PROBE)))
-# 🔴 2026-10-09: 出口以下那段沙柱的**边缘要毛**。用户判词:「沙柱看起来是个**规整的矩形**」
-#    —— 两条边死直、平行、通体实心。玻璃在出口就结束了, 以下没有任何东西约束它。
-#    关掉用 `HG_NECK_FREE=0`。
-# ⛔ **2026-10-11: 默认 1→0 那一刀已撤回(2.57)。它是**空转臂**:
-#    自由段那层几何**不走这个开关**(`NECK_FREE_OFF` 只在 `_neck_free_band` 上生效, 而那个带
-#    只在 `NECK_OUT_SPLIT` 下才创建) ⇒ 开/关它**逐像素 0 差异**(2.53/2.55 两棵树实测)。
-#    **代价是它把关掉的 `free_front` 打散也一起撤了**(F6: 边缘打散 ⇒ 柱子回到"规整矩形")。
-#    要"只剩粒子一层"必须去**几何那一侧**动手(`_neck_sand_side` 出口以下的发射), 见 QA 报告。
+# 材质在出口与首批颗粒的重叠距离，单位为像素。
+OUTLET_OVERLAP = max(0.0, float_option(_APP_DIR, "HG_OUTLET_OVERLAP", "outletoverlap", 2.0))
 NECK_FREE = os.environ.get("HG_NECK_FREE", "1") == "1"
 
-# 🔴 **2026-10-11: 出口以下**还发不发射材质几何**(默认 0 = 不发射)。**
-#    用户判词: 「**你是看不到外面有一层的, 他是只有一层的**」+「不要做分层了」。
-#    ⚠️ **这才是那个开关**: `NECK_FREE` 只管着色器里那个 `free_front`(边缘打散),
-#    **几何**是在 `_neck_sand_side` 里**无条件**发射的 ⇒ 2.55 只翻 `NECK_FREE` 是**空转臂**
-#    (跨模型测试员两轮独立复现: 开/关 `neckfree` 逐像素 0 差异; 清空颈部四边形后柱子整条消失)。
-#    `= 0` ⇒ 多边形在**出口**收尾, 出口以下只剩**粒子**(与 1.2 同构) ⇒ 一并消掉
-#      "外面那一层" / 头部那个锥(材质几何画的) / "前沿换堆面"的硬切换(没有几何轮廓可换)。
-# 🔴🔴 **2026-10-12 重新定为 0**(2.59 曾把它扳回 1): 用户指着**改前/改后并排图**判
-#    「**明显是 1.244 的好啊**」+「**去掉那个材质带**」。1.244 出口以下**根本没有材质几何**
-#    (`git show c2abf10:main.py | grep sand_free` = 0 命中; 把粒子关掉柱子**整条消失**,
-#     见 `benchmark_logs/_dl/265/particle_iso.png` 左格) ⇒ 那条柱子 100% 是粒子画的。
-#    ⚠️ **2.59 那次撤它的理由是「太稀疏了」—— 那条判词仍然成立**, 但**稀疏的真因不是几何,
-#      是墨量**: 当时 `TRAIL_SCALE` 只有 0.35、`FLOW_WIDTH_CAP` 又是 1 ⇒ 每行沙色
-#      覆盖 **5%**(2.58 实测), 而 1.244 是 **55.9%**。这一次**三个旋钮一起回 1.244 的取值**
-#      (`NECK_FREE_GEOM=0` + `FLOW_WIDTH_CAP=2` + `TRAIL_SCALE=1.0`), 实测
-#      **62 px/行 vs 1.244 的 56** ⇒ 密度对上了(`_dl/265/ink_ladder.png` 第二格)。
 NECK_FREE_GEOM = os.environ.get("HG_NECK_FREE_GEOM", "0") == "1"
-# 🔴 **2026-10-10: 颈部颗粒提亮层在材质路径下是否保留。默认 "1" = 保留(旧行为)。**
-#    2.12 把它在材质路径下**整个禁掉**(理由: 那 320 条 Line 一个像素都画不出来)——
-#    不画是对的, 但**它的提亮作用也一起没了**。1080 口径逐层消融实测(同一冻结帧 t=7.64):
-#        无粒子(只材质板)  柱心−沙体 = **+39.9 级**(板很亮)
-#        无板(只粒子)      柱心−沙体 = **+3.7 级**(粒子偏暗)
-#        full(两者都有)    柱心−沙体 = **+1.6 级**  ← 粒子把亮板整个盖住
-#        v1.2(用户说好看)   柱心−沙体 = **+11.3 级**
-#    ⇒ 柱子的可见面是**暗粒子**, 而 v1.2 因为这一层活着而亮 ~10 级;
-#      出口那条亮度阶跃**同一个原因**(粒子在出口从无到有, 而它比板暗 ~36 级)。
-#    `HG_NECK_GRAINS=0` 可退回 2.12 的行为。
-# 出口以下的自由收缩段(vena contracta)。关掉用 `HG_NECK_TAPER=0`。
 NECK_TAPER = os.environ.get("HG_NECK_TAPER", "1") == "1"
 NECK_TAPER_SEGS = 4          # 收缩段节点数(前 40px 均分)
-# 🔴 **2026-10-09: 自由段的**额外**节点数(N1)。**
-#    用户报「目前的沙珠是一个规整的直线」—— 量出来是真的: 设备 1080×1920 上柱子
-#    从出口往下 431 行, 左/右缘对**直线**回归的残差只有 2.49 / 2.73px ⇒ 两条边就是直线。
-#    根因**不是**宽度律, 是**节点分布**: 自由段只有 d=10/20/30/40 四个节点(全挤在出口下 40px),
-#    之后直接跳到"前沿"那一点 ⇒ **d>40px 的那 ~350px 就是一条直线弦**, 选什么律都画成直线。
-#    实测佐证: 把下限 0.70 → 0.35 → 0.10 三臂, 直度残差几乎不动(2.49→2.29→2.26),
-#    只是那条直线变陡(底宽 37→22→20)。⇒ 不加密节点, "该收多细"的讨论都落不到画面上。
-#    布点: **前 40px 仍用 4 个(收缩段要密)**, 40px 之后按 `span·(k/(K+1))^1.4` 前密后疏补 K 个。
+# 自由段近出口的节点更密，以解析宽度的渐变。
 NECK_FREE_EXTRA_SEGS = 10
-# 🔴 **2026-10-10: 沙柱**头部**(前沿那一段)沿宽度打几个节点。**
-#    用户判词(附截图): 「这个头部的形状也不对, **固定一个三角形啊**」。
-#    病: 前沿原来只用**两个节点**(最外一个点 + 中轴一个点), 而前沿是条抛物线
-#    (`_front_at = _front + _bulge·(dx/w)²`) ⇒ 两点之间是**一条直弦** ⇒ 画出来就是个三角。
-#    改: 沿半宽打 `NECK_FRONT_SEGS` 段 + 一层**随时间和位置起伏**的抖动
-#    (`FLOW_FRONT_WOBBLE`, 相位每次启动不同 ⇒ 每轮头部形状都不一样)。
 NECK_FRONT_SEGS = 12
 FLOW_FRONT_WOBBLE = float(os.environ.get("HG_FRONT_WOBBLE", "0.45"))
 NECK_GRAINS_IN_MATERIAL = os.environ.get("HG_NECK_GRAINS", "0") != "0"
-# 前沿的**穹顶**量(以半宽为单位): 边缘比中轴高出这么多。`0` = 平头(2.14 的行为)。
-# 🔴 **2026-10-10 三改: 0.80 → 0.30, 而且再按"已经落下去多远"封顶。**
-#    用户判词(附设备截图): 「下落到一个地方的时候, **突然伸出尖尖**, 这个时候的宽度给错了」
-#    + 「2.40版本的这个尖尖的形状是不对的, **应该是一个不规则的东西**, 你去看看1.2版本是个啥」。
-#    **实测 1.2(用户点名)的前沿**: 一堆**离散圆颗粒** + 沙块下缘一条**毛糙的点状边** ——
-#    **没有任何几何尖角**。而 `0.80×半宽` 的穹顶在**刚出生**时是什么样, `necklog` 读出来了:
-#        t=0.2  outlet=416.2  end_at(w_end)=430.7(在管**里面**)  end_at(0)=416.2
-#    ⇒ 边缘比中轴**高 14.5px** ⇒ 那一刻**只有中轴那个尖探出孔口** ⇒ 尖尖 + "宽度给错了"
-#      (宽度本该是整条管口, 实际只露出一个点)。
-#    `FLOW_FREE_MARGIN=1.35` 又把这个穹顶在外缘放大 `(1.35)²=1.82` 倍 ⇒ 2.43 起更突出。
-#    现在: ① 系数降到 0.30; ② 再按**前沿已经落下去的距离**封顶(`NECK_FRONT_DOME_SPAN`)
-#      —— 沙刚冒头时前沿还没落下 ⇒ 穹顶 ≈ 0 ⇒ **平着出场**, 落得越深穹顶才越明显。
 NECK_FRONT_DOME = float(os.environ.get("HG_NECK_DOME", "0.10"))
-NECK_FRONT_DOME_SPAN = float(os.environ.get("HG_NECK_DOME_SPAN", "0.45"))
-# 🔴 **2026-10-11: "前沿落到堆面"那一刻的**硬切换**要抹平(用户原话: 「**不可能有这么一个突变**」)。**
-#    病(跨模型测试员实测, 两轮独立复现): t=2.06→2.08 之间, 材质带下沿从 **+17px/帧 翻成 −18px/帧**,
-#    末端宽度 **66→176→240px** 一帧张开。根因: `_end_at` 里 `max(_my, _fr)` —— 前沿还在空中时
-#    下沿是"前沿"(窄), 前沿一碰到堆面就换成"堆面"(宽) ⇒ **一帧换源**。
-#    改法: 用**平滑最大值**(log-sum-exp 型)代替 `max` —— 处处连续可导, `k` 是过渡尺度(px)。
-#    `k=0` ⇒ 逐字旧行为(可直接当负对照)。
+# 平滑衔接空中的前沿和堆面。
 NECK_SOFT_END = float(os.environ.get("HG_SOFT_END", "40.0"))
 WARM_SPLASH_CHUNKS = 8
 
@@ -2860,70 +1746,18 @@ def _bezier2(p0, p1, p2, n):
     return pts
 
 
-# ⚠️ Kivy `Line.width` 是**半宽**, 不是总宽 —— 2026-10-04 用 tools/_probe_linew*.py 实测:
-#      width  0.5 / 1.0 → 1px (≤1 被夹成 GL_LINES)
-#             1.05–1.4 → 2px      1.5 → 3px      1.6–2.2 → 4px      4.0 → 8px   8.0 → 16px
-#   即 width>1 走 mesh 路径时 实际像素 ≈ 2×width。**本工程以前不知道这件事** ——
-#   玻璃反光第一版按"1.9px"写 width=1.9, 实拍成 4px(+圆头 5px), 是"描边有一段变亮"
-#   而不是一条独立反光的真因。
-#   (顺带: 粒子 `width=p['size']` 里的 2 实际画的是 4px —— 那是既有视觉, **不要动**。)
-_LINE_W_FOR_PX = {1: 1.0, 2: 1.2, 3: 1.5, 4: 1.7}
-
-
-def _line_w(px):
-    """想要"实际 N 像素宽" → 该传给 `Line(width=...)` 的值。"""
-    px = max(1, int(round(px)))
-    return _LINE_W_FOR_PX.get(px, px / 2.0)
-
-
-def _arc_pts(cx, cy, r, deg0, deg1, segs):
-    """圆周弧段采样 → Kivy `Line` 要的平坦坐标表。
-
-    角度按**数学**习惯: 逆时针为正、0° = +x。Kivy 的 y 轴向上, 所以"画面左上"是
-    第二象限(90°–180°), 与直觉一致, 不需要为坐标翻转另开一套角度。
-    """
-    out = []
-    span = math.radians(deg1 - deg0)
-    a0 = math.radians(deg0)
-    for i in range(segs + 1):
-        a = a0 + span * i / segs
-        out.append(cx + r * math.cos(a))
-        out.append(cy + r * math.sin(a))
-    return out
-
-
 FALL_DELAY = 1.0          # 沙子飞到底的延迟(秒),下沙堆出现与粒子到底同步
 MOUND_APPEAR = 0.5        # 下沙堆出现后平滑渐显时长
 MOUND_FLOOR_MIN = 2.5     # 前期极小可见保底(dp),仅防薄层消失,不拔高
-# ⚠️ **2026-10-06 更正: 上面这个"可见保底"实际从来没有可见过。**
-#    `h = appear(eff) × max(raw(eff)·H, floor(eff))` —— floor 主导的窗口只有
-#    `eff < 0.000586`（elapsed 后 **仅 28ms**），而窗口内 `appear ≤ 0.056`
-#    ⇒ **峰值 h ≤ 0.507px**（设备探针每帧实测: 0.000 → 0.238 → **0.505** → 1.223，
-#    最后一步已由 raw 接管）。⇒ dp(2.5)=7.5px 这个值**从未以 >0.51px 出现在画面上**。
-#    r35-1号 设备每帧读数与解析式逐点吻合到 0.01px。（仅注释, 未改行为 —— 改不改归用户）
 MOUND_FLOOR_MAX = 3.5
 MOUND_FLOOR_EFF = 0.02
 
-COMPLETION_POPUP_DELAY = 1.0   # 完成提示延后(秒): 让闪光/尘埃先演完再弹(用户 2026-10-03 定)
+COMPLETION_POPUP_DELAY = 1.0   # 归零后延迟弹出完成提示，单位为秒。
 COMPLETION_POPUP_MIN = 1800.0  # 总时长至少 30 分钟才弹完成提示
 
-# (1.39 回滚) 这里曾有 JET_VENA / JET_DIFFUSE / JET_SPREAD / JET_EDGE / JET_WAVE_K ——
-# 出口以下的"vena contracta 收腰 + 沿深度相干摆动"。它把颈部射流做成了一根**静止的
-# 波纹管**: 摆动只随 y 变化(空间函数, 不是时间函数), 同一根 zigzag 每帧钉在同一批行上,
-# 读起来像被模具挤出来的绳结, 不像会流动的沙。而且它从未进过任何一轮对抗审查, 验收用的
-# "去趋势残差"对"加抖动"单调递增 —— 缺陷和指标是同一个东西(事故报告: NECK_REDESIGN §八)。
-# 出口以下已恢复恒宽 tube_lim。
 
 DUST_COUNT = 25
 DUST_LIFETIME = 1.0
-# ---- 完成闪烁: **已删除**(2026-10-04, 用户实拍裁决「这个很不合理, 这里不需要过度」) --------
-# 原来是"漏完瞬间全屏盖一层白 25%、350ms"(从 PC v4 的 stipple gray25 继承来的)。
-# 实测那一层把下球沙色从 (217,166,103) 冲成 (226,187,140) —— 饱和度掉一大截, 读成
-# "沙子上蒙了一层膜", 而且它是**全屏**的, 连玻璃和背景一起冲淡。
-# 删除依据(60fps 录屏逐帧扫完 14 秒, 840 帧): 整段只有这一处瞬态(Δ=+66, 340ms),
-# 漏完前后稳态逐像素无差异。完成那一刻仍有完成音; 周期 ≥20 秒还有完成弹窗。
-# 删掉的东西: 常量 FLASH_DURATION / `flash_end` / `_flash_color` / `_flash_rect`
-# 及其每帧的 alpha+size 更新。
 
 WAV_FILENAME = "sounds/sand_loop.wav"
 
@@ -3082,7 +1916,6 @@ def _land_layer():
     return _LAYER
 
 
-# ---------- 居中输入框(Kivy TextInput 无 text_align,手动算 padding) ----------
 
 class _SmoothSlider(Slider):
     """按实际控件尺寸画圆形游标，沿用 Slider 的触摸范围和数值映射。"""
@@ -3119,26 +1952,6 @@ class _SmoothSlider(Slider):
         alpha = 0.35 if self.disabled else 1
         for color in (self._cursor_color, self._cursor_rim_color, self._cursor_center_color):
             color.a = alpha
-
-
-class CenterTextInput(TextInput):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.bind(text=self._refresh_pad, size=self._refresh_pad,
-                  font_size=self._refresh_pad)
-        Clock.schedule_once(self._refresh_pad, 0)
-
-    def _refresh_pad(self, *_):
-        try:
-            cl = CoreLabel(text=self.text or "0", font_size=self.font_size,
-                           font_name=self.font_name or "Roboto")
-            cl.refresh()
-            tw, th = cl.content_size
-        except Exception:
-            tw, th = 0, 0
-        ph = max(2, (self.width - tw) / 2)
-        pv = max(2, (self.height - th) / 2)
-        self.padding = [ph, pv, ph, pv]
 
 
 # ---------- 音效: Android AudioTrack 硬件循环; Windows winsound; 桌面 fallback ----------
@@ -3579,20 +2392,7 @@ class _SandBgPopup(Popup):
         self._popup_bg.pos = inst.pos
         self._popup_bg.size = inst.size
 
-    # ---------- 遮罩: 横屏下自带那层只盖 55% 屏宽, 换成"以屏心为中心的正方形" ----------
-    # 🔴 病灶(`kivy/data/style.kv:509-514` 的 `<ModalView>`):
-    #       Color: rgba: root.overlay_color[:3] + [root.overlay_color[-1] * self._anim_alpha]
-    #       Rectangle: size: self._window.size if self._window else (0, 0)
-    #    —— **只给了 size, 没给 pos** ⇒ pos 恒为 (0,0)。竖屏时宿主是 Window 且不转, 没事;
-    #    **横屏时弹窗挂在反旋转层上**(见 `open()`), 整个层绕**屏心**转 ±90° ⇒ 那块
-    #    2400×1080 的矩形转完只剩中间 1080 宽的竖条, 两侧被白白漏掉
-    #    带宽 = (长边−短边)/2 = 660px。桌面实测(`tools/_probe_overlay_band.py 2400 1080`):
-    #    x 0~659 与 x 1740~2399 各 660px 比值 1.000(完全没被压暗), 带里才是 0.302。
-    # ✅ 修法: 矩形要在"绕屏心转 ±90°"下**映射到自身** ⇒ 取以屏心为中心、边长 max(W,H)
-    #    的**正方形**(横竖屏都严丝合缝)。关掉自带那层, 自己画这一块。
-    # ⚠️ 坐标系(已用 `tools/_r37_marker_xy.py` 打标记方块实测): 弹窗 `canvas.before` 的指令
-    #    画在**父(层)坐标系**, 不是弹窗局部系 —— 按局部系算会得到一条 L 形亮带。
-    #    层恒 `pos=(0,0)`(见 `LandLayer.apply_orientation`) ⇒ 直接用窗口坐标即可。
+    # 横屏遮罩取以屏心为中心的正方形，以覆盖旋转后的四角。坐标相对于弹窗的父层。
     def _set_overlay_rotated(self, rot):
         """横屏(挂旋转层)⇒ 关掉自带遮罩 + 打开自己那块; 竖屏(挂 Window)⇒ 原样还回去。
 
@@ -3935,6 +2735,7 @@ class HourglassWidget(Widget):
         self._sand_landed = 0.0
         self._sand_pending = 0.0
         self._sand_active = False
+        self._opening_seed = None
         self._sand_timing = None
         self._sand_tail_span = 0.
         self._sand_resized = False
@@ -4244,16 +3045,7 @@ class HourglassWidget(Widget):
             # 演化帧: 与静态版同幅度、同节点口径, 只是**随时间平滑地换形状**
             self._upper_rough_frames = _build_rough_frames(Ri, UPPER_ROUGH_FRAC, UPPER_ROUGH_SEED)
             self._upper_rough_cache = None
-            # ⚠️ **必须把时间戳一起清掉** —— 只清 `_upper_rough_cache` 是 1.124 之前的 bug
-            #    (r23-1号 在设备上抓到的): `_upper_rough_now()` 的命中判定是
-            #    `if _upper_rough_cache_t == elapsed: return _upper_rough_cache`
-            #    ⇒ 时间戳没清时它把刚置空的 **None 原样返回**, 下游 `_upper_rough_at`
-            #    见假值就全返 0 ⇒ **上球沙面画成光滑面**。
-            #    而 `set_rough_level` 正是走这条路, 且**用户是在"暂停着看预览"时改档的**
-            #    (暂停时 elapsed 不动 ⇒ 缓存永远命中 None) ⇒
-            #    现象是"在设置里一改沙面起伏, 沙面就变光滑, 六档全是同一个画面" ——
-            #    **恰好和真相相反**, 用户很容易读成"N 越大越平"。
-            #    (elapsed 一走缓存就失效, 所以只在暂停预览这一种状态下出现, 看起来像"一动又回来了"。)
+            # 暂停时 elapsed 不变，两项缓存必须同时失效，新的沙面起伏才会生效。
             self._upper_rough_cache_t = None
             self._upper_env_h = None          # `_upper_rough_at` 的包络 memo(见那里)
             self._upper_env = 0.0
@@ -4473,17 +3265,7 @@ class HourglassWidget(Widget):
         """Cup-lip opening, last release, and initial packed neck capacity."""
         if self._sand_timing is None:
             start = self._neck_fill_time
-            # 🔴 **2026-10-10 (2.28): 不再提前 `flight` 结束释放。**
-            #    用户报: 「较长时间计时时, 最后 x 秒没有沙子流下, 但下面的沙子体积在增加」。
-            #    实测(探针 `tools/_probe_two_clocks.py`, 50s 档):
-            #      400x800  gap = 0.00s   |   800x1600  gap = **0.25s**(受 0.25s 采样限制)
-            #      ⇒ **缺口随口径放大**(`flight ∝ 落程`), 平板上还要更大。
-            #    机制: 原来的 `- flight` 是**故意**让释放早结束、好让最后一粒正好在 `duration`
-            #    落地; 但那段时间**上球已空、颈部沙柱没了**, 只剩在途颗粒 ⇒
-            #    "没有沙子流下, 堆却还在长"。
-            #    ⇒ 去掉这一项: **上球恰好在计时结束时才空**, 全程"堆在长的时候一定有沙在落"。
-            #    ⚠️ 代价: 最后几粒在 `duration` 之后才落地 ⇒ 终态沙堆差约 0.4%(肉眼不可辨),
-            #      换来"整个计时期间流动与堆积同进同止"。
+            # 释放窗口延续到计时末段，避免上球排空后沙堆仍长时间增长。
             if FLOW_RENDERER == "b13":
                 reserve = self._sand_neck.full_fraction
                 end = self.duration
@@ -4593,19 +3375,7 @@ class HourglassWidget(Widget):
         return coarse_width_parameters(self._taper["t_in"], pitch, FLOW_SHRINK_MIN, FLOW_SHRINK_RAMP)
 
     def _free_width_ratio(self, depth):
-        """自由射流在**出口以下 depth 处**的半宽收缩比 (1.0 = 与孔径同宽)。
-
-        文献给的形状(不用自己造轮子): 从孔口射出的射流先收缩成 vena contracta
-        —— 液体收缩到孔面积的 ~0.6(直径比 √0.6 ≈ 0.77); 颗粒流的排出系数实测
-        `C_D² = 0.53 ± 0.01`(对比液体的 0.63), 折算**直径比 √0.53 ≈ 0.73**;
-        再往下按 `A·v = 常数` 继续收窄。
-
-        **这个式子不是新造的**: `update_particles` 里每颗粒子用的就是它
-        (`target = sqrt(source_speed / v_at_y)`, 下限 `FLOW_SHRINK_MIN = 0.70` —— 与
-        文献的 0.73 基本重合)。柱子照抄它, 画出来的柱子和粒子云才**同宽**;
-        否则柱子从粒子外面鼓出来 —— 用户看到的正是"一块**规整的矩形**"。
-        ⚠️ 数字必须与 `update_particles` 保持一致, 改一边就得分叉。
-        """
+        """出口下方的半宽与出口半宽之比，收缩曲线与粒子绘制共用参数。"""
         if not NECK_TAPER or depth <= 0.0:
             return 1.0
         if _TWOIMPL >= 3:
@@ -4670,150 +3440,53 @@ class HourglassWidget(Widget):
         v0, g = 60.0 * ms, 450.0 * ms * ms
         return max(y_end - (v0 * tau + 0.5 * g * tau * tau), self._lower_sand_bot)
 
-    def _neck_dump_canvas(self):
-        """**直接问画布**: 逐条列出指令的包围盒与纹理 —— 判"哪一行是谁画的"。"""
-        tag = int(self.elapsed)
-        if tag == getattr(self, "_neck_dump_t", -1):
-            return
-        self._neck_dump_t = tag
-        print("NECKDUMP t=%.1f widget pos=(%.1f,%.1f) size=(%.1f,%.1f)"
-              % (self.elapsed, self.x, self.y, self.width, self.height))
-        seen = [0]
-        try:
-            _c = list(self.canvas.children)
-            _names = ("_splash_group", "_dust_group", "_flare_group",
-                      "_surface_marker_group", "_neck_grain_group",
-                      "_upper_carve", "_mound_carve", "_upper_band", "_mound_band",
-                      "_neck_quads", "_neck_free_band", "_contact_grains",
-                      "_upper_flow", "_neck_flow")
-            for _i in range(max(0, len(_c) - 22), len(_c)):
-                _o = _c[_i]
-                _who = [nm for nm in _names if getattr(self, nm, None) is _o]
-                _sub = getattr(_o, "children", None)
-                print("NECKORD [%2d] %-18s %-22s kids=%s"
-                      % (_i, type(_o).__name__, (_who[0] if _who else ""),
-                         len(list(_sub)) if _sub else 0))
-        except Exception as exc:
-            print("NECKORD failed: %s" % exc)
-        try:
-            _c = list(self.canvas.children)
-            for _i in (52, 51, 53):
-                if _i < len(_c):
-                    _o = _c[_i]
-                    _who = [nm for nm in ("_splash_group", "_dust_group", "_flare_group",
-                                          "_surface_marker_group", "_neck_grain_group",
-                                          "_stream_pools", "_upper_carve", "_mound_carve",
-                                          "_upper_band", "_mound_band", "_neck_quads",
-                                          "_neck_free_band", "_upper_flow", "_neck_flow")
-                            if getattr(self, nm, None) is _o]
-                    print("NECKDUMP canvas.children[%d] = %s  %s"
-                          % (_i, type(_o).__name__, _who or "?"))
-        except Exception as exc:
-            print("NECKDUMP who failed: %s" % exc)
+    def _neck_quad_capacity(self):
+        return len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS + NECK_FRONT_SEGS
 
-        def leaf(node, path):
-            _path = path
-            if type(node).__name__ == "Mesh" and hasattr(node, "vertices"):
-                try:
-                    vv = list(node.vertices)
-                    xs = vv[0::4]; ys = vv[1::4]; us = vv[2::4]; vs = vv[3::4]
-                    keep = [i for i in range(len(xs)) if not (xs[i] == 0.0 and ys[i] == 0.0)]
-                    if keep:
-                        U = [us[i] for i in keep]; V = [vs[i] for i in keep]
-                        _m = node
-                        print("NECKFIELDS n_verts=%d n_idx=%s tex=%s in_canvas=%s"
-                              % (len(vv), len(list(_m.indices)) if hasattr(_m, "indices") else "?",
-                                 getattr(getattr(_m, "texture", None), "size", None),
-                                 any(_m is c for c in list(self.canvas.children))))
-                        print("NECKUV %-14s pos y=[%.0f..%.0f] x=[%.0f..%.0f]  "
-                              "uv.u=[%.4f..%.4f] (Δ%.4f)  uv.v=[%.4f..%.4f] (Δ%.4f)"
-                              % (_path[-14:], min(ys[i] for i in keep), max(ys[i] for i in keep),
-                                 min(xs[i] for i in keep), max(xs[i] for i in keep),
-                                 min(U), max(U), max(U) - min(U),
-                                 min(V), max(V), max(V) - min(V)))
-                except Exception:
-                    pass
-            cls = type(node).__name__
-            if cls == "Color":
-                try:
-                    r, g, b, a = node.rgba
-                    if 0.25 <= a <= 0.42:
-                        print("NECKDUMP  **Color a=%.3f rgb=(%.3f,%.3f,%.3f) path=%s"
-                              % (a, r, g, b, _path))
-                except Exception:
-                    pass
-                return
-            if cls in ("BindTexture", "StencilPush", "StencilPop",
-                       "StencilUse", "StencilUnUse", "PushMatrix", "PopMatrix",
-                       "Rotate", "Translate", "Scale", "MatrixInstruction"):
-                return
-            bb = None
-            try:
-                if hasattr(node, "vertices"):
-                    vv = list(node.vertices)
-                    if len(vv) >= 4 and (len(vv) % 4 == 0):
-                        xs0 = vv[0::4]; ys0 = vv[1::4]
-                    else:
-                        xs0 = vv[0::2]; ys0 = vv[1::2]
-                    # 🔴 **必须排掉 `zero()` 掉的四边形**(x,y 同时为 0) —— 否则每个
-                    #    `_QuadBand` 的包围盒都被拉到原点, 一律显示 y=[0..X], 等于没量。
-                    xs = [x for x, y in zip(xs0, ys0) if not (x == 0.0 and y == 0.0)]
-                    ys = [y for x, y in zip(xs0, ys0) if not (x == 0.0 and y == 0.0)]
-                    if xs and ys:
-                        bb = (min(xs), min(ys), max(xs), max(ys))
-                elif hasattr(node, "points"):
-                    pts = list(node.points)
-                    xs = pts[0::2]; ys = pts[1::2]
-                    if xs and ys:
-                        bb = (min(xs), min(ys), max(xs), max(ys))
-                elif hasattr(node, "pos") and hasattr(node, "size"):
-                    bb = (node.pos[0], node.pos[1],
-                          node.pos[0] + node.size[0], node.pos[1] + node.size[1])
-            except Exception:
-                bb = None
-            if bb is None:
-                return
-            seen[0] += 1
-            tex = getattr(node, "texture", None)
-            tn = "None" if tex is None else ("%dx%d" % tuple(tex.size))
-            print("NECKDUMP  %-20s y=[%8.1f..%8.1f] x=[%8.1f..%8.1f] tex=%s n=%d"
-                  % (cls, bb[1], bb[3], bb[0], bb[2], tn, seen[0]))
+    def _append_free_neck(self, side, bottom):
+        """沿自由沙柱的半宽、沙堆及球壁补齐可选材质带的轮廓。"""
+        front = self._falling_front()
+        width = self._neck_width_at(self._lower_sand_top)
+        bulge = NECK_FRONT_DOME * width
+        radius = self._R_inner
 
-        def walk(node, depth, path):
-            ch = getattr(node, "children", None)
-            if ch:
-                for k, c in enumerate(list(ch)):
-                    walk(c, depth + 1, path + "/%s[%d]" % (type(c).__name__, k))
-                return
-            leaf(node, path)
+        def end_at(dx):
+            wall = self._lower_y_c + math.sqrt(max(0.0, radius * radius - dx * dx))
+            surface = min(self._lower_sand_bot + self._mound_contact_h(dx), wall)
+            if not NECK_FRONT:
+                return surface
+            head = front + bulge * (dx / width) ** 2 if width > 1e-6 else front
+            end = max(surface, head)
+            gap = abs(surface - head)
+            if NECK_SOFT_END > 0.0 and gap <= 5.0 * NECK_SOFT_END:
+                end += NECK_SOFT_END * math.log1p(math.exp(-gap / NECK_SOFT_END))
+            return end
 
-        # 紧凑树: 只看结构, 回答"Rectangle 到底在不在"
-        try:
-            tops = list(self.canvas.children)
-            print("NECKDUMP canvas 顶层 %d 个" % len(tops))
-            for k, c in enumerate(tops):
-                cn = type(c).__name__
-                sub = getattr(c, "children", None)
-                if sub:
-                    kinds = {}
-                    for s in list(sub):
-                        kinds[type(s).__name__] = kinds.get(type(s).__name__, 0) + 1
-                    print("NECKDUMP   [%2d] %-18s children=%d %s"
-                          % (k, cn, len(list(sub)), kinds))
-                else:
-                    print("NECKDUMP   [%2d] %-18s (leaf)" % (k, cn))
-            ids = [id(r) for _c, r in getattr(self, "_sand_chords", [])]
-            print("NECKDUMP _sand_chords=%d 个 rect, id=%s" % (len(ids), ids))
-        except Exception as exc:
-            print("NECKDUMP tree failed: %s" % exc)
+        def half_width(drop):
+            return width * self._free_width_ratio(drop) * FLOW_FREE_MARGIN
 
-        for holder in ("before", "", "after"):
-            try:
-                c = getattr(self.canvas, holder) if holder else self.canvas
-                print("NECKDUMP --- canvas.%s ---" % (holder or "self"))
-                walk(c, 0, holder or "canvas")
-            except Exception as exc:
-                print("NECKDUMP walk %s failed: %s" % (holder, exc))
+        end_width = half_width(bottom - end_at(width))
+        span = bottom - end_at(end_width)
+        if span > 1.0:
+            for k in range(1, NECK_TAPER_SEGS + 1):
+                drop = FLOW_SHRINK_RAMP * k / NECK_TAPER_SEGS
+                if drop < span - 1.0:
+                    side.append((half_width(drop), bottom - drop))
+            for k in range(1, NECK_FREE_EXTRA_SEGS + 1):
+                drop = span * (k / (NECK_FREE_EXTRA_SEGS + 1)) ** 1.4
+                if FLOW_SHRINK_RAMP + 2.0 < drop < span - 2.0:
+                    side.append((half_width(drop), bottom - drop))
+
+        phase = getattr(self, "_front_seed", 0.0)
+        elapsed = self.elapsed
+        amplitude = FLOW_FRONT_WOBBLE * end_width * min(1.0, max(0.3, span / 30.0))
+        for k in range(NECK_FRONT_SEGS + 1):
+            f = 1.0 - k / NECK_FRONT_SEGS
+            dx = end_width * f
+            wobble = amplitude * (0.55 * math.sin(f * 2.7 + elapsed * 1.3 + phase)
+                                  + 0.30 * math.sin(f * 6.1 - elapsed * 2.1 + phase * 1.7)
+                                  + 0.15 * math.sin(f * 11.3 + elapsed * 3.1 + phase * 2.3))
+            side.append((dx, end_at(dx) - wobble))
 
     def _neck_sand_side(self):
         """颈部只有一个自由表面; 上球耗尽后从上往下排空。"""
@@ -4860,188 +3533,16 @@ class HourglassWidget(Widget):
         side.append((self._neck_width_at(bottom), bottom))
         if FLOW_RENDERER == "b13":
             return side
-        # 🔴 **2026-10-09: 沙柱的下沿不许钉在玻璃线上。**
-        #    用户原话:「管子里的沙的处理有问题, 完全不符合直觉」「不可能是让沙堆涨上去吧?
-        #    而是自己落下来」。病根在**形状的来源**: 这根沙柱的轮廓是照抄**玻璃内壁**
-        #    (`in_pts`) 描的, 下沿钉死在 `y_end`(= 玻璃直筒的下端) —— 于是同一坨沙
-        #    在玻璃线以上是"一整块实心"、以下换成"撒下去的一把沙", 在一条**玻璃线**上
-        #    被一刀切平。**沙不认识"管口"这条线。**
-        #    改法(无魔数, 且天然有界): 下沿 = `max(沙堆面, 下球内壁的顶)` ——
-        #      · 沙堆还没长上来 ⇒ 下沿 = 球内顶(沙柱穿过喇叭口, 到球顶为止)
-        #      · 沙堆长进喇叭口 ⇒ 下沿 = 沙堆面, **自动接上**
-        #      · 下探量 ≤ 喇叭口高 + 沙堆已探入的那一小段 ⇒ **不可能变成"贯穿下球的杆"**
-        #        (这正是 1.238 的死因: 它的锚是**标量** `get_mound_top_y()`, 堆≈0 时
-        #         那个标量等于**球内底**, 用户判词「你不要顾头不顾腚」)
-        #    ⚠️ 只在"沙柱已经到过玻璃线"之后生效 —— 注满动画期间不许跳(否则前 0.25s
-        #      那段落砂动画会被整段跳过)。
-        if NECK_JOIN and bottom <= y_end + 1e-6:
-            # 🔴 **2026-10-09 更正(D1)**: 这里原来写的是
-            #    `_join = max(self.get_mound_top_y(), self._lower_sand_top)`,
-            #    注释还说"沙堆长进喇叭口 ⇒ 下沿 = 沙堆面**自动接上**" —— **那是错的**:
-            #    **第二项永远不赢, `max` 是死代码。** 构造性证明(逐字赋值, 不是近似):
-            #      `contact = clamp(apex+off, floor, roof)`, 而 dx=0 时 `roof = 2·radius`;
-            #      `_MoundProfile` 全仓库**只用 `Ri` 构造**(3254/3300), 与 `_lower_sand_top`
-            #      里的同一个 `Ri` ⇒ `get_mound_top_y() ≤ _lower_sand_bot + 2Ri = _lower_sand_top` ∎
-            #    实测复核: 1/5/15/50s × 96 帧, 第一项胜出 **0** 帧。
-            #    ⇒ **真实机制不是"跟沙走", 而是"把切口从【出口】挪到了【球内顶】"** ——
-            #      换了条固定的线而已。t=48/49 看着"正好接上", 是因为**两边同时被钉在
-            #      同一个球内顶**上, 不是它接上去的。
-            #    ⚠️ 将来若有人给 `_MoundProfile` 换一个 ≠ `Ri` 的半径, 这条等式会**静默失效**
-            #       (`verify_hourglass.py` 里有断言守着它)。
-            _join = self._lower_sand_top
-            if _join < bottom - 1e-9:
-                # 🔴 **2026-10-09 (D6): 下沿要跟着【堆面】走, 不是一条水平线。**
-                #    柱子是**恒宽**的(`_neck_width_at(y<y_bot)` 兜底返回 `t_in`), 而堆面
-                #    在中轴最高、向两侧低下去 —— 水平下沿会在两只角上**悬空**
-                #    `t_in²/(2Ri)`(平板 1s/5s 档 **2.54px**, 桌面 0.37px)。
-                #    改成两个节点: `(t_in, 堆面(t_in))` → `(0, 堆面(0))`,
-                #    最后一条四边形因此是个 apex 朝上的三角形, 正好把那块空楔填掉。
-                #    ⚠️ 这条四边形**不再单调下降**(y 从 1316.8 回到 1319.3), 是有意的:
-                #      绘制循环只要求两个相邻节点, 不要求单调; 但**容量要够**(见 `_neck_quads`)。
-                #
-                # 🔴 **2026-10-09 (F5): 但下沿也不能一头扎到堆面 —— 要先看"沙落到了哪儿"。**
-                #    堆面是**碰撞面**, 不是**在途沙**。50s 档前 2 秒实测: 柱子在
-                #    `[出口, 球内底]` 整段实心, 而同一时刻**一个粒子都没有**(沙还在半路)。
-                #    ⇒ 多出来的那一大截是**凭空画的沙**。真实的下沿 = `_falling_front()`。
-                _front = self._falling_front()
-                _w = self._neck_width_at(_join)
-                # 🔴 **2026-10-09: 前沿不能是一刀平。** 用户看 2.14 截图问「沙柱头部也是平的
-                #    合理吗」—— 量出来**起伏 0.0px**(前沿说了算时, 沙柱最后两个节点的 y
-                #    完全相同, `tools/_probe_front_shape.py`)。物理上该是**穹顶**: 孔口处的
-                #    速度剖面 `v(x) = v0·sqrt(1-(x/R)²)` 中间快(Janda 等在 2D 料斗孔口的
-                #    自相似实测), 所以**中轴领先、两边落后**。
-                #    `HG_NECK_DOME` = 边缘比中轴高出的量, 以**半宽**为单位(0 = 平头 = 2.14)。
-                # 🔴 **2026-10-11 四改: 穹顶不再按 `_fall` 封顶(它把顺序搞反了), 抖动改成
-                #    按柱长**平滑渐入**(有下限, 不再出生即归零)。**
-                #    用户判词: 「刚开始的时候**有一个很尖尖的头, 突然又不尖了**, 很奇怪, 很固化」。
-                #    设备开场逐帧(10 帧)实测的序列正是: **平 → V 尖 → 突然变钝**。
-                #    根因: `_fall = bottom - _falling_front()`, 而**出生时粒子前沿还没生成**
-                #    ⇒ 它取到一个很远的 y ⇒ `_fall` 大 ⇒ 穹顶**满值**(V 尖); 真前沿一出来
-                #    `_fall` 骤降 ⇒ 穹顶≈0 ⇒ **一瞬间从尖变钝** —— 那个"固化"就是这一跳。
-                #    现在: 穹顶用**常数**(`NECK_FRONT_DOME*_w`, 不再跟前沿走),
-                #    抖动 = 满幅 × `clamp(_span/30, 0.3, 1)`(**渐入且出生就有 30%**)
-                #    ⇒ 形状连续、不跳, 且一出生就带不规则。
-                _bulge = NECK_FRONT_DOME * _w
-
-                def _front_at(_dx):
-                    return _front + _bulge * (_dx / _w) ** 2 if _w > 1e-6 else _front
-                _yc, _Ri = self._lower_y_c, self._R_inner
-                _c = self._mound_contact_h
-                _bot = self._lower_sand_bot
-
-                def _smax(_a, _b):
-                    """平滑 max —— 见 `NECK_SOFT_END`。`k=0` 时逐字等于内建 `max`。"""
-                    if NECK_SOFT_END <= 0.0:
-                        return _a if _a > _b else _b
-                    _d = abs(_a - _b)
-                    if _d > 5.0 * NECK_SOFT_END:          # 离得远 ⇒ 退化成 max(省 exp)
-                        return _a if _a > _b else _b
-                    return (max(_a, _b)
-                            + NECK_SOFT_END * math.log1p(math.exp(-_d / NECK_SOFT_END)))
-
-                def _end_at(_dx):
-                    _my = _bot + _c(_dx)
-                    _wl = _yc + math.sqrt(max(0.0, _Ri * _Ri - _dx * _dx))
-                    _fr = _front_at(_dx) if NECK_FRONT else _front
-                    if _my > _wl:
-                        # D6: 堆面那条腿越了球内壁 ⇒ 夹回来。
-                        # **前沿**越了不算越界 —— 出口以下、管径以内是**喇叭口**,
-                        # 那是玻璃的一部分(球内壁那条线到球顶就没了)。
-                        return _smax(_fr, _wl) if NECK_FRONT else _wl
-                    return _smax(_my, _fr) if NECK_FRONT else _my
-
-                # 🔴 **2026-10-11: 出口以下是否发射材质几何** —— 见 `NECK_FREE_GEOM`。
-                #    关掉时这一段整块不执行 ⇒ `side` 在多边形**出口**处收尾
-                #    ⇒ 出口以下只剩粒子层(用户要的"只有一层")。
-                #    ⚠️ 先预置这几个量 —— 下面 `NECKDBG` 那行无条件读它们(关掉时值无意义, 但不许 NameError)。
-                _w_end = _w
-                _y_endw = _y_end0 = _end_at(0.0)
-                _span = bottom - _y_endw
-                if NECK_FREE_GEOM:
-                                    # 🔴 **自由收缩段**: 出口 → 下沿, 半宽按 `_free_width_ratio` 收窄
-                                    #    (vena contracta + A·v=常数, 与粒子同一条式子)。收缩集中在前 40px,
-                                    #    所以那几个节点按 40px 均分采, 而不是按整段落程均分。
-                                    _w_end = _w * self._free_width_ratio(bottom - _end_at(_w)) * FLOW_FREE_MARGIN
-                                    _y_endw, _y_end0 = _end_at(_w_end), _end_at(0.0)
-                                    _span = bottom - _y_endw
-                                    if _span > 1.0:
-                                        for _k in range(1, NECK_TAPER_SEGS + 1):
-                                            _d = FLOW_SHRINK_RAMP * _k / float(NECK_TAPER_SEGS)
-                                            if _d < _span - 1.0:
-                                                side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
-                                                             bottom - _d))
-                                        # 🔴 **N1(2026-10-09): 40px 之后补节点。** 不做这一步, `d>40px` 那一段
-                                        #    永远是**一条直线弦**(用户报的"规整的直线"), 任何宽度律都画不出来。
-                                        #    前密后疏: `d = span·(k/(K+1))^1.4`; 太靠近收缩段(<=40px)或端点(>=span-2)
-                                        #    的丢掉 —— 那两个位置已有节点。**这一步本身零视觉变化**(当前律在 40px
-                                        #    后恒 0.70, 多打的点仍落在同一条直线上)。
-                                        _extra = []
-                                        for _k in range(1, NECK_FREE_EXTRA_SEGS + 1):
-                                            _d = _span * (_k / float(NECK_FREE_EXTRA_SEGS + 1)) ** 1.4
-                                            if FLOW_SHRINK_RAMP + 2.0 < _d < _span - 2.0:
-                                                _extra.append(_d)
-                                        for _d in _extra:
-                                            side.append((_w * self._free_width_ratio(_d) * FLOW_FREE_MARGIN,
-                                                         bottom - _d))
-                                    # 🔴 头部: 沿宽度打点 + 抖动(见 `NECK_FRONT_SEGS` 的注释)
-                                    _ph = getattr(self, "_front_seed", 0.0)
-                                    _et = self.elapsed
-                                    for _k in range(NECK_FRONT_SEGS + 1):
-                                        _f = 1.0 - _k / float(NECK_FRONT_SEGS)
-                                        _dx = _w_end * _f
-                                        # 🔴 **2026-10-10 三改: 抖动必须是"带限"的, 不能是尖刺。**
-                                        #    用户判词: 「刚开场的尖刺…**应该是一个不规则的东西**」。
-                                        #    旧版是两条正弦(5.3 / 11.9 rad) 打在**5 段**上 ⇒ 相邻节点相位差
-                                        #    高达 2.4 rad ⇒ 相邻节点各自乱摆 ⇒ 画出来是一排**锯齿/尖刺**。
-                                        #    现在: 12 段 + 三条**低频**谐波(2.7 / 6.1 / 11.3 rad ⇒ 最高 1.8 个周期,
-                                        #    每周期 6.7 个节点) 且振幅递减 0.55/0.30/0.15(和为 1)
-                                        #    ⇒ 形状**不规则但连续**, 相邻节点不会跳。
-                                        #    ⚠️ 幅度**同时**受柱长封顶 —— 沙刚冒头时柱长只有几像素, 抖十几像素
-                                        #    就成了"尖刺王冠"(2.43 用户截图点名过)。
-                                        # 幅度 = 满幅 × 按柱长**平滑渐入**(30px 到顶), 下限 0.3 ⇒
-                                        # **出生时就有三成不规则**(不是一根光溜溜的尖), 且不跳变。
-                                        _amp = FLOW_FRONT_WOBBLE * _w_end * min(1.0, max(0.3, _span / 30.0))
-                                        _wob = (_amp * (0.55 * math.sin(_f * 2.7 + _et * 1.3 + _ph)
-                                                        + 0.30 * math.sin(_f * 6.1 - _et * 2.1 + _ph * 1.7)
-                                                        + 0.15 * math.sin(_f * 11.3 + _et * 3.1 + _ph * 2.3)))
-                                        side.append((_dx, _end_at(_dx) - _wob))
-                                    # 🔴 **诊断用(2026-10-10)**: 设备实测"出口以下固体只占 ~28%"(`flowrate=1` 一臂),
-                                    #    而这段代码看着应当把出口一直填到 `_end_at()`。**别再推理, 把它读出来。**
-                                    #    标记文件 `<app>/necklog`(非空) ⇒ 每秒打一行。
-                if _neck_log_on():
-                    _tag = int(self.elapsed)
-                    if _tag != getattr(self, "_neck_log_t", -1):
-                        self._neck_log_t = _tag
-                        _ys = [p[1] for p in side]
-                        print("NECKDBG t=%.1f outlet=%.1f join=%.1f front=%.1f "
-                              "end_at(w_end)=%.1f end_at(0)=%.1f w=%.2f w_end=%.2f "
-                              "nodes=%d y=[%.1f..%.1f]"
-                              % (self.elapsed, bottom, _join, _front,
-                                 _y_endw, _y_end0, _w, _w_end, len(side),
-                                 min(_ys), max(_ys)))
-                        # 🔴 **2026-10-11: 头部的 13 个节点逐个打出来。**
-                        #    动机: 设备实测前缘"看着是平的"(±1px), 而按公式抖幅应有
-                        #    `0.45×w_end`。**别再推公式, 把几何本身读出来。**
-                        if NECK_FREE_GEOM and len(_ys) > NECK_FRONT_SEGS:
-                            _head = _ys[-(NECK_FRONT_SEGS + 1):]
-                            print("NECKHEAD t=%.1f n=%d 起伏=%.2f y=[%.2f..%.2f] ys=%s"
-                                  % (self.elapsed, len(_head),
-                                     max(_head) - min(_head), min(_head), max(_head),
-                                     " ".join("%.1f" % _v for _v in _head)))
-        # 🔴 **2026-10-13(2.93): 把材质柱的下端再往下补 `OUTLET_OVERLAP` 像素** ——
-        #    治出口那一行的"亮玻璃缝"(推导与四腿实测见 `OUTLET_OVERLAP` 的定义处)。
-        #    ⚠️ **只在下端就是出口切口时补**: 下端若已跟着前沿/堆面走, 那里本来就是
-        #       沙的边界, 补了等于画出"还没落到的沙"。
-        if (FLOW_RENDERER != "b13" and OUTLET_OVERLAP > 0.0 and side
-                and abs(side[-1][1] - y_end) < 3.0):
+        if (NECK_FREE_GEOM and NECK_JOIN and bottom <= y_end + 1e-6
+                and self._lower_sand_top < bottom - 1e-9):
+            self._append_free_neck(side, bottom)
+        # 材质延至出口下方少许，避免与第一批颗粒之间出现亮缝。
+        if OUTLET_OVERLAP > 0.0 and abs(side[-1][1] - y_end) < 3.0:
             _x_last, _y_last = side[-1]
             overlap = min(OUTLET_OVERLAP, .4 * max(0., side[0][1] - y_end))
             side[-1] = (_x_last, _y_last - overlap)
-        # 🔴 **容量断言(2026-10-09)。** `_neck_quads` 装不下时, 绘制循环
-                #    `for i in range(len(quads))` **静默丢掉最后几段, 一行报错都没有** ——
-                #    项目踩过(`len(side)=27 > 容量 25`, 画面"一点没变"而原因查了很久)。
-                #    容量表达式必须与 `_build_dynamic_canvas` 里那一处**逐字一致**。
-        _cap = len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS + NECK_FRONT_SEGS
+        # 每段轮廓占用一个四边形，容量与画布初始化时一致。
+        _cap = self._neck_quad_capacity()
         if len(side) - 1 > _cap:
             raise AssertionError(
                 "颈部沙柱节点 %d 段 > _neck_quads 容量 %d —— 超容量是**静默丢弃**, "
@@ -5226,14 +3727,7 @@ class HourglassWidget(Widget):
         return min(1.0, self._stream_headroom() / FLOW_TAIL_GAP)
 
     def _mound_edge(self):
-        """沙堆**当前**的半宽(px) —— `has_sand` 为真的最远 |dx|, 即"最边缘"在哪。
-
-        飞溅的高斯 σ 以它为基准(用户口径: 「边缘 = N 个标准差」, 见
-        `SPLASH_BG_EDGE_SIGMA`)。**边缘随沙堆长大, 所以每帧要重算** ——
-        钉死 σ 会让前期(沙堆还小)的飞溅撒到没沙的球底上。
-        ⚠️ 每帧只调一次(不是每颗粒), 从外往里 2px 步进扫; σ 是 60px 量级,
-        2px 的量化误差可以忽略。用 `has_sand` 而不是另写判据(工程红线)。
-        """
+        """返回以中轴为原点的可见沙堆半宽，按同一堆面判断坡脚位置。"""
         profile = self._mound_profile
         apex = self._mound_apex()
         if profile is None or apex <= 0.0:
@@ -5303,6 +3797,8 @@ class HourglassWidget(Widget):
             if self.elapsed >= self.duration:
                 self.elapsed = 0
                 self._reset_run_state()
+            if self._opening_seed is None:
+                self._opening_seed = int.from_bytes(os.urandom(8), "little")
             self.running = True
             self._sand_active = True
             if self._geom_ready:
@@ -5326,6 +3822,7 @@ class HourglassWidget(Widget):
         self._sprite_birth_shift = None
         self._sand_released = self._sand_landed = self._sand_pending = 0.0
         self._sand_active = False
+        self._opening_seed = None
         self._sand_timing = None
         self._sand_tail_span = 0.
         self._sand_resized = False
@@ -5558,18 +4055,7 @@ class HourglassWidget(Widget):
             self._completion_sound.stop()
             self._completion_sound.play()
 
-    # ==================== 操作提示音(2026-10-07) ====================
-    # 换沙色 / 改周期 / 换提示音 三个操作各补一句语音(文案由用户逐条拍定):
-    #   换沙色   → 「金沙」                     (只说颜色名)
-    #   改周期   → 「计时时间设定为一分钟」      (**只在点「确定」时**; 弹窗里调基础时间/
-    #                                            倍数/拖滑杆一律不播 —— 用户明确要求)
-    #   换提示音 → 「提示音设定为沙沙声」        (点选项**真的切换成功**时才播)
-    # 播法照抄完成播报那条唯一跑通的路径: **拼 PCM → 写 wav → 独立的 _SoundProxy**
-    # (必须走文件: 三个后端里有两条按路径播)。
-    #
-    # ⚠️ **通道**: Windows winsound 单通道且 `SND_PURGE` 是**全局停播** ⇒ 语音会顶掉背景
-    #    循环音, 必须"让路 + 归还"; 安卓 AudioTrack 每个 proxy 独立一条 track ⇒ 天然混播,
-    #    **不做让路**(否则用户会白听一个停顿)。
+    # 设置确认后的语音复用 PCM 播报。Windows 单通道播放时须临时让出背景声。
     def _voice_say(self, keys, duck=True):
         """按词块键顺序拼成一句播出去。词库没就绪 / 任何异常 ⇒ **静默跳过**。"""
         bank = self._voice_bank
@@ -6095,20 +4581,6 @@ class HourglassWidget(Widget):
         self._sn = i + 1
         return i
 
-    def _s_tag_from(self, n0, value):
-        """给**下标 >= n0** 的那批飞溅打标记(取证探针用; 在 `_spawn_bg_splashes` 之后调)。
-
-        ⚠️ 用这个, **不要**写 `for sp in self.splashes[n0:]: sp["_tag"] = 1` ——
-        `splashes` 是 property, **每次访问都重建一批新 dict**, 那个赋值落到临时对象上,
-        静默无效且不报错。探针会因此把全部飞溅判成同一类 —— 正是它自己注释里警告过的
-        那个历史误判。
-        """
-        end = self._sn
-        if n0 < 0:
-            n0 = 0
-        if n0 < end:
-            self.stag[n0:end] = value
-
     @property
     def splashes(self):
         """**只给取证工具/测试**的 dict 视图(每次访问重建, 慢)。
@@ -6469,19 +4941,6 @@ class HourglassWidget(Widget):
         self._splash_stats["born_air"] += 1
         return i
 
-    def _splash_jet_bounds(self):
-        if self.pn <= 0:
-            return None
-        cached = getattr(self, "_splash_jet_cache", None)
-        if cached is not None:
-            return cached
-        radius = self._taper["t_in"] * FLOW_SHRINK_MIN + 2.0
-        front = float(min(self.py[:self.pn])) if _np is None else float(_np.min(self.py[:self.pn]))
-        low = max(front, self.get_mound_top_y() + max(4.0, radius * 0.35))
-        high = 2.0 * self._neck_y - self._taper["y_bot"]
-        self._splash_jet_cache = radius, low, high
-        return self._splash_jet_cache
-
     def _splash_jet_rows(self):
         cached = getattr(self, "_splash_rows_cache", None)
         if cached is not None:
@@ -6506,10 +4965,6 @@ class HourglassWidget(Widget):
             _np.maximum.at(right, row, self.px[:self.pn] + half)
         self._splash_rows_cache = low, high, inv, left, right
         return self._splash_rows_cache
-
-    def _splash_uniform_half(self):
-        """兼容取证接口; 当前绘制直接读取实际半尺寸数组。"""
-        return None
 
     def _update_splashes(self, dt, g_splash, g_abs, ctab, ctab_n, ctab_r, ctab_inv,
                          mound_bot, lower_center, lower_bot, lower_top,
@@ -6575,7 +5030,6 @@ class HourglassWidget(Widget):
     def update_particles(self, dt, flow_dt=None):
         if not self._geom_ready:
             return
-        self._splash_jet_cache = None
         self._splash_rows_cache = None
         effect_dt = dt
         self._mound_flow_clock += effect_dt
@@ -6662,30 +5116,7 @@ class HourglassWidget(Widget):
             self._spawn_from = self.pn
             # 一次把本帧要生的量预留够, 不在循环里反复扩容。
             self._p_grow(self.pn + spawn_count + 2)
-            # 🔴 **2026-10-10: 沙快流完时, 下来的沙要**变细、边要毛**。**
-            #    ⚠️ **2026-10-12(2.85): 这一段现在默认**不生效**(`FLOW_TAIL_NARROW=1.0` /
-            #    `FLOW_TAIL_TAPER=1.0` / `FLOW_TAIL_GAP=0.0`) —— 用户定了设计约束
-            #    「初始流速固定 ⇒ **沙柱宽度全程与初始一致**」, 而"变细"正是违反它的那条。
-            #    代码留着(带旋钮)只为以后做 A/B 复现旧观感; 下面这段注释是当初的推导。
-            #    用户判词(末段截图): 「当最后消失的时候, 颈部的沙子太规范不合理,
-            #    **就是一个矩形啊** …… 是不是也可以更类似沙子一些?」
-            #    实测定位: 那一块**主要是粒子**(`pooloff` 消融把框内 **269/360 px** 清掉,
-            #    全图差异也正好 269px), 不是那两条 `Rectangle`(`neckrects` 消融 0px)、
-            #    也不是沙柱主带(`neckquads` 消融 0px)。
-            #    ⇒ 病根是**出生带**: `x_clip = neck_w - ow`(整管宽) + `uniform`(两边齐平)
-            #      ⇒ 最后一批沙同一 y、同一速度落下来就是**一块板**。
-            #    两层修:
-            #      ① `_band`  : 颈内余量越少 ⇒ 出生带越窄(整管宽 → `FLOW_TAIL_NARROW`)
-            #      ② `_taper` : 同时把分布从 uniform 收成 `|u|^p`(两端稀、中轴密)
-            #         ⇒ 边界不再是刀切, 而是一股**带毛边的细流**。
-            #    ⚠️ **不新增随机数** —— `random.uniform` 照调一次, 只对抽到的值做重映射
-            #      ⇒ 抽取顺序与次数与旧版逐字相同(`_taper == 1.0` 时**逐位**等于旧行为)。
-            #    🔴 **2026-10-10 二次修: `_neck_rem` 原来用 `reserve` 归一, 而 `reserve` 是
-            #      颈管**体积**占比(PC 上 ≈ 0.0019) ⇒ 只在最后 **0.02 秒**起效
-            #      —— 实测 t=9.59~9.95 逐帧差 **0 像素**, 等于没做。
-            #      改成**按剩余时间比例**(`FLOW_TAIL_SPAN` = 收尾段占整个计时的比例)。
-            #    用户补充判词:「主要是**随机一些、不规范一些**可能更好。**每次都不一样更好**」
-            #      ⇒ 收尾指数**逐颗不同**(用已经抽好的 `amp` 抖动), 不做成一条固定曲线。
+            # 出生带按剩余沙量渐变，保持随机采样次序一致。
             _released_frac = self._released_fraction_at(emit_end)
             _tail = min(1.0, max(0.0, (1.0 - _released_frac) / max(1e-6, FLOW_TAIL_SPAN)))
             # 🔴 **2026-10-12(2.86): 末段墨量权重** —— 每帧算一次(净空那一套是记忆化的)。
@@ -6716,16 +5147,8 @@ class HourglassWidget(Widget):
             #    `random.random() < 0.85` **逐位**与旧版相同。
             _ink_q = min(_ink_q, self._stream_ink_cover_q(x_clip))
             _taper = 1.0 + (FLOW_TAIL_TAPER - 1.0) * (1.0 - _tail)
-            # 🔴 **2026-10-12(2.87): 柱子不许超出瓶颈(用户判据)。**
-            #    用户问(附 50 分钟档截图): 「你算下沙柱的宽度, **pc 50分钟 是不是远比瓶颈宽**?
-            #    这个是否**需要调整到不超过瓶颈所决定的数值**?」
-            #    实测(桌面 400×875, 同帧): 瓶颈内孔 `2·t_in` 在 **50 分钟档只有 7.9px**,
-            #    而出口以下的柱子 = **10px**; 15 秒档 19.9 vs 20~22 ⇒ **差恒为 ~2px**。
-            #    那 2px 不是物理: **粒子是画成"线"的**(85% 宽 2px ⇒ 圆心在外缘时, 线自己
-            #    还伸出去半个线宽)。⇒ 出生带按**半个线宽**内缩, 让**画出来的外缘 = 内孔**。
-            #    ⚠️ 只在出生处缩**位置**, 不动粒子数/速度/随机数(那次 `random.uniform` 照抽,
-            #       只是把抽到的值等比缩一点) ⇒ 与"不改物理"的规矩一致。
-            #    `HG_LIM_INSET=0` ⇒ 逐位回到旧行为。
+            # 出生带向内留出半个绘制线宽，使外缘贴合出口。
+            spread_until = transit.age_at(2. * B13_REFERENCE_RADIUS) if getattr(transit, "slip_spread", 0.) else 0.
             for spawn_index in range(spawn_count):
                 if b13:
                     birth, mass = cohorts[spawn_index]
@@ -6775,6 +5198,10 @@ class HourglassWidget(Widget):
                     # 🔴 2026-10-10: **只压线宽, 不动随机数流**(上面那次 `random.random()`
                     #    照抽, 只是结果被盖掉) ⇒ 同 seed 下粒子的位置/相位/寿命一字不变。
                     size = FLOW_WIDTH_CAP
+                if birth < spread_until:
+                    # Each equal-mass release samples the fast and slow lanes.
+                    slot = spawn_index // 2 if spawn_index % 2 else spawn_count - 1 - spawn_index // 2
+                    phase = (math.tau * slot + phase) / spawn_count
                 trail_time = random.uniform(0.018, 0.032)
                 i = self.pn
                 self.px[i] = cx + x_off
@@ -6800,7 +5227,7 @@ class HourglassWidget(Widget):
                 self.pbm[i] = motion_scale
                 if b13:
                     self.py[i], self.pvy[i] = transit.motion(0., x_off / self._taper["t_in"],
-                                                            phase / math.pi - 1., gen_y, glass_scale)
+                                                            phase / math.pi - 1., gen_y, glass_scale, birth=birth)
                 elif final_emission and spawn_index == spawn_count - 1:
                     self.pvy[i] = -(35.0 + exit_boost) * motion_scale
                 if self._sand_resized and not b13:
@@ -6852,7 +5279,6 @@ class HourglassWidget(Widget):
         SAT_GUARD = 1.0        # 缓冲带(px): [b_sat - SAT_GUARD, b_sat) 仍走原式
         lower_top = self._lower_sand_top
         lower_center = self._lower_y_c
-        sand_half_w = self._sand_half_w
         tube_lim = max(1.0, neck_w - ow)
         new_list = []
         append_particle = new_list.append
@@ -6863,7 +5289,6 @@ class HourglassWidget(Widget):
         rand = random.random
         sin = math.sin
         sqrt = math.sqrt
-        mound_top_plus_1 = mound_top + 1
         _cx_arr, _cy_arr, _c_x0, _c_scale, _c_n1 = self._mound_contact_curve()
         contact_ceiling=contact_upper_bound(mound_top,(_cx_arr,_cy_arr,_c_x0,_c_scale,_c_n1),cx,tube_lim)
         _use_curve = len(_cx_arr) > 1
@@ -6898,7 +5323,7 @@ class HourglassWidget(Widget):
                 if b13:
                     consts["b13_motion"] = transit.motion(
                         flow_clock - self.pbt[:pn], self.pxo[:pn] / self._taper["t_in"],
-                        self.pwp[:pn] / math.pi - 1., gen_y, glass_scale)
+                        self.pwp[:pn] / math.pi - 1., gen_y, glass_scale, birth=self.pbt[:pn])
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
                     self.px, self.py, self.pvy, self.pxo, self.pwp, self.pwa,
                     self.psz, self.pdt, pn, consts)
@@ -6936,7 +5361,7 @@ class HourglassWidget(Widget):
                 size = p["size"]
                 if b13:
                     y, vy = transit.motion(flow_clock - p["_birth_time"], x_offset / self._taper["t_in"],
-                                           wobble_phase / math.pi - 1., gen_y, glass_scale)
+                                           wobble_phase / math.pi - 1., gen_y, glass_scale, birth=p["_birth_time"])
                 else:
                     y += vy * step_dt + 0.5 * g * step_dt * step_dt
                     vy += g * step_dt
@@ -7066,7 +5491,6 @@ class HourglassWidget(Widget):
                 break
         # 本帧物理到此结束, 把数组摊成渲染层读的 list 快照(顺带让 dict 缓存失效)。
         self._p_refresh_view()
-        self._splash_jet_cache = None  # 落地压实后重新取流前沿, 后续飞溅共用。
         self._splash_rows_cache = None
         if grains_landed:
             if self._first_impact_clock is None:
@@ -7230,9 +5654,8 @@ class HourglassWidget(Widget):
         self.canvas.before.clear()
         if not self._geom_ready:
             return
-        cx, R, Ri, ow = self._cx, self._R, self._R_inner, self._ow
+        cx, R, ow = self._cx, self._R, self._ow
         uyc, lyc = self._upper_y_c, self._lower_y_c
-        nw = self.neck_w
         glass_fill = hex_rgb(GLASS_FILL)
         glass_out = hex_rgb(GLASS_OUTLINE)
         with self.canvas.before:
@@ -7242,11 +5665,6 @@ class HourglassWidget(Widget):
                 Color(*glass_fill)
                 Ellipse(pos=(cx - R + ow, yc - R + ow),
                         size=(2 * (R - ow), 2 * (R - ow)))
-                # 球腔的内缘压暗(对抗评审 A3): 一张径向渐变贴图, 中心全透明、最外
-                # ~18% 起坡到 alpha 0.42 的冷深灰。Quad 半宽取 **Ri**(内腔半径) ⇒
-                # 贴图的 q=1 正好落在内腔边缘。
-                # ⚠️ 放在 canvas.before ⇒ **沙体(画在 canvas 里)会盖住它** ⇒ 这段压暗
-                #    天然只出现在空的地方, 不需要 stencil、不需要判断沙面位置。
             # 颈部: 挖掉球极冠肩台 → 直筒 → 上下曲线过渡(几何见 _rebuild_height_table)
             tp = self._taper
             t_out, t_in = tp['t_out'], tp['t_in']
@@ -7779,17 +6197,7 @@ class HourglassWidget(Widget):
         Ri = self._R_inner
         life = SURFACE_MARKER_LIFE
         t = self._supply_elapsed
-        # ⚠️ 两档都必须是**沙面自身那条亮带之外**的色。踩过两次同款坑:
-        #    ① 最初用 (sand_light, sand_base): base 就是沙体本色 ⇒ 画上去 delta=0, 10 颗隐形;
-        #    ② 改成 (sand_light, sand_dark) 后, **亮档又撞上了沙面自带的 3px 亮带**
-        #       (`_mound_band_color` = sand_light @ 0.55) —— 金沙: 亮带 181 级、sand_light 190 级
-        #       ⇒ 只差 **+8 级**, 低于材质噪声(±10) ⇒ 1号(上球)/2号(下球) 独立实测都报"看不见"。
-        #    现在两档都取暗侧、且彼此可辨: sand_dark(−44 级) / mid(sand_dark, sand_base)(−27 级)。
-        # 明暗差按 dingbu2.md §5 的 **8%~15%** 定档。⚠️ **不能写固定配比** ——
-        # 六种沙色的 base↔dark 亮度跨度差很大(黑沙 base 仅 70, 金砂 172), 同一个 0.5 配比
-        # 在金砂上是 −12%, 在黑沙上是 −29% ⇒ 固定配比必然有一半沙色出界。
-        # 正确做法: **按目标亮度百分比反解** —— 在 base→dark 这条线上找 α 使 luma 命中 frac×luma(base)。
-        # (实测口径 = 与**沙体本色**之比: 内侧偏移 2.6px 后标记的背景是沙体本色, 不再是亮带。)
+        # 两档高光须与沙体及表面亮带都可区分。
         def _tier(frac):
             b, d = self.sand_base, self.sand_dark
             lb = 0.299 * b[0] + 0.587 * b[1] + 0.114 * b[2]
@@ -8025,17 +6433,6 @@ class HourglassWidget(Widget):
             _gap = (2.0 * self._neck_y - self._taper["y_bot"]) - (self._lower_sand_bot + apex)
             _mb *= min(1.0, max(0.0, _gap / SAND_BAND_NECK_FADE))
         self._mound_band_color.a = _mb
-        if NECK_GEOM_ON:
-            _tag = int(self.elapsed)
-            if getattr(self, "_mbg_t", -1) != _tag:
-                self._mbg_t = _tag
-                _al = self._lower_y_c + self._R_inner
-                _ap = self._lower_sand_bot + apex
-                print("MBG t=%.1f h_mound=%.1f apex=%.1f low_bot=%.1f low_yc=%.1f Ri=%.1f "
-                      "ball_top=%.1f contour_apex=%.1f gap=%.1f band_a=%.3f"
-                      % (self.elapsed, h_mound, apex, self._lower_sand_bot,
-                         self._lower_y_c, self._R_inner, _al, _ap, _al - _ap,
-                         self._mound_band_color.a))
         knots = self._mound_knots(apex)
         cols = []
         # ★ **每列只解一次 `bounds` / `shape_at`**(2026-10-06 性能, 外部评审 §5.1 的实例)。
@@ -8156,14 +6553,6 @@ class HourglassWidget(Widget):
                     color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
                     rect = Rectangle(pos=(cx - Ri, bottom), size=(2 * Ri, 0),
                                      texture=None if material is None else material.texture)
-                # 🔴 **2026-10-09 删**: 这里原来还建一条「沙面窄过渡亮带」
-                #    (`_sand_bands`, 两球各一条直边 Rectangle)。它**早就作废了** ——
-                #    下球改由 `_draw_mound_shape`、上球改由 `_draw_upper_shape`
-                #    沿**真实轮廓逐段**画亮带(见 `redraw` 里那段注释), 直边矩形跟不上起伏,
-                #    留着会与曲线带叠成两条。它此后**每帧都被强制 `size=(0,0)/a=0`**,
-                #    全仓库没有任何一处把它设回可见 ⇒ **可证的死层**(占用 4 条指令 + 每帧
-                #    ~6 次属性写, 一个像素都画不出)。
-                #    证据: `_render_golden --check` 两臂各 60/60 **逐图一致**(删它必须 0 像素差)。
                 if yc == self._upper_y_c:
                     # 上球: 漏斗 carve(专家 dingbu.md §4) —— 与下球同一套写法, 段数同样按节点数定
                     n_seg_u = max(1, MOUND_SHAPE_NODES)
@@ -8196,25 +6585,9 @@ class HourglassWidget(Widget):
         with (neck_flow if (neck_flow is not None and not _neck_out) else self.canvas):
             neck_tex = None if material is None else material.texture
             self._neck_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
-            # 颈部沙柱那 25 条逐段四边形 —— 同样是静态的一段折线, 合成一个 `Mesh`
-            # (逐帧只更新顶点, 指令数 25×2 → 2)。它有**逐条自定义 uv**(见 `_neck_sand_side`),
-            # 所以走 `set(i, pts, uvs)`; 换材质时走 `set_texture()`。
-            # 🔴 2026-10-09: 容量**跟着 `in_pts` 走**, 不再写死。
-            #    沙柱节点数 = 1(顶) + (in_pts 里 `bottom<y<top` 的点, 最多 `len(in_pts)-1`)
-            #              + 1(出口) + 1(下沿跟沙走的延伸) ⇒ 上限 = `len(in_pts) + 2` **个节点**,
-            #    而绘制循环 `for i in range(len(quads))` 画的是**段**, 需要 `节点数-1` 格。
-            #    ⇒ 取 `len(in_pts) + 3` 留两格余量。
-            #    ⚠️ **第一版写死 `TAPER_SEGS + 1`(=25) 就是这次的坑**: 节点 27 > 容量 25
-            #      ⇒ 循环走不到最后 1 段(正是延伸段), **不报错、不崩、只是没画出来** ——
-            #      现象是"改了但画面上几乎没变"。**容量必须 ≥ 节点数 − 1**。
-            #    (复核: 27 节点在容量 25 下丢的是**最后 1 段**, 不是两段 —— 逐项算过。)
-            # 🔴 2026-10-09 再改: 自由收缩段又插了 `NECK_TAPER_SEGS` 个节点
-            #    (`_neck_sand_side` 的 `_free_width_ratio` 那一段) ⇒ 上限变成
-            #    `len(in_pts) + 2 + NECK_TAPER_SEGS`, 这里取 `+8` 留余量。
-            #    ⚠️ **改 `_neck_sand_side` 的节点数就要回这里改容量** —— 少一格是静默的
-            #      (循环画不到最后一段, 不报错)。
+            # 颈部每段轮廓用一个带独立 UV 的四边形。
             self._neck_quads = _QuadBand(
-                len(self._taper["in_pts"]) + 8 + NECK_FREE_EXTRA_SEGS + NECK_FRONT_SEGS,
+                self._neck_quad_capacity(),
                 texture=neck_tex)
             self._neck_solid_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_solid_rect = Rectangle(size=(0, 0), texture=neck_tex)
@@ -8226,32 +6599,10 @@ class HourglassWidget(Widget):
             self._neck_fade_color = Color(1, 1, 1, 1) if material else Color(*self.sand_base)
             self._neck_fade_rect = Rectangle(size=(0, 0), texture=neck_tex)
 
-        # 🔴 **2026-10-10: 出口以下那一段必须**单独画在 context 外面**。**
-        #    设备 1080, `flowrate=1` 把粒子抽掉、只看材质 coverage(逐行最高连续沙色段):
-        #      材质关(四边形本来就在 context 外面)  出口以下 **89.4%** 实心
-        #      材质开(整条四边形在 `neck_flow` 里)   出口以下 **27.4%** ← 用户看到的那条线
-        #      材质开 + 整条移出 context             出口以下 **89.4%** ← 恢复
-        #    把着色器里的打散(`sandedgemul=0`)与二值洞(`holeth=-1`)**两项都关掉也还是 28%**
-        #    ⇒ 不是 coverage 里那两项的事, 是那几段走 `neck_flow` 时**根本没被画出来**。
-        #    但整条移出会改到**出口以上**(实测最大通道差 25 / 2653 px) ⇒ 只搬"出口以下"。
-        #    出口以上仍走着色器(流动颗粒), 出口以下是普通材质四边形。
-        # 🔴 **2026-10-10: 用一条**普通 Rectangle**把材质铺在粒子之上**(标记 `matover`)。
-        #    为什么不用已有的 `_neck_free_band`: 实测它几何/uv/索引/层序全对却净贡献 1px
-        #    (三次独立确认), 查不动。而 `Rectangle` 这一类(`_sand_chords`)是**已证明可见**的,
-        #    所以换一条确定能渲染的路。
-        #    它是 `self._stream_pools`(画布最末一族)之后的最后一批指令 ⇒ 天然盖在粒子上。
+        # 可选的出口材质带在沙流上下文外绘制，覆盖层在粒子创建后加入。
         self._mat_over_color = None
         self._mat_over_rect = None
         self._neck_free_band = None
-        if neck_flow is not None and NECK_FREE_ONTOP:
-            # 🔴 **2026-10-10: 把材质带提到粒子之上。**
-            #    实测根因(两条独立消融: `HG_FLOW_RATE=1` 与清空 `_stream_pools` 都把
-            #    颈部下沿那块 16x13 的纯色贴片从 314px 打到 5px): 那块"分层"就是**下落沙流
-            #    自己** —— 2px 的 Line 在出口附近密到并成一块, 颜色统一 ⇒ 读成平的色带。
-            #    而 2.32 加的 `_neck_free_band`(材质画的、正确词汇)**画了却被它盖住**
-            #    (清它只差 1px)。用户口径就是「把上球那套用到颈部」⇒ 让材质当可见面。
-            #    **不减任何粒子**, 只改画布次序。
-            pass
         if neck_flow is not None and NECK_OUT_SPLIT:
             with self.canvas:
                 self._neck_free_color = (Color(1, 1, 1, 1) if material
@@ -8296,19 +6647,7 @@ class HourglassWidget(Widget):
             self._surface_marker_group.add(_c)
             self._surface_marker_group.add(_l)
             self._surface_marker_pool.append((_c, _l))
-        # 🔴 **2026-10-09: 材质路径下这一层"连建都不建"**(跨模型两位独立确认)。
-        #    `redraw` 的绘制点是硬分支: `if _sand_flow_contexts and _sand_material is not None`
-        #    走 `context.update_flow(...)`、**else** 才调 `_draw_neck_grains` ⇒ 材质路径下
-        #    这一层**永远不画**(实测: 60 帧 0 次调用, 两条路径都测了)。
-        #    但它照样常驻画布每帧 apply: 桌面 `line` 档 **961 条**, 出货 batch 档 **65 条**
-        #    (普查实测 327→262, 差 65 = 整个 neck 族);
-        #    而且 `_collect_warm_jobs` 还会为它**白建 32 块**顶点表(材质路径下永远不喂)。
-        #    ⇒ 不建 ⇒ `install_neck` 的 wrapper 见 `group is None` 直接 `_neck_batches = None`,
-        #      32 个颈批与 32 个预热作业**一起消失**(那条分支早就在, 不用改)。
-        #    ⚠️ **回退路径必须一字不变**: `HG_SAND_FLOW=0` / `HG_SAND_MATERIAL=flat` /
-        #      shader 编译失败时 `_draw_neck_grains` 是**活的**, 这层照旧要建。
-        #    ⚠️ 本项目有前科: 1.215/1.216 动"颈部少挂 Color 指令"产出过 13000px 说不清的差异,
-        #      两次回退。本改动**必须**过 `_render_golden --check` 逐图 0 差异, 否则回退。
+        # 平色或着色器回退时仍需颈部颗粒池，材质路径可以跳过分配。
         self._neck_grain_pool = []
         self._neck_grain_count = 0
         if (self._sand_flow_contexts and self._sand_material is not None
@@ -8487,9 +6826,7 @@ class HourglassWidget(Widget):
         if not self._geom_ready:
             return
         remaining = self.get_remaining()
-        now = time.perf_counter()
-        # ⚠️ 这里必须含 sand_dark: 材质缓存键含三色, 而**只改 dark 的调用方**会拿到陈旧材质 ⇒ 串色。
-        # 今天不可达(set_sand_color 三者同改), 但两个独立评审都点了这条。
+        # 材质缓存键覆盖沙体的三个颜色。
         colors = (self.sand_base, self.sand_dark, self.sand_light)
         if colors != self._render_colors:
             if self._sand_material is None:
@@ -8550,16 +6887,7 @@ class HourglassWidget(Widget):
                 # 下球: 固定 D×D ⇒ 整张 UV(专家 §2.5 的"固定完整 UV")
                 rect.tex_coords = (full_uv if index == 1
                                    else crop_tex_coords(full_uv, height / diameter))
-        # 沙面窄过渡(评审 meishu2.md §4.3): 紧贴沙面**内部**的一条窄亮带。
-        # 下沙用 get_mound_top_y() —— 与**粒子碰撞面**同一个值, 保证"落点与可见表面一致"。
-        # ⚠️ 沙体薄时按可见厚度按比例减弱, 否则会剩一条悬空的独立亮线。
-        # ⚠️ **两条旧的直边亮带都作废了**: 下球改由 `_draw_mound_shape`、上球改由
-        #    `_draw_upper_shape` 沿真实轮廓逐段画(直边矩形跟不上起伏, 会留下悬空亮台/
-        #    缺口 —— 评审 1 号指出; 留着还会与曲线带叠成两条, 一条平一条弯)。
-        # 🔴 **2026-10-09: 那两条作废的 `_sand_bands` 已经彻底删除**(创建/换色/每帧清零
-        #    三处一起删) —— 它们此后每帧都被强制 `size=(0,0)/a=0`, 全仓库没有任何一处
-        #    把它们设回可见 ⇒ **可证的死层**。删它必须 0 像素差: `_render_golden --check`
-        #    两臂各 60/60 逐图一致。
+        # 亮带分别沿上下沙面的实际轮廓绘制。
         if not NECK_MISC_OFF:                               # 消融: 行466-523 到底谁画的
             self._draw_surface_markers(upper_height, h_mound)   # §5 表层滑动标记
         if NECK_ABL5_OFF:
@@ -8679,7 +7007,7 @@ class HourglassWidget(Widget):
         if connected:
             transition = min(transition, max(0.0, side[0][1] - outlet))
         fade_top = outlet + transition
-        neck_uv_scale = (None if (self._sand_material is None or _neck_nouv_on())
+        neck_uv_scale = (None if (self._sand_material is None or NECK_NOUV_ON)
                          else 1.0 / diameter)
         quads = self._neck_quads
         # 出口以下那一段走 `_neck_free_band`(在 `neck_flow` **外面**, 见它在
@@ -8748,44 +7076,6 @@ class HourglassWidget(Widget):
         if fband is not None:
             fband.flush()
         quads.flush()
-        if _neck_log_on():
-            _tag = int(self.elapsed)
-            if _tag != getattr(self, "_neck_log2_t", -1):
-                self._neck_log2_t = _tag
-                _v = quads._v
-                _nz = 0
-                _ymin, _ymax = 1e18, -1e18
-                for _i in range(len(quads)):
-                    _o = _i * 16
-                    _pts = _v[_o:_o + 16]
-                    if any(_pts):
-                        _nz += 1
-                        _ys = _pts[1::4]
-                        _ymin = min(_ymin, min(_ys))
-                        _ymax = max(_ymax, max(_ys))
-                print("NECKDBG2 t=%.1f side=%d band=%d written=%d "
-                      "drawn_y=[%.1f..%.1f] outlet=%.1f"
-                      % (self.elapsed, len(side), len(quads), _nz,
-                         _ymin, _ymax, outlet))
-                if len(side) >= 2 and getattr(self, "_neck_vdump_t", -1) != _tag:
-                    self._neck_vdump_t = _tag
-                    for _j in (0, len(side) // 2, len(side) - 2):
-                        _o = _j * 16
-                        print("NECKV seg%d  quads._v[%d:%d] = %s"
-                              % (_j, _o, _o + 16,
-                                 " ".join("%.2f" % v for v in quads._v[_o:_o + 16])))
-                        if fband is not None:
-                            print("NECKV seg%d  fband._v[%d:%d] = %s"
-                                  % (_j, _o, _o + 16,
-                                     " ".join("%.2f" % v for v in fband._v[_o:_o + 16])))
-                if len(side) >= 2:
-                    _i = len(side) - 2
-                    _o = _i * 16
-                    print("NECKDBG3 uvscale=%s seg%d y=(%.1f,%.1f) v=(%.3f,%.3f) u=%.3f"
-                          % ("None" if neck_uv_scale is None else "%.5f" % neck_uv_scale,
-                             _i, side[_i][1], side[_i + 1][1],
-                             quads._v[_o + 3], quads._v[_o + 15],
-                             quads._v[_o + 2]))
         if connected:
             pos = (self._cx - self._taper["t_in"], outlet)
             size = (2 * self._taper["t_in"], transition)
@@ -8806,19 +7096,6 @@ class HourglassWidget(Widget):
         else:
             self._neck_solid_rect.size = self._neck_fade_rect.size = (0, 0)
 
-        if NECK_GEOM_ON:
-            _tag = int(self.elapsed)
-            if _tag != getattr(self, "_neck_geom_t", -1):
-                self._neck_geom_t = _tag
-                print("NECKGEOM t=%.1f widget pos=(%.1f,%.1f) size=(%.1f,%.1f) "
-                      "cx=%.1f Ri=%.2f up_bot=%.2f y_bot=%.2f neck_y=%.2f t_in=%.2f "
-                      "diameter=? | Window.size=%s"
-                      % (self.elapsed, self.x, self.y, self.width, self.height,
-                         self._cx, self._R_inner, self._upper_sand_bot,
-                         self._taper["y_bot"], self._neck_y, self._taper["t_in"],
-                         str(Window.size)))
-        if NECK_DUMP_ON:
-            self._neck_dump_canvas()
         if not NECK_MISC_OFF:
             self._project_stream_contact()
             self._draw_contact_grains()
@@ -9135,19 +7412,7 @@ class HourglassWidget(Widget):
                 counts = np.bincount(code, minlength=(n_colors + 1) * 2)
                 pos = 0
                 if self._stream_np_only:
-                    # ★ **只建下标数组桶** —— 纹理渲染器直接用, 不必 `tolist()` 出来再
-                    #   让渲染器 `np.asarray()` 转回去(峰值 2750 个整数走两趟)。
-                    #   ⚠️ key 的构法与 `_build_dynamic_canvas` 里 `_stream_pools` 一致:
-                    #      行 `n_colors` 对应 key `-1`(高光), 其余行就是 key 本身;
-                    #      `slot` 0/1 对应尺寸 1/2。
-                    # 🔴🔴 **2026-10-12 修(深度筛查出来的潜伏 bug)**: `order` 是在
-                    #    **筛选后数组**里的**位置**, 不是粒子下标 —— 另一条分支一直写的是
-                    #    `sel[order[...]]`, 只有这一支漏了映射。它**一直没出事**, 因为
-                    #    筛之前 `sel` 恰好 = `arange(n)`(上面那句"全选时省掉三次花式索引"
-                    #    就是这么优化的)⇒ 位置 == 下标。深度筛第一次让 `sel` 成为**真子集**
-                    #    ⇒ 桶里装的变成"**下标最小的那批**"(= 最老的 = 柱底),
-                    #    **柱子上段整段消失**(实测: 出口下 0-25px 空隙 96%, 而 Line 路径 1.1%)。
-                    #    ⇒ 有筛时老老实实映射回去(一次 ≤n 的 gather/桶, 几 µs)。
+                    # 纹理绘制直接取 NumPy 下标桶。排序位置须由 sel 映射回原粒子下标。
                     npb = self._stream_np
                     npb.clear()
                     _map = None if sel.size == n else sel
@@ -9213,16 +7478,7 @@ class HourglassWidget(Widget):
                 row = light_row
             else:
                 if _gidx is not None:
-                    # 🔴 **2026-10-13: 这里漏了与 numpy 路径同一个偏移。**
-                    #    `_stream_grain_idx` 的返回值语义是 **`w`**(与相位那套同一个语义:
-                    #    `idx = w + (FLOW_TONE_CENTER − 4)`), numpy 路径写着
-                    #    `idx = w + (FLOW_TONE_CENTER - 4)`; 这里原来直接把 `w` 当 `idx` 用
-                    #    ⇒ **标量路径比 numpy 路径亮 2 档**, 且能到 `idx = 10`
-                    #    (量化后 {0,3,6,9} 之外多一个档)。
-                    #    实测症状(改前, `tools/_probe_chunk_need.py` 的证伪口):
-                    #    `死桶里出现的 [(10,1),(10,2)]` + `运行期建块 [((10,1),0,1),((10,2),0,1)]`
-                    #    —— 露出来的活桶不在预热域里 ⇒ 运行期现建块(设备 ~6.3ms/块) ⇒
-                    #    "起跑必有一帧低"复活。**两条路径必须给出同一个 `index`。**
+                    # 标量与 NumPy 分桶共用色调偏移。
                     index = int(_gidx[i]) + (FLOW_TONE_CENTER - 4)
                 else:
                     w = int(phases[i] * tone_scale)
@@ -9406,16 +7662,7 @@ class HourglassWidget(Widget):
             _nk_mark("neck_enter")
         outlet = 2 * self._neck_y - self._taper["y_bot"]
         length = max(1e-6, self._taper["y_bot"] - outlet)
-        # 🔴 **2026-10-09: 纵向跨度必须钉在【出口】, 不能取 `side[-1][1]`。**
-        #    `NECK_JOIN` 让沙柱下沿往下多探一段之后, `side[-1][1]` 比出口更低,
-        #    于是 `span = top_y − bottom_y` 变大、映射 `y = top_y − t·span` 把**每一颗**
-        #    颗粒都往下多推 `t·(出口 − 下沿)` ⇒ **整条颗粒层的纵向映射被拉长**(不是平移)。
-        #    实测(复核实测, 冻结帧, flat 路径): 同帧差 **4349px, 其中出口以上 3627px**
-        #    —— 而四条金标准臂**一条都不走 flat**, 所以这个回归当时没人看得见
-        #    (现在 `CASES` 里有 `flat` 臂了)。
-        #    改前 `side[-1][1]` 恒等于 `outlet` ⇒ 这一改让 flat 路径**逐位回到旧行为**;
-        #    `ys/xs` 里那个更低的延伸节点只在 `y < outlet` 时才被 `half_w_at` 取到,
-        #    而那时没有颗粒会映射过去。
+        # 颈内颗粒用出口作为纵向映射的终点，自由段的延伸另行绘制。
         top_y, bottom_y = side[0][1], outlet
         span = max(1e-6, top_y - bottom_y)
         scale = self._particle_motion_scale
@@ -9820,18 +8067,7 @@ class HourglassApp(App):
         self._last_win_size = None
         if platform != "android":
             try:
-                # 桌面模拟: --landscape 用宽窗验证反旋转; 否则维持手机竖屏
-                # 🔴 **2026-10-10 用户要求: 「我是 1080p 显示器, 高度最高可以做到 900 像素吗」**
-                #    ⇒ 加 `--size 450x900`(或 `--size 400x900`, 运行时任意)。**默认仍是 400x800**,
-                #    所以金标准与既有探针的基线**不受影响**。
-                #    ⚠️ 窗口是**手机竖屏比例**(宽:高 ≈ 0.5), 想让高到 900 就得宽到 450 ——
-                #      只加高不加宽会改比例, 几何会跟着变(`R = min(宽约束, 高约束)`)。
-                #      1080p 屏上 450x900 放得下(还留 180px 给标题栏/任务栏)。
-                #    ⚠️ 别把窗口设成比屏幕还高 —— 那样布局拿到的可用高度反而变小(项目踩过)。
-                #    ⚠️ **2026-10-10 实测踩坑: 必须读 `sys.orig_argv`, 不能读 `sys.argv`** ——
-                #      **Kivy 会把不认识的命令行参数从 `sys.argv` 里摘掉**(`--size` 就是),
-                #      读 `sys.argv` 会**静默拿不到**(实测: app 正常启动、但那行 print 从没出现)。
-                #      `sys.orig_argv` 是进程原始命令行, 框架动不到。
+                # 桌面窗口从进程原始参数读取尺寸，Kivy 会先消费部分 sys.argv。
                 _argv = getattr(sys, "orig_argv", None) or sys.argv
                 _sz = None
                 for _i, _a in enumerate(_argv):
@@ -9912,21 +8148,7 @@ class HourglassApp(App):
             self.color_btns.append((name, btn))
         root.add_widget(top_colors)
 
-        # 倒计时
-        # 行高 40 → 34 → **按纹理算**(2026-10-07, 用户: 「倒计时的文字是不是可以往上挪一些,
-        # 留下更多空间给沙漏」)。平板上 **R 是高度受限**(宽只用 62%), 所以纵向省下来的
-        # 每 4px 都换成 R +1px —— 这是现在唯一还够得着的"让球更大"的旋钮。
-        #
-        # 实测(kv 纹理 208×96, 笔画只占 48px): 文字**在行框里垂直居中**, 行框缩多少,
-        # 笔画只上移一半; 而行框小到一定程度**会把字切掉**(14dp 时笔画只剩 37px)。
-        # 不裁的条件只与纹理高 T 有关, 与 density/fontscale 无关 —— 推导:
-        #   纹理上边 = 行框顶 + (S−T)/2;  笔画在纹理内 [0.323T, 0.823T]
-        #   上不出框: (S−T)/2 + 0.323T ≥ 0  ⇒ S ≥ 0.354T
-        #   下不出框: (S−T)/2 + 0.823T ≤ S  ⇒ S ≥ 0.646T   ← 这条更紧
-        # ⇒ 取 **height = 0.70·T**(留 5% 余量)。这样安卓"字体大小"设置把 T 放大时,
-        #   行框自动跟着长, 不会切字; T=96 时得 67px ≈ 24dp, 与写死 dp(24) 几乎一致。
-        # ⚠️ 改这一行请跑 `tools/_probe_row_ink.py`(它把**当前**笔画高与"行框开到 40dp 时的
-        #    笔画高"对比 —— 矮了就是被切了; 判据自带正负对照, 见其文件头)。
+        # 倒计时行高跟随文字纹理高度，给数字留出字形空间，同时尽量留高给沙漏。
         self.time_label = Label(
             text=f"{self.hourglass.duration:.0f}/{self.hourglass.duration:.0f}秒",
             font_size=sp(24), bold=True, size_hint=(1, None), height=dp(24),
@@ -9996,17 +8218,7 @@ class HourglassApp(App):
         self._reset_btn = reset_btn
         bottom.add_widget(reset_btn)
 
-        # ---- 底栏宽度分配: 版本/长按区按"版本文字的实测宽"保底, 四个按钮不够时**等比让出** ----
-        # 为什么必须有这一段: 四个按钮是**定宽**且底栏没有弹性子控件,
-        #   `BoxLayout` 的算法是 `stretch_space = max(0, width - 定宽之和)` —— 空间不够时
-        #   **不压缩、直接往右溢出**(Kivy 2.3.1 `boxlayout.py:226` + `:255-277`)。
-        #   硬需求 = 82+74*3(按钮) + 6*4(间距) + 8*2(根布局 padding) = **344dp**;
-        #   而 360dp 机型只剩 16dp 给版本区(sp(22) 的 "v1.152" 要 ~65dp ⇒ 必然折行/出屏),
-        #   320dp 机型连放都放不下 ⇒ 「重置」右缘直接出屏。
-        # ✅ 保底 = 版本文字**实测宽**(不是猜的固定值: 换字体/换密度/版本号变长都自适),
-        #    不够的部分由四个按钮**同比**让出 ⇒ 宽窗(≥保底+344dp)下按钮**维持原宽, 零改动**。
-        #    (用户口径 2026-10-06: 「触摸区差不多合理就行」—— 所以只保证"不出屏 + 版本号一行",
-        #     不去做"精确 16dp 触摸目标"那套。)
+        # 底栏先预留版本文字的实测宽度，窄屏上四个按钮按相同比例收缩。
         self._bottom_btns = (self.duration_btn, self.sound_btn, self.start_btn, reset_btn)
         self._bottom_base_w = (dp(82), dp(74), dp(74), dp(74))
 
@@ -10245,18 +8457,7 @@ class HourglassApp(App):
         popup.title_size = sp(19)
         popup.separator_color = (*POPUP_GOLD_SEL[:3], 0.25)
         popup.title_color = (1, 1, 1, 1)
-        # ================= F2: 两种结构, 按"装不装得下"选 =================
-        # 触发条件(实测): 窗口长边 < 弹窗自然高(本弹窗 **493dp**) ⇒ 弹窗溢出、居中的话
-        # 「取消/确定」被推到屏幕下缘之外, 弹窗干不成它唯一的活(分屏/自由窗口必现)。
-        #  ① 装得下 ⇒ **原结构一字不改**(逐像素 0 差异 = 回归闸门)。
-        #  ② 装不下 ⇒ 三段式: 中段搬进 ScrollView 可滚动, 「取消/确定」钉在 footer, 高度夹到
-        #     max(W,H)*0.85 ⇒ 标题与两个按钮**必定在屏内**(已成闸门: tools/_r37_f2_fit.py)。
-        # 🔴 **为什么必须分两种结构, 而不是永远挂 ScrollView** —— Kivy 的 `<Label>` 把文字纹理
-        #    摆在 `int(center - texture_size/2)`, 这个 int() 取在**父坐标系**里 ⇒ 把标签挪进
-        #    更深一层的父控件(ScrollView 里的 rows)会改变截断相位: 文字整体偏 0.2px, 字形边缘
-        #    的抗锯齿像素全变。实测卡片内 17802px 有差、最大通道差 121, 而同时
-        #    **文字纹理 md5 完全相同、控件窗口坐标小数点后 4 位完全相同** —— 差的只有那次 int()。
-        #    ⇒ 把控件树逐层搬进 ScrollView, 就**不可能**与原版逐像素一致 ⇒ 常见形态必须走①。
+        # 内容放得下时直接布局。高度不足时仅让中段滚动，使确认按钮始终可见。
         natural = (sum(w.height for w in mid_widgets) + content.spacing * len(mid_widgets)
                    + btn_row.height + content.padding[1] + content.padding[3])
         if natural + dp(85) <= max(Window.width, Window.height):
@@ -10526,16 +8727,6 @@ class HourglassApp(App):
             fmt=lambda lb: "约 %.1f 像素" % (_rough_level(lb) * 2 * 445.63))
         _mid(rough_box)
         self._dev_level_btns = {"grain": grain_btns, "rough": rough_btns}
-
-        # ⛔ 2026-10-12 **撤掉「沙流断续」三档**（用户勾的是"清掉点了没反应的选项"）。
-        #    它驱动的是 `sand_flow_material` 的聚团/缝那几个旋钮，而**那层几何自 2.76 起
-        #    默认不发射**（`NECK_FREE_GEOM=0`）⇒ 三档拧遍，画面**一个像素都不变**
-        #    （复核员独立渲染实测：两个极端 60/60 帧逐像素相同）。
-        #    ⇒ 不再对用户摆一个假的开关。底层管道（`apply_clump_level` / `CLUMP_LEVELS` /
-        #    配置键 `clump_level`）**原样留着** —— 哪天"有连续有断续"要重做，从这里接回去。
-        #    （用户 2026-10-12 在清单里同时勾了"想要有连续有断续"这个方向，两者不冲突：
-        #      方向留着，假开关撤掉。）
-
 
         _mid(Widget(size_hint=(1, None), height=dp(6)))
         bench = Button(text="性能测试", font_size=sp(16), bold=True, background_normal="",
@@ -11067,16 +9258,7 @@ class HourglassApp(App):
         return True
 
 
-# ---------- 沙流渲染器(仅安卓启用批处理) ----------
-#
-# Kivy 的 Line 在 width>1 时**不用 glLineWidth**, 而是**每条线**自建一个带 10 段
-# 圆头帽的三角网格。峰值约 2500 条 width=2 的粒子线 = 数千次网格提交 + 每颗粒的
-# Python 提交成本;桌面 GL 余量大(实测帧率对粒子数几乎不变: 63.2→63.3fps),
-# 所以**在 PC 上永远调不出这个问题**, 只有 GLES 暴露 ——
-# 实测帧耗时 ≈ 2.5ms + 10.05µs × 在途粒子数, 2829 颗 → 30.9ms/帧(32fps),
-# 表现为"一整段周期帧率都上不去"。
-# 批处理把同色同线宽的粒子并进一个 Mesh, 端点走顶点纹理;几何(含圆头帽)与
-# 逐 Line 版一致, 实测画面逐像素同一。同机同配置: 15s 47.9→65.4fps, Canvas 8.46→3.06ms。
+# 沙流绘制路径可由环境变量覆盖，默认使用当前颗粒渲染器。
 FLOW_RENDERER = os.environ.get("HG_FLOW_RENDERER") or "b13"
 # PC 与 Android 使用同一个 B13 入口。旧的绘制方式仍可显式选择。
 

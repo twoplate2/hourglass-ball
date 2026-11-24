@@ -21,7 +21,12 @@ class VolumeColumns:
             half=math.sqrt(max(0.,radius*radius-x*x))
             bottom.append(radius-half);top.append(radius+half)
             weights.append((right*abs(right)-left*abs(left))*.5)
-        self.round_cap = tuple(-min(.14*radius, y) for y in bottom[::2])
+        # Follow the inner arc at the crown. Farther out, ease its slope
+        # towards the wall so the exposed sand never ends in a flat shelf.
+        crown = .07 * radius
+        shoulder = .09 * radius
+        self.round_cap = tuple(-min(y, crown) + shoulder * math.expm1(-max(0., y-crown)/shoulder)
+                               for y in bottom[::2])
         self.bottom=bottom;self.top=top;self.weights=weights
         if np is not None:
             self.bottom=np.asarray(bottom);self.top=np.asarray(top);self.weights=np.asarray(weights)
