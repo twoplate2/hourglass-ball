@@ -133,8 +133,14 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     opened *= opened * (3. - 2.*opened)
     # Local slip below already opens gaps at the nose. Keep the rest of the
     # packet closer together so the falling column carries its visible volume.
-    stretch = 1. + .08*opened
-    stagger = .80*half*opened
+    # Small release-time differences spread the first packet along a long
+    # free fall. Carry its rear boundary along with it when joining the jet.
+    free_run = max(0., leading_depth - 4.*half)
+    # A jet only a few grains across already has separated leaders.
+    spread_room = min(1., max(0., (half/grain_scale - 6.)/10.))
+    extra_span = spread_room * min(1.6*half, .24*free_run)
+    stretch = 1. + .08*opened + extra_span/head_length
+    stagger = .80*half*opened + .55*extra_span
     moving_length = stretch*head_length
     width = .23*moving_length
     pigment_count = len(serial)
@@ -208,6 +214,10 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         exposed = np.exp(-behind**2)
         splay = .28*np.sin(np.pi*front_lane) + .18*front_lane
         front_lane = front_lane + opened*(1.-order**2)*(exposed*splay - .075*(1.-exposed)*front_lane)
+        # Each early grain keeps its sideways drift, including grains born
+        # near the centre. The exposed layers open up first.
+        drift = 2.*offsets[(keys+347) % BLOCK] - 1.
+        front_lane += .38*(extra_span/half)*drift*np.exp(-(.43*behind)**2)
         lane = np.concatenate((lane[visible], front_lane[active]))
         lane_speed = np.concatenate((lane_speed[visible], front_speed[active]))
     flight_age = transit.age_at(depth)

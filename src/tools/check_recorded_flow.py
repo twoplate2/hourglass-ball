@@ -142,6 +142,18 @@ def leading_profile(rgb, geometry):
             for u in np.linspace(-.60, .60, 13)]
 
 
+def central_head_transition(rgb, geometry):
+    """Depth of the visible breakup inside the nose, excluding isolated leaders."""
+    xs, opacity = leading_opacity(rgb, geometry)
+    center = abs(xs - geometry["cx"]) < .50 * geometry["half_width"]
+    coverage = opacity[:, center].mean(axis=1)
+    porous = np.flatnonzero(coverage > .35 * 255)
+    dense = np.flatnonzero(coverage > .85 * 255)
+    if not len(porous) or not len(dense):
+        raise ValueError("首落中央缺少可辨认的密集层或疏松层")
+    return int(porous[-1] - dense[-1])
+
+
 def airborne_head_section(rgb, geometry):
     """Width of the porous layer and centre-to-shoulder bow, in original pixels."""
     xs, opacity = leading_opacity(rgb, geometry)
@@ -454,6 +466,7 @@ def review(folder, opening_only=False):
     above, times, masks, luminance, spray, closing_ratios = [], [], [], [], [], []
     tail_fringe, cutoff_samples = [], []
     head_frames, head_tips, front_fringe, shoulders = [], [], [], []
+    central_transitions = []
     profile_tips, profiles, airborne_sections, head_widths, shoulder_samples = [], [], [], [], []
     for frame in frames:
         t = frame["time"]
@@ -480,14 +493,16 @@ def review(folder, opening_only=False):
             bottom = mask[floor-max(2,round(.009*radius)):floor+1, cx-round(half):cx+round(half)+1]
             if bottom.any():
                 contact = t
-            elif period in (1,5,15):
+            elif period in (1,5,15,50):
                 if period in (5,15):
                     shoulder = head_shoulder_density(mask, geo)
                     if shoulder is not None:
                         shoulder_samples.append(shoulder)
                 central = mask[lip:floor, cx-2:cx+3]
                 tip = floor-1 - int(np.median(np.argmax(central[::-1], axis=0)))
-                if lip+.18*(floor-lip) < tip < lip+.85*(floor-lip):
+                if period == 50 and .60 < (tip-lip)/(floor-lip) < .95:
+                    central_transitions.append(central_head_transition(rgb, geo))
+                if period != 50 and lip+.18*(floor-lip) < tip < lip+.85*(floor-lip):
                     head_frames.append(rgb[:,:,1])
                     head_tips.append(tip)
                     if period in (5,15) and .36 < (tip-lip)/(floor-lip) < .75:
@@ -538,6 +553,13 @@ def review(folder, opening_only=False):
         if not low <= contact <= high + 1/meta["sample_rate"]:
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
     deformation = spike_travel = airborne_head = None
+    if period == 50:
+        if len(central_transitions) < 3:
+            raise ValueError("缺少 50 秒档触底前的连续头部画面")
+        transition = float(np.median(central_transitions))
+        if transition < .70 * half:
+            raise ValueError(f"50 秒档首落中央仍是密实圆头，过渡仅 {transition:.1f} 像素")
+        airborne_head = dict(central_transition_px=round(transition, 1))
     if period in (5,15):
         mid = np.asarray(profile_tips) < lip+.85*(floor-lip)
         deformation = leading_deformation(np.asarray(profile_tips)[mid], np.asarray(profiles)[mid], radius)
