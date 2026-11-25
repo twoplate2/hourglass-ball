@@ -19,6 +19,21 @@ def glass(period):
 
 
 class RecordedFlowTests(unittest.TestCase):
+    def test_opening_gradient_checks_the_back_of_the_head_and_each_shoulder(self):
+        from check_recorded_flow import check_head_transition
+
+        holes = np.tile([.72, .55, .34, .15, .07, .03], (6, 3, 1))
+        check_head_transition(holes, 60)
+        dense = holes.copy()
+        dense[:, 0, 3:] = .02
+        with self.assertRaisesRegex(ValueError, "中央过早变实"):
+            check_head_transition(dense, 60)
+        for side in (1, 2):
+            reversed_edge = holes.copy()
+            reversed_edge[1:4, side, 4] = .25
+            with self.assertRaisesRegex(ValueError, "持续由密返稀"):
+                check_head_transition(reversed_edge, 60)
+
     def test_first_deposit_follows_visible_contact_and_spreads_the_initial_rise(self):
         from check_recorded_flow import first_deposit
 
@@ -197,8 +212,8 @@ class RecordedFlowTests(unittest.TestCase):
         for seed in (54, 97, 271):
             with self.subTest(seed=seed):
                 previous = sample_grains(.8, 50., half, 440., opening_seed=seed)
-                for tick in range(49, 73):
-                    current = sample_grains(tick/60., 50., half, 440., opening_seed=seed)
+                for tick in range(97, 187):
+                    current = sample_grains(tick/120., 50., half, 440., opening_seed=seed)
                     _, i, j = np.intersect1d(previous.serial, current.serial, return_indices=True)
                     airborne = previous.depth[i] > 4.
                     self.assertGreater(airborne.sum(), 100)

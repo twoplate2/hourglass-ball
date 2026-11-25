@@ -185,6 +185,36 @@ def check_head_area(samples):
             raise ValueError(f"50 秒档头部持续向外张开，宽度达到后方沙柱的 {flare:.2f} 倍")
 
 
+def head_transition_bands(mask, cx, lip, half, floor):
+    """Sample adjacent half-mouth-radius strips behind the leading grains."""
+    span = round(half)
+    strip = mask[lip:floor, cx-span:cx+span+1]
+    occupied = np.flatnonzero(strip.sum(axis=1) >= 3)
+    if not len(occupied) or not .32 < occupied[-1] / (floor-lip) < .58:
+        return None
+    x = np.arange(-span, span+1)/half
+    depth = (occupied[-1]-np.arange(len(strip)))/half
+    regions = [abs(x) < .30, (-.80 <= x) & (x <= -.55), (.55 <= x) & (x <= .80)]
+    return np.array([[1.-strip[(lo <= depth) & (depth < lo+.5)][:, r].mean()
+                      for lo in np.arange(0., 3., .5)] for r in regions])
+
+
+def check_head_transition(samples, sample_rate):
+    # At 60 Hz this covers three consecutive frames of the original film.
+    window = max(2, int(np.ceil(.05*sample_rate)))
+    if len(samples) < window:
+        raise ValueError("缺少首落头部后半段的连续画面")
+    holes = np.asarray(samples)
+    if np.median(holes[:, 0, 3]) < .08:
+        raise ValueError("首落头部后半段的中央过早变实")
+    reversal = np.diff(holes[:, 1:, 2:], axis=2)
+    for side, name in enumerate(("左", "右")):
+        for band in reversal[:, side, :].T:
+            excess = np.convolve(band, np.full(window, 1./window), 'valid').max()
+            if excess > .065:
+                raise ValueError(f"首落头部后方的{name}缘持续由密返稀，露底倒差 {excess:.1%}")
+
+
 def opening_seam_contrast(mask, cx, lip, half):
     """Excess glass visible in a horizontal band between two dense layers."""
     reach = max(1, round(.72*half))
@@ -560,6 +590,7 @@ def review(folder, opening_only=False):
     head_frames, head_tips, front_fringe, shoulders = [], [], [], []
     central_transitions = []
     head_areas = []
+    head_bands = []
     seam_contrasts = []
     edge_reversals = []
     profile_tips, profiles, airborne_sections, head_widths, shoulder_samples = [], [], [], [], []
@@ -603,6 +634,9 @@ def review(folder, opening_only=False):
                     area = head_area_samples(mask, geo)
                     if area is not None:
                         head_areas.append(area)
+                    bands = head_transition_bands(mask, cx, lip, half, floor)
+                    if bands is not None:
+                        head_bands.append(bands)
                 if period == 50 and .60 < (tip-lip)/(floor-lip) < .95:
                     central_transitions.append(central_head_transition(rgb, geo))
                 if period != 50 and lip+.18*(floor-lip) < tip < lip+.85*(floor-lip):
@@ -668,6 +702,7 @@ def review(folder, opening_only=False):
             raise ValueError(f"沙柱中段边缘先松开，下方反而更密，相邻段露底倒差 {np.median(edge_reversals):.1%}")
         bulk_gap = landing_bulk_gap(folder, frames, contact, meta["sample_rate"])
         check_head_area(head_areas)
+        check_head_transition(head_bands, meta["sample_rate"])
         if len(central_transitions) < 3:
             raise ValueError("缺少 50 秒档触底前的连续头部画面")
         transition = float(np.median(central_transitions))

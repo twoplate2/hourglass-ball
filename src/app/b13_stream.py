@@ -99,6 +99,12 @@ def _jet_slenderness(half):
     return min(1., max(0., (REFERENCE_RADIUS/half - 4.)/2.))
 
 
+def _opening_slip(across, scatter, phase, phase_a, phase_b):
+    return (.16*np.sin(7.4*across + 1.30*scatter + phase + phase_a)
+            + .10*np.sin(12.3*across - 1.10*scatter - .83*phase + phase_b)
+            + .12*across*np.sin(.58*phase + phase_b))
+
+
 def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1, inlet_lift=0.,
                   *, opening_seed=0):
     """Carry the first material with the nose; advect packed pigment behind it."""
@@ -160,12 +166,10 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         join = moving_length * (.48 + .52 * offsets[ids]) + stagger * first_lag[ids]
         join += .38*release_span*opened
         edge = transit.depth_at(time * lane_speed)
-        # Keep the overlap in the centre. At the shoulders the following grains
-        # taper out sooner, so they cannot pack the free edge solid again.
+        # The following stream meets the trailing end of the whole packet.
         if release_depth:
-            shoulder_lane = np.clip((np.abs(lane) - .45) / .35, 0., 1.)
             free_fraction = -np.expm1(-np.maximum(0., edge-2.*half)/(2.*half))
-            join += .50*release_depth * shoulder_lane**2 * free_fraction
+            join += .50*release_depth * free_fraction**2
         remaining = edge - join - depth
         blend = np.clip(.5 + .5 * remaining / width, 0., 1.)
         depth -= width * (1. - blend)**2 + np.maximum(-width - remaining, 0.)
@@ -187,19 +191,30 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         phase_length = 12. + .34*half - ramp*(2. + .14*half)
         phase = max(0., leading_depth - 12.) / phase_length
         across = lanes[keys] + lip_shift[keys]
-        scatter = jitter[keys]
-        shift = (.16*np.sin(7.4*across + 1.30*scatter + phase + phase_a)
-                 + .10*np.sin(12.3*across - 1.10*scatter - .83*phase + phase_b)
-                 + .12*across*np.sin(.58*phase + phase_b))
+        # Adjacent lanes can be in different phases of slip when the grains
+        # separate. The phase stays attached to each grain across frames.
+        scatter = jitter[keys] * (1. + (np.pi-1.)*packet_spread)
+        shift = _opening_slip(across, scatter, phase, phase_a, phase_b)
         # Give the first layers room to separate in free flight. Material
         # spacing is independent of lane speed; nearby grains share some slip.
         spacing = offsets[(keys+919) % BLOCK]
         order = np.clip(lag/head_length, 0., 1.)
         front_weight = (1.-order)**2
         radial = abs(across)
-        release_lag = first_lag[keys] * (1. - .30*(1.-order)*radial)
-        release_lag += front_weight*((1.40 - 1.32*radial)*spacing + .11*radial**2)
-        delay = release_lag + front_weight*shift*np.where(shift > 0., 1., np.minimum(1.1, 1.8*release_lag))
+        lane_spacing = (1.40 - 1.32*radial)*spacing + .11*radial**2
+        packed_lag = first_lag[keys]*(1. - .30*(1.-order)*radial) + front_weight*lane_spacing
+        # Once resolved, release spacing follows individual grains across the
+        # whole aperture. A shared wall-dependent lag bunches the shoulders.
+        free_lag = offsets[keys] + front_weight*spacing
+        release_lag = packed_lag + packet_spread*(free_lag-packed_lag)
+        # In a resolved jet the departure delay is set at release. Reusing
+        # the current nose phase here could pull an airborne grain back up.
+        exit_shift = shift
+        if packet_spread:
+            at_lip = _opening_slip(across, scatter, 0., phase_a, phase_b)
+            exit_shift = shift + packet_spread*(at_lip-shift)
+        lane_slip = exit_shift*np.where(exit_shift > 0., 1., np.minimum(1.1, 1.8*release_lag))
+        lag_distance = stagger*(release_lag + front_weight*lane_slip)
         interval = .60*min(head_length, 1.2*half)*(np.sqrt(order)-order)
         separation = (1. - .80*radial)*opened*interval
         front_lane = lanes[keys]
@@ -208,7 +223,7 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         # neighbours fall progressively behind, without delaying first contact.
         neighbours = np.minimum(1., lag/(grain_scale*(1.5 - .4*spacing)))
         lane_tip = transit.depth_at(time*front_speed)
-        front = lane_tip - stretch*lag - neighbours*(separation + stagger*delay)
+        front = lane_tip - stretch*lag - neighbours*(separation + lag_distance)
         # Each grain keeps its place in the initial release. After it clears
         # the lip the leading neighbours pull apart before those behind them.
         material_lag = lag + neighbours*(.80*half*release_lag + interval)
@@ -225,15 +240,19 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         free_fraction = -np.expm1(-free_travel/(2.*half))
         # Leading grains share more of their lane's motion. The rear of the
         # packet takes up the release spacing and meets the following stream.
-        front += (lane_tip-front)*(.36 + .48*packet_spread)*front_weight*free_fraction
+        behind = lane_tip - front
+        packet_length = moving_length + stagger
+        carried = packet_length / (packet_length + behind)
+        carry_weight = front_weight + spread_room*(carried-front_weight)
+        front += behind*(.36 + .48*packet_spread)*carry_weight*free_fraction
         # Apply the local slip after the common forward motion. This includes
         # the leaders with almost zero release lag, so neighbours can pass them.
         nose = np.maximum(0., 1. - 2.*order)**2
         front -= half*packet_spread*nose*free_fraction*np.maximum(0., .12 + shift)
-        # Separation starts with zero slope at the lip. Its maximum slope
-        # is 3.2 / (2*e), so increasing travel cannot move a grain back up.
+        # Include the grain's own release spacing in its relaxation length.
+        # The separation slope starts at zero and stays below 2/e.
         release_lag_distance = release_depth * np.sqrt(order) * (.60+.40*spacing)
-        travel = np.maximum(front, 0.) / (2.*half)
+        travel = np.maximum(front, 0.) / (.5*(half + release_lag_distance))
         front -= release_lag_distance * (1. - (1. + travel)*np.exp(-travel))
         fraction = np.clip((head_length - lag) / (.52*head_length), 0., 1.)
         active = ((front >= 0.) & (front <= limit) & (offsets[(keys+193) % BLOCK] < fraction))
