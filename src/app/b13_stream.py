@@ -161,7 +161,9 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     if leading_depth-release_depth <= limit + 4.*head_length + 3.*half:
         # Match each patch of interior pigment onto its advancing carrier
         # continuously where the packed first batch opens into the free jet.
-        empty_flight = hourglass_transit(end, half).age_at(2.*REFERENCE_RADIUS)
+        full_flight = hourglass_transit(end, half)
+        floor_depth = 2.*REFERENCE_RADIUS
+        empty_flight = full_flight.age_at(floor_depth)
         release_span = min(head_length, 1.2*half) * min(1., empty_flight/.55)
         join = moving_length * (.48 + .52 * offsets[ids]) + stagger * first_lag[ids]
         join += .38*release_span*opened
@@ -254,6 +256,21 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         release_lag_distance = release_depth * np.sqrt(order) * (.60+.40*spacing)
         travel = np.maximum(front, 0.) / (.5*(half + release_lag_distance))
         front -= release_lag_distance * (1. - (1. + travel)*np.exp(-travel))
+        # Two neighbouring departures reach a larger spacing as the stream gains
+        # speed. Measure it against the existing contact clock for this aperture.
+        release_time = empty_flight - full_flight.age_at(floor_depth-half)
+        travel_now = full_flight.depth_at(time)
+        previous = full_flight.depth_at(max(0., time-release_time))
+        relative_spacing = min(1., (travel_now - previous)/half)
+        # Broad, packed outlets start with one shared face. Where the outlet
+        # resolves separate lanes, retain their existing departure offsets.
+        packed_gap = np.maximum(0., carrier_tip - front - lag)
+        lane_gap = np.maximum(0., lane_tip - front - lag)
+        packed_gap *= 1. - .80*relative_spacing
+        lane_gap *= .75*(1. - relative_spacing)
+        # A lateral difference smaller than one drawn grain still shares a face.
+        lane_share = max(0., packet_spread*half - grain_scale) / max(half - grain_scale, grain_scale)
+        front += front_weight**2 * (packed_gap + lane_share*(lane_gap - packed_gap))
         fraction = np.clip((head_length - lag) / (.52*head_length), 0., 1.)
         active = ((front >= 0.) & (front <= limit) & (offsets[(keys+193) % BLOCK] < fraction))
         pigment = serial[visible]

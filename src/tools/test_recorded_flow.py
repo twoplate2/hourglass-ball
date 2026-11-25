@@ -207,6 +207,25 @@ class RecordedFlowTests(unittest.TestCase):
                     self.assertGreater(len(i), 100)
                     self.assertGreaterEqual((b.depth[j] - a.depth[i]).min(), -1.e-8)
 
+    def test_opening_spacing_keeps_evolving_in_the_second_half_of_the_drop(self):
+        # Follow the same grains. Compare spacing gains over equal fall distances.
+        for period in (20., 50.):
+            half, flow = glass(period)
+            for seed in (54, 97, 271):
+                widths = []
+                for reach in (65., 140., 290., 365.):
+                    grains = sample_grains(flow.age_at(reach), period, half, 460., opening_seed=seed)
+                    if not widths:
+                        near = (grains.depth > grains.depth.max() - .60*half) & (abs(grains.x) < .60*half)
+                        tracked = grains.serial[near]
+                    depths = grains.depth[np.isin(grains.serial, tracked)]
+                    self.assertEqual(len(depths), len(tracked))
+                    widths.append(np.ptp(np.percentile(depths, [10, 90])))
+                early, late = widths[1] - widths[0], widths[3] - widths[2]
+                with self.subTest(period=period, seed=seed):
+                    self.assertGreater(early, 0.)
+                    self.assertGreater(late, early / 3., widths)
+
     def test_first_packet_advances_through_the_fifty_second_jet(self):
         half, _ = glass(50.)
         for seed in (54, 97, 271):
