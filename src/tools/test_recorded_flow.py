@@ -192,6 +192,20 @@ class RecordedFlowTests(unittest.TestCase):
                     self.assertGreater(len(i), 100)
                     self.assertGreaterEqual((b.depth[j] - a.depth[i]).min(), -1.e-8)
 
+    def test_first_packet_advances_through_the_fifty_second_jet(self):
+        half, _ = glass(50.)
+        for seed in (54, 97, 271):
+            with self.subTest(seed=seed):
+                previous = sample_grains(.8, 50., half, 440., opening_seed=seed)
+                for tick in range(49, 73):
+                    current = sample_grains(tick/60., 50., half, 440., opening_seed=seed)
+                    _, i, j = np.intersect1d(previous.serial, current.serial, return_indices=True)
+                    airborne = previous.depth[i] > 4.
+                    self.assertGreater(airborne.sum(), 100)
+                    step = current.depth[j[airborne]] - previous.depth[i[airborne]]
+                    self.assertGreater(step.min(), 0., f"seed={seed}, frame={tick}")
+                    previous = current
+
     def test_tip_profile_rejects_both_a_rigid_cap_and_frame_to_frame_noise(self):
         from check_recorded_flow import leading_deformation
         x = np.linspace(-1., 1., 13)

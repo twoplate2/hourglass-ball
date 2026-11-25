@@ -230,7 +230,11 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         # the leaders with almost zero release lag, so neighbours can pass them.
         nose = np.maximum(0., 1. - 2.*order)**2
         front -= half*packet_spread*nose*free_fraction*np.maximum(0., .12 + shift)
-        front -= release_depth * np.sqrt(order) * (.60+.40*spacing) * free_fraction
+        # Separation starts with zero slope at the lip. Its maximum slope
+        # is 3.2 / (2*e), so increasing travel cannot move a grain back up.
+        release_lag_distance = release_depth * np.sqrt(order) * (.60+.40*spacing)
+        travel = np.maximum(front, 0.) / (2.*half)
+        front -= release_lag_distance * (1. - (1. + travel)*np.exp(-travel))
         fraction = np.clip((head_length - lag) / (.52*head_length), 0., 1.)
         active = ((front >= 0.) & (front <= limit) & (offsets[(keys+193) % BLOCK] < fraction))
         pigment = serial[visible]
