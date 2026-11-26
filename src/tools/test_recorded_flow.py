@@ -19,6 +19,23 @@ def glass(period):
 
 
 class RecordedFlowTests(unittest.TestCase):
+    def test_early_leaders_stay_with_the_next_layers(self):
+        half, flow = glass(50.)
+        for seed in (54, 97, 271):
+            early, later = [sample_grains(flow.age_at(distance), 50., half, 450.,
+                                         opening_seed=seed) for distance in (2*half, 4*half)]
+            _, i, j = np.intersect1d(early.serial, later.serial, return_indices=True)
+            behind = early.depth.max() - early.depth[i]
+            central = np.abs(early.x[i]) < .65*half
+            leaders = central & (behind < .25*half)
+            following = central & (behind >= .75*half) & (behind < half)
+            self.assertGreater(min(leaders.sum(), following.sum()), 10)
+            advance = later.depth[j] - early.depth[i]
+            # Over one outlet diameter of fall, the front quarter of this layer
+            # must not gain another half-radius on the back quarter.
+            with self.subTest(seed=seed):
+                self.assertLess(np.median(advance[leaders]) - np.median(advance[following]), .5*half)
+
     def test_opening_gradient_checks_the_back_of_the_head_and_each_shoulder(self):
         from check_recorded_flow import check_head_transition
 

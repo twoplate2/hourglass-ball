@@ -271,6 +271,18 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         # A lateral difference smaller than one drawn grain still shares a face.
         lane_share = max(0., packet_spread*half - grain_scale) / max(half - grain_scale, grain_scale)
         front += front_weight**2 * (packed_gap + lane_share*(lane_gap - packed_gap))
+        # In the capacity-limited short timers the front already travels with
+        # the discharged volume. Only the free-flight share can outrun it.
+        free_share = lane_share * getattr(full_flight, "blend", 0.)
+        if free_share:
+            # Travel is measured from each grain's original packed position.
+            # Tightly spaced neighbours share motion over a longer distance.
+            # Coupling fades as relative travel grows and is zero at free spacing.
+            packed_reach = _pigment_depth(time, end)
+            excess = np.maximum(0., front + lag - packed_reach)
+            contact_length = half * (2. - spacing)
+            contact = (1. - relative_spacing**2) / (1. + (excess / contact_length)**2)
+            front -= free_share * contact * excess
         fraction = np.clip((head_length - lag) / (.52*head_length), 0., 1.)
         active = ((front >= 0.) & (front <= limit) & (offsets[(keys+193) % BLOCK] < fraction))
         pigment = serial[visible]
