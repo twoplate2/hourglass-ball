@@ -5323,10 +5323,10 @@ class HourglassWidget(Widget):
                 self.pdt[i] = max(0.0, flow_clock - birth)
                 self.pbt[i] = birth
                 self.pbm[i] = motion_scale
-                if b13 and _np is None:
+                if b13:
                     self.py[i], self.pvy[i] = flight_motion(0., x_off / self._taper["t_in"],
                                                             phase / math.pi - 1., gen_y, glass_scale, birth=birth)
-                elif not b13 and final_emission and spawn_index == spawn_count - 1:
+                elif final_emission and spawn_index == spawn_count - 1:
                     self.pvy[i] = -(35.0 + exit_boost) * motion_scale
                 if self._sand_resized and not b13:
                     left = max(1e-6, self.duration - birth - 1.0 / 120)
@@ -5336,11 +5336,6 @@ class HourglassWidget(Widget):
                 self.pmass[i] = mass
                 self.pn = i + 1
             if b13:
-                if _np is not None and spawn_count:
-                    new = slice(self._spawn_from, self.pn)
-                    self.py[new], self.pvy[new] = flight_motion(
-                        _np.zeros(spawn_count), self.pxo[new]/self._taper["t_in"],
-                        self.pwp[new]/math.pi-1., gen_y, glass_scale, birth=self.pbt[new])
                 self._sand_released = self._released_fraction_at(emit_end)
             elif spawn_count:
                 self._sand_released += self._sand_pending
