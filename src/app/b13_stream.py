@@ -1148,7 +1148,10 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # This gives the loaded bed's acceleration length before steady discharge.
     acceleration = v[0]**2 / half
     initial_speed = min(v[0], np.sqrt(2.*acceleration*scale*np.mean(pigment[4])))
-    initial_speed += (1.-confinement)*(v[0]-initial_speed)
+    # In a capacity-limited mouth the volume already occupying the lip
+    # supplies a moving fraction of the inlet from the first instant.
+    initial_speed = np.hypot(initial_speed, (1.-confinement)*v[0]/2.)
+    initial_speed = min(initial_speed, v[0])
     startup_duration = (v[0]-initial_speed)/acceleration
     initial_flux = initial_speed/v[0]
     convergence = neck.outlet_slope(diameter*neck.scale) if neck else 0.
@@ -1169,7 +1172,10 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # projected grains may lie at different radii in the same line of sight.
     through = 2.*pigment[0][keys]-1.
     radial_sq = across**2 + (1.-across**2)*through**2
-    cover += edge_path*radial_sq
+    # Wall contacts carry shear through an outer annulus. Grains inside
+    # it unload together as a plug, without a preferred axial centreline.
+    plug_radius = max(0., 1.-np.sqrt(diameter/half))
+    cover += edge_path*np.maximum(0., radial_sq-plug_radius**2)
     # Nearby sections share the supporting layer across the mouth, while
     # each has a different exposed face. The two surfaces bound the initial
     # disk positions. Deep in the packed bed all lanes are available.
