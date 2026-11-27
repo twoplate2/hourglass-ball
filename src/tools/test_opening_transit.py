@@ -83,15 +83,23 @@ class OpeningTests(unittest.TestCase):
             self.assertEqual(times[-2], times[-1])
 
     def test_flowing_tail_clears_the_lip_instead_of_replaying_the_opening(self):
-        from b13_stream import sample_grains
+        from b13_stream import _discharge, sample_grains
+        floor = 2. * B13_REFERENCE_RADIUS
+        gap = 35.
         for duration in (20., 50., 6000.):
             half = inner_width(duration, 2 * B13_REFERENCE_RADIUS) / 2
-            flow = hourglass_transit(duration, half, clock=duration)
-            self.assertLess(flow.age_at(2.), .01)
-            self.assertLess(flow.age_at(15.), .05)
-            self.assertLess(flow.age_at(35.), .10)
-            last = sample_grains(duration + .11, duration, half, 35., 1.)
-            self.assertEqual(len(last.serial), 0)
+            flow = _discharge(duration, half, floor, 0., 1., 0, None)
+            travel = np.interp(gap + 2., flow.depth, flow.clock)
+            before = sample_grains(duration, duration, half, gap)
+            after = sample_grains(duration + .5 * travel, duration, half, gap)
+            last = sample_grains(duration + travel + 1 / 120, duration, half, gap)
+            with self.subTest(duration=duration):
+                self.assertGreater(len(before.serial), 0)
+                self.assertGreater(len(after.serial), 0)
+                ids, first, second = np.intersect1d(before.serial, after.serial, return_indices=True)
+                np.testing.assert_array_equal(ids, after.serial)
+                self.assertTrue(np.all(after.depth[second] > before.depth[first]))
+                self.assertEqual(len(last.serial), 0)
 
     def test_material_stays_in_order_as_the_flow_establishes_itself(self):
         for duration in (6., 10., 20., 6000.):

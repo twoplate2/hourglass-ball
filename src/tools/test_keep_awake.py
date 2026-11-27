@@ -113,11 +113,20 @@ class KeepAwakeTests(unittest.TestCase):
         methods = {node.name: node for node in app.body if isinstance(node, ast.FunctionDef)}
         for method, enabled in (("on_start", True), ("on_resume", True),
                                 ("on_pause", False), ("on_stop", False)):
-            statement = methods[method].body[0]
-            self.assertIsInstance(statement, ast.Expr)
-            call = statement.value
-            self.assertEqual(ast.unparse(call.func), "self._set_keep_awake")
-            self.assertIs(ast.literal_eval(call.args[0]), enabled)
+            statements = methods[method].body
+            calls = [
+                (i, node.value) for i, node in enumerate(statements)
+                if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+                and ast.unparse(node.value.func) == "self._set_keep_awake"
+            ]
+            with self.subTest(method=method):
+                self.assertEqual(len(calls), 1)
+                index, call = calls[0]
+                self.assertIs(ast.literal_eval(call.args[0]), enabled)
+                self.assertFalse(any(
+                    isinstance(node, ast.Return)
+                    for statement in statements[:index] for node in ast.walk(statement)
+                ))
         # Screen policy is independent of timer/benchmark state.
         helper = methods["_set_keep_awake"]
         self.assertNotIn("running", ast.unparse(helper))

@@ -1133,12 +1133,15 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     sections = max(2, round(math.sqrt(half/scale)))
     diameter = 2.*scale*np.mean(pigment[4])
     slices = []
+    exposed_area = layer_area = 0.
     for i in range(sections):
         through = (2.*i+1.)/sections-1.
         width = half*np.sqrt(1.-through**2)
         lanes, _, support, basal, disks = _section_face(
             width, scale, (int(seed or 0)+i) % (1 << 64))
         x, y, radii, keys = disks.T
+        exposed_area += np.sum(radii[y <= radii+1.e-8]**2)
+        layer_area += np.sum(radii[y-radii < diameter]**2)
         extra = (support-support.min())*diameter/max(diameter,support.mean())
         path = np.interp(x/width, lanes, basal+extra)
         radial_sq = (x/half)**2 + through**2
@@ -1164,7 +1167,7 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     first_births = (.5 + fraction*(count-.5))/rate
 
     acceleration = v[0]**2 / half
-    base_flux = (1.-confinement)/2.
+    base_flux = .5*(1.-confinement)*exposed_area/layer_area
     # Mean free speed over the thickness of the first disk layer.
     initial_speed = max(base_flux*v[0], (2./3.)*np.sqrt(2.*acceleration*diameter))
     startup_duration = v[0]/acceleration

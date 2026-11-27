@@ -564,28 +564,21 @@ class RecordedFlowTests(unittest.TestCase):
             )
         self.assertGreater(compared, 0, "未覆盖触底前及触底后两个远离堆面的速度窗")
 
-    def test_neighbour_spacing_follows_the_release_interval_and_common_gravity(self):
-        from b13_stream import _opening_material
-        half, flow = glass(50.)
-        floor = 448.
-        neck = SandNeck(R, 478., [(half+20., 488.), (half, 458.), (half, 448.)], flow, 1.)
-        lift = neck.first_exit_lift
-        opening = _opening_material(50., half, floor, lift, 1., 97, neck)
-        entry, gravity = opening.entry, opening.gravity
-        self.assertGreater(gravity, 0.)
-        earlier = sample_grains(.60, 50., half, floor, first_exit_lift=lift,
-                                opening_seed=97, floor_depth=floor, neck=neck)
-        later = sample_grains(.75, 50., half, floor, first_exit_lift=lift,
-                              opening_seed=97, floor_depth=floor, neck=neck)
+    def test_neighbour_spacing_keeps_the_release_interval_on_the_shared_clock(self):
+        from b13_stream import _discharge
+        half, neck, scale, bottom, _ = recorded_opening_geometry()
+        floor = (bottom - 462.) / scale
+        lift = neck.first_exit_lift / scale
+        discharge = _discharge(50., half, floor, lift, 1., 97, neck)
+        earlier = recorded_opening_frame(36)[0]
+        later = recorded_opening_frame(45)[0]
         ids, a, b = np.intersect1d(earlier.serial, later.serial, return_indices=True)
         self.assertGreater(len(ids), 100)
-        matched, i, _ = np.intersect1d(opening.material.serial, ids, return_indices=True)
-        np.testing.assert_array_equal(matched, ids)
-        birth = opening.birth[i]
-        age = .60 - birth
-        np.testing.assert_allclose(earlier.depth[a], entry*age+.5*gravity*age**2)
-        gains = np.diff(later.depth[b])-np.diff(earlier.depth[a])
-        np.testing.assert_allclose(gains, -.15*gravity*np.diff(birth), atol=1e-10)
+        age_before = np.interp(earlier.depth[a], discharge.depth, discharge.clock)
+        age_after = np.interp(later.depth[b], discharge.depth, discharge.clock)
+        np.testing.assert_allclose(age_after - age_before, .15, atol=1e-10)
+        self.assertTrue(np.all(np.diff(age_before) < 0.))
+        np.testing.assert_allclose(np.diff(age_after), np.diff(age_before), atol=1e-10)
 
     def test_dense_opening_face_cannot_hang_while_loose_grains_keep_falling(self):
         from check_recorded_flow import check_opening_braking, opening_edges
@@ -804,8 +797,11 @@ class RecordedFlowTests(unittest.TestCase):
         self.assertFalse(np.array_equal(first.x, second.x) and np.array_equal(first.depth, second.depth))
         for a, b in zip(first, grains(t, 17)):
             np.testing.assert_array_equal(a, b)
-        for a, b in zip(grains(4., 17), grains(4., 94)):
-            np.testing.assert_array_equal(a, b)
+        # A round keeps its material identities into the steady stream.
+        # The same seed must replay exactly even after the opening cohort exits.
+        for seed in (17, 94):
+            for a, b in zip(grains(4., seed), grains(4., seed)):
+                np.testing.assert_array_equal(a, b)
 
     def test_a_narrow_leading_tuft_must_give_way_during_the_drop(self):
         from check_recorded_flow import persistent_leading_spike
@@ -817,40 +813,74 @@ class RecordedFlowTests(unittest.TestCase):
         shapes[6:] = 0.
         persistent_leading_spike(tips, shapes+tips[:, None], 50., 205.)
 
-    def test_nearby_leading_grains_slip_past_one_another_during_the_fall(self):
+    def assert_free_layer_stretches_along_reference(self, before, after, half, speed, min_particles):
+        # A common positive velocity field preserves the order of the grains.
+        # Its flow map F has slope v(F(z))/v(z); the spread of a fixed group
+        # must grow within the slope bounds over the observed group.
+        leading = (before.depth.max() - before.depth < .72 * half) & (abs(before.x) < .60 * half)
+        wanted = np.sort(before.serial[leading])
+        ids, i, j = np.intersect1d(before.serial, after.serial, return_indices=True)
+        use = np.isin(ids, wanted)
+        np.testing.assert_array_equal(ids[use], wanted)
+        self.assertGreater(len(wanted), min_particles)
+        first = before.depth[i[use]]
+        second = after.depth[j[use]]
+        self.assertTrue(np.all(second > first))
+        order = np.argsort(first)
+        self.assertTrue(np.all(np.diff(second[order]) >= -1.e-8))
+        lo, hi = np.quantile(first, (.1, .9))
+        self.assertGreater(hi, lo)
+        middle = (lo <= first) & (first <= hi)
+        slopes = speed(second[middle]) / speed(first[middle])
+        observed = np.ptp(np.quantile(second, (.1, .9))) / (hi - lo)
+        # Propagate the same 8% per-speed allowance as the first-contact
+        # profile test to the ratio, without permitting an unchanging tuft.
+        allowance = 1.08 / .92
+        self.assertGreater(observed, 1.)
+        self.assertGreaterEqual(observed, slopes.min() / allowance)
+        self.assertLessEqual(observed, slopes.max() * allowance)
+
+    def test_nearby_leading_grains_stretch_without_overtaking(self):
         half, flow = glass(15.)
+        def speed(z):
+            return .02 / (flow.age_at(z + .01) - flow.age_at(z - .01))
+
         for reach in (240., 290.):
             a, b = (sample_grains(flow.age_at(z), 15., half, 455.) for z in (reach, reach+75.))
-            _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
-            leading = (a.depth.max()-a.depth[i] < .72*half) & (abs(a.x[i]) < .60*half)
-            motion = b.depth[j[leading]] - a.depth[i[leading]]
             with self.subTest(reach=reach):
-                self.assertGreater(len(motion), 100)
-                self.assertGreater(motion.min(), 0.)
-                self.assertGreater(np.ptp(np.percentile(motion, (10, 90))), .105*half)
+                self.assert_free_layer_stretches_along_reference(a, b, half, speed, 100)
 
     def test_fifty_second_free_face_changes_inside_the_leading_tuft(self):
         half, flow = glass(50.)
+        # Central first-contact speeds read from d867a16 with this fixture's
+        # aperture, floor and fixed identifiers. Only ratios are needed here.
+        # The full-glass captured 206/422/485 px/s targets are checked above.
+        def speed(z):
+            return np.interp(z, [140., 190., 240., 290., 330., 365., 405., 435.],
+                             [235.7, 285.8, 337.2, 394.2, 428.9, 455.1, 468., 470.])
+
         for seed in (54, 97, 271):
             for reach in (190., 240., 290.):
                 with self.subTest(seed=seed, reach=reach):
                     a, b = (sample_grains(flow.age_at(z), 50., half, 455., opening_seed=seed)
                             for z in (reach, reach+75.))
-                    _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
-                    near = (a.depth.max()-a.depth[i] < .72*half) & (abs(a.x[i]) < .60*half)
-                    movement = b.depth[j[near]] - a.depth[i[near]]
-                    self.assertGreater(len(movement), 40)
-                    # Several grain diameters of slip across the bulk of the tuft.
-                    self.assertGreater(np.ptp(np.percentile(movement, (10, 90))), .16*half)
+                    self.assert_free_layer_stretches_along_reference(a, b, half, speed, 40)
 
     def test_first_grain_stays_visible_after_crossing_the_lip(self):
-        from b13_stream import HEAD_ID_START
         half, _ = glass(15.)
+        def frame(tick):
+            return sample_grains(tick/120., 15., half, 450., opening_seed=33)
+
+        self.assertEqual(len(frame(0).serial), 0)
+        newly_visible = frame(1)
+        self.assertGreater(len(newly_visible.serial), 0)
+        first_id = newly_visible.serial[newly_visible.depth.argmax()]
         heights = []
-        for tick in (11, 12, 13):
-            grains = sample_grains(tick/120., 15., half, 450., opening_seed=33)
-            first = grains.depth[grains.serial == HEAD_ID_START]
+        for tick in range(1, 14):
+            grains = frame(tick)
+            first = grains.depth[grains.serial == first_id]
             self.assertEqual(len(first), 1, f"首粒在第 {tick} 步消失")
+            self.assertEqual(grains.serial[grains.depth.argmax()], first_id)
             heights.append(first[0])
         self.assertTrue(np.all(np.diff(heights) > 0))
 
@@ -951,19 +981,27 @@ class RecordedFlowTests(unittest.TestCase):
                 self.assertAlmostEqual(movement / (b.depth.max() - a.depth.max()), 1., delta=.24)
 
     def test_stable_acceleration_remains_visible_in_the_lower_half(self):
-        half, _ = glass(15.)
+        half, flow = glass(15.)
+        dt = 1 / 240.
         a = sample_grains(3., 15., half, 433.)
-        b = sample_grains(3.04, 15., half, 433.)
+        b = sample_grains(3. + dt, 15., half, 433.)
         _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
-        speeds = (b.depth[j] - a.depth[i]) / .04
-        values = [np.median(speeds[(abs(a.depth[i]-z) < 4) & (abs(a.x[i]) < .4*half)])
-                  for z in (10., 73., 136., 199.)]
-        increments = np.diff(values)
-        self.assertGreater(increments.min(), .55 * increments.max(), values)
-        # Check the fall distance the viewer actually has before the pile rises.
-        # 3.38 kept its increments even, but only gained 21% across these rows.
+        heights = .5 * (a.depth[i] + b.depth[j])
+        speeds = (b.depth[j] - a.depth[i]) / dt
+        bands = np.array([10., 73., 136., 199., 255., 320., 390.])
+        values = []
+        for z in bands:
+            within = (abs(heights-z) < 3.) & (abs(a.x[i]) < .4*half)
+            self.assertGreater(within.sum(), 20)
+            values.append(np.median(speeds[within]))
+        self.assertTrue(np.all(np.diff(values) > 0.), values)
         self.assertGreater(values[1] / values[0], 1.17, values)
         self.assertGreater(values[3] / values[0], 1.55, values)
+        # A short glass does not have a constant geometric area. Compare the
+        # acceleration away from the mouth to its first-contact transport.
+        z = bands[1:]
+        expected = .02 / (flow.age_at(z + .01) - flow.age_at(z - .01))
+        np.testing.assert_allclose(values[1:], expected, rtol=.08)
 
     def test_flat_last_layer_and_contact_follow_the_inner_wall(self):
         from check_recorded_flow import closing_surface, shoulder_gap
@@ -1110,6 +1148,7 @@ class RecordedFlowTests(unittest.TestCase):
         self.assertGreater(coverage(4., 13.), .85*coverage(17., 24.))
 
     def test_last_airborne_grains_survive_the_first_frame_after_zero(self):
+        from b13_stream import _discharge
         half, _ = glass(15.)
         at_zero = sample_grains(15., 15., half, 32.)
         next_frame = sample_grains(15. + 1/60., 15., half, 32.)
@@ -1122,13 +1161,23 @@ class RecordedFlowTests(unittest.TestCase):
         advance = next_frame.depth[j[near_lip[i]]] - at_zero.depth[i[near_lip[i]]]
         self.assertTrue(np.all(advance > 0.))
         self.assertLess(np.median(advance), 9.)
+        clock = _discharge(15., half, 2. * R, 0., 1., 0, None)
+        dt = 1 / 120.
+        # Time to traverse the original gap bounds the tail even when the
+        # pile rises. Include the same two-radius fringe as the sampler.
+        clear = np.interp(34., clock.depth, clock.clock)
+        steps = int(np.ceil(clear / dt)) + 1
         previous = at_zero
-        for elapsed in np.arange(1, 13)/120.:
-            frame = sample_grains(15.+elapsed, 15., half, max(25., 32.-75.*elapsed))
+        for elapsed in np.arange(1, steps + 1) * dt:
+            gap = max(25., 32. - 75. * elapsed)
+            frame = sample_grains(15.+elapsed, 15., half, gap)
             _, old, new = np.intersect1d(previous.serial, frame.serial, return_indices=True)
             self.assertEqual(len(new), len(frame.serial))
             self.assertTrue(np.all(frame.depth[new] > previous.depth[old]))
             np.testing.assert_array_equal(frame.radius[new], previous.radius[old])
+            age = np.interp(previous.depth, clock.depth, clock.clock)
+            airborne = age + dt < np.interp(gap + 2., clock.depth, clock.clock) - 1.e-9
+            self.assertTrue(np.isin(previous.serial[airborne], frame.serial).all())
             previous = frame
         self.assertFalse(len(previous.serial))
 

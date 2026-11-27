@@ -97,15 +97,22 @@ def hourglass(running=False, elapsed=20.0):
 
 
 class UIPolishTests(unittest.TestCase):
-    def state_label(self, elapsed, running=False, benchmark=False):
+    def state_label(self, elapsed, running=False, benchmark=False, *, requested=False, error=False):
         app = SimpleNamespace(hourglass=SimpleNamespace(
-            duration=50.0, elapsed=elapsed, running=running),
+            duration=50.0, elapsed=elapsed, running=running,
+            _opening_requested=requested, _opening_error=error),
             start_btn=SimpleNamespace(text="stale"), _benchmark_active=lambda: benchmark)
         method("HourglassApp", "on_run_state_changed", {"POPUP_CONFIRM": (1, 0, 0, 1)})(app)
         return app.start_btn.text
 
     def test_initial_button_starts(self):
         self.assertEqual(self.state_label(0), "开始")
+
+    def test_pending_and_failed_preparation_have_distinct_actions(self):
+        for elapsed in (0, 50):
+            with self.subTest(elapsed=elapsed):
+                self.assertEqual(self.state_label(elapsed, requested=True), "准备中")
+                self.assertEqual(self.state_label(elapsed, error=True), "重试")
 
     def test_running_button_pauses(self):
         self.assertEqual(self.state_label(20, running=True), "暂停")

@@ -109,7 +109,7 @@ class B13StreamTests(unittest.TestCase):
             self.assertEqual(len(positions(1., 1.04).serial), 0)
             self.assertGreater(len(positions(20., 1.04).serial), 300)
 
-    def test_visible_downward_speed_is_shared_by_wide_and_narrow_streams(self):
+    def test_visible_grains_accelerate_in_wide_and_narrow_streams(self):
         import numpy as np
         from b13_stream import REFERENCE_RADIUS, sample_grains
         from neck_geometry import inner_width
@@ -118,24 +118,25 @@ class B13StreamTests(unittest.TestCase):
         for duration in (1., 2., 5., 20., 50., 6000., 360000.):
             with self.subTest(duration=duration):
                 half = inner_width(duration, 2.*REFERENCE_RADIUS) / 2.
-                t = min(3., duration / 2.)
+                t = min(3., .75 * duration)
                 a = sample_grains(t, duration, half, 433.)
-                b = sample_grains(t + .02, duration, half, 433.)
+                dt = 1. / 120.
+                b = sample_grains(t + dt, duration, half, 433.)
                 _, i, j = np.intersect1d(a.serial, b.serial, return_indices=True)
-                speeds = (b.depth[j] - a.depth[i]) / .02
+                speeds = (b.depth[j] - a.depth[i]) / dt
+                self.assertTrue(np.all(speeds > 0.))
                 profile = []
                 for z in (3, 100, 390):
-                    band = (abs(a.depth[i]-z) < 3) & (abs(a.x[i]) < .7*half)
+                    band = abs(a.depth[i]-z) < 5
                     self.assertGreater(band.sum(), 10)
                     profile.append(np.median(speeds[band]))
-                self.assertTrue(76. <= profile[0] <= 83., profile)
+                self.assertTrue(np.all(np.diff(profile) > 0.), profile)
                 profiles[duration] = np.array(profile)
-        np.testing.assert_array_less([89., 99.], profiles[1.][1:])
-        np.testing.assert_array_less(profiles[1.][1:], [97., 109.])
-        np.testing.assert_array_less(profiles[1.][1:], profiles[2.][1:])
-        np.testing.assert_array_less(profiles[2.][1:], profiles[5.][1:])
-        for duration in (20., 50., 6000., 360000.):
-            np.testing.assert_allclose(profiles[duration], profiles[5.], atol=3., rtol=0.)
+        # Shorter timers move the same charged volume through a wider mouth.
+        # A single fixed launch speed across unrelated apertures would ignore
+        # that capacity. The 50 s first-contact targets are checked separately.
+        for faster, slower in ((1., 2.), (2., 5.), (5., 20.)):
+            np.testing.assert_array_less(profiles[slower], profiles[faster])
 
     def test_line_fallback_keeps_grain_identity_and_short_strokes(self):
         from types import SimpleNamespace
@@ -394,16 +395,18 @@ class B13StreamTests(unittest.TestCase):
             paused = sample_grains(time + .001, duration, half, 400.)
             self.assertTrue(np.array_equal(paused.x, b.x))
 
-    def test_short_glass_front_tracks_transported_volume_and_tail_clears(self):
+    def test_short_glass_front_shares_its_transport_clock_with_the_tail(self):
         import numpy as np
-        from b13_stream import REFERENCE_HALF, sample_grains
-        from grain_style import B13Transit
-        transit = B13Transit.for_glass(5., REFERENCE_HALF)
-        for depth in (12., 140., 425.):
-            front = sample_grains(transit.age_at(depth), 5., REFERENCE_HALF, 433.)
-            self.assertGreater(front.depth.max(), depth * .98)
-            self.assertLess(front.depth.max(), depth * 1.04)
-        short_gap = transit.age_at(15.)
+        from b13_stream import REFERENCE_HALF, REFERENCE_RADIUS, _discharge, sample_grains
+        duration, half, floor = 5., REFERENCE_HALF, 2. * REFERENCE_RADIUS
+        flow = _discharge(duration, half, floor, 0., 1., 0, None)
+        birth = flow.birth_time(flow.first_births[0])
+        for depth in (12., 140., 400.):
+            age = np.interp(depth, flow.depth, flow.clock)
+            front = sample_grains(birth + age, duration, half, 433.)
+            self.assertEqual(front.serial[front.depth.argmax()], 0)
+            self.assertAlmostEqual(front.depth.max(), depth)
+        short_gap = np.interp(15., flow.depth, flow.clock)
         before = sample_grains(5. - .2 * short_gap, 5., REFERENCE_HALF, 15.)
         after = sample_grains(5. + .5 * short_gap, 5., REFERENCE_HALF, 15.)
         self.assertGreater(np.ptp(before.x[before.depth < 1.]), REFERENCE_HALF * .35)
@@ -412,11 +415,39 @@ class B13StreamTests(unittest.TestCase):
         settled = sample_grains(5. + 2. * short_gap, 5., REFERENCE_HALF, 15.)
         self.assertEqual(len(settled.serial), 0)
 
-    def test_duration_scales_supply_with_aperture(self):
-        from b13_stream import REFERENCE_HALF, sample_grains
-        wide = sample_grains(3., 50., REFERENCE_HALF, 300.)
-        narrow = sample_grains(3., 6000., REFERENCE_HALF / 5., 300.)
-        self.assertAlmostEqual(len(narrow.serial) / len(wide.serial), .2, delta=.012)
+    def test_projected_supply_at_the_mouth_scales_with_aperture(self):
+        import numpy as np
+        from b13_stream import (REFERENCE_HALF, REFERENCE_RADIUS, _discharge,
+                                _opening_material, _opening_positions, sample_grains)
+        from grain_style import hourglass_transit
+
+        floor = 2. * REFERENCE_RADIUS
+        expected_areas = []
+        actual_areas = []
+        for duration, half in ((50., REFERENCE_HALF), (6000., REFERENCE_HALF / 5.)):
+            # Read the first-contact bed's local projected density before
+            # selecting steady-stream disks. The expected discharge is
+            # area density times aperture width times mean axial speed.
+            opening = _opening_material(duration, half, floor, 0., 1., 0, None)
+            transit = hourglass_transit(duration, half)
+            clearance = (transit.age_at(floor) - transit.age_at(floor-.5*half))
+            t = max(opening.times[0], opening.contact-clearance/transit.lane_factor(0., 1.))
+            depth, active, _ = _opening_positions(t, opening, transit, 0., half)
+            bed = active & (0. <= depth) & (depth <= half)
+            density = np.sum(opening.material.radius[bed]**2) / (2. * half**2)
+            flow = _discharge(duration, half, floor, 0., 1., 0, None)
+            residence, slice_travel = np.interp([half, 10.], flow.depth, flow.clock)
+            flux = density * (2. * half) * (half / residence)
+            before, after = (sample_grains(tm, duration, half, 300.) for tm in (3., 3.10))
+            first = after.serial > before.serial.max()
+            measured = np.sum(after.radius[first]**2) / .10
+            with self.subTest(duration=duration):
+                self.assertGreater(first.sum(), 20)
+                self.assertAlmostEqual(measured, flux, delta=.06 * flux)
+            expected_areas.append(flux * slice_travel)
+            actual_areas.append(np.sum(before.radius[before.depth < 10.]**2))
+        self.assertAlmostEqual(actual_areas[1]/actual_areas[0],
+                               expected_areas[1]/expected_areas[0], delta=.012)
 
 
 if __name__ == "__main__":
