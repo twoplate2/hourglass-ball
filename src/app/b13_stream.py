@@ -1119,11 +1119,14 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     diameter = 2.*scale*np.mean(pigment[4])
     slices = []
     exposed_area = layer_area = 0.
+    surface_height = support_length = 0.
     for i in range(sections):
         through = (2.*i+1.)/sections-1.
         width = half*np.sqrt(1.-through**2)
-        lanes, _, support, basal, disks = _section_face(
+        lanes, surface, support, basal, disks = _section_face(
             width, scale, (int(seed or 0)+i) % (1 << 64))
+        surface_height += width*np.mean(surface)
+        support_length += width*np.mean(surface+support)
         x, y, radii, keys = disks.T
         exposed_area += np.sum(radii[y <= radii+1.e-8]**2)
         layer_area += np.sum(radii[y-radii < diameter]**2)
@@ -1151,10 +1154,13 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     fraction = (available[order]-first)/(thickness-first)
     first_births = (.5 + fraction*(count-.5))/rate
 
-    acceleration = v[0]**2 / half
+    free_acceleration = v[0]**2 / half
+    # The bed transmits the release through oblique contacts. Only their
+    # axial projection accelerates the supply behind the free first layer.
+    acceleration = free_acceleration*(1.-confinement*(1.-surface_height/support_length))
     exposed = exposed_area/layer_area
     base_flux = .5*(1.-confinement)*exposed
-    surface_flux = (2./3.)*np.sqrt(2.*acceleration*diameter)/v[0]
+    surface_flux = min(1., (2./3.)*np.sqrt(2.*free_acceleration*diameter)/v[0])
     startup_duration = (1.-base_flux)*v[0]/acceleration
     times = np.linspace(0., startup_duration, 257)
     inlet = base_flux + times*acceleration/v[0]
