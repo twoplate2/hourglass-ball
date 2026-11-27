@@ -1022,7 +1022,7 @@ class Discharge(NamedTuple):
         swept = .5*(1.+initial)*ramp
         early = np.minimum(nominal, swept)
         speed = np.sqrt(initial**2 + 2.*(1.-initial)*early/ramp)
-        return 2.*early/(initial+speed) + np.maximum(0., nominal-swept)
+        return 2.*early/np.maximum(initial+speed, np.finfo(float).tiny) + np.maximum(0., nominal-swept)
 
     def nominal_time(self, t):
         if t <= 0.:
@@ -1147,11 +1147,10 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # The area divided by the contact perimeter is R/2 for a round throat.
     # This gives the loaded bed's acceleration length before steady discharge.
     acceleration = v[0]**2 / half
-    initial_speed = min(v[0], np.sqrt(2.*acceleration*scale*np.mean(pigment[4])))
-    # In a capacity-limited mouth the volume already occupying the lip
-    # supplies a moving fraction of the inlet from the first instant.
-    initial_speed = np.hypot(initial_speed, (1.-confinement)*v[0]/2.)
-    initial_speed = min(initial_speed, v[0])
+    # The unsupported layer starts from rest. In the capacity-limited wide
+    # mouth the packed supply contributes from the start; its mean chord
+    # carries the mean of the initial and fully established inlet speeds.
+    initial_speed = (1.-confinement)*v[0]/2.
     startup_duration = (v[0]-initial_speed)/acceleration
     initial_flux = initial_speed/v[0]
     convergence = neck.outlet_slope(diameter*neck.scale) if neck else 0.
