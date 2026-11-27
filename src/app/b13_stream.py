@@ -1138,20 +1138,22 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # Release passes through the supporting contact chains. Each slice has
     # its own path excess; there is no shared transverse ridge through the
     # full thickness of the mouth.
-    surfaces = [(lanes, basal + clearance - clearance.min())
+    diameter = 2.*scale*np.mean(pigment[4])
+    surfaces = [(lanes, basal + (clearance - clearance.min()) * diameter / clearance.mean())
                 for lanes, _, clearance, basal in packed_faces]
     # Work done in the confined feed brings the bed to its measured outlet
     # velocity over one aperture radius. Free-flight acceleration near the
     # floor acts on grains that have already cleared the bed.
-    # For a uniformly packed disk E[r] = 2R/3. The mean distance to
-    # its load-bearing wall is therefore R/3.
-    acceleration = v[0]**2 / (2.*half/3.)
+    # The area divided by the contact perimeter is R/2 for a round throat.
+    # This gives the loaded bed's acceleration length before steady discharge.
+    acceleration = v[0]**2 / half
     initial_speed = min(v[0], np.sqrt(2.*acceleration*scale*np.mean(pigment[4])))
+    initial_speed += (1.-confinement)*(v[0]-initial_speed)
     startup_duration = (v[0]-initial_speed)/acceleration
     initial_flux = initial_speed/v[0]
-    diameter = 2.*scale*np.mean(pigment[4])
     convergence = neck.outlet_slope(diameter*neck.scale) if neck else 0.
-    relief_depth = max(scale, max(cover.max() for _, cover in surfaces))
+    edge_path = confinement * np.sqrt(half*diameter)
+    relief_depth = max(scale, max(cover.max() for _, cover in surfaces) + edge_path)
     count = max(1, math.ceil(2.*relief_depth*rate/v[0]))
     ranks = np.arange(count)
     keys = (ranks + offset) % BLOCK
@@ -1162,6 +1164,12 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     for k, (lanes, relief) in enumerate(surfaces):
         which = section == k
         cover[which] = np.interp(across[which], lanes, relief)
+    # Project the circular mouth, including the depth inside the glass.
+    # Near the wall the longer oblique contacts delay early slip. Adjacent
+    # projected grains may lie at different radii in the same line of sight.
+    through = 2.*pigment[0][keys]-1.
+    radial_sq = across**2 + (1.-across**2)*through**2
+    cover += edge_path*radial_sq
     # Nearby sections share the supporting layer across the mouth, while
     # each has a different exposed face. The two surfaces bound the initial
     # disk positions. Deep in the packed bed all lanes are available.
