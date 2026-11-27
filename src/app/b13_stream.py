@@ -1119,14 +1119,15 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     diameter = 2.*scale*np.mean(pigment[4])
     slices = []
     exposed_area = layer_area = 0.
-    surface_height = support_length = 0.
+    release_paths = []
+    section_weights = []
     for i in range(sections):
         through = (2.*i+1.)/sections-1.
         width = half*np.sqrt(1.-through**2)
-        lanes, surface, support, basal, disks = _section_face(
+        lanes, _, support, basal, disks = _section_face(
             width, scale, (int(seed or 0)+i) % (1 << 64))
-        surface_height += width*np.mean(surface)
-        support_length += width*np.mean(surface+support)
+        release_paths.extend(support)
+        section_weights.extend(np.full(len(support), width/len(support)))
         x, y, radii, keys = disks.T
         exposed_area += np.sum(radii[y <= radii+1.e-8]**2)
         layer_area += np.sum(radii[y-radii < diameter]**2)
@@ -1155,21 +1156,25 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     first_births = (.5 + fraction*(count-.5))/rate
 
     free_acceleration = v[0]**2 / half
-    # The bed transmits the release through oblique contacts. Only their
-    # axial projection accelerates the supply behind the free first layer.
-    acceleration = free_acceleration*(1.-confinement*(1.-surface_height/support_length))
+    acceleration = free_acceleration
     exposed = exposed_area/layer_area
     base_flux = .5*(1.-confinement)*exposed
     surface_flux = min(1., (2./3.)*np.sqrt(2.*free_acceleration*diameter)/v[0])
-    startup_duration = (1.-base_flux)*v[0]/acceleration
+    # A loaded contact chain transmits the opening more slowly than a free
+    # surface. Each section supplies its exposed grains until that wave has
+    # travelled its excess path; the layer behind then accelerates freely.
+    flight_accel = max(acceleration, (v[-1]**2-v[0]**2)/(2.*floor))
+    wave_speed = np.sqrt(2.*flight_accel*half)
+    release_times = np.asarray(release_paths)/wave_speed
+    clearing = (1.-surface_flux)*v[0]/flight_accel
+    bed_duration = (1.-base_flux)*v[0]/acceleration
+    startup_duration = max(bed_duration, release_times.max()+clearing)
     times = np.linspace(0., startup_duration, 257)
-    inlet = base_flux + times*acceleration/v[0]
-    # In the confined layer only grains connected to the free face can
-    # initially leave. More of the packed cross-section unloads as the bed
-    # advances. Integrate moving area times inlet speed, in steady-flux units.
-    swept_length = times*(base_flux*v[0]+.5*acceleration*times)
-    moving_area = 1.-confinement*(1.-exposed)*(1.-swept_length/swept_length[-1])
-    flux = np.maximum(surface_flux, inlet*moving_area)
+    inlet = np.minimum(1.,base_flux + times*acceleration/v[0])
+    freed = np.clip((times[:,None]-release_times)/max(1.e-9,clearing), 0., 1.)
+    mobile = np.average(freed, axis=1, weights=section_weights)
+    plug_flux = surface_flux + (1.-surface_flux)*mobile
+    flux = (1.-confinement)*np.maximum(surface_flux,inlet) + confinement*plug_flux
     swept = np.r_[0., np.cumsum(.5*(flux[1:]+flux[:-1])*np.diff(times))]
     convergence = neck.outlet_slope(diameter*neck.scale) if neck else 0.
     return Discharge(grid, clock, v, rate, packed_fraction, offset, first_keys, first_births, first_lanes,
