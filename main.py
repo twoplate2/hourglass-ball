@@ -2740,6 +2740,7 @@ class HourglassWidget(Widget):
         self._run_started_at = None
         self._opening_job = None
         self._opening_requested = False
+        self._opening_draw_job = None
         self._opening_error = False
         self._sand_timing = None
         self._sand_tail_span = 0.
@@ -3835,8 +3836,6 @@ class HourglassWidget(Widget):
         seed = self._opening_job[2]
         self._opening_requested = False
         self._opening_job = None
-        if self.elapsed >= self.duration:
-            self.reset()
         self._opening_seed = seed
         self.toggle()
 
@@ -3844,9 +3843,11 @@ class HourglassWidget(Widget):
         fresh = self.elapsed >= self.duration or (self.elapsed == 0 and self._opening_seed is None)
         if platform != "android" or FLOW_RENDERER != "b13" or self.running or not fresh:
             self.toggle()
-        elif self._opening_requested:
-            self._opening_requested = False
-        else:
+        elif not self._opening_requested:
+            # Accept the restart immediately. Repeated taps on "准备中" leave
+            # the pending start intact; reset still cancels it.
+            if self.elapsed >= self.duration:
+                self.reset()
             if self._opening_error:
                 self._opening_job = None
                 self._opening_error = False
@@ -3883,6 +3884,7 @@ class HourglassWidget(Widget):
 
     def reset(self):
         self._opening_requested = False
+        self._opening_draw_job = None
         self.elapsed = 0
         self.running = False
         self.last_tick = None
@@ -4497,13 +4499,16 @@ class HourglassWidget(Widget):
             if self._opening_requested and ready:
                 self._start_prepared_opening()
                 App.get_running_app().on_run_state_changed()
-            elif self._opening_requested and self.elapsed == 0 and time.perf_counter() - self.last_frame < .1:
-                # The charged glass is static while the background worker prepares
-                # it. Poll every tick, but leave CPU time for the worker between draws.
-                return
             elif self._opening_error and self._opening_job is not None:
                 self._opening_job = None
                 App.get_running_app().on_run_state_changed()
+            elif not ready and self.elapsed == 0 and self._opening_job is not None:
+                # Show the newly reset glass once, then leave the worker CPU
+                # time while the same charged glass is waiting for its seed.
+                job = self._opening_job[3]
+                if job is self._opening_draw_job and time.perf_counter() - self.last_frame < .1:
+                    return
+                self._opening_draw_job = job
         self._tick_at(time.perf_counter())
 
     def _tick_at(self, now):
@@ -9251,7 +9256,10 @@ class HourglassApp(App):
             btn.text = ("● " + n) if n == name else n
 
     def update_time(self, remaining_sec, duration):
-        self.time_label.text = _fmt_countdown_pair(remaining_sec, duration)
+        if self.hourglass._opening_requested and self._benchmark_active():
+            self.time_label.text = f"正在准备{_fmt_duration(duration)}档"
+        else:
+            self.time_label.text = _fmt_countdown_pair(remaining_sec, duration)
 
     def completion_popup_allowed(self, duration):
         """完成提示弹不弹: 基准测试期间不弹; 周期 < COMPLETION_POPUP_MIN 也不弹。"""

@@ -8,6 +8,7 @@ from typing import NamedTuple
 
 import numpy as np
 from grain_style import B13_REFERENCE_RADIUS as REFERENCE_RADIUS, B13_TEXTURE_SPEED, hourglass_transit
+from neck_geometry import WIDE_PERIOD
 
 
 # The B13 reference frame has a 417.69 px inner diameter and a 15% opening.
@@ -541,17 +542,32 @@ def _opening_material(end, half, floor, lift, scale, seed, neck):
         return _flow_grains(t, end, half, floor, scale, floor + half, 1, neck_lift, opening_seed=seed)
 
     contact = _first_contact(end, half, floor)
-    lo, hi = max(exit_time, contact * 0.85), contact * 1.20
-    for _ in range(18):
-        t = (lo + hi) * 0.5
+    first, last = max(exit_time, contact * 0.85), contact * 1.20
+    def clearance(t):
         grains = material_at(t)
         radial = np.minimum(abs(grains.x), REFERENCE_RADIUS)
         sag = radial**2 / (REFERENCE_RADIUS + np.sqrt(REFERENCE_RADIUS**2 - radial**2))
-        if (grains.depth + sag + grains.radius >= floor).any():
-            hi = t
+        return np.max(grains.depth + sag + grains.radius, initial=0.) - floor
+
+    # The same 18-bit time grid as bisection. The distance to the floor
+    # usually locates the crossing in a handful of full-grain evaluations.
+    steps = 1 << 18
+    step = (last - first) / steps
+    lo, hi = 0, steps
+    below, above = clearance(first), clearance(last)
+    for attempt in range(26):
+        if hi-lo <= 1:
+            break
+        if attempt < 7 and below < 0. < above:
+            index = min(hi-1, max(lo+1, lo+round((hi-lo)*(-below)/(above-below))))
         else:
-            lo = t
-    contact = hi
+            index = (lo+hi)//2
+        distance = clearance(first + index*step)
+        if distance >= 0.:
+            hi, above = index, distance
+        else:
+            lo, below = index, distance
+    contact = first + hi*step
     material = material_at(contact)
     _, lip_velocity = flow.motion(exit_time, 0.0, 1.0, 0.0, 1.0)
     entry = max(B13_TEXTURE_SPEED, -lip_velocity)
@@ -678,7 +694,7 @@ def _opening_material(end, half, floor, lift, scale, seed, neck):
     pressure = np.zeros_like(lanes)
     advance = np.zeros_like(birth)
     unloading_time = half / entry
-    if half > 2.0 * scale:
+    if half > 2.0 * scale and ballistic and _jet_slenderness(half) > 0.:
         pressure = half * (_contact_lanes(lanes, material, half) - lanes)
         travel = entry * (crossings - crossings.min())
         confinement = _jet_slenderness(half) if ballistic else 0.0
@@ -1042,6 +1058,23 @@ class Discharge(NamedTuple):
         return outlet-scale*depth, -scale*np.interp(age, self.clock, self.velocity)
 
 
+@lru_cache(maxsize=4)
+def _wide_edge_material(half, grain_scale, lip_speed, acceleration):
+    # The visible path through a circular jet shortens towards its sides.
+    # Invert its chord-area distribution for each existing material rank.
+    x = np.linspace(-1., 1., 2049)
+    fraction = .5 + (np.arcsin(x) + x*np.sqrt(1.-x*x))/np.pi
+    pigment = _birth_material()
+    lane = pigment[1] + pigment[9]
+    offset = np.interp(.5*(1.+lane), fraction, x) - lane
+    diameter = 2.*grain_scale*pigment[4]
+    # Grains in the core are constrained on both sides; at the perimeter
+    # a grain-scale contact can give the disk a transverse velocity.
+    side_speed = np.sqrt(acceleration*grain_scale*pigment[4]) * pigment[2] * lane**2
+    residence = np.sqrt(half*diameter)/lip_speed
+    return offset, side_speed, residence
+
+
 def _discharge_x(depth, keys, half, scale, gap, packed_fraction):
     pigment = _birth_material()
     if packed_fraction != 1.:
@@ -1244,6 +1277,33 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
         loaded = np.maximum(0., 1.-birth/discharge.startup_duration)
         inward = 1.-np.exp(-discharge.convergence*speed0*(time-birth)/half)
         x *= 1. - loaded*inward*(1.-packed_radius)
+    if end == WIDE_PERIOD:
+        # The five-second reference aperture uses a packed cylinder. At its
+        # free boundary, a grain-scale contact gives each disk a transverse
+        # velocity. Carry that same velocity with the disk throughout flight.
+        feed = slice(front.stop, None)
+        ids = keys[feed]
+        acceleration = max(0., (discharge.velocity[-1]**2-discharge.velocity[0]**2)
+                           / (2.*discharge.depth[-1]))
+        offset, side_speed, relaxation = _wide_edge_material(
+            half, grain_scale, discharge.velocity[0], acceleration)
+        unloaded = np.clip(birth[feed]/discharge.startup_duration, 0., 1.)
+        from grain_style import B13Transit
+        z = depth[feed]
+        jet_radius = (half-.4*grain_scale)*np.sqrt(B13Transit.relative_area(z))
+        free = 1. - np.maximum(0., 1.-z/half)**2
+        projection = jet_radius * free * offset[ids]
+        flight = time-birth[feed]
+        # Contacts unload over the shear layer at the lip. Integrate the
+        # transverse speed as support relaxes rather than kicking at exit.
+        residence = relaxation[ids]
+        free_time = flight + residence*np.expm1(-flight/residence)
+        # Peripheral grains exchange lateral momentum with the stream across
+        # its shear layer. They do not fan out indefinitely towards the pile.
+        if acceleration > 0.:
+            exchange = math.sqrt(half/(2.*acceleration))
+            free_time = -exchange*np.expm1(-free_time/exchange)
+        x[feed] += unloaded * (projection + side_speed[ids] * free_time)
     return Grains(serial, x, depth, grain_scale*pigment[4][keys], pigment[3][keys])
 
 

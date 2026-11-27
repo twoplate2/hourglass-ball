@@ -125,6 +125,45 @@ class UIPolishTests(unittest.TestCase):
             with self.subTest(elapsed=elapsed):
                 self.assertEqual(self.state_label(elapsed), "重新开始")
 
+    def test_start_taps_during_preparation_survive_until_one_launch(self):
+        for elapsed in (0., 50.):
+            with self.subTest(elapsed=elapsed):
+                hg = SimpleNamespace(elapsed=elapsed, duration=50., running=False,
+                                     _opening_seed=None if elapsed == 0 else 19,
+                                     _opening_error=False, _opening_requested=False,
+                                     _geom_ready=True, _opening_job=(None, None, 97, None),
+                                     _prepare_next_opening=Mock(side_effect=[False, True]),
+                                     _reset_run_state=Mock(), _stop_sound=Mock(),
+                                     _tick_at=Mock(), toggle=Mock())
+                hg._reset_run_state.side_effect = lambda: setattr(hg, "_opening_seed", None)
+                env = dict(platform="android", FLOW_RENDERER="b13", time=time,
+                           App=SimpleNamespace(get_running_app=Mock()))
+                hg.reset = MethodType(method("HourglassWidget", "reset"), hg)
+                hg._start_prepared_opening = MethodType(
+                    method("HourglassWidget", "_start_prepared_opening"), hg)
+                press = method("HourglassWidget", "toggle_from_button", env)
+                press(hg)
+                self.assertEqual(hg.elapsed, 0.)
+                self.assertTrue(hg._opening_requested)
+                press(hg)
+                self.assertTrue(hg._opening_requested)
+                hg._prepare_next_opening.assert_called_once()
+                method("HourglassWidget", "tick", env)(hg, .016)
+                self.assertFalse(hg._opening_requested)
+                self.assertEqual(hg._opening_seed, 97)
+                hg.toggle.assert_called_once()
+                self.assertEqual(hg._reset_run_state.call_count, int(elapsed == 50.))
+
+    def test_reset_while_preparing_prevents_automatic_start(self):
+        hg = SimpleNamespace(elapsed=0., _opening_requested=True, running=False,
+                             _geom_ready=True, _prepare_next_opening=Mock(return_value=True),
+                             _opening_error=False, _start_prepared_opening=Mock(),
+                             _reset_run_state=Mock(), _stop_sound=Mock(), _tick_at=Mock())
+        method("HourglassWidget", "reset")(hg)
+        method("HourglassWidget", "tick", dict(platform="android", FLOW_RENDERER="b13",
+                                               time=time))(hg, .016)
+        hg._start_prepared_opening.assert_not_called()
+
     def test_benchmark_waits_for_play_then_counts_the_entire_first_draw(self):
         # Execute the shipped callbacks without a GL window. Simulate a 2 s
         # preparation and a slow first submission 100 ms after motion starts.
@@ -158,6 +197,17 @@ class UIPolishTests(unittest.TestCase):
 
     def test_benchmark_button_still_cancels(self):
         self.assertEqual(self.state_label(20, running=True, benchmark=True), "取消")
+
+    def test_benchmark_explains_why_countdown_has_not_moved(self):
+        app = SimpleNamespace(hourglass=SimpleNamespace(_opening_requested=True),
+                              time_label=SimpleNamespace(), _benchmark_active=lambda: True)
+        update = method("HourglassApp", "update_time", {
+            "_fmt_duration": lambda t: f"{t} 秒", "_fmt_countdown_pair": lambda r, t: f"{r} / {t}"})
+        update(app, 1, 1)
+        self.assertEqual(app.time_label.text, "正在准备1 秒档")
+        app.hourglass._opening_requested = False
+        update(app, 1, 1)
+        self.assertEqual(app.time_label.text, "1 / 1")
 
     def test_preview_reveals_paused_sand_without_advancing_it(self):
         hg = hourglass()

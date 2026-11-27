@@ -62,6 +62,53 @@ def cohort_depths(grains, cohort):
 
 
 class RecordedFlowTests(unittest.TestCase):
+    def test_five_second_steady_edges_have_grain_scale_falloff_on_both_sides(self):
+        from b13_raster import GrainImage
+        gap, scale = 285., 2.
+        @lru_cache(maxsize=2)
+        def geometry(period):
+            # Actual 1080 x 2020 canvas, relative to the mouth in glass units.
+            half, flow = glass(period)
+            pole, top, control, floor = {
+                5.: (22.716142, 42.962979, 28.109547, 440.406142),
+                15.: (24.756527, 45.003363, 26.951492, 442.446527)}[period]
+            u = np.linspace(0., 1., 25)
+            taper = list(zip(half + (89.704887-half)*(1.-u)**2,
+                             top*(1.-u)**2 + 2.*control*u*(1.-u)))
+            return half, SandNeck(R, pole, taper, flow, 1.), floor
+
+        def edge_widths(period, time):
+            half, neck, floor = geometry(period)
+            cx, outlet = int(1.7*scale*half), int(gap*scale)
+            image = GrainImage((0., 0.), (2*cx, outlet+1), (cx, outlet, scale, half))
+            grains = sample_grains(time, period, half, gap, floor_depth=floor,
+                                   first_exit_lift=neck.first_exit_lift, neck=neck, opening_seed=97)
+            image.paint(grains, np.zeros(2*cx+1), (.8,.6,.4), gap)
+            widths = [[], []]
+            mask = image.rgba[:, :, 3] > 64
+            for fraction in (.25, .35, .45, .55, .65, .75):
+                y = int(outlet*(1.-fraction))
+                row = mask[y-5:y+6].mean(axis=0)
+                for side, profile in enumerate((row[cx::-1], row[cx:])):
+                    density = np.convolve(profile, np.full(3, 1./3.), mode="same")
+                    center = np.mean(density[4:int(.4*half*scale)])
+                    inner, outer = [np.flatnonzero(density >= center*level)[-1]
+                                    for level in (.8, .2)]
+                    widths[side].append((outer-inner)/(scale*half))
+            return np.median(widths, axis=1)
+
+        # Compare both edges over short moving windows so one protruding disk
+        # on a single row or frame cannot stand in for a sustained soft edge.
+        def window(period, time):
+            return np.median([edge_widths(period, time + i/30.) for i in range(-3, 4)], axis=0)
+
+        reference = window(15., 2.5)
+        for time in (.8, 1.1, 1.4):
+            widths = window(5., time)
+            with self.subTest(time=time):
+                self.assertTrue(np.all(widths >= .6*reference), (widths, reference))
+                self.assertTrue(np.all(widths <= 1.8*reference), (widths, reference))
+
     def test_contact_speed_is_the_reference_through_steady_flow_and_cutoff(self):
         # Normal 540x924 PC glass. Measure the same IDs over each step at
         # fixed heights. The independent targets come from d867a16 at 1.517s.
