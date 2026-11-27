@@ -1099,8 +1099,10 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # In a wide, volume-limited mouth the dated first-impact mass carriers
     # also bound how slowly the visible disks can travel. Use the same
     # packed aperture and occupied area as their first free fall.
-    capacity = getattr(flow, "short_transit", flow)
-    packed_speed = 1./(capacity.seconds_per_pixel*capacity.relative_area(grid))
+    # Use the transport law for this aperture. The pure capacity limit is
+    # only reached for the short settings; applying it to blended openings
+    # forces a velocity plateau halfway through their free fall.
+    packed_speed = np.gradient(grid) / np.gradient(flow.age_at(grid))
     confinement = _jet_slenderness(half)
     v += (1.-confinement)*np.maximum(0., packed_speed-v)
     clock = np.r_[0., np.cumsum(.5*np.diff(grid)*(1./v[1:] + 1./v[:-1]))]
@@ -1133,15 +1135,22 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # throat can feed at its established optical disk density.
     # Removing the support at the mouth exposes the underside of the bed.
     # The upper surface of the settled bed is not the release face.
-    surfaces = [(lanes, basal) for lanes, _, _, basal in packed_faces]
+    # Release passes through the supporting contact chains. Each slice has
+    # its own path excess; there is no shared transverse ridge through the
+    # full thickness of the mouth.
+    surfaces = [(lanes, basal + clearance - clearance.min())
+                for lanes, _, clearance, basal in packed_faces]
     # Work done in the confined feed brings the bed to its measured outlet
     # velocity over one aperture radius. Free-flight acceleration near the
     # floor acts on grains that have already cleared the bed.
-    acceleration = v[0]**2 / (2.*half)
+    # For a uniformly packed disk E[r] = 2R/3. The mean distance to
+    # its load-bearing wall is therefore R/3.
+    acceleration = v[0]**2 / (2.*half/3.)
     initial_speed = min(v[0], np.sqrt(2.*acceleration*scale*np.mean(pigment[4])))
     startup_duration = (v[0]-initial_speed)/acceleration
     initial_flux = initial_speed/v[0]
-    convergence = neck.outlet_slope(.5*half*neck.scale) if neck else 0.
+    diameter = 2.*scale*np.mean(pigment[4])
+    convergence = neck.outlet_slope(diameter*neck.scale) if neck else 0.
     relief_depth = max(scale, max(cover.max() for _, cover in surfaces))
     count = max(1, math.ceil(2.*relief_depth*rate/v[0]))
     ranks = np.arange(count)
