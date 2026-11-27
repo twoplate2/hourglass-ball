@@ -1,5 +1,6 @@
 """Review original gold-sand frames from capture_stream_motion.py on a hidden PC."""
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -47,6 +48,57 @@ def sphere_endpoint(rgb, geometry, upper):
         where = "开场上杯" if upper else "落定下杯"
         raise ValueError(f"{where}偏离圆弧 {error.max():.1f} 像素")
     return float(error.max())
+
+
+def primed_reservoir(rgb, geometry):
+    """Check the resting charge against the visible glass and its original inventory."""
+    sand = gold(rgb)
+    height, width = sand.shape
+    cx, radius = geometry["cx"], geometry["radius"]
+    lip = round(geometry["outlet_y"])
+    x = np.arange(width)+.5-cx
+    y = np.arange(height)+.5-(geometry["crown_y"]+radius)
+    if sand[lip:, abs(x) <= radius].any():
+        raise ValueError("待机时已有沙越过颈口")
+    # Follow the inner faces of the actual grey glass. The whole throat
+    # and both shoulders should be filled from the equator to the outlet.
+    wall = (rgb.max(axis=2) < 180) & (np.ptp(rgb.astype(int), axis=2) < 55)
+    center = round(cx)
+    rows = np.flatnonzero((y >= 0.) & (np.arange(height) < lip))
+    for row in rows:
+        left = np.flatnonzero(wall[row, :center])
+        right = np.flatnonzero(wall[row, center:])
+        if not left.size or not right.size:
+            raise ValueError("无法辨认待机上杯的实际内壁")
+        lo = min(center, left[-1]+3)
+        hi = max(center+1, center+right[0]-2)
+        if sand[row, lo:hi].mean() < .97:
+            raise ValueError(f"待机填颈不连续，原图第 {row} 行有空隙")
+    # The idle reference touches the inner crown across the visible upper arc.
+    # Measure several columns so a pin of gold in the middle cannot mask a void.
+    observed = crown_gap(rgb, geometry)
+    cols = np.flatnonzero(abs(x) <= .25*radius)
+    surface = sand[:lip, cols]
+    arc = geometry["crown_y"] + radius - np.sqrt(radius**2 - x[cols]**2)
+    # Compressed device frames can put the actual inner edge between two
+    # pixel centres. Locate the glass per column where the rim is visible.
+    yy = np.arange(lip)[:, None]
+    rim = wall[:lip, cols] & (abs(yy-arc) <= max(3., .015*radius))
+    edge = np.where(rim.any(axis=0), np.where(rim, yy+1, -1).max(axis=0), arc-.5)
+    error = np.where(surface.any(axis=0), surface.argmax(axis=0)-edge, radius)
+    if np.max(error) > max(2., .004*radius):
+        raise ValueError(f"待机顶部空腔，沙面距内弧最多 {np.max(error):.1f} 原像素")
+    return observed
+
+
+def check_filled_lip_seam(mask, geometry):
+    """A moving jet must stay connected through the last filled throat rows."""
+    cx, lip = round(geometry["cx"]), round(geometry["outlet_y"])
+    reach = max(1, round(.7*geometry["half_width"]))
+    rows = mask[lip-6:lip+4,cx-reach:cx+reach+1].mean(axis=1)
+    for k in (4, 5):
+        if min(rows[k-2:k].mean(), rows[k+1:k+3].mean()) > .90 and rows[k] < .60:
+            raise ValueError("预装颈口在沙柱接通后出现横贯出口的亮线")
 
 
 def closing_surface(mask, cx, lip, half):
@@ -128,6 +180,48 @@ def leading_opacity(rgb, geometry):
     opacity = np.uint8(np.clip(pigment[3:] * (255./packed), 0, 255))
     smooth = Image.fromarray(opacity).filter(ImageFilter.GaussianBlur(max(.85, .045*half)))
     return xs, np.asarray(smooth)
+
+
+def symmetric_nose(lanes, opacity, half, radius):
+    """Are both the fringe and the dense edge close to one centred arc each?"""
+    basis = np.column_stack((np.ones_like(lanes), lanes**2))
+    for threshold in (.15, .45):
+        covered = opacity >= 255.*threshold
+        if not covered.any(axis=0).all():
+            return False
+        edge = len(covered)-1-covered[::-1].argmax(axis=0)
+        coeff = np.linalg.lstsq(basis, edge, rcond=None)[0]
+        bow = -coeff[1]*max(abs(lanes))**2
+        residual = np.sqrt(np.mean((edge-basis@coeff)**2))
+        # Resolve a visible bowed cap, allowing a reference pixel of edge
+        # uncertainty. One exceptional grain cannot disguise a smooth bulk.
+        if bow < .20*half or bow <= 10.*max(radius/209., residual):
+            return False
+    return True
+
+
+def flat_nose(lanes, opacity, pitch):
+    """Is the bulk edge level across the centre and both shoulders?"""
+    core = abs(lanes) <= .65
+    covered = opacity[:, core] > .58 * 255
+    if not covered.size or not covered.any(axis=0).all():
+        return False
+    edge = covered[::-1].argmax(axis=0)
+    # Two grain spacings rounded in native pixels allow a rough grain-scale
+    # edge. Percentiles stop a stray grain from hiding a level cut.
+    return np.ptp(np.percentile(edge, (10, 90))) <= max(1, round(2 * pitch))
+
+
+def check_flat_opening(samples):
+    """Reject a level cut that persists as long as a symmetric round nose."""
+    since = None
+    for t, flat in samples:
+        if not flat:
+            since = None
+        elif since is None:
+            since = t
+        elif t - since >= .15 - 1.e-8:
+            raise ValueError(f"{since:.3f}–{t:.3f} 秒首落前缘横贯两肩，持续呈平切")
 
 
 def leading_profile(rgb, geometry):
@@ -559,6 +653,70 @@ def first_deposit(frames, contact, period, sample_rate):
             raise ValueError(f"{b['time']:.3f} 秒首堆突然升高 {rise:.1f} 像素，口径 {mouth:.1f} 像素")
 
 
+def opening_edges(mask, cx, lip, floor, half):
+    """Depths of the dense material and the visible fringe in the same frame."""
+    reach = max(1, round(.48 * half))
+    coverage = mask[lip:floor, cx-reach:cx+reach].mean(axis=1)
+    height = max(1, round(.16 * half))
+    bands = np.convolve(coverage, np.full(height, 1. / height), mode="valid")
+    edges = []
+    for level in (.90, .12):
+        rows = np.flatnonzero(bands >= level)
+        edges.append(float(rows[-1] + (height + 1)/2) if rows.size else 0.)
+    return edges
+
+
+def early_packed_coverage(mask, cx, lip, floor, half, pitch):
+    """Measure the next few grain layers, excluding the outermost grains."""
+    reach = max(1, round(.48*half))
+    strip = mask[lip:floor, cx-reach:cx+reach]
+    rows = np.flatnonzero(strip.sum(axis=1) >= max(2, round(.10*strip.shape[1])))
+    tip = int(rows[-1])+1 if rows.size else 0
+    if not (.65*half <= tip <= 1.25*half and tip > 9*pitch):
+        return None
+    near = max(1, round(3*pitch))
+    far = max(near+1, round(9*pitch))
+    return float(strip[tip-far:tip-near].mean())
+
+
+def check_opening_braking(samples, radius):
+    """Compare adjacent 100 ms windows throughout the free fall on the recorded clock."""
+    points = np.asarray(samples, dtype=float)
+    if len(points) < 6 or not np.isfinite(points).all():
+        raise ValueError("首落连续画面不足，无法复核密实沙团的运动")
+    times, body, fringe = points.T
+    gaps = np.diff(times)
+    if np.any(gaps <= 0.) or np.any(gaps > .05 + 1e-8):
+        raise ValueError("首落时间戳不连续或取样不足，每 0.10 秒至少需要两个采样间隔")
+    tolerance = 2. * radius / 209.
+    previous_failure = None
+    observed = False
+    for index, end in enumerate(times):
+        if end - .20 < times[0] - 1e-8:
+            continue
+        start, middle = end - .20, end - .10
+        if np.interp(start, times, body) <= 2*tolerance:
+            continue
+        observed = True
+        before, after = [], []
+        for edge in (body, fringe):
+            pivot = np.interp(middle, times, edge)
+            before.append(pivot - np.interp(start, times, edge))
+            after.append(edge[index] - pivot)
+        before, after = np.array(before), np.array(after)
+        braking = np.all(after <= .70 * before) and np.all(before-after > tolerance)
+        hanging = after[0] <= tolerance and (after[1] <= tolerance or after[1] > 2*tolerance
+                                              or before[0] > 2*tolerance)
+        if (braking or hanging) and previous_failure == index-1:
+            raise ValueError(
+                f"首落沙团停滞或明显减速，{start:.3f}–{middle:.3f} 与 {middle:.3f}–{end:.3f} 秒："
+                f"密实下缘下移 {before[0]:.1f}、{after[0]:.1f} 像素，"
+                f"散粒前缘下移 {before[1]:.1f}、{after[1]:.1f} 像素")
+        previous_failure = index if braking or hanging else None
+    if not observed:
+        raise ValueError("缺少密实沙团出颈口后的连续画面")
+
+
 def review(folder, opening_only=False):
     meta = json.loads((folder / "motion.json").read_text(encoding="utf-8"))
     frames = meta["frames"]
@@ -579,16 +737,19 @@ def review(folder, opening_only=False):
         sphere_endpoint(final_image, geo, upper=False)
         settled = gold(final_image)
     initial_image = frame_image(folder, frames[0])
-    sphere_endpoint(initial_image, geo, upper=True)
-    gap = crown_gap(initial_image, geo)
-    if gap > max(2., .007*radius):
-        raise ValueError(f"待机上杯顶部可见 {gap} 像素空隙")
+    gap = primed_reservoir(initial_image, geo)
 
     contact = None
+    opening_motion = []
+    flat_opening = []
+    open_layers_since = None
+    symmetric_since = None
+    symmetric_frames = 0
     above, times, masks, luminance, spray, closing_ratios = [], [], [], [], [], []
     tail_fringe, cutoff_samples = [], []
     head_frames, head_tips, front_fringe, shoulders = [], [], [], []
     central_transitions = []
+    emergence = []
     head_areas = []
     head_bands = []
     seam_contrasts = []
@@ -607,6 +768,8 @@ def review(folder, opening_only=False):
         if contact is None or closing or cutoff or near_full or (.24*period < t < .60*period) or (3 <= t <= 4.5):
             rgb = frame_image(folder, frame)
             mask = gold(rgb)
+            if 0. < t <= min(.5, .5*period):
+                check_filled_lip_seam(mask, geo)
         else:
             continue
         if cutoff:
@@ -627,6 +790,40 @@ def review(folder, opening_only=False):
                 central = mask[lip:floor, cx-2:cx+3]
                 tip = floor-1 - int(np.median(np.argmax(central[::-1], axis=0)))
                 if period == 50:
+                    repeats_arc = False
+                    flat = False
+                    if central.any(axis=0).all() and lip + .30*half <= tip < floor:
+                        xs, opacity = leading_opacity(rgb, geo)
+                        lanes = (xs-geo["cx"])/half
+                        repeats_arc = symmetric_nose(lanes, opacity, half, radius)
+                        flat = flat_nose(lanes, opacity, frame["draw_state"]["pitch"])
+                    flat_opening.append((t, flat))
+                    if repeats_arc:
+                        if symmetric_since is None:
+                            symmetric_since = t
+                        symmetric_frames += 1
+                        if symmetric_frames >= 3 and t-symmetric_since >= .15-1.e-8:
+                            raise ValueError(f"{symmetric_since:.3f}–{t:.3f} 秒首落的散粒外沿和主体下缘持续呈居中对称圆头")
+                    else:
+                        symmetric_since = None
+                        symmetric_frames = 0
+                    coverage = early_packed_coverage(mask, cx, lip, floor, half, frame["draw_state"]["pitch"])
+                    if coverage is not None and coverage < 2./3.:
+                        if open_layers_since is None:
+                            open_layers_since = t
+                        elif t-open_layers_since >= .025-1e-8:
+                            raise ValueError(f"{t:.3f} 秒刚出颈口的前几层已出现大片空隙，沙色覆盖 {coverage:.1%}")
+                    else:
+                        open_layers_since = None
+                    opening_motion.append((t, *opening_edges(mask, cx, lip, floor, half)))
+                    if len(emergence) < 5:
+                        rows = np.flatnonzero(mask[lip:floor, cx-3:cx+4].sum(axis=1) >= 2)
+                        if rows.size or emergence:
+                            emergence.append(int(rows[-1])+1 if rows.size else 0)
+                        if len(emergence) == 5:
+                            step = max(1., float(np.median(np.diff(emergence))))
+                            if emergence[0] > 2*step + 2*radius/209.:
+                                raise ValueError(f"首帧突然伸出 {emergence[0]} 像素，随后每帧约 {step:.1f} 像素")
                     if .80-1e-9 <= t <= 1.+1e-9:
                         seam_contrasts.append(opening_seam_contrast(mask, cx, lip, half))
                     if 1.-1e-9 <= t <= 1.17:
@@ -684,6 +881,8 @@ def review(folder, opening_only=False):
                50:(1.20,1.65), 6000:(1.20,1.65)}
     if contact is None:
         raise ValueError("连续帧未覆盖首次可见触底")
+    if period == 50:
+        check_opening_braking(opening_motion, radius)
     first_deposit(frames, contact, period, meta["sample_rate"])
     if period in windows:
         low, high = windows[period]
@@ -691,6 +890,7 @@ def review(folder, opening_only=False):
             raise ValueError(f"{period:g} 秒档首落 {contact:.3f} 秒")
     deformation = spike_travel = airborne_head = None
     if period == 50:
+        check_flat_opening(flat_opening)
         if len(seam_contrasts) < 3:
             raise ValueError("缺少 50 秒档 0.8～1.0 秒出口下方的连续画面")
         seam = float(np.median(seam_contrasts))
@@ -776,12 +976,252 @@ def review(folder, opening_only=False):
                 splash_pixels_median=float(np.median(spray)) if spray else None)
 
 
+def largest_exposed_patch(mask):
+    """Area in native pixels of the largest four-connected patch."""
+    pixels = set(zip(*np.nonzero(mask)))
+    largest = 0
+    while pixels:
+        pending = [pixels.pop()]
+        area = 0
+        while pending:
+            y, x = pending.pop()
+            area += 1
+            for neighbor in ((y-1, x), (y+1, x), (y, x-1), (y, x+1)):
+                if neighbor in pixels:
+                    pixels.remove(neighbor)
+                    pending.append(neighbor)
+        largest = max(largest, area)
+    return largest
+
+
+def opening_edge_samples(rgb, geometry, pitch):
+    """Read each column's sand edges and measure only glass behind its fringe."""
+    cx, lip, floor = (round(geometry[key]) for key in ("cx", "outlet_y", "surface_y"))
+    half = geometry["half_width"]
+    reach = round(.91 * half)
+    if reach < 5:
+        raise ValueError("原帧杯口太窄，无法区分中央与两肩")
+    strip = rgb[lip:floor, cx-reach:cx+reach]
+    sand = gold(strip)
+    n = len(sand)
+    sparse = np.where(sand.any(axis=0), n - 1 - sand[::-1].argmax(axis=0), -1)
+    # A few dust pixels belong to the fringe, not to the dense material.
+    dense_mask = np.asarray(Image.fromarray(sand.astype(np.uint8) * 255).filter(
+        ImageFilter.BoxBlur(max(1, round(pitch)))
+    )) >= 230
+    dense = np.where(dense_mask.any(axis=0), n - 1 - dense_mask[::-1].argmax(axis=0), -1)
+    low, depth, high = np.percentile(sparse, (10, 50, 90))
+    result = {"depth": float(depth), "dense": float(np.median(dense)), "fringe_span": float(high-low)}
+    if not .35*half <= depth <= 1.55*half:
+        return result
+    back = sparse - np.arange(n)[:, None]
+    band = (back >= max(2, round(3 * pitch))) & (back < round(14 * pitch))
+    background = np.all(strip == geometry["background_rgb"], axis=2)
+    split = round(.50 * half)
+    sections = (slice(0, reach-split), slice(reach-split, reach+split), slice(reach+split, None))
+    result["coverage"] = []
+    result["patches"] = []
+    for section in sections:
+        region = band[:, section]
+        exposed = background[:, section] & region
+        if not region.any():
+            return result
+        result["coverage"].append(float(exposed.sum() / region.sum()))
+        result["patches"].append(largest_exposed_patch(exposed))
+    return result
+
+
+def opening_reference_failures(reference, candidate, half, pitch, fps):
+    """Find sustained holes, a flattened fringe or a short density transition."""
+    if not reference or not candidate:
+        raise ValueError("没有可比较的离口原帧")
+    minimum_seconds = {"early": .05, "fringe": .08}
+    observed = {"early": 0, "fringe": 0}
+    runs = {}
+    failures = {}
+    labels = ("左肩", "中央", "右肩")
+
+    def check(name, bad, t, minimum, details):
+        if not bad:
+            runs.pop(name, None)
+        else:
+            since = runs.setdefault(name, t)
+            if t-since >= minimum - 1e-7 and name not in failures:
+                failures[name] = f"{since:.3f}–{t:.3f} 秒{details}"
+
+    for actual in candidate:
+        t, depth = actual["time"], actual["depth"]
+        early = .35 * half <= depth <= 1.45 * half
+        fringe = 2.0 * half <= depth <= 3.6 * half
+        if not early:
+            for side in labels:
+                runs.pop(side, None)
+        if not fringe:
+            runs.pop("散粒外沿", None)
+            runs.pop("渐散带", None)
+        if not (early or fringe):
+            continue
+        expected = min(reference, key=lambda f: (abs(f["depth"]-depth), abs(f["time"]-t)))
+        # At 60 fps this allows the nearest genuine reference frame. Large
+        # mismatches mean the frame pair cannot establish a visual result.
+        if abs(expected["depth"]-depth) > .22 * half:
+            runs.clear()
+            continue
+        if early and len(actual.get("coverage", [])) == len(expected.get("coverage", [])) == 3:
+            observed["early"] += 1
+            for side, ratio, normal, area in zip(labels, actual["coverage"], expected["coverage"], actual["patches"]):
+                bad = ratio - normal >= .10 and area >= max(6, 6*pitch**2)
+                details = (f"首落{side}沙层内连片露底，同落距露底率 "
+                           f"{ratio:.1%} 对正式 3.50 的 {normal:.1%}，最大连片 {area} 个像素")
+                check(side, bad, t, minimum_seconds["early"], details)
+        elif early:
+            for side in labels:
+                runs.pop(side, None)
+        if fringe:
+            observed["fringe"] += 1
+            span, normal = actual["fringe_span"], expected["fringe_span"]
+            bad = span <= .50*normal and normal-span >= max(4*pitch, .25*half)
+            details = (f"首落散粒外沿持续横齐，横向起伏 {span:.1f} 像素，"
+                       f"同落距正式 3.50 为 {normal:.1f} 像素。"
+                       f"密实下缘中位落距分别为 {actual['dense']:.1f} 和 "
+                       f"{expected['dense']:.1f} 像素")
+            check("散粒外沿", bad, t, minimum_seconds["fringe"], details)
+            transition = depth - actual["dense"]
+            normal = expected["depth"] - expected["dense"]
+            compressed = transition <= .50*normal and normal-transition >= max(4*pitch, .25*half)
+            details = (f"首落渐散带持续太短，密实下缘至散粒外沿仅 {transition:.1f} 像素，"
+                       f"同落距正式 3.50 为 {normal:.1f} 像素")
+            check("渐散带", compressed, t, minimum_seconds["fringe"], details)
+    if any(observed[name] < 1 + math.ceil(seconds * fps) for name, seconds in minimum_seconds.items()):
+        raise ValueError("同落距原帧未覆盖离口和散粒外沿的复查窗口")
+    return observed, list(failures.values())
+
+
+def compare_opening_reference(reference, candidate):
+    """Check the 50 second opening against matching native release 3.50 frames."""
+    folders = (reference, candidate)
+    captures = [
+        json.loads((folder / "motion.json").read_text(encoding="utf-8")) for folder in folders
+    ]
+    left, right = captures
+    if left["version"] != "3.50" or left["period"] != 50 or left["color"] != 0:
+        raise ValueError("须提供正式 3.50 的 50 秒档金沙原帧")
+    for key in ("dimensions", "period", "sample_rate", "opening_seed", "grain", "color", "renderer"):
+        if left[key] != right[key]:
+            raise ValueError(f"首落对照条件不同：{key}")
+    fps = left["sample_rate"]
+    if fps < 60:
+        raise ValueError("首落外沿和空洞需要至少 60 帧/秒的原幅采样")
+    count = round(2*fps) + 1
+    samples = [[], []]
+    for folder, capture, records in zip(folders, captures, samples):
+        frames = capture["frames"]
+        if (not capture["completed"] or capture.get("crop_box") or len(frames) < count
+                or len(frames) != capture["expected_frames"]
+                or capture["source_files"] != capture["source_files_end"]):
+            raise ValueError("须提供连续记录到 2 秒的完整原幅和一致的运行源码")
+        for i, frame in enumerate(frames[:count]):
+            hidden = frame["native_hidden"]
+            t = i / fps
+            if (abs(t-frame["time"]) > 1.e-7 or not hidden["IsWindow"]
+                    or hidden["IsWindowVisible"] or hidden["IsIconic"]):
+                raise ValueError("须在隐藏 PC 窗口从零起始连续采集原幅")
+            if hashlib.sha256((folder / frame["file"]).read_bytes()).hexdigest() != frame["sha256"]:
+                raise ValueError(f"{t:.3f} 秒原帧与取图记录不符")
+            if frame["transfer"]["landed"] <= 1.e-12:
+                rgb = frame_image(folder, frame)
+                if list(rgb.shape[1::-1]) != capture["dimensions"]:
+                    raise ValueError(f"{t:.3f} 秒原帧尺寸与取图记录不符")
+                item = opening_edge_samples(rgb, frame["geometry"], frame["draw_state"]["pitch"])
+                records.append(dict(item, time=t))
+        if len(records) == count:
+            raise ValueError("连续取图未覆盖首次接堆")
+    half = left["frames"][0]["geometry"]["half_width"]
+    pitch = left["frames"][0]["draw_state"]["pitch"]
+    observed, failures = opening_reference_failures(*samples, half, pitch, fps)
+    if failures:
+        raise ValueError("\n".join(failures))
+    return dict(opening_seed=left["opening_seed"], matched_frames=observed)
+
+
+def compare_after_contact(reference, candidate):
+    """Compare every frame after the physical first deposit with release 3.50."""
+    folders = (reference, candidate)
+    left, right = [
+        json.loads((folder / "motion.json").read_text(encoding="utf-8")) for folder in folders
+    ]
+    if left["version"] != "3.50":
+        raise ValueError("稳定流须直接对照正式 3.50")
+    for key in ("dimensions", "period", "sample_rate", "opening_seed", "grain", "color", "renderer"):
+        if left[key] != right[key]:
+            raise ValueError(f"对照条件不同：{key}")
+    for capture in (left, right):
+        frames = capture["frames"]
+        if (
+            not capture["completed"]
+            or len(frames) != capture["expected_frames"]
+            or not frames
+            or capture.get("crop_box")
+            or capture["sample_rate"] <= 0
+            or capture["source_files"] != capture["source_files_end"]
+        ):
+            raise ValueError("须提供完整的原幅取图和一致的运行源码")
+    if len(left["frames"]) != len(right["frames"]):
+        raise ValueError("原帧数量不同")
+    first = None
+    compared = 0
+    for index, (a, b) in enumerate(zip(left["frames"], right["frames"])):
+        t = index / left["sample_rate"]
+        if any(
+            abs(f["time"] - t) > 1.0e-7
+            or not f["native_hidden"]["IsWindow"]
+            or f["native_hidden"]["IsWindowVisible"]
+            for f in (a, b)
+        ):
+            raise ValueError("必须在隐藏窗口从零起步，以相同采样率连续取图")
+        if a["geometry"] != b["geometry"] or a["transfer"] != b["transfer"]:
+            raise ValueError(f"{t:.3f} 秒几何或沙量与正式 3.50 不一致")
+        if first is None:
+            if a["transfer"]["landed"] <= 1.0e-12:
+                continue
+            first = t
+        hashes = []
+        for folder, frame in zip(folders, (a, b)):
+            digest = hashlib.sha256((folder / frame["file"]).read_bytes()).hexdigest()
+            if digest != frame["sha256"]:
+                raise ValueError(f"{t:.3f} 秒原帧与取图记录不符")
+            hashes.append(digest)
+        if hashes[0] != hashes[1] and not np.array_equal(
+            frame_image(reference, a), frame_image(candidate, b)
+        ):
+            raise ValueError(f"{t:.3f} 秒接堆后的画面偏离正式 3.50")
+        compared += 1
+    if not compared:
+        raise ValueError("原帧未覆盖首次接堆")
+    return dict(
+        contact_seconds=first, identical_frames=compared, last_seconds=left["frames"][-1]["time"]
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("capture", type=Path)
-    parser.add_argument("--opening-only", action="store_true", help="仅检查从开场到首次触地")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--after-contact-reference", type=Path, help="逐帧对比正式 3.50 首次接堆后的原幅录像"
+    )
+    mode.add_argument(
+        "--opening-reference", type=Path, help="同落距对比正式 3.50 首落的局部露底、散粒外沿和渐散带"
+    )
+    mode.add_argument("--opening-only", action="store_true", help="仅检查从开场到首次触地")
     args = parser.parse_args()
     try:
-        print(json.dumps(review(args.capture, args.opening_only), ensure_ascii=False))
+        if args.after_contact_reference:
+            result = compare_after_contact(args.after_contact_reference, args.capture)
+        elif args.opening_reference:
+            result = compare_opening_reference(args.opening_reference, args.capture)
+        else:
+            result = review(args.capture, args.opening_only)
+        print(json.dumps(result, ensure_ascii=False))
     except ValueError as error:
         parser.exit(1, f"{error}\n")

@@ -19,6 +19,43 @@ def from_curve(times, discharged):
 
 
 class OutletFlowControls(unittest.TestCase):
+    def test_upper_cavity_is_checked_even_with_no_flight_debit(self):
+        from check_visible_sand_volume import check_opening_inventory
+
+        # Each entry contains time, upper surface row, projected volume above
+        # the lip, volume below it, and a resolved visual crossing.
+        radius = 209.
+        full = 4.*radius**3/3.
+        rows = [(0., 14, full, 0., False), (.133, 27, full*.99731, 1., False),
+                (.183, 30, full*.99639, 1., False), (.433, 43, full*.991, .009*full, True),
+                (.450, 44, full*.990, .010*full, True)]
+        with self.assertRaisesRegex(ValueError, "上杯露空"):
+            check_opening_inventory(rows, radius, 32.)
+        # If the missing upper sand actually filled the empty throat the
+        # volume above the outlet is conserved, even if the upper level fell.
+        rows[1:3] = [(t, y, full-dust, dust, flag) for t, y, _, dust, flag in rows[1:3]]
+        check_opening_inventory(rows, radius, 32.)
+
+    def test_flight_debit_requires_visible_outlet_crossing(self):
+        from check_visible_sand_volume import check_first_crossing
+
+        # The book alone balances even if no sand has passed the real opening.
+        times = [0., 1./60., .2, .433, .45]
+        frames = [dict(time=t, transfer={"flight": t/50.},
+                       draw_state={"rendered_particles": int(t >= .433)}) for t in times]
+        samples = [(t, 1.-t/50., (t/50. if t >= .433 else 0.)) for t in times]
+        with self.assertRaisesRegex(ValueError, "0.200"):
+            check_first_crossing(frames, samples, 50.)
+        # A single ambiguous pixel and draw call cannot certify the start
+        # of a continuous flow and suppress the following confirmed gap.
+        frames[1]["draw_state"]["rendered_particles"] = 1
+        samples[1] = (times[1], 1.-times[1]/50., 1e-9)
+        with self.assertRaisesRegex(ValueError, "0.200"):
+            check_first_crossing(frames, samples, 50.)
+        for frame in frames[:3]:
+            frame["transfer"]["flight"] = 0.
+        check_first_crossing(frames, samples, 50.)
+
     def test_equal_volume_passes_with_flight_delay_and_fractional_last_second(self):
         duration = 5.4
         times = np.arange(0., 8., 1. / 30.)
@@ -101,8 +138,12 @@ class ApplicationOutletFlowTests(unittest.TestCase):
                 model._taper = {"t_in": half, "y_bot": 432.}
                 start, cutoff, reserve = model._transfer_timing()
                 self.assertEqual((start, cutoff), (0., duration))
-                self.assertEqual(reserve, model._sand_neck.full_fraction)
-                self.assertAlmostEqual(model._upper_sand_fraction(0.), 1.-model._sand_neck.cap_fraction)
+                neck = model._sand_neck
+                bulb = 4. * radius**3 / 3.
+                cap_height = neck.heights[-1] - neck.pole
+                cap = cap_height**2 * (radius - cap_height/3.)
+                self.assertAlmostEqual(reserve, neck.volumes[-1] / (bulb - cap + neck.volumes[-1]))
+                self.assertAlmostEqual(model._upper_sand_fraction(0.) + reserve, 1.)
                 times = np.arange(0., duration + 1., .125)
                 values = [model._released_fraction_at(t) for t in times]
                 model.elapsed = duration

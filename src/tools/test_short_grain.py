@@ -90,7 +90,7 @@ class B13StreamTests(unittest.TestCase):
             w = Widget()
             w._cx, w._R_inner, w._neck_y, w._lower_sand_bot = 200., REFERENCE_RADIUS, 450., 10.
             w._taper = {'t_in': REFERENCE_HALF, 'y_bot': 460.}
-            w._sand_neck = SimpleNamespace(opening=lambda t: (0., None, 0.))
+            w._sand_neck = SimpleNamespace(opening=lambda t: (0., None, 0.), first_exit_lift=0.)
             w.get_mound_top_y = lambda: 10.
             w.duration = duration
             w._opening_seed = 17
@@ -337,7 +337,7 @@ class B13StreamTests(unittest.TestCase):
                 install(TestWidget)
                 widget._cx, widget._R_inner, widget._neck_y = 200., REFERENCE_RADIUS, 450.
                 widget._taper = {'t_in': 30., 'y_bot': 460.}
-                widget._sand_neck = SimpleNamespace(opening=lambda t: (0., None, 0.))
+                widget._sand_neck = SimpleNamespace(opening=lambda t: (0., None, 0.), first_exit_lift=0.)
                 widget._lower_sand_bot = 10.
                 widget.get_mound_top_y = lambda: 10.
                 widget._particle_motion_scale, widget._neck_fill_time = 1., .25
@@ -376,10 +376,10 @@ class B13StreamTests(unittest.TestCase):
 
     def test_same_grains_fall_across_a_birth_block_and_a_long_timer(self):
         import numpy as np
-        from b13_stream import BLOCK, REFERENCE_HALF, sample_grains
-        from grain_style import B13_TEXTURE_SPEED
-        wide_rate = 100. * B13_TEXTURE_SPEED
-        for half, duration, time in ((REFERENCE_HALF, 50., BLOCK / wide_rate),
+        from b13_stream import BLOCK, REFERENCE_HALF, REFERENCE_RADIUS, _discharge, sample_grains
+        discharge = _discharge(50., REFERENCE_HALF, 2.*REFERENCE_RADIUS, 0., 1., 0, None)
+        block_time = discharge.birth_time((BLOCK+.5)/discharge.release_rate)
+        for half, duration, time in ((REFERENCE_HALF, 50., block_time),
                                      (5., 360005., 360000.)):
             a = sample_grains(time - .001, duration, half, 400.)
             b = sample_grains(time + .001, duration, half, 400.)

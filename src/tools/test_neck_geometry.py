@@ -38,6 +38,20 @@ class NeckGeometryTests(unittest.TestCase):
                 self.assertAlmostEqual(geometry.inner_width(period,diameter),
                                        geometry.inner_width(period,400)*diameter/400)
 
+    def test_first_exit_lift_matches_the_packed_outline_at_the_lip(self):
+        from grain_style import B13_REFERENCE_RADIUS, hourglass_transit
+        flow = hourglass_transit(50., 30.)
+        for scale, gap in ((1., 0.), (.75, .5), (1., 30.), (2., 60.)):
+            radius = B13_REFERENCE_RADIUS * scale
+            neck = geometry.SandNeck(radius, gap, [(40.*scale, gap+8.*scale), (30.*scale, 0.)],
+                                     flow, scale)
+            travel = neck.first_exit_lift
+            self.assertAlmostEqual(travel, neck._lift_at(travel), places=6)
+            if gap:
+                crossing = flow.age_at(travel/scale) / neck.lane
+                self.assertEqual(neck.opening(crossing - .001)[1][-1][0], 0.)
+                self.assertGreater(neck.opening(crossing + .001)[1][-1][0], 0.)
+
     def test_outer_half_includes_wall_once(self):
         self.assertAlmostEqual(geometry.outer_half(5,400,6),62)
         narrow, wide = geometry.half_limits(400,6)

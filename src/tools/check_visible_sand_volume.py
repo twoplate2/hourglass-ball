@@ -18,7 +18,7 @@ VISIBLE_VOLUME_ERROR = .025  # fraction of the initial packed volume
 PHYSICS_STEP = 1. / 120.  # logical time step in capture_stream_motion
 
 
-def measure(capture):
+def measure(capture, opening_samples=None):
     meta = json.loads((capture / "motion.json").read_text(encoding="utf8"))
     frames = meta["frames"]
     if (not meta["completed"] or meta["color"] != 0 or meta.get("crop_box")
@@ -37,6 +37,8 @@ def measure(capture):
     jet = abs(offsets) <= geo["half_width"]
     connected = False
     volumes = []
+    visible_run = 0
+    cx = round(geo['cx'])
     for frame in frames:
         with Image.open(capture / frame["file"]) as image:
             rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
@@ -52,6 +54,15 @@ def measure(capture):
                 raise ValueError(f"{frame['time']:.2f} 秒底部已经成堆，沙柱仍与落点分离")
         above = float(np.dot(gold[:outlet].sum(axis=0), rings))
         below = float(np.dot(gold[outlet:].sum(axis=0), rings))
+        if opening_samples is not None and visible_run < 2:
+            # Require a small continuous bridge across the lip. Isolated
+            # gold-coloured pixels in the lower bulb cannot end this audit.
+            bridge = gold[outlet-1:outlet+2, jet].all(axis=0)
+            crossed = bool(np.any(bridge[:-1] & bridge[1:]))
+            central_rows = np.flatnonzero(gold[:outlet, cx-1:cx+2].sum(axis=1) >= 2)
+            top = int(central_rows[0]) if central_rows.size else None
+            opening_samples.append((frame["time"], top, above, below, crossed))
+            visible_run = visible_run + 1 if crossed else 0
         volumes.append((above, below))
     capacity = volumes[0][0]
     if not .95 < capacity / (4. * radius**3 / 3.) < 1.05 or volumes[0][1]:
@@ -116,10 +127,74 @@ def check_outlet_flow(samples, duration, *, pixels=False):
     return window
 
 
+def check_opening_inventory(rows, radius, half):
+    """Detect unsupported crown recession using pixels alone, including neck fill."""
+    _, initial_y, full, _, _ = rows[0]
+    if initial_y is None:
+        raise ValueError("首帧无法辨认上杯中央沙面")
+    run = 0
+    worst = None
+    for time, top, above, below, crossed in rows:
+        if crossed:
+            run = 0
+            continue
+        if top is None:
+            raise ValueError("首落前无法辨认上杯中央沙面")
+        drop = top-initial_y
+        # Two image rows of uncertainty at each moving surface. A sphere cap
+        # of height h has cross-section radius squared h*(2R-h).
+        h = min(radius, max(0., drop)+2.)
+        allowance = 2.*(h*(2.*radius-h) + half**2)
+        missing = full-above-below
+        run = run+1 if drop > 2 and missing > allowance else 0
+        if run >= 2 and (worst is None or missing > worst[0]):
+            worst = (missing, time, drop)
+    if worst:
+        missing, time, drop = worst
+        raise ValueError(f"{time:.3f} 秒上杯露空 {drop} 原像素，未见连续越口；"
+                         f"计入颈内和颈下金沙后，画面仍短少满杯的 {missing/full:.3%}")
+
+
+def check_first_crossing(frames, samples, duration):
+    """Check the first actual grains separately from the full-glass volume tolerance."""
+    if not math.isfinite(duration) or duration <= 0.:
+        raise ValueError("首落检查需要有效的计时档位")
+    worst = None
+    visible_frames = 0
+    for frame, (_, _, below) in zip(frames, samples):
+        particles = frame.get("draw_state", {}).get("rendered_particles")
+        if particles is None:
+            raise ValueError("缺少首落绘制记录，无法核对首粒越口")
+        if below > 0. and particles > 0:
+            visible_frames += 1
+            if visible_frames == 2:
+                break
+        else:
+            visible_frames = 0
+        # Only an empty lower image AND an empty renderer establish that
+        # material was booked before any visible sand reached the lower cup.
+        if below == 0. and particles == 0:
+            flight = frame["transfer"]["flight"]
+            if flight > PHYSICS_STEP / duration + 1e-9 and (worst is None or flight > worst[0]):
+                worst = (flight, frame["time"])
+    if worst is not None:
+        flight, time = worst
+        raise ValueError(f"{time:.3f} 秒颈下画面与颗粒记录均为空，在途已记满杯的 {flight:.3%}")
+
+    if visible_frames < 2:
+        raise ValueError("缺少连续两帧颈下金沙及颗粒记录，首落无法核验")
+
+
 def check_capture(capture):
     meta = json.loads((capture / "motion.json").read_text(encoding="utf8"))
-    samples = measure(capture)
+    opening = []
+    samples = measure(capture, opening)
     errors = []
+    geo = meta["frames"][0]["geometry"]
+    try:
+        check_opening_inventory(opening, geo["radius"], geo["half_width"])
+    except ValueError as error:
+        errors.append(str(error))
     try:
         check(samples)
     except ValueError as error:
@@ -130,6 +205,10 @@ def check_capture(capture):
         errors.append(f"可见流量：{error}")
     frames = meta["frames"]
     if all("transfer" in frame for frame in frames):
+        try:
+            check_first_crossing(frames, samples, meta["period"])
+        except ValueError as error:
+            errors.append(str(error))
         ledger = []
         for frame in frames:
             state = frame["transfer"]

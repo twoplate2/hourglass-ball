@@ -84,22 +84,6 @@ class OpeningTransit:
             self.depths.append(depth)
             dt_per_pixel = short_transit.seconds_per_pixel * short_transit.relative_area(depth)
             self.speeds.append(1. / ((1. - self.blend) * dt_per_pixel + self.blend / speed))
-        # Preserve the approved 5.5 s opening. Short intermediate timers need
-        # enough room to reach their steady speed before supply stops.
-        self.warm_start = min(5.5, .40 * duration)
-        self.warm_span = min(5., .35 * duration)
-        self.steady_lead = self.table_age_at(172.)
-        self.steady = FlowingTransit(self, self.steady_lead, 0.)
-
-    def at_clock(self, clock):
-        if clock <= self.warm_start:
-            return self
-        u = (clock - self.warm_start) / self.warm_span
-        if u >= 1.:
-            return self.steady
-        lead = self.steady_lead * u**2 * (3. - 2. * u)
-        lead_rate = self.steady_lead * 6. * u * (1. - u) / self.warm_span
-        return FlowingTransit(self, lead, lead_rate)
 
     def lane_factor(self, lane, jitter, *, birth=None):
         short = self.short_transit.lane_factor(lane, jitter)
@@ -128,33 +112,3 @@ class OpeningTransit:
         factor = self.lane_factor(lane, jitter)
         t = age * factor
         return outlet - scale * self.depth_at(t), -scale * factor * self.speed_at(t)
-
-
-class FlowingTransit:
-    """Start at the established flow speed, using the same cached reference curve."""
-
-    cohorts = B13Transit.cohorts
-    __slots__ = ('curve', 'lead', 'lead_rate', 'start_depth', 'start_speed')
-
-    def __init__(self, curve, lead, lead_rate):
-        self.curve, self.lead, self.lead_rate = curve, lead, lead_rate
-        self.start_depth = curve.depth_at(lead)
-        self.start_speed = curve.speed_at(lead)
-
-    def lane_factor(self, lane, jitter, *, birth=None):
-        return self.curve.lane_factor(lane, jitter)
-
-    def age_at(self, depth):
-        return self.curve.table_age_at(self.start_depth + depth) - self.lead
-
-    def depth_at(self, age):
-        return self.curve.depth_at(self.lead + age) - self.start_depth
-
-    def motion(self, age, lane, jitter, outlet, scale, *, birth=None):
-        factor = self.lane_factor(lane, jitter)
-        scaled_age = age * factor
-        v = self.curve.speed_at(self.lead + scaled_age)
-        # Both the cohort age and the established inlet speed advance during
-        # warm-up. The second term is zero once the inlet is fully flowing.
-        speed = v * factor + self.lead_rate * (v - self.start_speed)
-        return outlet - scale * self.depth_at(scaled_age), -scale * speed

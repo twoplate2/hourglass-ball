@@ -2736,6 +2736,10 @@ class HourglassWidget(Widget):
         self._sand_pending = 0.0
         self._sand_active = False
         self._opening_seed = None
+        self._opening_worker = None
+        self._opening_job = None
+        self._opening_requested = False
+        self._opening_error = False
         self._sand_timing = None
         self._sand_tail_span = 0.
         self._sand_resized = False
@@ -2747,6 +2751,7 @@ class HourglassWidget(Widget):
         self._mound_flow_clock = 0.0
         self._stream_settle_age = 0.0
         self._first_impact_clock = self._last_impact_clock = None
+        self._discharge_after_first_pile = None
         self._contact_hits = deque(maxlen=256)
         self._effect_random = None
         self._splash_reference_speed = None
@@ -3254,12 +3259,16 @@ class HourglassWidget(Widget):
         appear = min(1.0, (self.elapsed - delay) / appear_window)
         return appear * target
 
-    def _upper_sand_height_px(self):
-        """上球、颈部、在途与落地共用一份归一化沙量。"""
-        fraction = self._upper_sand_fraction()
+    def _sphere_fill_fraction(self, fraction):
+        """Convert an upper-body share of the charged vessel to sphere units."""
         if FLOW_RENDERER == "b13" and self._geom_ready and fraction > 0.:
-            fraction += self._sand_neck.cap_fraction
-        return self._raw_height_ratio(min(1., fraction)) * 2 * self._R_inner
+            neck = self._sand_neck
+            fraction = fraction * neck.charged_volume_ratio + neck.cap_fraction
+        return min(1., fraction)
+
+    def _upper_sand_height_px(self):
+        fraction = self._sphere_fill_fraction(self._upper_sand_fraction())
+        return self._raw_height_ratio(fraction) * 2 * self._R_inner
 
     def _transfer_timing(self):
         """Cup-lip opening, last release, and initial packed neck capacity."""
@@ -3267,7 +3276,8 @@ class HourglassWidget(Widget):
             start = self._neck_fill_time
             # 释放窗口延续到计时末段，避免上球排空后沙堆仍长时间增长。
             if FLOW_RENDERER == "b13":
-                reserve = self._sand_neck.full_fraction
+                neck = self._sand_neck
+                reserve = neck.full_fraction / neck.charged_volume_ratio
                 end = self.duration
             else:
                 sphere_volume = 4.0 * self._R_inner ** 3 / 3.0
@@ -3299,8 +3309,6 @@ class HourglassWidget(Widget):
         if elapsed is None:
             elapsed = self._supply_elapsed
         remaining = 1.0 - self._released_fraction_at(elapsed)
-        if FLOW_RENDERER == "b13":
-            reserve = self._sand_neck.opening(elapsed)[0]
         filled = min(1.0, max(0.0, elapsed / start)) if start > 0. else 1.
         neck = min(remaining, reserve * filled)
         return max(0.0, remaining - neck)
@@ -3317,6 +3325,8 @@ class HourglassWidget(Widget):
         end = now + .5 * period
         before, after = self._upper_sand_fraction(start), self._upper_sand_fraction(end)
         loss_rate = (before - after) / (end - start)
+        if FLOW_RENDERER == "b13":
+            loss_rate *= self._sand_neck.charged_volume_ratio
         # Volume / equatorial area = 4R/3. Both canvas speed and lip speed scale with R.
         rate_ratio = max(0., loss_rate) * (4./3.) * B13_REFERENCE_RADIUS / B13_TEXTURE_SPEED
         diameter = 2. * self._R_inner
@@ -3324,7 +3334,8 @@ class HourglassWidget(Widget):
         drop, width = self._upper_funnel_params(emptied, upper_height)
         surface = (self._upper_level_for(upper_height) / diameter, drop / diameter,
                    width / diameter, rate_ratio)
-        surface_speed = (self._raw_height_ratio(before) - self._raw_height_ratio(after)) / (end - start)
+        surface_speed = (self._raw_height_ratio(self._sphere_fill_fraction(before))
+                         - self._raw_height_ratio(self._sphere_fill_fraction(after))) / (end - start)
         lip_speed = B13_TEXTURE_SPEED / (2. * B13_REFERENCE_RADIUS)  # diameters per second
         transport = ((now / period) % 16., period * lip_speed, surface_speed / lip_speed,
                      (2./3.) * emptied)
@@ -3429,10 +3440,14 @@ class HourglassWidget(Widget):
         if FLOW_RENDERER == "b13":
             from grain_style import B13_REFERENCE_RADIUS
             age = self.elapsed + self._stream_settle_age
-            transit = self._b13_transit
-            depth = transit.depth_at(age * transit.lane_factor(0., 1.))
-            lift = self._sand_neck.opening(age)[2]
-            return max(y_end + lift - depth * self._R_inner / B13_REFERENCE_RADIUS, self._lower_sand_bot)
+            if age <= 0. or self._opening_seed is None:
+                return y_end
+            from b13_stream import _discharge
+            scale = self._R_inner/B13_REFERENCE_RADIUS
+            model = _discharge(self.duration, self._taper["t_in"]/scale,
+                               (y_end-self._lower_sand_bot)/scale, self._sand_neck.first_exit_lift/scale,
+                               (SAND_MATERIAL_COARSE/1.8)**.5, self._opening_seed, self._sand_neck)
+            return max(y_end - model.depth_at(age)*scale, self._lower_sand_bot)
         ms = self._particle_motion_scale
         tau = self.elapsed - self._neck_fill_time       # 第一颗沙离口的时刻
         if tau <= 0.0:
@@ -3500,10 +3515,7 @@ class HourglassWidget(Widget):
             if remaining <= 0.:
                 return []
             if remaining <= reserve:
-                return self._sand_neck.upper_layer(remaining)
-            opening_rows = self._sand_neck.opening(elapsed)[1]
-            if opening_rows is not None:
-                return list(opening_rows)
+                return self._sand_neck.upper_layer(remaining * self._sand_neck.charged_volume_ratio)
         if elapsed <= 0 and start > 0.:
             return []
         if elapsed < start:
@@ -3537,7 +3549,7 @@ class HourglassWidget(Widget):
                 and self._lower_sand_top < bottom - 1e-9):
             self._append_free_neck(side, bottom)
         # 材质延至出口下方少许，避免与第一批颗粒之间出现亮缝。
-        if OUTLET_OVERLAP > 0.0 and abs(side[-1][1] - y_end) < 3.0:
+        if FLOW_RENDERER != "b13" and OUTLET_OVERLAP > 0.0 and abs(side[-1][1] - y_end) < 3.0:
             _x_last, _y_last = side[-1]
             overlap = min(OUTLET_OVERLAP, .4 * max(0., side[0][1] - y_end))
             side[-1] = (_x_last, _y_last - overlap)
@@ -3781,6 +3793,67 @@ class HourglassWidget(Widget):
 
     # ---------- 控制 ----------
 
+    def _discharge_geometry(self):
+        from grain_style import B13_REFERENCE_RADIUS
+        scale = self._R_inner / B13_REFERENCE_RADIUS
+        outlet = 2 * self._neck_y - self._taper["y_bot"]
+        neck = self._sand_neck
+        return (self.duration, self._taper["t_in"] / scale,
+                (outlet - self._lower_sand_bot) / scale, neck.first_exit_lift / scale,
+                (SAND_MATERIAL_COARSE / 1.8) ** .5)
+
+    def _prepare_next_opening(self):
+        if not self._geom_ready or self._opening_error:
+            return False
+        geometry = self._discharge_geometry()
+        neck = self._sand_neck
+        if self._opening_job is not None:
+            previous, previous_neck, seed, future = self._opening_job
+            if not future.done():
+                return False
+            if previous == geometry and previous_neck is neck:
+                try:
+                    future.result()
+                except Exception:
+                    import logging
+                    logging.exception("Could not prepare hourglass opening")
+                    self._opening_error = True
+                    self._opening_requested = False
+                    return False
+                return True
+        from concurrent.futures import ThreadPoolExecutor
+        from b13_stream import _discharge
+        if self._opening_worker is None:
+            self._opening_worker = ThreadPoolExecutor(max_workers=1)
+        seed = int.from_bytes(os.urandom(8), "little")
+        future = self._opening_worker.submit(_discharge, *geometry, seed, neck)
+        self._opening_job = geometry, neck, seed, future
+        return False
+
+    def _start_prepared_opening(self):
+        seed = self._opening_job[2]
+        self._opening_requested = False
+        self._opening_job = None
+        if self.elapsed >= self.duration:
+            self.reset()
+        self._opening_seed = seed
+        self.toggle()
+
+    def toggle_from_button(self):
+        fresh = self.elapsed >= self.duration or (self.elapsed == 0 and self._opening_seed is None)
+        if platform != "android" or FLOW_RENDERER != "b13" or self.running or not fresh:
+            self.toggle()
+        elif self._opening_requested:
+            self._opening_requested = False
+        else:
+            if self._opening_error:
+                self._opening_job = None
+                self._opening_error = False
+            if self._prepare_next_opening():
+                self._start_prepared_opening()
+            else:
+                self._opening_requested = not self._opening_error
+
     def toggle(self):
         pressed = time.perf_counter()
         if self.running:
@@ -3807,6 +3880,7 @@ class HourglassWidget(Widget):
             self._play_sound()
 
     def reset(self):
+        self._opening_requested = False
         self.elapsed = 0
         self.running = False
         self.last_tick = None
@@ -3832,6 +3906,7 @@ class HourglassWidget(Widget):
         self._mound_flow_clock = 0.0
         self._stream_settle_age = 0.0
         self._first_impact_clock = self._last_impact_clock = None
+        self._discharge_after_first_pile = None
         self._contact_hits.clear()
         self._effect_random = None
         self._splash_reference_speed = None
@@ -4414,6 +4489,15 @@ class HourglassWidget(Widget):
     def tick(self, _dt_kivy):
         if not self._geom_ready:
             return
+        if (platform == "android" and FLOW_RENDERER == "b13" and not self.running
+                and (self.elapsed == 0 or self._opening_requested)):
+            ready = self._prepare_next_opening()
+            if self._opening_requested and ready:
+                self._start_prepared_opening()
+                App.get_running_app().on_run_state_changed()
+            elif self._opening_error and self._opening_job is not None:
+                self._opening_job = None
+                App.get_running_app().on_run_state_changed()
         self._tick_at(time.perf_counter())
 
     def _tick_at(self, now):
@@ -5042,7 +5126,8 @@ class HourglassWidget(Widget):
         now = time.perf_counter()
         neck_w = self.neck_w
         ow = self._ow
-        gen_y = 2 * self._neck_y - self._taper['y_bot']
+        outlet_y = 2 * self._neck_y - self._taper['y_bot']
+        gen_y = outlet_y
         motion_scale = self._particle_motion_scale
         from short_grain_stream import stream_pitch,source_half_width,sprite_radius,emission_scale,coherent_birth,contact_upper_bound
         from grain_style import B13_REFERENCE_RADIUS, tail_emission_time, tail_remaining_time
@@ -5052,6 +5137,17 @@ class HourglassWidget(Widget):
         flow_clock = self.elapsed + self._stream_settle_age if b13 else self.elapsed
         if b13:
             gen_y += self._sand_neck.opening(flow_clock)[2]
+        discharge = None
+        if b13 and self._sand_active and self._opening_seed is not None:
+            from b13_stream import _discharge
+            neck = self._sand_neck
+            discharge = _discharge(*self._discharge_geometry(), self._opening_seed, neck)
+
+        def flight_motion(age, lane, jitter, outlet, scale, *, birth):
+            if discharge is None:
+                return transit.motion(age, lane, jitter, outlet, scale, birth=birth)
+            return discharge.mass_motion(transit, self._discharge_after_first_pile, flow_clock,
+                                         age, lane, jitter, outlet, scale, birth)
         sprite_pitch=stream_pitch(self._R_inner,SAND_MATERIAL_COARSE,self._taper['t_in'])
         self._spawn_from = self.pn          # 没走 spawn 分支时也不能留旧值
         _pm = _PROF_MARK                    # 区间打点(默认 None ⇒ 一次局部读 + 一次判空)
@@ -5097,6 +5193,8 @@ class HourglassWidget(Widget):
                 # Every bit that left the lip is on a dated carrier until
                 # that carrier intersects the current receiving surface.
                 floor_depth = (gen_y - self._lower_sand_bot) / glass_scale
+                if discharge is not None:
+                    floor_depth = max(floor_depth, transit.depth_at(discharge.clock[-1]))
                 cohorts = list(transit.cohorts(self._sand_released * end, emit_end,
                                                flow_clock, floor_depth, end, rate))
                 spawn_count = len(cohorts)
@@ -5226,7 +5324,7 @@ class HourglassWidget(Widget):
                 self.pbt[i] = birth
                 self.pbm[i] = motion_scale
                 if b13:
-                    self.py[i], self.pvy[i] = transit.motion(0., x_off / self._taper["t_in"],
+                    self.py[i], self.pvy[i] = flight_motion(0., x_off / self._taper["t_in"],
                                                             phase / math.pi - 1., gen_y, glass_scale, birth=birth)
                 elif final_emission and spawn_index == spawn_count - 1:
                     self.pvy[i] = -(35.0 + exit_boost) * motion_scale
@@ -5321,7 +5419,7 @@ class HourglassWidget(Widget):
                     "sprite_pitch":sprite_pitch,
                 }
                 if b13:
-                    consts["b13_motion"] = transit.motion(
+                    consts["b13_motion"] = flight_motion(
                         flow_clock - self.pbt[:pn], self.pxo[:pn] / self._taper["t_in"],
                         self.pwp[:pn] / math.pi - 1., gen_y, glass_scale, birth=self.pbt[:pn])
                 hit_idx, hit_dt, peak_offset = _flow_numpy.step(
@@ -5360,7 +5458,7 @@ class HourglassWidget(Widget):
                 wobble_amp = p["wobble_amp"]
                 size = p["size"]
                 if b13:
-                    y, vy = transit.motion(flow_clock - p["_birth_time"], x_offset / self._taper["t_in"],
+                    y, vy = flight_motion(flow_clock - p["_birth_time"], x_offset / self._taper["t_in"],
                                            wobble_phase / math.pi - 1., gen_y, glass_scale, birth=p["_birth_time"])
                 else:
                     y += vy * step_dt + 0.5 * g * step_dt * step_dt
@@ -5495,6 +5593,9 @@ class HourglassWidget(Widget):
         if grains_landed:
             if self._first_impact_clock is None:
                 self._first_impact_clock = self._mound_flow_clock
+                # Keep the first half-second of actual deposits intact, including
+                # the displayed frame at the end of the 0.45 s formation interval.
+                self._discharge_after_first_pile = flow_clock + .5
             self._last_impact_clock = self._mound_flow_clock
         dt = effect_dt
 
@@ -8547,7 +8648,7 @@ class HourglassApp(App):
         if self._benchmark_active():
             self._benchmark_runner.cancel()
             return
-        self.hourglass.toggle()
+        self.hourglass.toggle_from_button()
         self.on_run_state_changed()
 
     def on_reset(self, *_):
@@ -8563,7 +8664,11 @@ class HourglassApp(App):
             self.start_btn.text = "暂停"
             self.start_btn.background_color = (0.851, 0.557, 0.243, 1)
         else:
-            if self.hourglass.elapsed >= self.hourglass.duration:
+            if self.hourglass._opening_requested:
+                self.start_btn.text = "准备中"
+            elif self.hourglass._opening_error:
+                self.start_btn.text = "重试"
+            elif self.hourglass.elapsed >= self.hourglass.duration:
                 self.start_btn.text = "重新开始"
             elif self.hourglass.elapsed > 0:
                 self.start_btn.text = "继续"
@@ -9207,6 +9312,7 @@ class HourglassApp(App):
         popup.dismiss()
 
     def on_pause(self):
+        self.hourglass._opening_requested = False
         self._set_keep_awake(False)
         if self._benchmark_active():
             self._benchmark_runner.cancel()
@@ -9223,6 +9329,9 @@ class HourglassApp(App):
         return True
 
     def on_stop(self):
+        self.hourglass._opening_requested = False
+        if self.hourglass._opening_worker is not None:
+            self.hourglass._opening_worker.shutdown(wait=False)
         self._set_keep_awake(False)
         self._benchmark_closing = True
         if self._benchmark_active():

@@ -112,8 +112,7 @@ def _opening_transit(duration, half):
 
 def hourglass_transit(duration, half, clock=0.):
     """One shipping profile for the screen, contact physics and all APK builds."""
-    opening = _opening_transit(duration, half)
-    return opening.at_clock(clock) if duration > 5. else opening
+    return _opening_transit(duration, half)
 
 
 def first_pile_height(height, age, mouth):

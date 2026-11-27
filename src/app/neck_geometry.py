@@ -59,6 +59,9 @@ class SandNeck:
         cap_height = self.heights[-1] - pole
         self.cap_fraction = cap_height**2*(radius-cap_height/3.) / self.capacity
         self.full_fraction = self.volumes[-1] / self.capacity
+        # In sphere-volume units the real full vessel replaces the bottom
+        # spherical cap with the measured taper down to the lip.
+        self.charged_volume_ratio = 1. - self.cap_fraction + self.full_fraction
         self.gap = max(0., pole-self.outlet)
         self.transit = transit
         self.scale = scale
@@ -66,12 +69,67 @@ class SandNeck:
         # The entire opening fits behind the moving round nose by this depth.
         self.open_depth = max(2.*self.gap, self.sag(self.radii[0]), 1.)
         self.open_time = transit.age_at(self.open_depth/scale) / self.lane
+        # At the lip, travel equals lift. Store that offset for the airborne
+        # renderer; neck volume and the time of contact still use opening().
+        lo, hi = 0., self.gap
+        for _ in range(32):
+            travel = (lo+hi)*.5
+            if travel < self._lift_at(travel):
+                lo = travel
+            else:
+                hi = travel
+        self.first_exit_lift = hi
         self.full = (self.full_fraction, None, 0.)
         self._last_time = None
         self._last_state = None
 
     def sag(self, x):
         return x*x / (self.radius + math.sqrt(max(0., self.radius**2-x*x)))
+
+    def _lift_at(self, travel):
+        u = min(1., travel/self.open_depth)
+        return self.gap * (1.-u*u*(3.-2.*u))
+
+    def path_to_lip(self, radial_fraction):
+        """Length of a converging streamline from the initial cap to the lip."""
+        path = 0.
+        for lower,upper,a,b in zip(self.heights,self.heights[1:],self.radii,self.radii[1:]):
+            height = upper-lower
+            width_change = radial_fraction*(b-a)
+            segment = math.hypot(height,width_change)
+            if upper < self.pole+self.sag(radial_fraction*b):
+                path += segment
+                continue
+            lo,hi = 0.,1.
+            for _ in range(28):
+                f = .5*(lo+hi)
+                if lower+f*height < self.pole+self.sag(radial_fraction*a+f*width_change):
+                    lo = f
+                else:
+                    hi = f
+            return path+hi*segment
+        return path
+
+    def outlet_slope(self, diameter):
+        """Wall direction over the final grain-sized contact with the throat."""
+        height = min(diameter, self.heights[-1]-self.outlet)
+        y = self.outlet + height
+        i = max(0, min(len(self.heights)-2, bisect_right(self.heights, y)-1))
+        part = (y-self.heights[i])/(self.heights[i+1]-self.heights[i])
+        width = self.radii[i] + part*(self.radii[i+1]-self.radii[i])
+        return (width-self.radii[0])/height
+
+    def lane_exit_time(self, radial_fraction):
+        """Earliest time the cap uncovers this radial site at the outlet."""
+        offset = self.sag(radial_fraction*self.radii[0])
+        lo, hi = self.first_exit_lift, self.open_depth
+        for _ in range(32):
+            travel = .5*(lo+hi)
+            if travel-self._lift_at(travel) < offset:
+                lo = travel
+            else:
+                hi = travel
+        return self.transit.age_at(hi/self.scale) / self.lane
 
     def opening(self, elapsed):
         """Return the packed volume, neck outline and launch offset at this time."""
@@ -82,8 +140,7 @@ class SandNeck:
         if elapsed == self._last_time:
             return self._last_state
         travel = self.scale * self.transit.depth_at(elapsed*self.lane)
-        u = min(1., travel/self.open_depth)
-        lift = self.gap * (1.-u*u*(3.-2.*u))
+        lift = self._lift_at(travel)
         tip = self.outlet + lift - travel
         bottom = max(tip, self.outlet)
         # Intersect the advancing spherical cap with the real wall. Sampling

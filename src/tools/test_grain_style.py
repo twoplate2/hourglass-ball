@@ -369,7 +369,7 @@ class UpperSurfaceStyleTests(unittest.TestCase):
     def test_packed_flow_uses_the_drawn_surface_and_actual_discharge(self):
         source = (ROOT / 'main.py').read_text(encoding='utf8')
         widget = next(n for n in ast.parse(source).body if getattr(n, 'name', '') == 'HourglassWidget')
-        names = {'_upper_sand_fraction', '_reservoir_flow_state'}
+        names = {'_upper_sand_fraction', '_sphere_fill_fraction', '_reservoir_flow_state'}
         methods = [deepcopy(n) for n in widget.body if getattr(n, 'name', '') in names]
         self.assertEqual({n.name for n in methods}, names)
         env = {'FLOW_RENDERER': 'b13'}
@@ -378,7 +378,7 @@ class UpperSurfaceStyleTests(unittest.TestCase):
         model.duration, model._geom_ready, model._supply_elapsed = 50., True, 2.
         model._R_inner = 200.
         model._transfer_timing = lambda: (.25, model.duration, .012)
-        model._sand_neck = SimpleNamespace(opening=lambda t: (.012, None, 0.))
+        model._sand_neck = SimpleNamespace(cap_fraction=.008, charged_volume_ratio=1.004)
         model._released_fraction_at = lambda t: max(0., t - .25) / model.duration
         model._upper_level_for = lambda h: h + 2.
         model._upper_funnel_params = lambda p, h: (4., 160.)
@@ -390,15 +390,16 @@ class UpperSurfaceStyleTests(unittest.TestCase):
             state, transport = model._reservoir_flow_state(198.)
             self.assertAlmostEqual(transport[1], 1.25 * lip / 2.)
             self.assertEqual(state[:3], (.5, .01, .4))
-            self.assertAlmostEqual(state[3] * lip, (4./3.) / period)
+            self.assertAlmostEqual(state[3] * lip, (4./3.) * 1.004 / period)
             before = model._upper_sand_fraction(2. - .625)
             after = model._upper_sand_fraction(2. + .625)
-            self.assertAlmostEqual(transport[2] * lip / 2., (math.sqrt(before) - math.sqrt(after)) / 1.25)
+            self.assertAlmostEqual(transport[2] * lip / 2.,
+                                   (math.sqrt(before*1.004+.008) - math.sqrt(after*1.004+.008)) / 1.25)
             self.assertEqual((state, transport), model._reservoir_flow_state(198.))  # paused redraw
         model.duration, model._supply_elapsed = 5., .125
         state, _ = model._reservoir_flow_state(198.)
         # The opening window includes both the neck reserve and the discharged mass.
-        self.assertAlmostEqual(state[3] * lip, (4./3.) * (.012 + (.75 - .25)/5.) / .75)
+        self.assertAlmostEqual(state[3] * lip, (4./3.) * 1.004 * (.012 + (.75 - .25)/5.) / .75)
 
     def model(self):
         path = ROOT/'main.py'
