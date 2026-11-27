@@ -1133,9 +1133,12 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # Removing the support at the mouth exposes the underside of the bed.
     # The upper surface of the settled bed is not the release face.
     surfaces = [(lanes, basal) for lanes, _, _, basal in packed_faces]
-    acceleration = max(v[0]**2 / (2.*half), (v[-1]**2-v[0]**2)/(2.*floor))
+    # Work done in the confined feed brings the bed to its measured outlet
+    # velocity over one aperture radius. Free-flight acceleration near the
+    # floor acts on grains that have already cleared the bed.
+    acceleration = v[0]**2 / (2.*half)
     initial_speed = min(v[0], np.sqrt(2.*acceleration*scale*np.mean(pigment[4])))
-    startup_duration = min((v[0]-initial_speed)/acceleration, half/v[0])
+    startup_duration = (v[0]-initial_speed)/acceleration
     initial_flux = initial_speed/v[0]
     relief_depth = max(scale, max(cover.max() for _, cover in surfaces))
     count = max(1, math.ceil(2.*relief_depth*rate/v[0]))
