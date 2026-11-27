@@ -1044,14 +1044,17 @@ class Discharge(NamedTuple):
 
 def _discharge_x(depth, keys, half, scale, gap, packed_fraction):
     pigment = _birth_material()
-    usual = _stream_x(depth, pigment[1][keys], keys, half, scale, gap, math.inf, gap, 0.)
-    if packed_fraction == 0.:
-        return usual
+    if packed_fraction != 1.:
+        usual = _stream_x(depth, pigment[1][keys], keys, half, scale, gap, math.inf, gap, 0.)
+        if packed_fraction == 0.:
+            return usual
     # In capacity-limited glasses the occupied area is the area used by the
     # transport model. Map the persistent packed lanes into that cross-section.
     from grain_style import B13Transit
     packed = (pigment[1][keys] + pigment[9][keys]) * (half-.4*scale)
     packed *= np.sqrt(B13Transit.relative_area(depth))
+    if packed_fraction == 1.:
+        return packed
     return usual + packed_fraction*(packed-usual)
 
 
@@ -1206,19 +1209,21 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     lo += (-lo) % stride
     serial = np.arange(lo, hi, stride, dtype=np.int64)
     birth = (serial+.5)/rate
-    front = serial < prefix
+    front = slice(0, serial.searchsorted(prefix))
     birth[front] = discharge.first_births[serial[front]]
     birth = discharge.birth_time(birth)
+    # A narrow mouth can release its last packed disk after the first
+    # regular disk. Material IDs stay ordered, their birth times need not.
     keep = (birth <= maximum) & (birth >= minimum)
     serial, birth = serial[keep], birth[keep]
     keys = (discharge.material_offset + serial % BLOCK + (serial // BLOCK)*24317) % BLOCK
-    front = serial < len(discharge.first_keys)
+    front = slice(0, serial.searchsorted(prefix))
     keys[front] = discharge.first_keys[serial[front]]
     depth = discharge.depth_at(time-birth)
-    lane_keys = keys.copy() if np.any(front) else keys
+    lane_keys = keys.copy() if front.stop else keys
     lane_keys[front] = discharge.first_lanes[serial[front]]
     x = _discharge_x(depth, lane_keys, half, grain_scale, gap, discharge.packed_fraction)
-    if np.any(front):
+    if front.stop and discharge.packed_fraction != 1.:
         # These lanes are already the projection of a round packed bed.
         # The rank-to-lane correction in _stream_x is for the later
         # rectangular sample, which would focus the settled disks twice.
@@ -1337,7 +1342,6 @@ class StreamArea:
 class StreamMesh(StreamArea):
     """One native-resolution disc per visible grain, in reusable GLES2 batches."""
     chunk = 4096
-    corners = np.array([[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]], dtype=np.float32)
 
     def __init__(self, widget):
         from kivy.graphics import Callback, ClearBuffers, ClearColor, Fbo, Rectangle, RenderContext
@@ -1393,12 +1397,30 @@ class StreamMesh(StreamArea):
             block = slice(first, first + n)
             v = buf[:n]
             support = grains.radius[block] + .48
-            v[:, :, 2:4] = support[:, None, None] * self.corners
-            v[:, :, 0] = (cx + scale * grains.x[block, None]) + scale * v[:, :, 2]
-            v[:, :, 1] = (outlet - scale * grains.depth[block, None]) + scale * v[:, :, 3]
-            v[:, :, 4] = support[:, None]
+            # A quad has only two distinct columns and two rows. Keep the
+            # float32 corner rounding used by the shader's vertex buffer.
+            reach = support.astype(np.float32)
+            offset = scale * reach
+            center_x = cx + scale * grains.x[block]
+            center_y = outlet - scale * grains.depth[block]
+            left = (center_x - offset).astype(np.float32)
+            right = (center_x + offset).astype(np.float32)
+            bottom, top = center_y - offset, center_y + offset
+            surface_left = np.interp(left, self.surface_x, surface_y)
+            surface_right = np.interp(right, self.surface_x, surface_y)
+            negative = -reach
+            for corner, (x, y, dx, dy, surface) in enumerate((
+                    (left, bottom, negative, negative, surface_left),
+                    (right, bottom, reach, negative, surface_right),
+                    (right, top, reach, reach, surface_right),
+                    (left, top, negative, reach, surface_left))):
+                v[:, corner, 0] = x
+                v[:, corner, 1] = y
+                v[:, corner, 2] = dx
+                v[:, corner, 3] = dy
+                v[:, corner, 6] = surface
+            v[:, :, 4] = reach[:, None]
             v[:, :, 5] = grains.tone[block, None]
-            v[:, :, 6] = np.interp(v[:, :, 0], self.surface_x, surface_y)
             # Publish data before its indices. Keep the backing size constant
             # across first draw, batch growth and shrinking tails.
             mesh.vertices = buf.ravel()

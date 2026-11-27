@@ -22,7 +22,7 @@ from kivy.utils import platform as runtime_platform
 
 
 PERIODS = (1, 5, 15)
-REPORT_REVISION = 2
+REPORT_REVISION = 3
 TAIL_MIN_FRAMES = 5     # "1% low" 至少平均这么多帧 —— 见 frame_statistics 里的说明
 # 🔴 **两轮之间的静置**(2026-10-06 用户: 「性能测试的时候, **等沙子彻底流动完成后的 1 秒
 #    之后**再进行下一次测试」)。
@@ -184,7 +184,9 @@ def format_benchmark_result(period, result=None):
     slow = " / ".join(f"{fps:.1f}" for fps in result["slowest_five_fps"]) or "--"
     tail = result.get("one_percent_low_frames") or 0
     tail_text = f"(最差 {tail} 帧)" if tail else ""
-    return (f"{period} 秒  ·  {result['frames']} 帧\n"
+    wait = result.get("start_wait_ms")
+    preparation = f"  ·  启动等待 {wait / 1000:.2f} 秒" if wait is not None else ""
+    return (f"{period} 秒  ·  {result['frames']} 帧{preparation}\n"
             f"平均 {avg_text} FPS    1% low {low_text} FPS{tail_text}\n"
             f"最慢 5 帧 FPS:\n{slow}")
 
@@ -582,7 +584,8 @@ class BenchmarkRunner:
         "_sand_released", "_sand_landed", "_sand_pending", "_sand_active",
         "_sand_timing", "_sand_tail_span", "_stream_settle_age",
         "_mound_flow_clock", "_first_impact_clock", "_last_impact_clock",
-        "_sand_resized",
+        "_sand_resized", "_opening_seed", "_opening_requested", "_opening_error",
+        "_run_started_at", "_discharge_after_first_pile",
     )
 
     def __init__(self, widget, on_case, on_finish, periods=PERIODS):
@@ -675,8 +678,8 @@ class BenchmarkRunner:
         self._frame_details = []
         self._slow_marks = []          # 逐段耗时的"最慢几帧"(见 `_install_probes`)
         self._visual_frames = []
-        self.widget.toggle()
         self._case_start = time.perf_counter()
+        self.widget.toggle_from_button()
         self._last_flip = None
         self._prev_swap_exit = None
         self._gc_ms = 0
@@ -688,12 +691,16 @@ class BenchmarkRunner:
             return
         now = time.perf_counter()
         if self._last_flip is None:
-            if self.widget.running:
-                self._last_flip = now
+            if self.widget._opening_error:
+                self.cancel()
+                return
+            if self.widget._opening_requested or self.widget.elapsed == 0:
                 self._gc_ms = 0
                 self._gc_generation = -1
                 return
-            self._last_flip = self._case_start
+            # Include the entire first draw, even if it exceeds the timer duration.
+            self._last_flip = self.widget._run_started_at
+            self._start_wait_ms = 1000 * (self._last_flip - self._case_start)
         interval = now - self._last_flip
         self._intervals.append(interval)
         detail = {
@@ -737,6 +744,7 @@ class BenchmarkRunner:
             self.results.append({
                 "period": self.periods[self._index],
                 "environment": self._environment,
+                "start_wait_ms": self._start_wait_ms,
                 "environment_end": benchmark_environment(self.widget),
                 "flow_renderer": getattr(self.widget, "flow_renderer", "line_pool"),
                 **frame_statistics(self._intervals),
@@ -894,10 +902,10 @@ class BenchmarkRunner:
         # 才能保持"距排空已过多久"不变(_neck_sand_side 的 f 只看这个差值)。
         if getattr(self.widget, "_done_at", None) is not None:
             self.widget._done_at += pause
-        self.widget.last_frame = time.perf_counter()
-        self.widget.last_tick = self.widget.last_frame if self.widget.running else None
         self.widget._rebuild_height_table()
         self.widget.redraw()
         if self.widget.running:
             self.widget._play_sound()
         self.on_finish(self.results, cancelled)
+        self.widget.last_frame = time.perf_counter()
+        self.widget.last_tick = self.widget.last_frame if self.widget.running else None

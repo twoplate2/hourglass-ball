@@ -2737,6 +2737,7 @@ class HourglassWidget(Widget):
         self._sand_active = False
         self._opening_seed = None
         self._opening_worker = None
+        self._run_started_at = None
         self._opening_job = None
         self._opening_requested = False
         self._opening_error = False
@@ -3876,6 +3877,7 @@ class HourglassWidget(Widget):
             self._sand_active = True
             if self._geom_ready:
                 self._transfer_timing()
+            self._run_started_at = pressed
             self.last_tick = self.last_frame = pressed
             self._play_sound()
 
@@ -4495,6 +4497,10 @@ class HourglassWidget(Widget):
             if self._opening_requested and ready:
                 self._start_prepared_opening()
                 App.get_running_app().on_run_state_changed()
+            elif self._opening_requested and self.elapsed == 0 and time.perf_counter() - self.last_frame < .1:
+                # The charged glass is static while the background worker prepares
+                # it. Poll every tick, but leave CPU time for the worker between draws.
+                return
             elif self._opening_error and self._opening_job is not None:
                 self._opening_job = None
                 App.get_running_app().on_run_state_changed()
@@ -9312,10 +9318,10 @@ class HourglassApp(App):
         popup.dismiss()
 
     def on_pause(self):
-        self.hourglass._opening_requested = False
         self._set_keep_awake(False)
         if self._benchmark_active():
             self._benchmark_runner.cancel()
+        self.hourglass._opening_requested = False
         self.hourglass._stop_completion_sound()
         # ⚠️ **被系统挂到后台时必须停背景循环音**(r6-3号 实测, 2026-10-05):
         #    暂停 / 重置 / 漏完 / on_stop 四条路径都停过这条音, **只有"挂后台"这一条没停**
@@ -9329,13 +9335,13 @@ class HourglassApp(App):
         return True
 
     def on_stop(self):
-        self.hourglass._opening_requested = False
         if self.hourglass._opening_worker is not None:
             self.hourglass._opening_worker.shutdown(wait=False)
         self._set_keep_awake(False)
         self._benchmark_closing = True
         if self._benchmark_active():
             self._benchmark_runner.cancel()
+        self.hourglass._opening_requested = False
         self.hourglass._stop_completion_sound()
         if self.hourglass._completion_spoken is not None:
             self.hourglass._completion_spoken.close()

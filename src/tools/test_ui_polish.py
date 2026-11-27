@@ -125,6 +125,37 @@ class UIPolishTests(unittest.TestCase):
             with self.subTest(elapsed=elapsed):
                 self.assertEqual(self.state_label(elapsed), "重新开始")
 
+    def test_benchmark_waits_for_play_then_counts_the_entire_first_draw(self):
+        # Execute the shipped callbacks without a GL window. Simulate a 2 s
+        # preparation and a slow first submission 100 ms after motion starts.
+        path = ROOT / "src/app/frame_benchmark.py"
+        runner = next(n for n in ast.parse(path.read_text(encoding="utf8")).body
+                      if isinstance(n, ast.ClassDef) and n.name == "BenchmarkRunner")
+        methods = [n for n in runner.body if isinstance(n, ast.FunctionDef)
+                   and n.name in ("_begin_case", "_on_flip")]
+        clock = SimpleNamespace(perf_counter=Mock(side_effect=[10., 11., 12.01, 12.1]))
+        env = {"time": clock}
+        exec(compile(ast.Module(methods, type_ignores=[]), str(path), "exec"), env)
+        widget = SimpleNamespace(toggle_from_button=Mock(), _opening_error=False,
+                                 _opening_requested=True, _run_started_at=None,
+                                 running=False, elapsed=0., pn=0, _sn=0,
+                                 _neck_fill_time=0., _mound_height_px=lambda: 0.)
+        case = SimpleNamespace(active=True, widget=widget, _stages={},
+                               _probe_gaps=lambda: {}, _flow_rebuild_stats=lambda: {},
+                               capture_slow_frames=False)
+        env["_begin_case"](case, 0)
+        widget.toggle_from_button.assert_called_once_with()
+        env["_on_flip"](case)
+        self.assertEqual(case._intervals, [])
+        widget._opening_requested = False
+        widget._run_started_at, widget.running = 12., True
+        env["_on_flip"](case)
+        self.assertEqual(case._intervals, [])
+        widget.elapsed = .1
+        env["_on_flip"](case)
+        self.assertEqual(case._start_wait_ms, 2000.)
+        self.assertAlmostEqual(case._intervals[0], .1)
+
     def test_benchmark_button_still_cancels(self):
         self.assertEqual(self.state_label(20, running=True, benchmark=True), "取消")
 

@@ -4,6 +4,7 @@ from math import floor, pi, sqrt
 
 def settled_section(width, length, radii, keys, supply):
     """Deposit one disk per arrival and roll downhill until contact supports it."""
+    width = float(width)
     cell = 2. * float(radii.max())
     bins = {}
     tops = {}
@@ -13,7 +14,7 @@ def settled_section(width, length, radii, keys, supply):
         r = float(radii[key])
         if width <= r:
             continue
-        x = (2.*feed-1.)*(width-r)
+        x = (2.*float(feed)-1.)*(width-r)
         y = r
         support = None
         cols = range(floor((x-cell)/cell), floor((x+cell)/cell)+1)
