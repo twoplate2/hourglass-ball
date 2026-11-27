@@ -1120,15 +1120,13 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     slices = []
     exposed_area = layer_area = 0.
     release_paths = []
-    axial_paths = []
     section_weights = []
     for i in range(sections):
         through = (2.*i+1.)/sections-1.
         width = half*np.sqrt(1.-through**2)
-        lanes, surface, support, basal, disks = _section_face(
+        lanes, _, support, basal, disks = _section_face(
             width, scale, (int(seed or 0)+i) % (1 << 64))
-        release_paths.extend(surface+support)
-        axial_paths.extend(surface)
+        release_paths.extend(support)
         section_weights.extend(np.full(len(support), width/len(support)))
         x, y, radii, keys = disks.T
         exposed_area += np.sum(radii[y <= radii+1.e-8]**2)
@@ -1166,9 +1164,9 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # surface. Each section supplies its exposed grains until that wave has
     # travelled its excess path; the layer behind then accelerates freely.
     flight_accel = max(acceleration, (v[-1]**2-v[0]**2)/(2.*floor))
-    wave_speed = np.sqrt(2.*flight_accel*(half+np.asarray(axial_paths)))
+    wave_speed = np.sqrt(2.*flight_accel*half)
     release_times = np.asarray(release_paths)/wave_speed
-    clearing = np.sqrt(2.*diameter/flight_accel)
+    clearing = (1.-surface_flux)*v[0]/flight_accel
     bed_duration = (1.-base_flux)*v[0]/acceleration
     startup_duration = max(bed_duration, release_times.max()+clearing)
     times = np.linspace(0., startup_duration, 257)
@@ -1217,6 +1215,17 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     lane_keys = keys.copy() if np.any(front) else keys
     lane_keys[front] = discharge.first_lanes[serial[front]]
     x = _discharge_x(depth, lane_keys, half, grain_scale, gap, discharge.packed_fraction)
+    if np.any(front):
+        # These lanes are already the projection of a round packed bed.
+        # The rank-to-lane correction in _stream_x is for the later
+        # rectangular sample, which would focus the settled disks twice.
+        ids = lane_keys[front]
+        z = depth[front]
+        length = max(12., 3.*half)
+        near = np.clip(1.-z/length, 0., 1.)
+        mixed = 1.-near**2*(3.-2.*near)
+        radius = (half-.40*grain_scale)*(1.-.13*(-np.expm1(-z/54.)))
+        x[front] += (1.-discharge.packed_fraction)*pigment[9][ids]*mixed*radius
     if discharge.convergence and birth.size and birth[0] < discharge.startup_duration:
         # The confined bed approaches the opening along the converging wall.
         # The free leading layer retains that inward component; following
