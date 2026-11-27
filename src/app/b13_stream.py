@@ -1019,18 +1019,22 @@ class Discharge(NamedTuple):
         if ramp <= 0.:
             return nominal
         initial = self.initial_flux
-        swept = .5*(1.+initial)*ramp
-        early = np.minimum(nominal, swept)
-        speed = np.sqrt(initial**2 + 2.*(1.-initial)*early/ramp)
-        return 2.*early/np.maximum(initial+speed, np.finfo(float).tiny) + np.maximum(0., nominal-swept)
+        first = ramp*initial**2
+        swept = .5*ramp*(1.+initial**2)
+        early = np.minimum(nominal, first)/initial
+        middle = np.clip(nominal-first, 0., swept-first)
+        return early + 2.*middle/(initial+np.sqrt(initial**2+2.*middle/ramp)) + np.maximum(0., nominal-swept)
 
     def nominal_time(self, t):
         if t <= 0.:
             return 0.
         ramp = self.startup_duration
+        initial = self.initial_flux
         if t >= ramp:
-            return t-.5*(1.-self.initial_flux)*ramp
-        return t*(self.initial_flux+.5*(1.-self.initial_flux)*t/ramp)
+            return t-.5*(1.-initial**2)*ramp
+        if t <= initial*ramp:
+            return initial*t
+        return .5*(initial**2*ramp+t*t/ramp)
 
     def depth_at(self, age):
         return (np.interp(age, self.clock, self.depth)
@@ -1150,8 +1154,10 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # The unsupported layer starts from rest. In the capacity-limited wide
     # mouth the packed supply contributes from the start; its mean chord
     # carries the mean of the initial and fully established inlet speeds.
-    initial_speed = (1.-confinement)*v[0]/2.
-    startup_duration = (v[0]-initial_speed)/acceleration
+    # A finite disk straddles the opening for the time it takes the bed to
+    # travel one grain diameter. Resolve this first layer at its mean speed.
+    initial_speed = max((1.-confinement)*v[0]/2., np.sqrt(2.*acceleration*diameter)/2.)
+    startup_duration = v[0]/acceleration
     initial_flux = initial_speed/v[0]
     convergence = neck.outlet_slope(diameter*neck.scale) if neck else 0.
     edge_path = confinement * np.sqrt(half*diameter)
