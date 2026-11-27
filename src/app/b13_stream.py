@@ -1120,13 +1120,15 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     slices = []
     exposed_area = layer_area = 0.
     release_paths = []
+    axial_paths = []
     section_weights = []
     for i in range(sections):
         through = (2.*i+1.)/sections-1.
         width = half*np.sqrt(1.-through**2)
-        lanes, _, support, basal, disks = _section_face(
+        lanes, surface, support, basal, disks = _section_face(
             width, scale, (int(seed or 0)+i) % (1 << 64))
-        release_paths.extend(support)
+        release_paths.extend(surface+support)
+        axial_paths.extend(surface)
         section_weights.extend(np.full(len(support), width/len(support)))
         x, y, radii, keys = disks.T
         exposed_area += np.sum(radii[y <= radii+1.e-8]**2)
@@ -1164,9 +1166,9 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # surface. Each section supplies its exposed grains until that wave has
     # travelled its excess path; the layer behind then accelerates freely.
     flight_accel = max(acceleration, (v[-1]**2-v[0]**2)/(2.*floor))
-    wave_speed = np.sqrt(2.*flight_accel*half)
+    wave_speed = np.sqrt(2.*flight_accel*(half+np.asarray(axial_paths)))
     release_times = np.asarray(release_paths)/wave_speed
-    clearing = (1.-surface_flux)*v[0]/flight_accel
+    clearing = np.sqrt(2.*diameter/flight_accel)
     bed_duration = (1.-base_flux)*v[0]/acceleration
     startup_duration = max(bed_duration, release_times.max()+clearing)
     times = np.linspace(0., startup_duration, 257)
