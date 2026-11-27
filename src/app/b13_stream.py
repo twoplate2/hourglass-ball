@@ -1010,32 +1010,17 @@ class Discharge(NamedTuple):
     first_births: np.ndarray
     first_lanes: np.ndarray
     startup_duration: float
-    initial_flux: float
-    base_flux: float
+    feed_times: np.ndarray
+    feed_swept: np.ndarray
     convergence: float
 
     def birth_time(self, nominal):
-        # Invert the volume swept by the accelerating bed at the opening.
-        # Once the inlet speed is reached, the material flux is constant.
-        ramp = self.startup_duration
-        if ramp <= 0.:
-            return nominal
-        initial = self.initial_flux
-        hold = ramp*(initial-self.base_flux)
-        first = initial*hold
-        swept = first + .5*ramp*(1.-initial**2)
-        early = np.minimum(nominal, first)/initial
-        middle = np.clip(nominal-first, 0., swept-first)
-        return early + 2.*middle/(initial+np.sqrt(initial**2+2.*middle/ramp)) + np.maximum(0., nominal-swept)
+        return (np.interp(nominal, self.feed_swept, self.feed_times)
+                + np.maximum(0., nominal-self.feed_swept[-1]))
 
     def nominal_time(self, t):
-        if t <= 0.:
-            return 0.
-        ramp = self.startup_duration
-        initial = self.initial_flux
-        hold = ramp*(initial-self.base_flux)
-        elapsed = min(max(0., t-hold), (1.-initial)*ramp)
-        return initial*min(t,hold) + elapsed*(initial+.5*elapsed/ramp) + max(0.,t-hold-elapsed)
+        return (np.interp(t, self.feed_times, self.feed_swept)
+                + max(0., t-self.feed_times[-1]))
 
     def depth_at(self, age):
         return (np.interp(age, self.clock, self.depth)
@@ -1167,14 +1152,22 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     first_births = (.5 + fraction*(count-.5))/rate
 
     acceleration = v[0]**2 / half
-    base_flux = .5*(1.-confinement)*exposed_area/layer_area
-    # Mean free speed over the thickness of the first disk layer.
-    initial_speed = max(base_flux*v[0], (2./3.)*np.sqrt(2.*acceleration*diameter))
-    startup_duration = v[0]/acceleration
-    initial_flux = min(1.,initial_speed/v[0])
+    exposed = exposed_area/layer_area
+    base_flux = .5*(1.-confinement)*exposed
+    surface_flux = (2./3.)*np.sqrt(2.*acceleration*diameter)/v[0]
+    startup_duration = (1.-base_flux)*v[0]/acceleration
+    times = np.linspace(0., startup_duration, 257)
+    inlet = base_flux + times*acceleration/v[0]
+    # In the confined layer only grains connected to the free face can
+    # initially leave. More of the packed cross-section unloads as the bed
+    # advances. Integrate moving area times inlet speed, in steady-flux units.
+    swept_length = times*(base_flux*v[0]+.5*acceleration*times)
+    moving_area = 1.-confinement*(1.-exposed)*(1.-swept_length/swept_length[-1])
+    flux = np.maximum(surface_flux, inlet*moving_area)
+    swept = np.r_[0., np.cumsum(.5*(flux[1:]+flux[:-1])*np.diff(times))]
     convergence = neck.outlet_slope(diameter*neck.scale) if neck else 0.
     return Discharge(grid, clock, v, rate, packed_fraction, offset, first_keys, first_births, first_lanes,
-                     startup_duration, initial_flux, base_flux, convergence)
+                     startup_duration, times, swept, convergence)
 
 
 def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1,
