@@ -1010,6 +1010,7 @@ class Discharge(NamedTuple):
     first_births: np.ndarray
     startup_duration: float
     initial_flux: float
+    convergence: float
 
     def birth_time(self, nominal):
         # Invert the volume swept by the accelerating bed at the opening.
@@ -1140,6 +1141,7 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     initial_speed = min(v[0], np.sqrt(2.*acceleration*scale*np.mean(pigment[4])))
     startup_duration = (v[0]-initial_speed)/acceleration
     initial_flux = initial_speed/v[0]
+    convergence = neck.outlet_slope(.5*half*neck.scale) if neck else 0.
     relief_depth = max(scale, max(cover.max() for _, cover in surfaces))
     count = max(1, math.ceil(2.*relief_depth*rate/v[0]))
     ranks = np.arange(count)
@@ -1166,7 +1168,7 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     fraction = (available[order]-first)/(thickness-first)
     first_births = (.5 + fraction*(count-.5))/rate
     return Discharge(grid, clock, v, rate, packed_fraction, offset, first_keys, first_births,
-                     startup_duration, initial_flux)
+                     startup_duration, initial_flux, convergence)
 
 
 def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1,
@@ -1201,6 +1203,16 @@ def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1
     keys[front] = discharge.first_keys[serial[front]]
     depth = discharge.depth_at(time-birth)
     x = _discharge_x(depth, keys, half, grain_scale, gap, discharge.packed_fraction)
+    if discharge.convergence and birth.size and birth[0] < discharge.startup_duration:
+        # The confined bed approaches the opening along the converging wall.
+        # The free leading layer retains that inward component; following
+        # grains lose it as the onset of discharge relieves the load.
+        speed0 = discharge.velocity[0]
+        speed = np.interp(depth, discharge.depth, discharge.velocity)
+        packed_radius = np.minimum(1., np.sqrt(speed0/speed))
+        loaded = np.maximum(0., 1.-birth/discharge.startup_duration)
+        inward = 1.-np.exp(-discharge.convergence*speed0*(time-birth)/half)
+        x *= 1. - loaded*inward*(1.-packed_radius)
     return Grains(serial, x, depth, grain_scale*pigment[4][keys], pigment[3][keys])
 
 
