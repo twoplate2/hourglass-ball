@@ -384,6 +384,7 @@ def _section_face(half, scale, seed):
     support = np.array(support_paths(packed))[:,0]-heights
     surface = np.full_like(lanes, np.nan)
     clearance = np.full_like(lanes, np.nan)
+    basal = np.full_like(lanes, np.nan)
     for i, lane in enumerate(lanes):
         distance = np.maximum(0., np.abs(centres-lane)-scale/2.)
         inside = np.flatnonzero(distance <= sizes)
@@ -392,14 +393,16 @@ def _section_face(half, scale, seed):
             leading = edge.argmax()
             surface[i] = edge[leading]
             clearance[i] = support[inside[leading]]
+            basal[i] = np.min(heights[inside] - np.sqrt(sizes[inside]**2-distance[inside]**2))
     supported = np.isfinite(surface)
     surface = np.interp(lanes, lanes[supported], surface[supported])
     clearance = np.interp(lanes, lanes[supported], clearance[supported])
-    return lanes/half, surface, clearance
+    basal = np.interp(lanes, lanes[supported], basal[supported])
+    return lanes/half, surface, clearance, basal
 
 
 def _free_surface(half, scale, seed):
-    lanes, surface, _ = _section_face(half, scale, seed)
+    lanes, surface, _, _ = _section_face(half, scale, seed)
     return lanes, surface.max()-surface
 
 
@@ -1005,24 +1008,28 @@ class Discharge(NamedTuple):
     material_offset: int
     first_keys: np.ndarray
     first_births: np.ndarray
-    unloading_span: float
-    contact_delay: float
+    startup_duration: float
+    initial_flux: float
 
     def birth_time(self, nominal):
-        # Integrate the extra path while the first two aperture radii of
-        # supported material unload. Each successive layer carries less
-        # initial contact load; after clearance the flux is stationary.
-        u = np.minimum(1., nominal/self.unloading_span)
-        return nominal + self.contact_delay*u*(2.-u)
+        # Invert the volume swept by the accelerating bed at the opening.
+        # Once the inlet speed is reached, the material flux is constant.
+        ramp = self.startup_duration
+        if ramp <= 0.:
+            return nominal
+        initial = self.initial_flux
+        swept = .5*(1.+initial)*ramp
+        early = np.minimum(nominal, swept)
+        speed = np.sqrt(initial**2 + 2.*(1.-initial)*early/ramp)
+        return 2.*early/(initial+speed) + np.maximum(0., nominal-swept)
 
     def nominal_time(self, t):
         if t <= 0.:
             return 0.
-        span, delay = self.unloading_span, self.contact_delay
-        if t >= span+delay:
-            return t-delay
-        length = span+2.*delay
-        return 2.*t*span/(length+math.sqrt(max(0., length**2-4.*delay*t)))
+        ramp = self.startup_duration
+        if t >= ramp:
+            return t-.5*(1.-self.initial_flux)*ramp
+        return t*(self.initial_flux+.5*(1.-self.initial_flux)*t/ramp)
 
     def depth_at(self, age):
         return (np.interp(age, self.clock, self.depth)
@@ -1123,14 +1130,13 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # Measure surface roughness within each slice. The inclined support
     # paths through the initial bed also bound the time before the whole
     # throat can feed at its established optical disk density.
-    surfaces = [(lanes, surface.max()-surface) for lanes, surface, _ in packed_faces]
-    excess = np.mean([np.mean(clearance) for _, _, clearance in packed_faces])
-    unsupported = getattr(flow, "blend", 0.) * confinement
-    # The support is removed by the advancing unloading front. Its speed
-    # is set by the leading free grains, while v[0] measures the incoming
-    # packed supply. Using the latter for both leaves long isolated tips.
-    contact_delay = unsupported * excess / v[-1]
-    unloading_span = 2.*half/v[0]
+    # Removing the support at the mouth exposes the underside of the bed.
+    # The upper surface of the settled bed is not the release face.
+    surfaces = [(lanes, basal) for lanes, _, _, basal in packed_faces]
+    acceleration = max(v[0]**2 / (2.*half), (v[-1]**2-v[0]**2)/(2.*floor))
+    initial_speed = min(v[0], np.sqrt(2.*acceleration*scale*np.mean(pigment[4])))
+    startup_duration = min((v[0]-initial_speed)/acceleration, half/v[0])
+    initial_flux = initial_speed/v[0]
     relief_depth = max(scale, max(cover.max() for _, cover in surfaces))
     count = max(1, math.ceil(2.*relief_depth*rate/v[0]))
     ranks = np.arange(count)
@@ -1145,8 +1151,6 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     # Nearby sections share the supporting layer across the mouth, while
     # each has a different exposed face. The two surfaces bound the initial
     # disk positions. Deep in the packed bed all lanes are available.
-    wall_lanes, common_relief = surfaces[0]
-    cover = .5*(cover + np.interp(across, wall_lanes, common_relief))
     # Use the depth behind the *settled surface* to date each disk at
     # the outlet. A common transit then advects it from depth zero.
     # Only the contacting surface layers have relief. Its contribution
@@ -1159,7 +1163,7 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     fraction = (available[order]-first)/(thickness-first)
     first_births = (.5 + fraction*(count-.5))/rate
     return Discharge(grid, clock, v, rate, packed_fraction, offset, first_keys, first_births,
-                     unloading_span, contact_delay)
+                     startup_duration, initial_flux)
 
 
 def sample_grains(time, end, half, gap, grain_scale=1., max_depth=None, stride=1,
