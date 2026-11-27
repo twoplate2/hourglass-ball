@@ -1145,7 +1145,10 @@ def _discharge(end, half, floor, lift, scale, seed, neck):
     count = min(len(order), max(1, math.ceil(2.*max(diameter, paths.max())*rate/v[0])))
     ids = order[:count]
     thickness = count*v[0]/rate
-    charge = (np.arange(count)+.5)*v[0]/rate
+    # The calibrated inlet flux transports disk area. A small grain consumes
+    # less of the first layer's supply than a large neighbour.
+    area = pigment[4][keys[ids].astype(np.intp)]**2
+    charge = thickness*(np.cumsum(area)-.5*area)/area.sum()
     available = charge + paths[ids]*(1.-charge/thickness)**2
     order = np.argsort(available, kind="stable")
     first_keys = keys[ids[order]].astype(np.intp)
